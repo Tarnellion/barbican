@@ -1,0 +1,25 @@
+# Git-хуки. Устанавливаются командой: pnpm run hooks:install
+#
+# gitleaks — системный бинарь (brew install gitleaks), намеренно не npm-зависимость:
+# npm-обёртки качают бинарь в postinstall, а это ровно тот вектор, от которого
+# защищает allowBuilds в pnpm-workspace.yaml. Если gitleaks не установлен,
+# хук падает — это осознанное поведение, молча пропускать проверку секретов нельзя.
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: biome
+      glob: "*.{ts,js,json,jsonc}"
+      run: pnpm exec biome check --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+
+    - name: gitleaks
+      run: gitleaks git --staged --redact --no-banner
+
+pre-push:
+  parallel: false
+  jobs:
+    - name: typecheck
+      run: pnpm run typecheck
+
+    - name: test
+      run: pnpm run test
