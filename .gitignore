@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+
+# Секреты — только через переменные окружения, никогда в репозиторий.
+.env
+.env.*
+!.env.example
+
+# Прогоны инструмента: могут содержать PII клиента.
+*.report.json
+*.report.html
+/runs/
+
+.DS_Store
+*.log
