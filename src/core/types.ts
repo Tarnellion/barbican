@@ -67,10 +67,32 @@ export interface AccessMatrix {
 
 export type Severity = "info" | "low" | "medium" | "high" | "critical";
 
+/**
+ * Ожидаемый исход — бинарен.
+ *
+ * Фактический исход богаче (`not-found`, `error`), но декларировать «ожидаю 404»
+ * бессмысленно: намерение состоит в том, доступ есть или его нет. Сведение
+ * фактического к ожидаемому — задача диффа. См. ADR-0006.
+ */
+export type ExpectedOutcome = "allowed" | "denied";
+
+/** Характер расхождения между намерением и реализацией. */
+export type DiffKind =
+  /** Ожидался отказ, доступ получен. Основная находка инструмента. */
+  | "privilege-escalation"
+  /** Ожидался доступ, получен отказ. Не уязвимость, но расхождение с намерением. */
+  | "unexpected-denial"
+  /** Пара «аккаунт × эндпоинт» не покрыта наблюдениями — вывод сделать нельзя. */
+  | "not-observed"
+  /** Обращение завершилось ошибкой: судить о доступе нельзя. */
+  | "probe-error";
+
 /** Расхождение между ожидаемым и фактическим доступом. */
 export interface AccessDiff {
-  readonly endpointId: string;
   readonly accountId: string;
-  readonly expected: AccessOutcome;
-  readonly actual: AccessOutcome;
+  readonly endpointId: string;
+  readonly expected: ExpectedOutcome;
+  /** Отсутствует, если наблюдения для пары нет. */
+  readonly actual?: AccessOutcome;
+  readonly kind: DiffKind;
 }

@@ -49,8 +49,9 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      # С покрытием: пороги в vitest.config.ts — часть гейта, а не отчёт для чтения.
       - name: Test
-        run: pnpm run test
+        run: pnpm run test:coverage
 
       - name: Build
         run: pnpm run build
