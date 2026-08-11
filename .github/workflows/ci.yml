@@ -58,6 +58,13 @@ jobs:
   secrets:
     name: secret scan
     runs-on: ubuntu-latest
+    # Версия совпадает с локальной, чтобы CI и pre-commit не расходились в вердиктах.
+    # Бинарь ставится напрямую, а не через gitleaks-action: action считает диапазон
+    # коммитов от родителя первого коммита, которого не существует, и падает на
+    # первом пуше. Плюс он тянет свою, более старую версию gitleaks.
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -65,8 +72,17 @@ jobs:
           # Полная история: pre-commit ловит только новое, здесь проверяем всё.
           fetch-depth: 0
 
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL "$url" -o gitleaks.tar.gz
+          # Скачанный бинарь проверяется по закреплённой сумме: загрузка из сети
+          # без проверки — тот же класс риска, от которого защищает вся остальная политика.
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks version
+
       # Дублирует pre-commit-хук: локальный хук обходится через --no-verify.
-      - name: Gitleaks
-        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Scan full history
+        run: ./gitleaks git --redact --no-banner .
