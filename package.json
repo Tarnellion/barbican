@@ -1,6 +1,6 @@
 {
   "name": "barbican",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "CLI harness for testing RBAC and tenant isolation in multi-tenant APIs.",
   "keywords": [
     "rbac",
@@ -11,6 +11,15 @@
     "openapi"
   ],
   "license": "Apache-2.0",
+  "author": "Taras Govorukha (https://github.com/Tarnellion)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tarnellion/barbican.git"
+  },
+  "homepage": "https://github.com/Tarnellion/barbican#readme",
+  "bugs": {
+    "url": "https://github.com/Tarnellion/barbican/issues"
+  },
   "type": "module",
   "packageManager": "pnpm@11.20.0",
   "engines": {

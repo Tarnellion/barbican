@@ -9,16 +9,20 @@
  * либо её нет.
  */
 
+import { createRequire } from "node:module";
 import { Command } from "commander";
 
-// TODO(сессия 4): брать из package.json, а не дублировать. См. tasks.md.
-const VERSION = "0.0.0";
+// Версия читается из package.json, а не дублируется константой: разошедшись,
+// дубликат заставил бы CLI врать о собственной версии в отчётах о прогонах.
+// Путь считается от dist/cli.js, package.json всегда лежит в корне пакета.
+const requireFromHere = createRequire(import.meta.url);
+const { version } = requireFromHere("../package.json") as { readonly version: string };
 
 const program = new Command();
 
 program
   .name("barbican")
   .description("Проверка RBAC и изоляции тенантов в API мультитенантных платформ")
-  .version(VERSION);
+  .version(version);
 
 program.parse();
