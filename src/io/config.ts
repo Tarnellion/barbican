@@ -181,6 +181,13 @@ export class DuplicateAccountIdError extends Error {
   }
 }
 
+export class DuplicateResourceIdError extends Error {
+  constructor(id: string) {
+    super(`Объект с id "${id}" объявлен больше одного раза`);
+    this.name = "DuplicateResourceIdError";
+  }
+}
+
 export class UnknownResourceOwnerError extends Error {
   constructor(resourceId: string, owner: string) {
     super(
@@ -345,7 +352,7 @@ export function parseRunConfig(source: string): RunConfig {
   const resourceIds = new Set<string>();
   for (const declared of config.resources ?? []) {
     if (resourceIds.has(declared.id)) {
-      throw new DuplicateAccountIdError(declared.id);
+      throw new DuplicateResourceIdError(declared.id);
     }
     resourceIds.add(declared.id);
     if (declared.owner !== undefined && !seen.has(declared.owner)) {

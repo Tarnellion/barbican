@@ -12,6 +12,7 @@ import {
   ConfigValidationError,
   CredentialsInUrlError,
   DuplicateAccountIdError,
+  DuplicateResourceIdError,
   HostOutsideScopeError,
   InvalidCredentialError,
   MissingCredentialError,
@@ -236,10 +237,13 @@ policy:
     ).toThrow(UnknownResourceOwnerError);
   });
 
-  it("отвергает повторяющийся id объекта", () => {
-    expect(() => parseRunConfig(WITH_RESOURCES.replace("id: foreign", "id: mine"))).toThrow(
-      DuplicateAccountIdError,
-    );
+  // Найдено при сборке референс-платформы: дубль объекта сообщал про аккаунт
+  // и отправлял читателя не в ту секцию конфигурации.
+  it("отвергает повторяющийся id объекта и говорит именно об объекте", () => {
+    const broken = () => parseRunConfig(WITH_RESOURCES.replace("id: foreign", "id: mine"));
+
+    expect(broken).toThrow(DuplicateResourceIdError);
+    expect(broken).toThrow(/Объект/);
   });
 
   it("без объектов список пуст, а не отсутствует", () => {
