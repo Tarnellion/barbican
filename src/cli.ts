@@ -186,6 +186,7 @@ async function run(flags: RunFlags): Promise<number> {
     accounts,
     resources: config.resources,
     observations,
+    ...(config.tenants === undefined ? {} : { tenants: config.tenants }),
   });
   const findings = diffAccess(matrix, config.policy);
 
@@ -194,7 +195,13 @@ async function run(flags: RunFlags): Promise<number> {
   const registry = new CheckRegistry();
   registry.register(createIdenticalResponseCheck());
   const checks = registry.list().flatMap((check) => check.run({ matrix }));
-  const suspicions = findUnauthenticated(accounts, observations, config.policy, config.resources);
+  const suspicions = findUnauthenticated(
+    accounts,
+    observations,
+    config.policy,
+    config.resources,
+    config.tenants,
+  );
   const unauthenticated = suspicions.map((s) => s.accountId);
 
   const report = buildReport({

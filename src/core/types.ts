@@ -5,6 +5,9 @@
  * см. docs/adr/0002-pure-core-and-json-source-of-truth.md.
  */
 
+import type { TenantHierarchy, TenantNode } from "./tenancy.js";
+import { FLAT_HIERARCHY } from "./tenancy.js";
+
 /** Идентификатор тенанта в проверяемой платформе. */
 export type TenantId = string;
 
@@ -111,15 +114,34 @@ export type ResourceRelation =
   | "own"
   /** Тот же тенант, но другой владелец: сюда попадает BOLA внутри тенанта. */
   | "same-tenant"
-  /** Другой тенант: сюда попадает утечка между тенантами. */
+  /** Объект ниже по дереву: холдинг читает свой бренд. Обычно положено. */
+  | "descendant-tenant"
+  /** Объект выше по дереву: бренд читает уровень холдинга. Обычно не положено. */
+  | "ancestor-tenant"
+  /** Родства нет вовсе: чужой холдинг. Не положено никогда. */
   | "foreign-tenant";
 
-/** Определяет отношение аккаунта к объекту. */
-export function relationOf(account: Account, resource: Resource): ResourceRelation {
-  if (account.tenantId !== resource.tenantId) {
-    return "foreign-tenant";
+/**
+ * Определяет отношение аккаунта к объекту.
+ *
+ * Без дерева тенантов (`FLAT_HIERARCHY`) отвечает ровно так же, как до ADR-0013:
+ * `descendant` и `ancestor` не возникают, любые разные тенанты — чужие.
+ */
+export function relationOf(
+  account: Account,
+  resource: Resource,
+  hierarchy: TenantHierarchy = FLAT_HIERARCHY,
+): ResourceRelation {
+  if (account.tenantId === resource.tenantId) {
+    return resource.ownerAccountId === account.id ? "own" : "same-tenant";
   }
-  return resource.ownerAccountId === account.id ? "own" : "same-tenant";
+  if (hierarchy.isAncestor(account.tenantId, resource.tenantId)) {
+    return "descendant-tenant";
+  }
+  if (hierarchy.isAncestor(resource.tenantId, account.tenantId)) {
+    return "ancestor-tenant";
+  }
+  return "foreign-tenant";
 }
 
 /** Чем закончилось обращение с точки зрения доступа. */
@@ -154,6 +176,11 @@ export interface AccessMatrix {
   readonly accounts: readonly Account[];
   readonly resources: readonly Resource[];
   readonly observations: readonly AccessObservation[];
+  /**
+   * Дерево тенантов. Отсутствие означает лес из корней без связей, то есть
+   * поведение до ADR-0013.
+   */
+  readonly tenants?: readonly TenantNode[];
 }
 
 export type Severity = "info" | "low" | "medium" | "high" | "critical";

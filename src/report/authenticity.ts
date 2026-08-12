@@ -12,8 +12,19 @@
  * прошла незамеченной.
  */
 
-import type { AccessObservation, Account, ExpectedAccessPolicy, Resource } from "../core/index.js";
-import { relationOf, resolveExpected } from "../core/index.js";
+import type {
+  AccessObservation,
+  Account,
+  ExpectedAccessPolicy,
+  Resource,
+  TenantNode,
+} from "../core/index.js";
+import {
+  createTenantHierarchy,
+  FLAT_HIERARCHY,
+  relationOf,
+  resolveExpected,
+} from "../core/index.js";
 
 export interface AuthenticitySuspicion {
   readonly accountId: string;
@@ -44,7 +55,14 @@ export function findUnauthenticated(
   observations: readonly AccessObservation[],
   policy: ExpectedAccessPolicy,
   resources: readonly Resource[] = [],
+  /**
+   * Дерево тенантов. Пропустить его — значит повторить регрессию, случившуюся
+   * при вводе `scope`: отношение считалось неверно, `expectedAllowed` всегда
+   * выходил нулём, и предохранитель не срабатывал ни разу.
+   */
+  tenants?: readonly TenantNode[],
 ): readonly AuthenticitySuspicion[] {
+  const hierarchy = tenants === undefined ? FLAT_HIERARCHY : createTenantHierarchy(tenants);
   const suspicions: AuthenticitySuspicion[] = [];
   const byId = new Map(resources.map((resource) => [resource.id, resource]));
 
@@ -62,7 +80,8 @@ export function findUnauthenticated(
       // предохранитель молчал бы именно на том стиле, который рекомендован.
       const resource =
         observation.resourceId === undefined ? undefined : byId.get(observation.resourceId);
-      const relation = resource === undefined ? undefined : relationOf(account, resource);
+      const relation =
+        resource === undefined ? undefined : relationOf(account, resource, hierarchy);
       if (resolveExpected(policy, account.roleId, observation.endpointId, relation) !== "allowed") {
         continue;
       }

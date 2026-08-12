@@ -4,4 +4,5 @@ export * from "./checks/types.js";
 export * from "./diff.js";
 export * from "./expected.js";
 export * from "./matrix.js";
+export * from "./tenancy.js";
 export * from "./types.js";

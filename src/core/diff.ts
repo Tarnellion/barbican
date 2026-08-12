@@ -7,6 +7,7 @@
 import type { ExpectedAccessPolicy } from "./expected.js";
 import { resolveExpected } from "./expected.js";
 import { indexObservations, resourceApplies } from "./matrix.js";
+import { createTenantHierarchy, FLAT_HIERARCHY } from "./tenancy.js";
 import type {
   AccessDiff,
   AccessMatrix,
@@ -54,6 +55,10 @@ export function diffAccess(
   policy: ExpectedAccessPolicy,
 ): readonly AccessDiff[] {
   const index = indexObservations(matrix);
+  // Дерево строится один раз на дифф: проверки целостности (неизвестный
+  // родитель, цикл) должны сработать до обхода, а не посреди него.
+  const hierarchy =
+    matrix.tenants === undefined ? FLAT_HIERARCHY : createTenantHierarchy(matrix.tenants);
   const diffs: AccessDiff[] = [];
 
   function record(
@@ -79,7 +84,7 @@ export function diffAccess(
       const applicable = matrix.resources.filter((resource) => resourceApplies(endpoint, resource));
       if (applicable.length > 0) {
         for (const resource of applicable) {
-          const relation = relationOf(account, resource);
+          const relation = relationOf(account, resource, hierarchy);
           const expected = resolveExpected(policy, account.roleId, endpoint.id, relation);
           const actual = byEndpoint?.get(endpoint.id)?.get(resource.id)?.outcome;
           const kind = classify(expected, actual);

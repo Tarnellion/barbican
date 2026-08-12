@@ -10,8 +10,14 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import type { AuthScheme } from "../adapters/credentials.js";
 import { DEFAULT_AUTH_SCHEME } from "../adapters/credentials.js";
-import type { Account, Endpoint, ExpectedAccessPolicy, Resource } from "../core/index.js";
-import { ANY, assertPolicyIsSound } from "../core/index.js";
+import type {
+  Account,
+  Endpoint,
+  ExpectedAccessPolicy,
+  Resource,
+  TenantNode,
+} from "../core/index.js";
+import { ANY, assertPolicyIsSound, createTenantHierarchy } from "../core/index.js";
 
 /** Тот же предел раскрытия алиасов, что и для спецификаций. */
 const MAX_ALIAS_COUNT = 100;
@@ -105,7 +111,20 @@ const configSchema = z.object({
    * находку**: объект уезжает в `foreign-tenant`, правило со `scope` перестаёт
    * применяться, и настоящая утечка проваливается в `fallback`.
    */
-  tenants: z.array(z.string().min(1)).min(1).optional(),
+  tenants: z
+    .union([
+      z.array(z.string().min(1)).min(1),
+      z
+        .array(
+          z.object({
+            id: z.string().min(1),
+            /** Родитель. Отсутствие означает корень. См. ADR-0013. */
+            parent: z.string().min(1).optional(),
+          }),
+        )
+        .min(1),
+    ])
+    .optional(),
   /** Схема аутентификации. По умолчанию Bearer — самый частый случай. */
   auth: authSchema.optional(),
   /**
@@ -199,6 +218,8 @@ export interface RunConfig {
   readonly exclude: readonly string[];
   readonly resources: readonly Resource[];
   readonly bodySignals?: BodySignalsConfig | undefined;
+  /** Дерево тенантов. Отсутствие означает лес из корней без связей. */
+  readonly tenants?: readonly TenantNode[] | undefined;
 }
 
 export class ConfigParseError extends Error {
@@ -427,7 +448,23 @@ export function parseRunConfig(source: string): RunConfig {
 
   // Пробелы по краям имени тенанта — всегда опечатка, и опечатка опасная:
   // «tenant-a » и «tenant-a» дают разные отношения и разный вердикт.
-  const declaredTenants = config.tenants?.map((tenant) => tenant.trim());
+  //
+  // Краткая форма (список строк) означает лес из корней без связей — поведение
+  // до ADR-0013. Развёрнутая объявляет родство явно.
+  const tenantNodes: readonly TenantNode[] | undefined = config.tenants?.map((entry) =>
+    typeof entry === "string"
+      ? { id: entry.trim() }
+      : {
+          id: entry.id.trim(),
+          ...(entry.parent === undefined ? {} : { parentId: entry.parent.trim() }),
+        },
+  );
+  // Дерево строится здесь, чтобы неизвестный родитель и цикл падали на старте,
+  // а не посреди прогона против чужого стенда.
+  if (tenantNodes !== undefined) {
+    createTenantHierarchy(tenantNodes);
+  }
+  const declaredTenants = tenantNodes?.map((node) => node.id);
   const accountTenants = config.accounts.map((account) => account.tenant.trim());
   if (declaredTenants !== undefined) {
     for (const [index, tenant] of accountTenants.entries()) {
@@ -495,6 +532,7 @@ export function parseRunConfig(source: string): RunConfig {
     policy,
     exclude: config.exclude ?? [],
     ...(config.bodySignals === undefined ? {} : { bodySignals: config.bodySignals }),
+    ...(tenantNodes === undefined ? {} : { tenants: tenantNodes }),
     resources,
   };
 }

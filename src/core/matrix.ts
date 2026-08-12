@@ -4,6 +4,7 @@
  * Чистые функции: ни сети, ни файловой системы. Вход — уже собранные наблюдения.
  */
 
+import type { TenantNode } from "./tenancy.js";
 import type { AccessMatrix, AccessObservation, Account, Endpoint, Resource } from "./types.js";
 
 export class DuplicateIdError extends Error {
@@ -37,6 +38,8 @@ export interface AccessMatrixInput {
   /** Объекты обращения. Пусто, если параметризованных эндпоинтов нет. */
   readonly resources?: readonly Resource[];
   readonly observations: readonly AccessObservation[];
+  /** Дерево тенантов. Отсутствие означает лес из корней без связей. */
+  readonly tenants?: readonly TenantNode[];
 }
 
 /**
@@ -152,6 +155,9 @@ export function buildAccessMatrix(input: AccessMatrixInput): AccessMatrix {
     accounts: input.accounts,
     resources: input.resources ?? [],
     observations: input.observations,
+    // Дерево обязано доехать до диффа: без него отношение считается по плоской
+    // модели, и объявленное родство молча ни на что не влияет.
+    ...(input.tenants === undefined ? {} : { tenants: input.tenants }),
   };
 }
 

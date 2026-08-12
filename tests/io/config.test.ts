@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { TenantCycleError, UnknownParentTenantError } from "../../src/core/index.js";
 import {
   applyBodySignals,
   assertReferencesResolve,
@@ -189,6 +190,58 @@ describe("учётные данные", () => {
     expect(() =>
       resolveTokens(config, { TOKEN_PLAYER_A: "present", TOKEN_ADMIN_A: "   " }),
     ).toThrow(MissingCredentialError);
+  });
+});
+
+describe("дерево тенантов", () => {
+  const HOLDINGS = `
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts:
+  - { id: h1, role: holding, tenant: holding-1, tokenEnv: T1 }
+tenants:
+  - { id: holding-1 }
+  - { id: brand-a, parent: holding-1 }
+  - { id: holding-2 }
+  - { id: brand-c, parent: holding-2 }
+policy: { fallback: denied, rules: [] }
+`;
+
+  it("читает родство из развёрнутой формы", () => {
+    expect(parseRunConfig(HOLDINGS).tenants).toEqual([
+      { id: "holding-1" },
+      { id: "brand-a", parentId: "holding-1" },
+      { id: "holding-2" },
+      { id: "brand-c", parentId: "holding-2" },
+    ]);
+  });
+
+  /** Краткая форма означает лес из корней — поведение до ADR-0013. */
+  it("принимает прежнюю краткую форму", () => {
+    const config = parseRunConfig(
+      HOLDINGS.replace(/tenants:[\s\S]*?policy:/, "tenants: [holding-1]\npolicy:"),
+    );
+
+    expect(config.tenants).toEqual([{ id: "holding-1" }]);
+  });
+
+  /**
+   * Опечатка в родителе делает тенанта отдельным корнем: «свой бренд»
+   * превращается в «чужой», правило перестаёт применяться, находка исчезает.
+   * Падать обязано на старте, а не молча менять смысл.
+   */
+  it("отвергает опечатку в родителе до выхода в сеть", () => {
+    expect(() =>
+      parseRunConfig(HOLDINGS.replace("parent: holding-1", "parent: holding-l")),
+    ).toThrow(UnknownParentTenantError);
+  });
+
+  it("отвергает цикл в дереве", () => {
+    const cyclic = HOLDINGS.replace(
+      "  - { id: holding-1 }",
+      "  - { id: holding-1, parent: brand-a }",
+    );
+
+    expect(() => parseRunConfig(cyclic)).toThrow(TenantCycleError);
   });
 });
 
