@@ -1,0 +1,102 @@
+# Прогон barbican против crAPI (OWASP). Формат — ADR-0008.
+#
+# crAPI одноарендна: понятия «тенант» в ней нет. Чтобы применить модель изоляции,
+# каждый пользователь объявлен собственным тенантом — тогда чужой заказ или чужая
+# машина становятся foreign-tenant, и BOLA виден как «200 там, где объявлен отказ».
+#
+# Токенов здесь нет: аккаунт называет имя переменной окружения. Оператор логинится
+# вне инструмента (POST /identity/api/auth/login) и кладёт токены в env. Пароли
+# предзаведённых пользователей crAPI: <локальная-часть>!123 (Test!123, Admin!123).
+target:
+  baseUrl: http://127.0.0.1:8888
+  allowedHosts: [127.0.0.1]
+tenants: [t-adam, t-pogba, t-admin, t-none]
+accounts:
+  - id: adam
+    role: user
+    tenant: t-adam
+    tokenEnv: CRAPI_TOKEN_ADAM
+    canary: get_vehicles
+  - id: pogba
+    role: user
+    tenant: t-pogba
+    tokenEnv: CRAPI_TOKEN_POGBA
+    canary: get_vehicles
+  - id: admin
+    role: admin
+    tenant: t-admin
+    tokenEnv: CRAPI_TOKEN_ADMIN
+    canary: get_vehicles
+  # Аноним: без токена. Проверяет утверждение «эта ручка не публична».
+  - id: anonymous
+    role: anonymous
+    tenant: t-none
+# Объекты и владельцы (ADR-0010). Идентификаторы объявлены человеком: тела не читаются.
+# UUID машин и id заказов реальны — из seed crAPI.
+resources:
+  - id: vehicle-adam
+    tenant: t-adam
+    owner: adam
+    params:
+      vehicleId: f89b5f21-7829-45cb-a650-299a61090378
+  - id: vehicle-pogba
+    tenant: t-pogba
+    owner: pogba
+    params:
+      vehicleId: cd515c12-0fc1-48ae-8b61-9230b70a845b
+  - id: order-adam
+    tenant: t-adam
+    owner: adam
+    params:
+      order_id: "1"
+  - id: order-pogba
+    tenant: t-pogba
+    owner: pogba
+    params:
+      order_id: "2"
+  # Сервис-отчёт: идентификатор в query, поэтому эндпоинт указан явно (ADR-0010).
+  # Владельца среди аккаунтов нет — для всех это чужой тенант.
+  - id: report-1
+    tenant: t-none
+    query:
+      report_id: "1"
+    endpoints: [get_report_byID]
+policy:
+  fallback: denied
+  rules:
+    # Списки и личные ручки, положенные любому аутентифицированному. Аноним сюда
+    # не попадает: у роли anonymous доступа нет, его 401/404 совпадёт с fallback.
+    - roles: [user, admin]
+      endpoints:
+        - get_dashboard
+        - get_vehicles
+        - get_recent_posts
+        - get_products
+        - get_orders
+        - get_mechanics
+        - get_service_requests_for_mechanic
+      outcome: allowed
+    # QR-код магазина положен аутентифицированному. Аноним — под fallback denied:
+    # ручка отдаёт 200 без токена, и это сломанная аутентификация (видно по статусу).
+    - roles: [user, admin]
+      endpoints: [get_workshop_qr_code]
+      outcome: allowed
+    # Список всех пользователей — только администратору. Обычному пользователю 200
+    # здесь — это BFLA.
+    - roles: [admin]
+      endpoints: [get_workshop_users_all]
+      outcome: allowed
+    # Свой заказ, своя машина, свой отчёт — владельцу. Чужие под fallback denied:
+    # crAPI не проверяет владение, отдаёт 200 — это BOLA, видно по статусу.
+    - roles: [user, admin]
+      endpoints: [get_order_byID, get_location, get_report_byID]
+      scope: own
+      outcome: allowed
+# Списочные ручки, ответ которых ОБЯЗАН различаться между пользователями: у каждого
+# свои машины, заказы, свой дашборд. Совпадение дайджестов означало бы отсутствующий
+# фильтр — дефект без изменения статуса (ADR-0011). Тело читается только здесь.
+# Публичные get_recent_posts/get_products и BFLA get_workshop_users_all сюда НЕ
+# внесены намеренно: они законно одинаковы для всех, и пометка дала бы ложное
+# срабатывание.
+bodySignals:
+  tenantScoped: [get_vehicles, get_orders, get_dashboard]
