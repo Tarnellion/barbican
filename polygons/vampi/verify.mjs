@@ -27,6 +27,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { checkCoverage, compareVariant, loadGroundTruth } from "../../tools/oracle/index.mjs";
 import { provision, USERS } from "./tokens.mjs";
 
 const POLYGON_DIR = import.meta.dirname;
@@ -125,27 +126,17 @@ function assertProvisioningMatchesConfig(configText) {
 }
 
 /**
- * Проверяет оракул на внутреннюю согласованность.
+ * Проверяет оракул на внутреннюю согласованность и полноту.
  *
- * Опечатка в имени дефекта сама по себе безобидна, но означает, что находка
- * приписана несуществующему дефекту, — а список дефектов и есть то, ради чего
- * оракул написан. Видимость `status` обязательна: находкой может обернуться
- * только то, что различимо по коду ответа.
+ * Разбор формата и связь «находка → дефект» проверяет общий модуль (ADR-0012).
+ * Здесь остаётся то, что общий модуль знать не обязан: полнота — дефект,
+ * объявленный видимым и не ожидаемый ни в одном варианте, есть либо забытый
+ * вариант, либо неверная пометка видимости.
  */
 function assertOracleIsSound(groundTruth) {
-  for (const mode of groundTruth.modes) {
-    for (const finding of mode.findings) {
-      const defect = groundTruth.defects[finding.defect];
-      if (defect === undefined) {
-        fail(`режим ${mode.id}: находка ссылается на неизвестный дефект "${finding.defect}"`);
-      }
-      if (defect.visibility !== "status") {
-        fail(
-          `режим ${mode.id}: дефект "${finding.defect}" помечен как ${defect.visibility}, ` +
-            `но заявлен находкой. Находкой может быть только видимое по коду ответа.`,
-        );
-      }
-    }
+  const gaps = checkCoverage(groundTruth);
+  if (gaps.length > 0) {
+    fail(`оракул неполон:\n  ${gaps.join("\n  ")}`);
   }
 }
 
@@ -194,22 +185,10 @@ function runCli(reportPath, environment) {
   });
 }
 
-/** Ключ ячейки. Объект отсутствует у эндпоинтов без параметров пути. */
-function cellKey(finding) {
-  const resource = finding.resource ?? finding.resourceId ?? "—";
-  const account = finding.account ?? finding.accountId;
-  const endpoint = finding.endpoint ?? finding.endpointId;
-  return `${account} × ${endpoint} × ${resource} [${finding.kind}]`;
-}
-
-function difference(left, right) {
-  return [...left].filter((item) => !right.has(item)).sort();
-}
-
 async function checkMode(mode, baseUrl, reportDir) {
-  const environment = composeEnvironment(baseUrl.port, mode.vulnerable);
+  const environment = composeEnvironment(baseUrl.port, mode.selector.vulnerable);
 
-  process.stdout.write(`\n=== ${mode.id} === vulnerable=${mode.vulnerable}\n`);
+  process.stdout.write(`\n=== ${mode.id} === vulnerable=${mode.selector.vulnerable}\n`);
 
   await composeUp(environment);
   const banner = await waitForBanner(baseUrl);
@@ -217,9 +196,9 @@ async function checkMode(mode, baseUrl, reportDir) {
     await composeDown(environment);
     fail(`VAmPI не поднялась на ${baseUrl.origin}`);
   }
-  if (banner.vulnerable !== mode.vulnerable) {
+  if (banner.vulnerable !== mode.selector.vulnerable) {
     await composeDown(environment);
-    fail(`стенд поднялся с vulnerable=${banner.vulnerable}, ожидалось ${mode.vulnerable}`);
+    fail(`стенд поднялся с vulnerable=${banner.vulnerable}, ожидалось ${mode.selector.vulnerable}`);
   }
 
   const tokens = await provision({
@@ -236,21 +215,10 @@ async function checkMode(mode, baseUrl, reportDir) {
   }
   const report = JSON.parse(await readFile(reportPath, "utf8"));
 
-  const expected = new Set(mode.findings.map(cellKey));
-  const actual = new Set(report.findings.map(cellKey));
-  const missing = difference(expected, actual);
-  const extra = difference(actual, expected);
+  // Сравнение и проверки достоверности — общие для всех полигонов (ADR-0012).
+  const { problems: shared } = compareVariant(mode, report, result.code);
+  const problems = [...shared];
 
-  const problems = [];
-  if (missing.length > 0) {
-    problems.push(`не найдено (${missing.length}):\n    ${missing.join("\n    ")}`);
-  }
-  if (extra.length > 0) {
-    problems.push(`найдено сверх оракула (${extra.length}):\n    ${extra.join("\n    ")}`);
-  }
-  if (result.code !== mode.expectedExitCode) {
-    problems.push(`код возврата ${result.code}, ожидался ${mode.expectedExitCode}`);
-  }
   // Разрушающий эндпоинт обязан остаться нетронутым: опрошенный, он стирает
   // пользователей и книги, и остаток матрицы проверяется против пустой базы.
   const destructive = report.skipped.find((item) => item.endpointId === DESTRUCTIVE_ENDPOINT);
@@ -309,12 +277,12 @@ async function main() {
   }
   assertProvisioningMatchesConfig(configText);
 
-  const groundTruth = JSON.parse(await readFile(GROUND_TRUTH, "utf8"));
+  const groundTruth = loadGroundTruth(await readFile(GROUND_TRUTH, "utf8"));
   assertOracleIsSound(groundTruth);
 
   const keep = process.argv.includes("--keep");
   const selected = process.argv.slice(2).filter((argument) => !argument.startsWith("--"));
-  const modes = groundTruth.modes.filter(
+  const modes = groundTruth.variants.filter(
     (mode) => selected.length === 0 || selected.includes(mode.id),
   );
   if (modes.length === 0) {
@@ -332,14 +300,14 @@ async function main() {
       // Сорвавшаяся подготовка — не расхождение, а невозможность проверить.
       // Стенд гасится в любом случае: оставить поднятым намеренно уязвимый API,
       // отдающий пароли без токена, — плохой способ закончить сверку.
-      await composeDown(composeEnvironment(baseUrl.port, mode.vulnerable));
+      await composeDown(composeEnvironment(baseUrl.port, mode.selector.vulnerable));
       fail(`режим ${mode.id}: ${error.message}`);
     }
     if (!matched) {
       mismatched += 1;
     }
     if (!keep) {
-      await composeDown(composeEnvironment(baseUrl.port, mode.vulnerable));
+      await composeDown(composeEnvironment(baseUrl.port, mode.selector.vulnerable));
     }
   }
 

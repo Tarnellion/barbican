@@ -24,6 +24,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { checkCoverage, compareVariant, loadGroundTruth } from "../tools/oracle/index.mjs";
 
 const POLYGON_DIR = import.meta.dirname;
 const REPO_ROOT = resolve(POLYGON_DIR, "..");
@@ -141,30 +142,6 @@ function runCli(reportPath, environment) {
   });
 }
 
-/** Ключ ячейки. Объект отсутствует у эндпоинтов без параметров пути. */
-/**
- * Ключ ячейки. Понимает и расхождения матрицы, и находки проверок.
- *
- * У расхождения третья координата — объект, у находки проверки — второй аккаунт
- * пары: дефект списка проявляется не на объекте, а на совпадении двух ответов.
- */
-function cellKey(finding) {
-  const account = finding.account ?? finding.accountId;
-  const endpoint = finding.endpoint ?? finding.endpointId;
-  const kind = finding.kind ?? finding.checkId;
-  const detail =
-    finding.other ??
-    finding.evidence?.otherAccountId ??
-    finding.resource ??
-    finding.resourceId ??
-    "—";
-  return `${account} × ${endpoint} × ${detail} [${kind}]`;
-}
-
-function difference(left, right) {
-  return [...left].filter((item) => !right.has(item)).sort();
-}
-
 async function main() {
   if (!existsSync(CLI)) {
     fail(`не найден ${CLI}. Соберите инструмент: pnpm run build`);
@@ -177,9 +154,15 @@ async function main() {
   }
   const tokenEnvNames = readTokenEnvNames(configText);
 
-  const groundTruth = JSON.parse(await readFile(GROUND_TRUTH, "utf8"));
+  const groundTruth = loadGroundTruth(await readFile(GROUND_TRUTH, "utf8"));
+  // Полнота проверяется до прогона: дефект, объявленный видимым и не ожидаемый
+  // ни в одном варианте, — это забытый вариант либо неверная пометка видимости.
+  const gaps = checkCoverage(groundTruth);
+  if (gaps.length > 0) {
+    fail(`оракул неполон:\n  ${gaps.join("\n  ")}`);
+  }
   const selected = process.argv.slice(2);
-  const combinations = groundTruth.combinations.filter(
+  const combinations = groundTruth.variants.filter(
     (combination) => selected.length === 0 || selected.includes(combination.id),
   );
   if (combinations.length === 0) {
@@ -196,7 +179,7 @@ async function main() {
 
   for (const combination of combinations) {
     const flags = Object.fromEntries(
-      Object.entries(combination.flags).map(([name, on]) => [name, on ? "1" : "0"]),
+      Object.entries(combination.selector).map(([name, on]) => [name, on ? "1" : "0"]),
     );
     const environment = {
       ...process.env,
@@ -205,7 +188,7 @@ async function main() {
       POLYGON_PORT: baseUrl.port,
     };
 
-    const enabled = Object.entries(combination.flags)
+    const enabled = Object.entries(combination.selector)
       .filter(([, on]) => on)
       .map(([name]) => name);
     process.stdout.write(
@@ -221,7 +204,7 @@ async function main() {
 
     // Флаг мог не долететь — например, из-за опечатки в имени переменной.
     // Тогда прогон дал бы ноль находок и выглядел бы пропуском инструмента.
-    for (const [name, on] of Object.entries(combination.flags)) {
+    for (const [name, on] of Object.entries(combination.selector)) {
       const field = FLAG_FIELDS[name];
       if (health.defects?.[field] !== on) {
         await stopServer(child);
@@ -240,31 +223,10 @@ async function main() {
     }
     const report = JSON.parse(await readFile(reportPath, "utf8"));
 
-    const expected = new Set(combination.findings.map(cellKey));
-    // Находки проверок сравниваются наравне с расхождениями матрицы: дефект,
-    // невидимый по статусу, — такой же дефект.
-    const actual = new Set([...report.findings, ...report.checks].map(cellKey));
-    const missing = difference(expected, actual);
-    const extra = difference(actual, expected);
-
-    const problems = [];
-    if (missing.length > 0) {
-      problems.push(`не найдено (${missing.length}):\n    ${missing.join("\n    ")}`);
-    }
-    if (extra.length > 0) {
-      problems.push(`найдено сверх оракула (${extra.length}):\n    ${extra.join("\n    ")}`);
-    }
-    if (result.code !== combination.expectedExitCode) {
-      problems.push(`код возврата ${result.code}, ожидался ${combination.expectedExitCode}`);
-    }
-    // Признаки недостоверного прогона: находок может не быть просто потому,
-    // что до них не дошли.
-    if (report.truncated) {
-      problems.push("прогон оборван (truncated), хвост матрицы не проверен");
-    }
-    if (report.unauthenticated.length > 0) {
-      problems.push(`аккаунты без доступа нигде: ${report.unauthenticated.join(", ")}`);
-    }
+    // Сравнение и проверки достоверности — общие для всех полигонов (ADR-0012).
+    const { problems: shared } = compareVariant(combination, report, result.code);
+    const problems = [...shared];
+    // Свойственное этому стенду: он свой и должен отвечать без сбоев.
     if (report.summary.failures > 0) {
       problems.push(`сорвавшихся обращений: ${report.summary.failures}`);
     }
