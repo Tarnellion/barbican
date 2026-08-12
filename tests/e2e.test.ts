@@ -8,6 +8,7 @@
 
 import { createServer } from "node:http";
 import { describe, expect, it } from "vitest";
+import { createCredentialProvider } from "../src/adapters/credentials.js";
 import { createHttpClient } from "../src/adapters/http.js";
 import { createOpenApiParser } from "../src/adapters/openapi.js";
 import { createThrottle } from "../src/adapters/throttle.js";
@@ -89,18 +90,21 @@ policy:
 `);
 
       const endpoints = await createOpenApiParser().parse(SPEC);
-      const tokens = resolveTokens(config, {
-        E2E_PLAYER: PLAYER_TOKEN,
-        E2E_ADMIN: ADMIN_TOKEN,
-      });
+      const credentials = createCredentialProvider(
+        config.auth,
+        resolveTokens(config, {
+          E2E_PLAYER: PLAYER_TOKEN,
+          E2E_ADMIN: ADMIN_TOKEN,
+        }),
+      );
       const accounts = toAccounts(config);
 
       const startedAt = new Date();
-      const { observations, skipped, failures, unauthenticated } = await collectObservations({
+      const { observations, skipped, failures } = await collectObservations({
         baseUrl: config.target.baseUrl,
         endpoints,
         accounts,
-        tokens,
+        credentials,
         client: createHttpClient({
           allowedHosts: config.target.allowedHosts,
           throttle: createThrottle({ concurrency: 2, requestsPerSecond: 1000, maxRequests: 50 }),
@@ -116,7 +120,7 @@ policy:
         observations,
         skipped,
         failures,
-        unauthenticated,
+        unauthenticated: [],
         findings,
         startedAt,
         finishedAt: new Date(),
@@ -182,11 +186,14 @@ policy:
 `);
       const endpoints = await createOpenApiParser().parse(SPEC);
       const accounts = toAccounts(config);
-      const { observations, skipped, failures, unauthenticated } = await collectObservations({
+      const { observations, skipped, failures } = await collectObservations({
         baseUrl: config.target.baseUrl,
         endpoints,
         accounts,
-        tokens: resolveTokens(config, { E2E_PLAYER: PLAYER_TOKEN, E2E_ADMIN: ADMIN_TOKEN }),
+        credentials: createCredentialProvider(
+          config.auth,
+          resolveTokens(config, { E2E_PLAYER: PLAYER_TOKEN, E2E_ADMIN: ADMIN_TOKEN }),
+        ),
         client: createHttpClient({
           allowedHosts: config.target.allowedHosts,
           throttle: createThrottle({ concurrency: 2, requestsPerSecond: 1000, maxRequests: 50 }),
@@ -204,7 +211,7 @@ policy:
         observations,
         skipped,
         failures,
-        unauthenticated,
+        unauthenticated: [],
         findings,
         startedAt: new Date(),
         finishedAt: new Date(),

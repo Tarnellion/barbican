@@ -8,6 +8,8 @@
 
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+import type { AuthScheme } from "../adapters/credentials.js";
+import { DEFAULT_AUTH_SCHEME } from "../adapters/credentials.js";
 import type { Account, ExpectedAccessPolicy } from "../core/index.js";
 import { ANY, assertPolicyIsSound } from "../core/index.js";
 
@@ -23,6 +25,13 @@ const ruleSchema = z.object({
   endpoints: selectorSchema,
   outcome: outcomeSchema,
 });
+
+const authSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("bearer") }),
+  z.object({ kind: z.literal("header"), header: z.string().min(1) }),
+  z.object({ kind: z.literal("cookie"), name: z.string().min(1) }),
+  z.object({ kind: z.literal("basic") }),
+]);
 
 const configSchema = z.object({
   target: z.object({
@@ -59,6 +68,8 @@ const configSchema = z.object({
    * `/createdb` сбрасывает базу, оставаясь GET.
    */
   exclude: z.array(z.string().min(1)).optional(),
+  /** Схема аутентификации. По умолчанию Bearer — самый частый случай. */
+  auth: authSchema.optional(),
 });
 
 export interface AccountConfig {
@@ -82,6 +93,7 @@ export interface RunTarget {
 }
 
 export interface RunConfig {
+  readonly auth: AuthScheme;
   readonly target: RunTarget;
   readonly accounts: readonly AccountConfig[];
   readonly policy: ExpectedAccessPolicy;
@@ -176,6 +188,7 @@ export function parseRunConfig(source: string): RunConfig {
   assertPolicyIsSound(policy);
 
   return {
+    auth: config.auth ?? DEFAULT_AUTH_SCHEME,
     target: config.target,
     accounts: config.accounts,
     policy,

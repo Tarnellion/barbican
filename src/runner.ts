@@ -5,7 +5,7 @@
  * знания о конкретном транспорте. Это связывающий слой между ними.
  */
 
-import type { HttpClient } from "./adapters/ports.js";
+import type { CredentialProvider, HttpClient } from "./adapters/ports.js";
 import type { AccessObservation, AccessOutcome, Account, Endpoint } from "./core/index.js";
 import { SAFE_METHODS } from "./core/index.js";
 
@@ -37,8 +37,8 @@ export interface CollectOptions {
   readonly baseUrl: string;
   readonly endpoints: readonly Endpoint[];
   readonly accounts: readonly Account[];
-  /** Токены по идентификатору аккаунта. В наблюдения не попадают. */
-  readonly tokens: ReadonlyMap<string, string>;
+  /** Как аккаунт представляется системе. Заголовки в наблюдения не попадают. */
+  readonly credentials: CredentialProvider;
   readonly client: HttpClient;
   readonly allowUnsafeMethods?: boolean;
   /**
@@ -63,15 +63,6 @@ export interface CollectResult {
    * пропуск порождает столько находок, сколько аккаунтов, и тонет настоящий сигнал.
    */
   readonly probed: readonly Endpoint[];
-  /**
-   * Аккаунты, у которых ВСЕ обращения вернули 401.
-   *
-   * Почти наверняка это неудачная аутентификация, а не результат политики.
-   * Отличить важно: 401 трактуется как отказ, а отказ совпадает с ожиданием
-   * там, где доступ и не положен, — и прогон, где мы никуда не вошли,
-   * отрапортовал бы «эскалаций не найдено».
-   */
-  readonly unauthenticated: readonly string[];
 }
 
 const TEMPLATE_PARAMETER = /\{[^}]+\}/;
@@ -139,7 +130,7 @@ export async function probeCanaries(options: {
   readonly baseUrl: string;
   readonly endpoints: readonly Endpoint[];
   readonly canaries: readonly { readonly accountId: string; readonly endpointId: string }[];
-  readonly tokens: ReadonlyMap<string, string>;
+  readonly credentials: CredentialProvider;
   readonly client: HttpClient;
 }): Promise<readonly CanaryResult[]> {
   const byId = new Map(options.endpoints.map((endpoint) => [endpoint.id, endpoint]));
@@ -154,13 +145,12 @@ export async function probeCanaries(options: {
       throw new TemplatedCanaryError(canary.accountId, canary.endpointId);
     }
 
-    const token = options.tokens.get(canary.accountId);
     let status = 0;
     try {
       const response = await options.client.send({
         method: endpoint.method,
         url: joinUrl(options.baseUrl, endpoint.path),
-        headers: token === undefined ? {} : { authorization: `Bearer ${token}` },
+        headers: options.credentials.headersFor(canary.accountId),
       });
       status = response.status;
     } catch {
@@ -207,13 +197,13 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
   const failures: ProbeFailure[] = [];
 
   for (const account of options.accounts) {
-    const token = options.tokens.get(account.id);
+    const authHeaders = options.credentials.headersFor(account.id);
     for (const endpoint of probeable) {
       const startedAt = Date.now();
       const request = {
         method: endpoint.method,
         url: joinUrl(options.baseUrl, endpoint.path),
-        headers: token === undefined ? {} : { authorization: `Bearer ${token}` },
+        headers: authHeaders,
       };
 
       let status: number;
@@ -244,13 +234,5 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     }
   }
 
-  const unauthenticated: string[] = [];
-  for (const account of options.accounts) {
-    const own = observations.filter((o) => o.accountId === account.id);
-    if (own.length > 0 && own.every((o) => o.status === 401)) {
-      unauthenticated.push(account.id);
-    }
-  }
-
-  return { observations, skipped, failures, probed: probeable, unauthenticated };
+  return { observations, skipped, failures, probed: probeable };
 }

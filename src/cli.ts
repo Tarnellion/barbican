@@ -12,11 +12,13 @@ import { readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { styleText } from "node:util";
 import { Command, InvalidArgumentError } from "commander";
+import { createCredentialProvider } from "./adapters/credentials.js";
 import { createHttpClient } from "./adapters/http.js";
 import { createOpenApiParser } from "./adapters/openapi.js";
 import { createThrottle } from "./adapters/throttle.js";
 import { buildAccessMatrix, diffAccess } from "./core/index.js";
 import { parseRunConfig, resolveTokens, toAccounts } from "./io/config.js";
+import { findUnauthenticated } from "./report/authenticity.js";
 import { buildReport, exitCodeFor } from "./report/build.js";
 import { collectObservations, probeCanaries } from "./runner.js";
 
@@ -69,7 +71,7 @@ interface RunFlags {
 async function run(flags: RunFlags): Promise<number> {
   const config = parseRunConfig(await readFile(flags.config, "utf8"));
   const endpoints = await createOpenApiParser().parse(await readFile(flags.spec, "utf8"));
-  const tokens = resolveTokens(config, process.env);
+  const credentials = createCredentialProvider(config.auth, resolveTokens(config, process.env));
 
   const throttle = createThrottle({
     ...(flags.concurrency === undefined ? {} : { concurrency: flags.concurrency }),
@@ -99,7 +101,7 @@ async function run(flags: RunFlags): Promise<number> {
       baseUrl: config.target.baseUrl,
       endpoints,
       canaries,
-      tokens,
+      credentials,
       client,
     });
     const broken = results.filter((result) => !result.authenticated);
@@ -117,11 +119,11 @@ async function run(flags: RunFlags): Promise<number> {
   }
 
   const startedAt = new Date();
-  const { observations, skipped, failures, probed, unauthenticated } = await collectObservations({
+  const { observations, skipped, failures, probed } = await collectObservations({
     baseUrl: config.target.baseUrl,
     endpoints,
     accounts,
-    tokens,
+    credentials,
     client,
     allowUnsafeMethods: flags.unsafeMethods === true,
     exclude: config.exclude,
@@ -132,6 +134,8 @@ async function run(flags: RunFlags): Promise<number> {
   // на каждый аккаунт. Иначе один пропуск даёт столько находок, сколько аккаунтов.
   const matrix = buildAccessMatrix({ endpoints: probed, accounts, observations });
   const findings = diffAccess(matrix, config.policy);
+  const suspicions = findUnauthenticated(accounts, observations, config.policy);
+  const unauthenticated = suspicions.map((s) => s.accountId);
 
   const report = buildReport({
     version,
@@ -157,8 +161,9 @@ async function run(flags: RunFlags): Promise<number> {
   const escalations = summary.byKind["privilege-escalation"];
   if (unauthenticated.length > 0) {
     process.stderr.write(
-      `${paint("Все обращения вернули 401:", "red")} ${unauthenticated.join(", ")}. ` +
-        `Похоже на неработающие токены, а не на результат политики — результатам верить нельзя.\n`,
+      `${paint("Аутентификация не сработала:", "red")} ${unauthenticated.join(", ")} — ` +
+        `каждый объявленный доступным эндпоинт ответил 401. Это признак неработающих ` +
+        `учётных данных, а не результата политики: результатам прогона верить нельзя.\n`,
     );
   }
   const lines = [

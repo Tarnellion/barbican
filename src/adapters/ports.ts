@@ -44,6 +44,23 @@ export interface SpecParser {
   parse(source: string): Promise<readonly Endpoint[]>;
 }
 
+/**
+ * Как аккаунт представляется проверяемой системе.
+ *
+ * Порт, а не константа в коде: реальные платформы расходятся здесь
+ * категорически — JWT в `Authorization`, ключ в своём заголовке, сессия
+ * в куке, Basic. Привязка к одной схеме делала инструмент неприменимым
+ * к большинству API.
+ */
+export interface CredentialProvider {
+  /**
+   * Заголовки для обращения от имени аккаунта.
+   *
+   * Пустой набор — обращение без учётных данных, то есть анонимное.
+   */
+  headersFor(accountId: string): Readonly<Record<string, string>>;
+}
+
 export interface Throttle {
   /** Пропускает задачу через лимиты конкурентности и частоты. */
   run<T>(task: () => Promise<T>): Promise<T>;

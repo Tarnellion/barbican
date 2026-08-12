@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { createCredentialProvider, DEFAULT_AUTH_SCHEME } from "../src/adapters/credentials.js";
 import type { HttpClient, HttpRequest, HttpResponse } from "../src/adapters/ports.js";
 import type { Account, Endpoint } from "../src/core/index.js";
 import {
@@ -76,10 +77,13 @@ describe("collectObservations", () => {
       baseUrl: "https://api.test",
       endpoints,
       accounts,
-      tokens: new Map([
-        ["player-a", "токен-игрока"],
-        ["admin-a", "токен-админа"],
-      ]),
+      credentials: createCredentialProvider(
+        DEFAULT_AUTH_SCHEME,
+        new Map([
+          ["player-a", "токен-игрока"],
+          ["admin-a", "токен-админа"],
+        ]),
+      ),
       client,
     });
 
@@ -100,10 +104,13 @@ describe("collectObservations", () => {
       baseUrl: "https://api.test",
       endpoints: [endpoints[0] ?? { id: "x", method: "GET", path: "/x" }],
       accounts,
-      tokens: new Map([
-        ["player-a", "токен-игрока"],
-        ["admin-a", "токен-админа"],
-      ]),
+      credentials: createCredentialProvider(
+        DEFAULT_AUTH_SCHEME,
+        new Map([
+          ["player-a", "токен-игрока"],
+          ["admin-a", "токен-админа"],
+        ]),
+      ),
       client,
     });
 
@@ -121,7 +128,7 @@ describe("collectObservations", () => {
         { id: "users.list", method: "GET", path: "/v1/admin/users" },
       ],
       accounts: [accounts[0] ?? { id: "x", roleId: "r", tenantId: "t" }],
-      tokens: new Map([["player-a", "t"]]),
+      credentials: createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["player-a", "t"]])),
       client,
     });
 
@@ -138,7 +145,7 @@ describe("collectObservations", () => {
       baseUrl: "https://api.test",
       endpoints: [endpoints[0] ?? { id: "x", method: "GET", path: "/x" }],
       accounts: [accounts[0] ?? { id: "x", roleId: "r", tenantId: "t" }],
-      tokens: new Map([["player-a", "t"]]),
+      credentials: createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["player-a", "t"]])),
       client,
     });
 
@@ -156,10 +163,13 @@ describe("collectObservations", () => {
       baseUrl: "https://api.test",
       endpoints,
       accounts,
-      tokens: new Map([
-        ["player-a", "секретный-токен-игрока"],
-        ["admin-a", "секретный-токен-админа"],
-      ]),
+      credentials: createCredentialProvider(
+        DEFAULT_AUTH_SCHEME,
+        new Map([
+          ["player-a", "секретный-токен-игрока"],
+          ["admin-a", "секретный-токен-админа"],
+        ]),
+      ),
       client,
     });
 
@@ -173,7 +183,7 @@ describe("collectObservations", () => {
       baseUrl: "https://api.test/base/",
       endpoints: [{ id: "x", method: "GET", path: "/v1/x" }],
       accounts: [accounts[0] ?? { id: "x", roleId: "r", tenantId: "t" }],
-      tokens: new Map([["player-a", "t"]]),
+      credentials: createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["player-a", "t"]])),
       client,
     });
 
@@ -196,7 +206,7 @@ describe("что инструмент не трогает", () => {
       baseUrl: "https://api.test",
       endpoints,
       accounts: one,
-      tokens: new Map([["a", "tok"]]),
+      credentials: createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "tok"]])),
       client,
     });
 
@@ -213,7 +223,7 @@ describe("что инструмент не трогает", () => {
       baseUrl: "https://api.test",
       endpoints,
       accounts: one,
-      tokens: new Map([["a", "tok"]]),
+      credentials: createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "tok"]])),
       client,
       allowUnsafeMethods: true,
     });
@@ -228,7 +238,7 @@ describe("что инструмент не трогает", () => {
       baseUrl: "https://api.test",
       endpoints,
       accounts: one,
-      tokens: new Map([["a", "tok"]]),
+      credentials: createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "tok"]])),
       client,
       exclude: ["db.reset"],
     });
@@ -249,10 +259,13 @@ describe("предохранители против недостоверного
     { id: "a", roleId: "player", tenantId: "t" },
     { id: "b", roleId: "admin", tenantId: "t" },
   ];
-  const tokens = new Map([
-    ["a", "tok-a"],
-    ["b", "tok-b"],
-  ]);
+  const credentials = createCredentialProvider(
+    DEFAULT_AUTH_SCHEME,
+    new Map([
+      ["a", "tok-a"],
+      ["b", "tok-b"],
+    ]),
+  );
 
   it("сообщает, что аккаунт не аутентифицирован, когда канарейка отвечает отказом", async () => {
     const { client } = fakeClient((request) => ({
@@ -267,7 +280,7 @@ describe("предохранители против недостоверного
         { accountId: "a", endpointId: "me" },
         { accountId: "b", endpointId: "me" },
       ],
-      tokens,
+      credentials,
       client,
     });
 
@@ -285,7 +298,7 @@ describe("предохранители против недостоверного
         baseUrl: "https://api.test",
         endpoints,
         canaries: [{ accountId: "a", endpointId: "нет-такого" }],
-        tokens,
+        credentials,
         client,
       }),
     ).rejects.toThrow(UnknownCanaryEndpointError);
@@ -299,47 +312,10 @@ describe("предохранители против недостоверного
         baseUrl: "https://api.test",
         endpoints,
         canaries: [{ accountId: "a", endpointId: "profile" }],
-        tokens,
+        credentials,
         client,
       }),
     ).rejects.toThrow(TemplatedCanaryError);
-  });
-
-  // Самый опасный сценарий: токен протух, всё вернуло 401, и прогон
-  // отрапортовал бы «эскалаций не найдено», не проверив ничего.
-  it("замечает аккаунт, у которого все обращения вернули 401", async () => {
-    const { client } = fakeClient((request) => ({
-      status: request.headers.authorization === "Bearer tok-a" ? 401 : 200,
-      headers: {},
-    }));
-
-    const result = await collectObservations({
-      baseUrl: "https://api.test",
-      endpoints,
-      accounts: two,
-      tokens,
-      client,
-    });
-
-    expect(result.unauthenticated).toEqual(["a"]);
-  });
-
-  it("не поднимает тревогу, когда 401 перемешаны с успехами", async () => {
-    let call = 0;
-    const { client } = fakeClient(() => {
-      call += 1;
-      return { status: call % 2 === 0 ? 401 : 200, headers: {} };
-    });
-
-    const result = await collectObservations({
-      baseUrl: "https://api.test",
-      endpoints,
-      accounts: two,
-      tokens,
-      client,
-    });
-
-    expect(result.unauthenticated).toEqual([]);
   });
 
   it("возвращает список реально опрошенных эндпоинтов", async () => {
@@ -349,7 +325,7 @@ describe("предохранители против недостоверного
       baseUrl: "https://api.test",
       endpoints,
       accounts: [two[0] ?? { id: "a", roleId: "r", tenantId: "t" }],
-      tokens,
+      credentials,
       client,
     });
 
