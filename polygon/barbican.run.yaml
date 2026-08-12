@@ -1,0 +1,105 @@
+# Конфигурация прогона против референс-платформы (формат — ADR-0008).
+#
+# Токенов здесь нет и быть не может: аккаунт называет имя переменной окружения.
+# Значения выставляет `verify.mjs` (случайные на каждый прогон) либо оператор
+# вручную — см. README.md.
+
+target:
+  # Порт обязан совпадать с POLYGON_PORT платформы. verify.mjs сверяет это сам:
+  # разошедшись, они дали бы сплошные отказы и отчёт «всё чисто».
+  baseUrl: http://127.0.0.1:8787
+  allowedHosts: [127.0.0.1]
+
+accounts:
+  # Тенант A: владелец заказа A-1001 и другой пользователь того же тенанта.
+  # Второй нужен, чтобы отличить BOLA внутри тенанта от межтенантной утечки.
+  - id: alice-a
+    role: user
+    tenant: tenant-a
+    tokenEnv: POLYGON_TOKEN_ALICE_A
+    canary: orders.list
+  - id: bob-a
+    role: user
+    tenant: tenant-a
+    tokenEnv: POLYGON_TOKEN_BOB_A
+    canary: orders.list
+
+  # Тенант B — зеркально.
+  - id: carol-b
+    role: user
+    tenant: tenant-b
+    tokenEnv: POLYGON_TOKEN_CAROL_B
+    canary: orders.list
+  - id: dave-b
+    role: user
+    tenant: tenant-b
+    tokenEnv: POLYGON_TOKEN_DAVE_B
+    canary: orders.list
+
+  # Администратор тенанта A: ему положены все объекты своего тенанта
+  # и не положен ни один чужой.
+  - id: admin-a
+    role: admin
+    tenant: tenant-a
+    tokenEnv: POLYGON_TOKEN_ADMIN_A
+    canary: orders.list
+
+  # Аноним: без токена. Проверяет утверждение «эта ручка не публична».
+  # Тенант `none` — служебный: любой объект для него foreign-tenant.
+  - id: anonymous
+    role: anonymous
+    tenant: none
+
+# Объекты обращения и их владельцы (ADR-0010). Идентификаторы объявляются,
+# а не выуживаются из ответов, — тела мы не читаем.
+resources:
+  - id: order-a-1001
+    tenant: tenant-a
+    owner: alice-a
+    params: { orderId: "A-1001" }
+  - id: order-a-1002
+    tenant: tenant-a
+    owner: bob-a
+    params: { orderId: "A-1002" }
+  - id: order-b-2001
+    tenant: tenant-b
+    owner: carol-b
+    params: { orderId: "B-2001" }
+  - id: order-b-2002
+    tenant: tenant-b
+    owner: dave-b
+    params: { orderId: "B-2002" }
+
+policy:
+  # Всё, что не объявлено, считается запрещённым.
+  fallback: denied
+  rules:
+    # Проверка живости открыта всем, включая аноним.
+    - roles: "*"
+      endpoints: [health]
+      outcome: allowed
+
+    # Свой список заказов положен любому аутентифицированному.
+    # Аноним сюда не попадает: у роли `anonymous` доступа нет.
+    - roles: [user, admin]
+      endpoints: [orders.list]
+      outcome: allowed
+
+    # Админская ручка — только администратору.
+    - roles: [admin]
+      endpoints: [admin.accounts]
+      outcome: allowed
+
+    # Пользователю положен только свой заказ. Чужой заказ своего тенанта
+    # (same-tenant) и любой чужой тенант остаются под fallback: denied.
+    - roles: [user]
+      endpoints: [orders.read]
+      scope: own
+      outcome: allowed
+
+    # Администратору положены все объекты его тенанта. Своих объектов
+    # у него нет, поэтому правило на `own` не нужно.
+    - roles: [admin]
+      endpoints: [orders.read]
+      scope: same-tenant
+      outcome: allowed

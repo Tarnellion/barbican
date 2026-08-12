@@ -1,0 +1,533 @@
+{
+  "note": "Оракул референс-платформы: какие ячейки «аккаунт × эндпоинт × объект» обязаны дать находку при каждой комбинации флагов. Написан вручную от модели доступа, а не снят с вывода инструмента: эталон, порождённый проверяемой программой, проверяет её на согласованность с самой собой.",
+  "cellKey": "account + endpoint + resource; resource = null у эндпоинтов без параметров пути",
+  "kinds": {
+    "privilege-escalation": "политика объявила отказ, платформа ответила 200"
+  },
+  "defects": {
+    "POLYGON_DEFECT_CROSS_TENANT": "Нет фильтра по тенанту в GET /v1/orders/{orderId}: объект чужого тенанта отдаётся 200 вместо 403. Задевает 10 ячеек — по два чужих заказа на каждый из пяти аутентифицированных аккаунтов. Аноним не задет: аутентификация проверяется раньше авторизации.",
+    "POLYGON_DEFECT_NO_ROLE_CHECK": "Не проверяется роль в GET /v1/admin/accounts: обычный пользователь получает 200 вместо 403. Задевает 4 ячейки — по одной на каждого пользователя обоих тенантов. Администратор получает 200 и без дефекта, аноним по-прежнему 401.",
+    "POLYGON_DEFECT_IDOR_SAME_TENANT": "IDOR внутри тенанта в GET /v1/orders/{orderId}: чужой заказ своего тенанта отдаётся 200 вместо 403. Задевает 4 ячейки. Администратора не задевает: ему объекты своего тенанта положены по политике, и он получает 200 в любом режиме."
+  },
+  "combinations": [
+    {
+      "id": "clean",
+      "flags": {
+        "POLYGON_DEFECT_CROSS_TENANT": false,
+        "POLYGON_DEFECT_NO_ROLE_CHECK": false,
+        "POLYGON_DEFECT_IDOR_SAME_TENANT": false
+      },
+      "expectedExitCode": 0,
+      "findings": []
+    },
+    {
+      "id": "cross-tenant",
+      "flags": {
+        "POLYGON_DEFECT_CROSS_TENANT": true,
+        "POLYGON_DEFECT_NO_ROLE_CHECK": false,
+        "POLYGON_DEFECT_IDOR_SAME_TENANT": false
+      },
+      "expectedExitCode": 1,
+      "findings": [
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        }
+      ]
+    },
+    {
+      "id": "no-role-check",
+      "flags": {
+        "POLYGON_DEFECT_CROSS_TENANT": false,
+        "POLYGON_DEFECT_NO_ROLE_CHECK": true,
+        "POLYGON_DEFECT_IDOR_SAME_TENANT": false
+      },
+      "expectedExitCode": 1,
+      "findings": [
+        {
+          "account": "alice-a",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        }
+      ]
+    },
+    {
+      "id": "idor-same-tenant",
+      "flags": {
+        "POLYGON_DEFECT_CROSS_TENANT": false,
+        "POLYGON_DEFECT_NO_ROLE_CHECK": false,
+        "POLYGON_DEFECT_IDOR_SAME_TENANT": true
+      },
+      "expectedExitCode": 1,
+      "findings": [
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        }
+      ]
+    },
+    {
+      "id": "cross-tenant+no-role-check",
+      "flags": {
+        "POLYGON_DEFECT_CROSS_TENANT": true,
+        "POLYGON_DEFECT_NO_ROLE_CHECK": true,
+        "POLYGON_DEFECT_IDOR_SAME_TENANT": false
+      },
+      "expectedExitCode": 1,
+      "findings": [
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        }
+      ]
+    },
+    {
+      "id": "cross-tenant+idor-same-tenant",
+      "flags": {
+        "POLYGON_DEFECT_CROSS_TENANT": true,
+        "POLYGON_DEFECT_NO_ROLE_CHECK": false,
+        "POLYGON_DEFECT_IDOR_SAME_TENANT": true
+      },
+      "expectedExitCode": 1,
+      "findings": [
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        }
+      ]
+    },
+    {
+      "id": "no-role-check+idor-same-tenant",
+      "flags": {
+        "POLYGON_DEFECT_CROSS_TENANT": false,
+        "POLYGON_DEFECT_NO_ROLE_CHECK": true,
+        "POLYGON_DEFECT_IDOR_SAME_TENANT": true
+      },
+      "expectedExitCode": 1,
+      "findings": [
+        {
+          "account": "alice-a",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        }
+      ]
+    },
+    {
+      "id": "all",
+      "flags": {
+        "POLYGON_DEFECT_CROSS_TENANT": true,
+        "POLYGON_DEFECT_NO_ROLE_CHECK": true,
+        "POLYGON_DEFECT_IDOR_SAME_TENANT": true
+      },
+      "expectedExitCode": 1,
+      "findings": [
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "kind": "privilege-escalation"
+        }
+      ]
+    }
+  ]
+}
