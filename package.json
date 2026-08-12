@@ -52,7 +52,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
-    "check": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build",
+    "check": "pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run build",
     "hooks:install": "lefthook install"
   },
   "dependencies": {

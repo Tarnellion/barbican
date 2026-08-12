@@ -75,6 +75,26 @@ describe("область проверки", () => {
     expect(() => createHttpClient({ allowedHosts: ["  "], throttle })).toThrow(EmptyScopeError);
   });
 
+  it("различает записи с портом и без", async () => {
+    const server = await startServer((_request, response) => {
+      response.writeHead(200).end();
+    });
+    try {
+      // Запись без порта разрешает любой порт — так было и раньше.
+      const loose = clientFor().client;
+      await expect(loose.send(GET(server.port))).resolves.toMatchObject({ status: 200 });
+
+      // Запись с портом разрешает ровно его.
+      const exact = clientFor({ allowedHosts: [`127.0.0.1:${server.port}`] }).client;
+      await expect(exact.send(GET(server.port))).resolves.toMatchObject({ status: 200 });
+
+      const wrong = clientFor({ allowedHosts: ["127.0.0.1:1"] }).client;
+      await expect(wrong.send(GET(server.port))).rejects.toThrow(HostNotAllowedError);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("не обращается к хосту вне области", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(200).end();
@@ -361,16 +381,46 @@ describe("circuit breaker", () => {
     });
     try {
       const { client } = clientFor({
-        retry: { maxAttempts: 5, baseDelayMs: 1, maxDelayMs: 10 },
+        retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 10 },
         breaker: { consecutiveFailures: 3 },
       });
 
-      await expect(client.send(GET(server.port))).rejects.toThrow(CircuitOpenError);
+      // Два неудачных обращения порог не переходят.
+      await expect(client.send(GET(server.port, "/a"))).resolves.toMatchObject({ status: 500 });
+      await expect(client.send(GET(server.port, "/b"))).resolves.toMatchObject({ status: 500 });
+      // Третье — переходит.
+      await expect(client.send(GET(server.port, "/c"))).rejects.toThrow(CircuitOpenError);
       const afterOpen = server.paths.length;
 
       // Следующее обращение обрывается до сети.
       await expect(client.send(GET(server.port, "/another"))).rejects.toThrow(CircuitOpenError);
       expect(server.paths.length).toBe(afterOpen);
+    } finally {
+      await server.close();
+    }
+  });
+
+  // Найдено состязательной проверкой: счётчик рос на каждую ПОПЫТКУ, поэтому
+  // при дефолтах (3 попытки, порог 5) прогон вставал после двух обращений.
+  it("считает неудачные обращения, а не собственные попытки их повторить", async () => {
+    const server = await startServer((_request, response) => {
+      response.writeHead(503).end();
+    });
+    try {
+      const { client } = clientFor({
+        retry: { maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 10 },
+        breaker: { consecutiveFailures: 5 },
+      });
+
+      // Четыре обращения по три попытки — это двенадцать попыток, но лишь
+      // четыре неудачи, и порог в пять ещё не достигнут.
+      for (let i = 0; i < 4; i += 1) {
+        await expect(client.send(GET(server.port, `/x${i}`))).resolves.toMatchObject({
+          status: 503,
+        });
+      }
+
+      await expect(client.send(GET(server.port, "/x4"))).rejects.toThrow(CircuitOpenError);
     } finally {
       await server.close();
     }

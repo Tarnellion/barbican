@@ -221,8 +221,13 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       throw new UnsupportedProtocolError(url.protocol);
     }
-    if (!allowedHosts.has(url.hostname.toLowerCase())) {
-      throw new HostNotAllowedError(url.hostname);
+    // Запись с портом сверяется вместе с портом, без порта — только по имени.
+    // Так «api.test» по-прежнему разрешает любой порт, а «api.test:8443» —
+    // ровно один, и уточнить область можно, не ломая уже написанные конфигурации.
+    const hostname = url.hostname.toLowerCase();
+    const hostWithPort = url.host.toLowerCase();
+    if (!allowedHosts.has(hostname) && !allowedHosts.has(hostWithPort)) {
+      throw new HostNotAllowedError(hostWithPort);
     }
   }
 
@@ -260,6 +265,21 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
 
       let lastCause: unknown;
 
+      /**
+       * Обращение считается неудачным один раз, а не на каждую попытку.
+       *
+       * Раньше счётчик рос внутри цикла повторов, и при дефолтах
+       * (3 попытки, порог 5) прогон вставал после **двух** неудачных обращений
+       * вместо пяти. Порог описан как «неудачных ответов подряд» — значит
+       * считать надо ответы, а не наши собственные попытки их получить.
+       */
+      function markFailure(): void {
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= breaker.consecutiveFailures) {
+          circuitOpen = true;
+        }
+      }
+
       for (let attempt = 1; attempt <= retry.maxAttempts; attempt += 1) {
         let response: HttpResponse | undefined;
         try {
@@ -273,13 +293,11 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
           return response;
         }
 
-        consecutiveFailures += 1;
-        if (consecutiveFailures >= breaker.consecutiveFailures) {
-          circuitOpen = true;
-          throw new CircuitOpenError(breaker.consecutiveFailures);
-        }
-
         if (attempt === retry.maxAttempts) {
+          markFailure();
+          if (circuitOpen) {
+            throw new CircuitOpenError(breaker.consecutiveFailures);
+          }
           if (response !== undefined) {
             return response;
           }
