@@ -13,6 +13,16 @@ updates:
       semver-major-days: 30
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      # TypeScript 7 держим в стороне сознательно: по собственному README проекта
+      # это preview с "API: not ready", а tsc --noEmit — гейт CI. См. ADR-0001.
+      # Снять запрет, когда 7.x выйдет из preview.
+      - dependency-name: "typescript"
+        versions: [">=7.0.0"]
+      # Линия типов Node 22 закреплена под engines: >=22.12.0. Типы от Node 26
+      # протащат API, которых на 22 нет, и typecheck перестанет отражать реальность.
+      - dependency-name: "@types/node"
+        versions: [">=23.0.0"]
 
   - package-ecosystem: github-actions
     directory: /
