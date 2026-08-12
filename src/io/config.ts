@@ -120,6 +120,12 @@ const configSchema = z.object({
             id: z.string().min(1),
             /** Родитель. Отсутствие означает корень. См. ADR-0013. */
             parent: z.string().min(1).optional(),
+            /**
+             * Свой базовый адрес: бренды часто разнесены по поддоменам.
+             * Хост обязан входить в `allowedHosts` — область проверки одна
+             * на прогон, и объявление тенанта её не расширяет.
+             */
+            baseUrl: z.url({ protocol: /^https?$/ }).optional(),
           }),
         )
         .min(1),
@@ -185,6 +191,11 @@ export interface RunTarget {
   readonly allowedHosts: readonly string[];
 }
 
+/** Узел дерева тенантов плюс необязательный свой базовый адрес. */
+export interface TenantConfig extends TenantNode {
+  readonly baseUrl?: string;
+}
+
 export interface DeclaredSignal {
   readonly name: string;
   readonly kind: "count" | "present";
@@ -219,7 +230,7 @@ export interface RunConfig {
   readonly resources: readonly Resource[];
   readonly bodySignals?: BodySignalsConfig | undefined;
   /** Дерево тенантов. Отсутствие означает лес из корней без связей. */
-  readonly tenants?: readonly TenantNode[] | undefined;
+  readonly tenants?: readonly TenantConfig[] | undefined;
 }
 
 export class ConfigParseError extends Error {
@@ -236,6 +247,12 @@ export class ConfigValidationError extends Error {
   }
 }
 
+/** Входит ли хост адреса в область проверки. Запись с портом сверяется с портом. */
+function hostAllowed(url: URL, allowedHosts: readonly string[]): boolean {
+  const allowed = allowedHosts.map((entry) => entry.trim().toLowerCase());
+  return allowed.includes(url.hostname.toLowerCase()) || allowed.includes(url.host.toLowerCase());
+}
+
 export class HostOutsideScopeError extends Error {
   constructor(host: string, allowedHosts: readonly string[]) {
     super(
@@ -247,10 +264,10 @@ export class HostOutsideScopeError extends Error {
 }
 
 export class CredentialsInUrlError extends Error {
-  constructor() {
+  constructor(where = "В baseUrl") {
     super(
-      "В baseUrl указаны логин и пароль. Учётные данные передаются только через " +
-        "переменные окружения: baseUrl копируется в отчёт дословно, а отчёт " +
+      `${where} указаны логин и пароль. Учётные данные передаются только через ` +
+        "переменные окружения: адрес копируется в отчёт дословно, а отчёт " +
         "по умолчанию печатается в stdout.",
     );
     this.name = "CredentialsInUrlError";
@@ -451,18 +468,32 @@ export function parseRunConfig(source: string): RunConfig {
   //
   // Краткая форма (список строк) означает лес из корней без связей — поведение
   // до ADR-0013. Развёрнутая объявляет родство явно.
-  const tenantNodes: readonly TenantNode[] | undefined = config.tenants?.map((entry) =>
+  const tenantNodes: readonly TenantConfig[] | undefined = config.tenants?.map((entry) =>
     typeof entry === "string"
       ? { id: entry.trim() }
       : {
           id: entry.id.trim(),
           ...(entry.parent === undefined ? {} : { parentId: entry.parent.trim() }),
+          ...(entry.baseUrl === undefined ? {} : { baseUrl: entry.baseUrl }),
         },
   );
   // Дерево строится здесь, чтобы неизвестный родитель и цикл падали на старте,
   // а не посреди прогона против чужого стенда.
   if (tenantNodes !== undefined) {
     createTenantHierarchy(tenantNodes);
+    for (const node of tenantNodes) {
+      if (node.baseUrl === undefined) {
+        continue;
+      }
+      const url = new URL(node.baseUrl);
+      if (url.username !== "" || url.password !== "") {
+        throw new CredentialsInUrlError(`Базовый адрес тенанта "${node.id}"`);
+      }
+      // Область проверки одна на прогон: адрес тенанта её не расширяет.
+      if (!hostAllowed(url, config.target.allowedHosts)) {
+        throw new HostOutsideScopeError(url.host, config.target.allowedHosts);
+      }
+    }
   }
   const declaredTenants = tenantNodes?.map((node) => node.id);
   const accountTenants = config.accounts.map((account) => account.tenant.trim());
@@ -483,14 +514,10 @@ export function parseRunConfig(source: string): RunConfig {
   if (target.username !== "" || target.password !== "") {
     throw new CredentialsInUrlError();
   }
-  const allowed = config.target.allowedHosts.map((entry) => entry.trim().toLowerCase());
   // Запись с портом сверяется вместе с портом — та же логика, что в HTTP-клиенте.
   // Раньше конфигурация понимала только имя, и возможность клиента была
   // недостижима через CLI.
-  if (
-    !allowed.includes(target.hostname.toLowerCase()) &&
-    !allowed.includes(target.host.toLowerCase())
-  ) {
+  if (!hostAllowed(target, config.target.allowedHosts)) {
     throw new HostOutsideScopeError(target.host, config.target.allowedHosts);
   }
 

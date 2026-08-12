@@ -235,6 +235,36 @@ policy: { fallback: denied, rules: [] }
     ).toThrow(UnknownParentTenantError);
   });
 
+  describe("свой адрес у тенанта", () => {
+    const WITH_URLS = `
+target: { baseUrl: "https://api.example.test", allowedHosts: [api.example.test, a.example.test] }
+accounts:
+  - { id: op, role: operator, tenant: brand-a, tokenEnv: T }
+tenants:
+  - { id: brand-a, baseUrl: "https://a.example.test" }
+policy: { fallback: denied, rules: [] }
+`;
+
+    it("читает адрес бренда", () => {
+      expect(parseRunConfig(WITH_URLS).tenants).toEqual([
+        { id: "brand-a", baseUrl: "https://a.example.test" },
+      ]);
+    });
+
+    /** Область проверки одна на прогон: объявление тенанта её не расширяет. */
+    it("отвергает адрес тенанта вне allowedHosts", () => {
+      expect(() =>
+        parseRunConfig(WITH_URLS.replace('https://a.example.test"', 'https://c.example.test"')),
+      ).toThrow(HostOutsideScopeError);
+    });
+
+    it("отвергает учётные данные в адресе тенанта", () => {
+      expect(() =>
+        parseRunConfig(WITH_URLS.replace('https://a.example.test"', 'https://u:p@a.example.test"')),
+      ).toThrow(CredentialsInUrlError);
+    });
+  });
+
   it("отвергает цикл в дереве", () => {
     const cyclic = HOLDINGS.replace(
       "  - { id: holding-1 }",

@@ -14,6 +14,7 @@ import type {
   Resource,
   SignalSpec,
   SignalValue,
+  TenantId,
 } from "./core/index.js";
 import { resourceApplies, SAFE_METHODS } from "./core/index.js";
 
@@ -71,6 +72,16 @@ export interface CollectOptions {
    * поимённо — по-другому их не отличить.
    */
   readonly exclude?: readonly string[];
+  /**
+   * Базовый адрес для отдельных тенантов.
+   *
+   * Мультибрендовые платформы часто разносят бренды по поддоменам, и типовое
+   * проверяемое утверждение — «токен бренда A не работает на хосте бренда B».
+   * Адрес выбирается по тенанту **объекта**, а не аккаунта: спрашиваем-то мы
+   * именно за чужие данные, и лежат они на чужом хосте. Когда объекта нет,
+   * берётся тенант аккаунта — вопрос тогда о его собственной области.
+   */
+  readonly tenantBaseUrls?: ReadonlyMap<TenantId, string>;
 }
 
 export interface CollectResult {
@@ -241,8 +252,17 @@ export async function probeCanaries(options: {
   readonly credentials: CredentialProvider;
   readonly client: HttpClient;
   readonly exclude?: readonly string[];
+  /** Аккаунты — чтобы знать тенант и выбрать его базовый адрес. */
+  readonly accounts?: readonly Account[];
+  readonly tenantBaseUrls?: ReadonlyMap<TenantId, string>;
 }): Promise<readonly CanaryResult[]> {
   const byId = new Map(options.endpoints.map((endpoint) => [endpoint.id, endpoint]));
+  // Канарейка обязана стучаться на хост своего же бренда: на платформе,
+  // разнесённой по поддоменам, обращение к чужому даст отказ, и прогон
+  // остановится ложной тревогой «токен не работает».
+  const tenantOf = new Map(
+    (options.accounts ?? []).map((account) => [account.id, account.tenantId]),
+  );
   const results: CanaryResult[] = [];
 
   for (const canary of options.canaries) {
@@ -261,7 +281,10 @@ export async function probeCanaries(options: {
     try {
       const response = await options.client.send({
         method: endpoint.method,
-        url: joinUrl(options.baseUrl, endpoint.path),
+        url: joinUrl(
+          options.tenantBaseUrls?.get(tenantOf.get(canary.accountId) ?? "") ?? options.baseUrl,
+          endpoint.path,
+        ),
         headers: options.credentials.headersFor(canary.accountId),
       });
       status = response.status;
@@ -304,7 +327,14 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     ) {
       // Параметры есть, а объекта с их значениями не объявлено — подставлять нечего.
       skipped.push({ endpointId: endpoint.id, reason: "path-parameters" });
-    } else if (!staysWithinTarget(options.baseUrl, endpoint.path)) {
+    } else if (
+      // Отсеивается только то, что уводит за пределы КАЖДОГО объявленного
+      // адреса: иначе эндпоинт, законный для бренда на поддомене, пропускался бы
+      // из-за несовпадения с адресом по умолчанию.
+      ![options.baseUrl, ...(options.tenantBaseUrls?.values() ?? [])].some((base) =>
+        staysWithinTarget(base, endpoint.path),
+      )
+    ) {
       // Путь уводит за пределы цели. Это свойство эндпоинта, а не сбой
       // обращения, поэтому пропуск, а не ошибка: один враждебный путь
       // в спецификации не должен обрывать весь прогон.
@@ -339,12 +369,14 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     for (const { endpoint, resource } of cells) {
       const startedAt = Date.now();
       const path = resource === undefined ? endpoint.path : substitute(endpoint.path, resource);
+      const tenantId = resource?.tenantId ?? account.tenantId;
+      const baseUrl = options.tenantBaseUrls?.get(tenantId) ?? options.baseUrl;
       // Проверка области — над готовым путём, а не над шаблоном: значение объекта
       // с `..` уводило обращение выше объявленного базового пути, потому что
       // шаблон проверялся до подстановки.
       let url: string;
       try {
-        url = withQuery(joinUrl(options.baseUrl, path), resource);
+        url = withQuery(joinUrl(baseUrl, path), resource);
       } catch (cause) {
         failures.push({
           accountId: account.id,

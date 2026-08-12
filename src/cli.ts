@@ -132,6 +132,14 @@ async function run(flags: RunFlags): Promise<number> {
 
   const accounts = toAccounts(config);
 
+  // Бренды часто разнесены по поддоменам; адрес выбирается по тенанту объекта,
+  // потому что спрашиваем мы именно за чужие данные, а лежат они на чужом хосте.
+  const tenantBaseUrls = new Map(
+    (config.tenants ?? [])
+      .filter((tenant) => tenant.baseUrl !== undefined)
+      .map((tenant) => [tenant.id, tenant.baseUrl ?? ""]),
+  );
+
   const canaries = config.accounts
     .filter((account) => account.canary !== undefined)
     .map((account) => ({ accountId: account.id, endpointId: account.canary ?? "" }));
@@ -150,6 +158,8 @@ async function run(flags: RunFlags): Promise<number> {
       credentials,
       client,
       exclude: config.exclude,
+      accounts,
+      tenantBaseUrls,
     });
     canariesChecked = results.length;
     const broken = results.filter((result) => !result.authenticated);
@@ -176,6 +186,7 @@ async function run(flags: RunFlags): Promise<number> {
     allowUnsafeMethods: flags.unsafeMethods === true,
     exclude: config.exclude,
     resources: config.resources,
+    tenantBaseUrls,
   });
   const finishedAt = new Date();
 
