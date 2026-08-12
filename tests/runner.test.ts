@@ -174,3 +174,61 @@ describe("collectObservations", () => {
     expect(seen[0]?.url).toBe("https://api.test/base/v1/x");
   });
 });
+
+describe("что инструмент не трогает", () => {
+  const endpoints: readonly Endpoint[] = [
+    { id: "users.list", method: "GET", path: "/v1/users" },
+    { id: "users.create", method: "POST", path: "/v1/users" },
+    { id: "db.reset", method: "GET", path: "/createdb" },
+  ];
+  const one: readonly Account[] = [{ id: "a", roleId: "r", tenantId: "t" }];
+
+  it("не считает отказ от небезопасного метода сбоем", async () => {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints,
+      accounts: one,
+      tokens: new Map([["a", "tok"]]),
+      client,
+    });
+
+    // Штатная работа инструмента не должна выглядеть поломкой в отчёте.
+    expect(result.failures).toEqual([]);
+    expect(result.skipped).toContainEqual({ endpointId: "users.create", reason: "unsafe-method" });
+    expect(seen.map((r) => r.method)).not.toContain("POST");
+  });
+
+  it("опрашивает небезопасный метод при явном разрешении", async () => {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints,
+      accounts: one,
+      tokens: new Map([["a", "tok"]]),
+      client,
+      allowUnsafeMethods: true,
+    });
+
+    expect(seen.map((r) => r.method)).toContain("POST");
+  });
+
+  it("не трогает исключённый эндпоинт даже безопасным методом", async () => {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints,
+      accounts: one,
+      tokens: new Map([["a", "tok"]]),
+      client,
+      exclude: ["db.reset"],
+    });
+
+    // GET не обязан быть безопасным на деле: /createdb сбрасывает базу.
+    expect(result.skipped).toContainEqual({ endpointId: "db.reset", reason: "excluded" });
+    expect(seen.map((r) => r.url)).not.toContain("https://api.test/createdb");
+  });
+});

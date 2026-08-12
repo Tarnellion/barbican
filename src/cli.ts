@@ -30,6 +30,24 @@ function paint(text: string, format: Parameters<typeof styleText>[0]): string {
   return process.stderr.isTTY === true ? styleText(format, text) : text;
 }
 
+const SKIP_LABELS: Readonly<Record<string, string>> = {
+  "path-parameters": "с параметрами в пути",
+  "unsafe-method": "небезопасным методом",
+  excluded: "исключено вручную",
+};
+
+/** Расшифровка пропусков: одно число без причин читается как «что-то не проверено». */
+function skipBreakdown(report: {
+  readonly skipped: readonly { readonly reason: string }[];
+}): string {
+  const counts = new Map<string, number>();
+  for (const item of report.skipped) {
+    counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1);
+  }
+  const parts = [...counts].map(([reason, count]) => `${SKIP_LABELS[reason] ?? reason} ${count}`);
+  return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
+}
+
 function positiveInteger(raw: string): number {
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
@@ -73,6 +91,8 @@ async function run(flags: RunFlags): Promise<number> {
     accounts,
     tokens,
     client,
+    allowUnsafeMethods: flags.unsafeMethods === true,
+    exclude: config.exclude,
   });
   const finishedAt = new Date();
 
@@ -103,7 +123,7 @@ async function run(flags: RunFlags): Promise<number> {
   const lines = [
     `Опрошено: ${summary.observations} пар, эндпоинтов ${summary.endpoints}, аккаунтов ${summary.accounts}`,
     summary.skipped > 0
-      ? `Пропущено эндпоинтов с параметрами в пути: ${summary.skipped}`
+      ? `Не опрошено эндпоинтов: ${summary.skipped}${skipBreakdown(report)}`
       : undefined,
     summary.failures > 0
       ? paint(`Сорвалось обращений: ${summary.failures} (причины в отчёте)`, "yellow")

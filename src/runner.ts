@@ -7,11 +7,18 @@
 
 import type { HttpClient } from "./adapters/ports.js";
 import type { AccessObservation, AccessOutcome, Account, Endpoint } from "./core/index.js";
+import { SAFE_METHODS } from "./core/index.js";
 
-/** Эндпоинт, который не удалось опросить, и почему. */
+/**
+ * Эндпоинт, который не опрашивался, и почему.
+ *
+ * Пропуск по решению самого инструмента — не сбой. Раньше отказ от небезопасного
+ * метода попадал в `failures`, и штатная работа выглядела в отчёте поломкой:
+ * на реальном API каждый POST и PUT давал бы строку «сорвалось».
+ */
 export interface SkippedEndpoint {
   readonly endpointId: string;
-  readonly reason: "path-parameters";
+  readonly reason: "path-parameters" | "unsafe-method" | "excluded";
 }
 
 /**
@@ -33,6 +40,15 @@ export interface CollectOptions {
   /** Токены по идентификатору аккаунта. В наблюдения не попадают. */
   readonly tokens: ReadonlyMap<string, string>;
   readonly client: HttpClient;
+  readonly allowUnsafeMethods?: boolean;
+  /**
+   * Идентификаторы эндпоинтов, которые не трогать.
+   *
+   * `SAFE_METHODS` защищает от семантики метода, но не от эндпоинта, который её
+   * нарушает: GET, сбрасывающий базу, остаётся GET. Такие адреса исключаются
+   * поимённо — по-другому их не отличить.
+   */
+  readonly exclude?: readonly string[];
 }
 
 export interface CollectResult {
@@ -81,9 +97,15 @@ function joinUrl(baseUrl: string, path: string): string {
 export async function collectObservations(options: CollectOptions): Promise<CollectResult> {
   const probeable: Endpoint[] = [];
   const skipped: SkippedEndpoint[] = [];
+  const excluded = new Set(options.exclude ?? []);
+  const safe = new Set<string>(SAFE_METHODS);
 
   for (const endpoint of options.endpoints) {
-    if (TEMPLATE_PARAMETER.test(endpoint.path)) {
+    if (excluded.has(endpoint.id)) {
+      skipped.push({ endpointId: endpoint.id, reason: "excluded" });
+    } else if (options.allowUnsafeMethods !== true && !safe.has(endpoint.method)) {
+      skipped.push({ endpointId: endpoint.id, reason: "unsafe-method" });
+    } else if (TEMPLATE_PARAMETER.test(endpoint.path)) {
       skipped.push({ endpointId: endpoint.id, reason: "path-parameters" });
     } else {
       probeable.push(endpoint);

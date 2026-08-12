@@ -43,6 +43,13 @@ const configSchema = z.object({
     fallback: outcomeSchema,
     rules: z.array(ruleSchema),
   }),
+  /**
+   * Эндпоинты, которые не трогать даже безопасным методом.
+   *
+   * Нужен, потому что GET не обязан быть безопасным на деле: адрес вида
+   * `/createdb` сбрасывает базу, оставаясь GET.
+   */
+  exclude: z.array(z.string().min(1)).optional(),
 });
 
 export interface AccountConfig {
@@ -62,6 +69,7 @@ export interface RunConfig {
   readonly target: RunTarget;
   readonly accounts: readonly AccountConfig[];
   readonly policy: ExpectedAccessPolicy;
+  readonly exclude: readonly string[];
 }
 
 export class ConfigParseError extends Error {
@@ -151,7 +159,12 @@ export function parseRunConfig(source: string): RunConfig {
   const policy: ExpectedAccessPolicy = config.policy;
   assertPolicyIsSound(policy);
 
-  return { target: config.target, accounts: config.accounts, policy };
+  return {
+    target: config.target,
+    accounts: config.accounts,
+    policy,
+    exclude: config.exclude ?? [],
+  };
 }
 
 /** Приводит аккаунты конфигурации к доменному типу ядра. */
