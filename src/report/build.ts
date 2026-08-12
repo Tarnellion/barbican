@@ -16,6 +16,7 @@ import type {
   Endpoint,
   Finding,
   Resource,
+  Severity,
 } from "../core/index.js";
 import type { RunConfig } from "../io/config.js";
 import type { ProbeFailure, SkippedEndpoint } from "../runner.js";
@@ -29,6 +30,8 @@ export interface ReportSummary {
   readonly failures: number;
   readonly findings: number;
   readonly byKind: Readonly<Record<DiffKind, number>>;
+  /** Расхождения по серьёзности — с чего читателю начинать. См. ADR-0014. */
+  readonly bySeverity: Readonly<Record<Severity, number>>;
   /** Находки проверок-плагинов. Считаются отдельно: у них своя природа. */
   readonly checkFindings: number;
 }
@@ -109,6 +112,22 @@ const EMPTY_BY_KIND: Readonly<Record<DiffKind, number>> = {
   "probe-error": 0,
 };
 
+const EMPTY_BY_SEVERITY: Readonly<Record<Severity, number>> = {
+  info: 0,
+  low: 0,
+  medium: 0,
+  high: 0,
+  critical: 0,
+};
+
+function countBySeverity(findings: readonly AccessDiff[]): Readonly<Record<Severity, number>> {
+  const counts = { ...EMPTY_BY_SEVERITY };
+  for (const finding of findings) {
+    counts[finding.severity] += 1;
+  }
+  return counts;
+}
+
 function countByKind(findings: readonly AccessDiff[]): Readonly<Record<DiffKind, number>> {
   const counts = { ...EMPTY_BY_KIND };
   for (const finding of findings) {
@@ -152,6 +171,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
       failures: options.failures.length,
       findings: options.findings.length,
       byKind: countByKind(options.findings),
+      bySeverity: countBySeverity(options.findings),
       checkFindings: (options.checks ?? []).length,
     },
   };
@@ -190,7 +210,14 @@ export function exitCodeFor(report: RunReport): number {
   if (report.summary.byKind["probe-error"] === report.summary.observations) {
     return 2;
   }
-  if (report.summary.byKind["privilege-escalation"] > 0) {
+  // Расхождение есть расхождение, куда бы оно ни было направлено. Инструмент
+  // не может определить, что именно неверно — платформа или объявление, — а раз
+  // не может, то и молчать не вправе. Найдено проверкой оракула платформы:
+  // холдингу закрыли его собственный бренд, и прогон вернул 0. См. ADR-0014.
+  if (
+    report.summary.byKind["privilege-escalation"] > 0 ||
+    report.summary.byKind["unexpected-denial"] > 0
+  ) {
     return 1;
   }
   // Находка проверки — такое же расхождение, как эскалация, просто увиденное

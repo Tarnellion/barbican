@@ -140,6 +140,7 @@ policy:
           expected: "denied",
           actual: "allowed",
           kind: "privilege-escalation",
+          severity: "high",
         },
       ]);
       expect(report.summary.byKind["privilege-escalation"]).toBe(1);

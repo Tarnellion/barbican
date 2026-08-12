@@ -19,6 +19,7 @@ function report(overrides: {
   unauthenticated?: readonly string[];
   truncated?: boolean;
   checks?: readonly Finding[];
+  denials?: number;
 }): RunReport {
   const observations = overrides.observations ?? 4;
   return {
@@ -47,16 +48,27 @@ function report(overrides: {
       findings: 0,
       byKind: {
         "privilege-escalation": overrides.escalations ?? 0,
-        "unexpected-denial": 0,
+        "unexpected-denial": overrides.denials ?? 0,
         "not-observed": 0,
         "probe-error": overrides.probeErrors ?? 0,
       },
       checkFindings: (overrides.checks ?? []).length,
+      bySeverity: { info: 0, low: 0, medium: 0, high: 0, critical: 0 },
     },
   };
 }
 
 describe("exitCodeFor", () => {
+  /**
+   * Расхождение есть расхождение, куда бы оно ни было направлено. Найдено
+   * проверкой оракула референс-платформы: холдингу закрыли его собственный
+   * бренд — платформа сломана, объявленный доступ не работает, — и прогон
+   * вернул 0. См. ADR-0014.
+   */
+  it("1 — неожиданный отказ тоже расхождение", () => {
+    expect(exitCodeFor(report({ denials: 1 }))).toBe(1);
+  });
+
   /**
    * Находка проверки видна не по статусу, но это такое же расхождение.
    * Без этого прогон с найденной межтенантной утечкой выглядел бы в CI успешным.

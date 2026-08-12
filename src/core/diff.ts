@@ -16,7 +16,7 @@ import type {
   ExpectedOutcome,
   ResourceRelation,
 } from "./types.js";
-import { relationOf } from "./types.js";
+import { relationOf, severityOf } from "./types.js";
 
 /**
  * Сводит фактический исход к бинарному «доступ есть / доступа нет».
@@ -70,7 +70,7 @@ export function diffAccess(
     resourceId?: string,
     relation?: ResourceRelation,
   ): void {
-    const base = { accountId, endpointId, expected, kind };
+    const base = { accountId, endpointId, expected, kind, severity: severityOf(kind, relation) };
     const withResource =
       resourceId === undefined ? base : { ...base, resourceId, ...(relation && { relation }) };
     diffs.push(actual === undefined ? withResource : { ...withResource, actual });

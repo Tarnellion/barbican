@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAccessMatrix, diffAccess } from "../../src/core/index.js";
+import { buildAccessMatrix, diffAccess, severityOf } from "../../src/core/index.js";
 import {
   accounts,
   cleanObservations,
@@ -13,6 +13,27 @@ import {
 function matrixWith(observations: Parameters<typeof buildAccessMatrix>[0]["observations"]) {
   return buildAccessMatrix({ endpoints, accounts, observations });
 }
+
+describe("серьёзность расхождения", () => {
+  /**
+   * Вычисляется из вида и отношения, а не объявляется человеком: человек
+   * объявляет ожидание, серьёзность же есть свойство найденного расхождения.
+   * Таблица — ADR-0014.
+   */
+  it.each([
+    ["privilege-escalation" as const, "foreign-tenant" as const, "critical"],
+    ["privilege-escalation" as const, "ancestor-tenant" as const, "high"],
+    ["privilege-escalation" as const, "same-tenant" as const, "high"],
+    ["privilege-escalation" as const, "descendant-tenant" as const, "high"],
+    ["privilege-escalation" as const, undefined, "high"],
+    ["privilege-escalation" as const, "own" as const, "medium"],
+    ["unexpected-denial" as const, "foreign-tenant" as const, "medium"],
+    ["not-observed" as const, undefined, "low"],
+    ["probe-error" as const, undefined, "low"],
+  ])("%s при отношении %s даёт %s", (kind, relation, expected) => {
+    expect(severityOf(kind, relation)).toBe(expected);
+  });
+});
 
 describe("diffAccess", () => {
   // Главный тест набора. Инструмент, находящий несуществующее, теряет доверие
@@ -31,6 +52,7 @@ describe("diffAccess", () => {
         expected: "denied",
         actual: "allowed",
         kind: "privilege-escalation",
+        severity: "high",
       },
     ]);
   });
@@ -45,6 +67,7 @@ describe("diffAccess", () => {
         expected: "allowed",
         actual: "denied",
         kind: "unexpected-denial",
+        severity: "medium",
       },
     ]);
   });
@@ -62,6 +85,7 @@ describe("diffAccess", () => {
         endpointId: "ep.users.list",
         expected: "denied",
         kind: "not-observed",
+        severity: "low",
       },
     ]);
   });
@@ -82,6 +106,7 @@ describe("diffAccess", () => {
         expected: "denied",
         actual: "error",
         kind: "probe-error",
+        severity: "low",
       },
     ]);
   });

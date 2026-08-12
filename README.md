@@ -91,6 +91,23 @@ The expected matrix is always declared by a human and never derived from the spe
 API under test — that spec is usually generated from the same code, so deriving from it
 would compare an implementation against itself.
 
+## Exit codes
+
+The exit code is the CI contract, and it distinguishes three things that are easy
+to confuse:
+
+| Code | Meaning |
+|---|---|
+| `0` | checked, and reality matches what you declared |
+| `1` | checked, and it does not — a privilege escalation, an unexpectedly denied access, or a high-severity check finding |
+| `2` | **the result cannot be trusted** — no observations were made, the run was cut short, or the accounts were not authenticated |
+
+Code `2` takes priority over `1`: an unverified run is never clean. Note that an
+*unexpected denial* also fails the run — the tool compares declared intent with
+observed behaviour, and a disagreement is a disagreement whichever way it points.
+It cannot tell whether your declaration or the platform is wrong, so it does not
+stay silent. See [ADR-0014](docs/adr/0014-severity-and-exit-codes.md).
+
 ## Safety defaults
 
 barbican is meant to run against systems you do not own outright, so the defaults are

@@ -159,6 +159,9 @@ describe("дифф по тройкам", () => {
         expected: "denied",
         actual: "allowed",
         kind: "privilege-escalation",
+        // Утечка в чужой тенант — единственный случай, получающий critical:
+        // она тяжелее доступа к чужому объекту внутри своего же тенанта.
+        severity: "critical",
       },
     ]);
   });

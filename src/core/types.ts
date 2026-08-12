@@ -229,4 +229,32 @@ export interface AccessDiff {
   /** Отсутствует, если наблюдения для пары нет. */
   readonly actual?: AccessOutcome;
   readonly kind: DiffKind;
+  /**
+   * Вычисляется из вида расхождения и отношения, а не объявляется человеком.
+   *
+   * Человек объявляет ожидание — что положено, а что нет. Серьёзность же есть
+   * свойство уже найденного расхождения: утечка в чужой тенант заведомо тяжелее
+   * доступа к чужому объекту внутри своего. См. ADR-0014.
+   */
+  readonly severity: Severity;
+}
+
+/** Серьёзность расхождения. Таблица и обоснование — ADR-0014. */
+export function severityOf(kind: DiffKind, relation?: ResourceRelation): Severity {
+  if (kind === "not-observed" || kind === "probe-error") {
+    return "low";
+  }
+  if (kind === "unexpected-denial") {
+    return "medium";
+  }
+  if (relation === "foreign-tenant") {
+    return "critical";
+  }
+  // Доступ к собственному объекту, объявленный запрещённым, — почти всегда
+  // ошибка в политике, а не дыра в платформе. Ложная тревога уровня high здесь
+  // обошлась бы дороже, чем понижение.
+  if (relation === "own") {
+    return "medium";
+  }
+  return "high";
 }

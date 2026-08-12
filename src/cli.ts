@@ -271,6 +271,12 @@ async function run(flags: RunFlags): Promise<number> {
       : paint("Эскалации привилегий не найдено", "green"),
     `Прочие расхождения: неожиданных отказов ${summary.byKind["unexpected-denial"]}, ` +
       `не наблюдалось ${summary.byKind["not-observed"]}, ошибок обращения ${summary.byKind["probe-error"]}`,
+    // С чего начинать читателю: 17 находок в одном списке — это не отчёт.
+    summary.findings === 0
+      ? undefined
+      : `По серьёзности: критических ${summary.bySeverity.critical}, ` +
+        `высоких ${summary.bySeverity.high}, средних ${summary.bySeverity.medium}, ` +
+        `низких ${summary.bySeverity.low}`,
     // Находки проверок называются отдельной строкой: они увидены не по статусу,
     // и смешивать их с эскалацией значило бы стереть это различие.
     summary.checkFindings > 0
