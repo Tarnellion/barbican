@@ -1,6 +1,6 @@
 {
   "name": "barbican",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "CLI harness for testing RBAC and tenant isolation in multi-tenant APIs.",
   "keywords": [
     "rbac",
