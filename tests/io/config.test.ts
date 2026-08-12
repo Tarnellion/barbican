@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  assertReferencesResolve,
   ConfigParseError,
   ConfigValidationError,
   DuplicateAccountIdError,
@@ -16,6 +17,7 @@ import {
   parseRunConfig,
   resolveTokens,
   toAccounts,
+  UnknownEndpointReferenceError,
   UnknownResourceOwnerError,
 } from "../../src/io/config.js";
 
@@ -264,5 +266,62 @@ policy: { fallback: denied, rules: [] }
 
     expect(tokens.has("anon")).toBe(false);
     expect(tokens.get("player-a")).toBe("value");
+  });
+});
+
+describe("сверка ссылок на эндпоинты", () => {
+  const endpoints = [
+    { id: "orders.read", method: "GET", path: "/v1/orders/{orderId}" },
+    { id: "me", method: "GET", path: "/v1/me" },
+  ] as const;
+
+  const base = `
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts:
+  - { id: u, role: player, tenant: t, tokenEnv: TOK, canary: me }
+resources:
+  - { id: mine, tenant: t, owner: u, params: { orderId: "1" }, endpoints: [orders.read] }
+policy:
+  fallback: denied
+  rules:
+    - { roles: [player], endpoints: [orders.read], scope: own, outcome: allowed }
+`;
+
+  it("пропускает корректные ссылки", () => {
+    expect(() => assertReferencesResolve(parseRunConfig(base), endpoints)).not.toThrow();
+  });
+
+  // Найдено прогоном против crAPI: опечатка в ресурсе молча теряла четыре
+  // находки BOLA, а объект оставался в отчёте как объявленный.
+  it("отвергает опечатку в ссылке объекта", () => {
+    const config = parseRunConfig(
+      base.replace("endpoints: [orders.read]", "endpoints: [orders.raed]"),
+    );
+
+    expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnknownEndpointReferenceError);
+  });
+
+  // Тот же прогон, обратный исход: опечатка в правиле ФАБРИКОВАЛА находки —
+  // чтение пользователем своего заказа объявлялось эскалацией привилегий.
+  it("отвергает опечатку в правиле политики", () => {
+    const config = parseRunConfig(
+      base.replace("endpoints: [orders.read], scope", "endpoints: [orders_read], scope"),
+    );
+
+    expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnknownEndpointReferenceError);
+  });
+
+  it("отвергает опечатку в канарейке", () => {
+    const config = parseRunConfig(base.replace("canary: me", "canary: mee"));
+
+    expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnknownEndpointReferenceError);
+  });
+
+  it("не придирается к правилу с «*»", () => {
+    const config = parseRunConfig(
+      base.replace("endpoints: [orders.read], scope: own", 'endpoints: "*"'),
+    );
+
+    expect(() => assertReferencesResolve(config, endpoints)).not.toThrow();
   });
 });

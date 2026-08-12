@@ -12,8 +12,8 @@
  * прошла незамеченной.
  */
 
-import type { AccessObservation, Account, ExpectedAccessPolicy } from "../core/index.js";
-import { resolveExpected } from "../core/index.js";
+import type { AccessObservation, Account, ExpectedAccessPolicy, Resource } from "../core/index.js";
+import { relationOf, resolveExpected } from "../core/index.js";
 
 export interface AuthenticitySuspicion {
   readonly accountId: string;
@@ -43,8 +43,10 @@ export function findUnauthenticated(
   accounts: readonly Account[],
   observations: readonly AccessObservation[],
   policy: ExpectedAccessPolicy,
+  resources: readonly Resource[] = [],
 ): readonly AuthenticitySuspicion[] {
   const suspicions: AuthenticitySuspicion[] = [];
+  const byId = new Map(resources.map((resource) => [resource.id, resource]));
 
   for (const account of accounts) {
     let expectedAllowed = 0;
@@ -55,7 +57,13 @@ export function findUnauthenticated(
       if (observation.accountId !== account.id) {
         continue;
       }
-      if (resolveExpected(policy, account.roleId, observation.endpointId) !== "allowed") {
+      // Отношение обязательно: правила со `scope` без него не применяются вовсе,
+      // и для политики в стиле ADR-0010 счётчик оставался бы нулевым — то есть
+      // предохранитель молчал бы именно на том стиле, который рекомендован.
+      const resource =
+        observation.resourceId === undefined ? undefined : byId.get(observation.resourceId);
+      const relation = resource === undefined ? undefined : relationOf(account, resource);
+      if (resolveExpected(policy, account.roleId, observation.endpointId, relation) !== "allowed") {
         continue;
       }
       expectedAllowed += 1;

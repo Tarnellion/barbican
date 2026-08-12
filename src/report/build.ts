@@ -60,6 +60,8 @@ export interface RunReport {
    * успешного, и разница остаётся только в предупреждении на stderr.
    */
   readonly canariesChecked: number;
+  /** Прогон оборвался, не дойдя до конца матрицы. */
+  readonly truncated: boolean;
   readonly observations: readonly AccessObservation[];
   readonly findings: readonly AccessDiff[];
   readonly summary: ReportSummary;
@@ -74,6 +76,7 @@ export interface BuildReportOptions {
   readonly failures: readonly ProbeFailure[];
   readonly unauthenticated: readonly string[];
   readonly canariesChecked: number;
+  readonly truncated: boolean;
   readonly findings: readonly AccessDiff[];
   readonly startedAt: Date;
   readonly finishedAt: Date;
@@ -116,6 +119,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     failures: options.failures,
     unauthenticated: options.unauthenticated,
     canariesChecked: options.canariesChecked,
+    truncated: options.truncated,
     observations: options.observations,
     findings: options.findings,
     summary: {
@@ -150,6 +154,12 @@ export function buildReport(options: BuildReportOptions): RunReport {
  */
 export function exitCodeFor(report: RunReport): number {
   if (report.summary.observations === 0) {
+    return 2;
+  }
+  // Оборванный прогон не проверил хвост матрицы: находок там нет потому,
+  // что до них не дошли. Найдено состязательной проверкой — исчерпанный
+  // потолок обращений давал код 0 при непроверенной межтенантной утечке.
+  if (report.truncated) {
     return 2;
   }
   if (report.unauthenticated.length > 0) {

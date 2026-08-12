@@ -98,3 +98,37 @@ describe("findUnauthenticated", () => {
     ]);
   });
 });
+
+// Регрессия, внесённая переходом на трёхмерную матрицу: правила со `scope`
+// не применялись без отношения, поэтому у политики в стиле ADR-0010 счётчик
+// объявленного доступа оставался нулевым и предохранитель молчал всегда.
+describe("политика с областью действия", () => {
+  const scoped: ExpectedAccessPolicy = {
+    fallback: "denied",
+    rules: [{ roles: ANY, endpoints: ["profile"], scope: "own", outcome: "allowed" }],
+  };
+  const accounts: readonly Account[] = [{ id: "u", roleId: "player", tenantId: "t" }];
+  const resources = [{ id: "mine", tenantId: "t", ownerAccountId: "u", params: { id: "1" } }];
+
+  function observeResource(status: number): AccessObservation {
+    return {
+      accountId: "u",
+      endpointId: "profile",
+      resourceId: "mine",
+      status,
+      headers: {},
+      outcome: status >= 200 && status < 300 ? "allowed" : "denied",
+      durationMs: 1,
+    };
+  }
+
+  it("замечает сломанную аутентификацию и при политике целиком на scope", () => {
+    expect(findUnauthenticated(accounts, [observeResource(401)], scoped, resources)).toEqual([
+      { accountId: "u", expectedAllowed: 1, refused: 1, dominantStatus: 401 },
+    ]);
+  });
+
+  it("молчит, когда свой объект доступен", () => {
+    expect(findUnauthenticated(accounts, [observeResource(200)], scoped, resources)).toEqual([]);
+  });
+});

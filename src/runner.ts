@@ -72,6 +72,15 @@ export interface CollectResult {
    * пропуск порождает столько находок, сколько аккаунтов, и тонет настоящий сигнал.
    */
   readonly probed: readonly Endpoint[];
+  /**
+   * Прогон оборвался, не дойдя до конца матрицы.
+   *
+   * Исчерпанный потолок обращений или сработавший circuit breaker обрывают
+   * обход посреди списка. Хвост остаётся непроверенным, но находок в нём нет
+   * ровно потому, что до него не дошли, — и без этого признака вердикт
+   * «чисто» неотличим от настоящего.
+   */
+  readonly truncated: boolean;
 }
 
 const TEMPLATE_PARAMETER = /\{[^}]+\}/;
@@ -272,6 +281,7 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
 
   const observations: AccessObservation[] = [];
   const failures: ProbeFailure[] = [];
+  let truncated = false;
 
   // Эндпоинт без параметров опрашивается один раз; с параметрами — по разу
   // на каждый объект, который эти параметры покрывает.
@@ -307,6 +317,10 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         status = response.status;
         headers = response.headers;
       } catch (cause) {
+        const name = cause instanceof Error ? cause.name : "";
+        if (name === "RunBudgetExhaustedError" || name === "CircuitOpenError") {
+          truncated = true;
+        }
         // Сорванное обращение — это отсутствие вывода, а не отказ в доступе.
         status = 0;
         headers = {};
@@ -330,5 +344,5 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     }
   }
 
-  return { observations, skipped, failures, probed: probeable };
+  return { observations, skipped, failures, probed: probeable, truncated };
 }

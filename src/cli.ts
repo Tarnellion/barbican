@@ -18,7 +18,7 @@ import { createHttpClient } from "./adapters/http.js";
 import { createOpenApiParser } from "./adapters/openapi.js";
 import { createThrottle } from "./adapters/throttle.js";
 import { buildAccessMatrix, diffAccess } from "./core/index.js";
-import { parseRunConfig, resolveTokens, toAccounts } from "./io/config.js";
+import { assertReferencesResolve, parseRunConfig, resolveTokens, toAccounts } from "./io/config.js";
 import { findUnauthenticated } from "./report/authenticity.js";
 import { buildReport, exitCodeFor } from "./report/build.js";
 import { collectObservations, probeCanaries } from "./runner.js";
@@ -84,6 +84,9 @@ async function run(flags: RunFlags): Promise<number> {
   const source = flags.spec ?? flags.endpoints ?? "";
   const parser = flags.spec === undefined ? createEndpointListParser() : createOpenApiParser();
   const endpoints = await parser.parse(await readFile(source, "utf8"));
+  // Ссылки сверяются после разбора спецификации: раньше эндпоинтов ещё нет.
+  assertReferencesResolve(config, endpoints);
+
   const credentials = createCredentialProvider(config.auth, resolveTokens(config, process.env));
 
   const throttle = createThrottle({
@@ -134,7 +137,7 @@ async function run(flags: RunFlags): Promise<number> {
   }
 
   const startedAt = new Date();
-  const { observations, skipped, failures, probed } = await collectObservations({
+  const { observations, skipped, failures, probed, truncated } = await collectObservations({
     baseUrl: config.target.baseUrl,
     endpoints,
     accounts,
@@ -155,7 +158,7 @@ async function run(flags: RunFlags): Promise<number> {
     observations,
   });
   const findings = diffAccess(matrix, config.policy);
-  const suspicions = findUnauthenticated(accounts, observations, config.policy);
+  const suspicions = findUnauthenticated(accounts, observations, config.policy, config.resources);
   const unauthenticated = suspicions.map((s) => s.accountId);
 
   const report = buildReport({
@@ -167,6 +170,7 @@ async function run(flags: RunFlags): Promise<number> {
     failures,
     unauthenticated,
     canariesChecked,
+    truncated,
     findings,
     startedAt,
     finishedAt,
@@ -181,6 +185,12 @@ async function run(flags: RunFlags): Promise<number> {
 
   const { summary } = report;
   const escalations = summary.byKind["privilege-escalation"];
+  if (truncated) {
+    process.stderr.write(
+      `${paint("Прогон оборван:", "red")} исчерпан потолок обращений или сработал ` +
+        `размыкатель. Хвост матрицы не проверен — отсутствие находок там ничего не значит.\n`,
+    );
+  }
   if (unauthenticated.length > 0) {
     process.stderr.write(
       `${paint("Доступа нет нигде:", "red")} ${suspicions

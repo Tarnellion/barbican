@@ -16,6 +16,7 @@ function report(overrides: {
   escalations?: number;
   probeErrors?: number;
   unauthenticated?: readonly string[];
+  truncated?: boolean;
 }): RunReport {
   const observations = overrides.observations ?? 4;
   return {
@@ -30,6 +31,7 @@ function report(overrides: {
     failures: [],
     unauthenticated: overrides.unauthenticated ?? [],
     canariesChecked: 0,
+    truncated: overrides.truncated ?? false,
     observations: [],
     findings: [],
     summary: {
@@ -67,6 +69,13 @@ describe("exitCodeFor", () => {
   it("2 — все обращения сорвались", () => {
     // Стенд лёг или сработал circuit breaker: судить не о чем.
     expect(exitCodeFor(report({ observations: 4, probeErrors: 4 }))).toBe(2);
+  });
+
+  // Найдено состязательной проверкой: потолок обращений обрывал матрицу
+  // посреди прогона, непроверенная межтенантная утечка оставалась ненайденной,
+  // а код возврата был 0.
+  it("2 — прогон оборван, хвост матрицы не проверен", () => {
+    expect(exitCodeFor(report({ truncated: true }))).toBe(2);
   });
 
   it("2 — аутентификация не сработала", () => {

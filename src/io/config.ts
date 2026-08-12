@@ -10,7 +10,7 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import type { AuthScheme } from "../adapters/credentials.js";
 import { DEFAULT_AUTH_SCHEME } from "../adapters/credentials.js";
-import type { Account, ExpectedAccessPolicy, Resource } from "../core/index.js";
+import type { Account, Endpoint, ExpectedAccessPolicy, Resource } from "../core/index.js";
 import { ANY, assertPolicyIsSound } from "../core/index.js";
 
 /** Тот же предел раскрытия алиасов, что и для спецификаций. */
@@ -168,6 +168,63 @@ export class UnknownResourceOwnerError extends Error {
         `которого нет среди аккаунтов. Отношение «своё или чужое» стало бы неопределённым.`,
     );
     this.name = "UnknownResourceOwnerError";
+  }
+}
+
+export class UnknownEndpointReferenceError extends Error {
+  constructor(where: string, endpointId: string) {
+    super(
+      `${where} ссылается на эндпоинт "${endpointId}", которого нет среди разобранных. ` +
+        `Опечатка здесь не безобидна: правило молча перестаёт применяться, а объект — ` +
+        `привязываться, и то и другое меняет вердикт, не оставляя следа в отчёте.`,
+    );
+    this.name = "UnknownEndpointReferenceError";
+  }
+}
+
+/**
+ * Сверяет ссылки на эндпоинты с фактически разобранным списком.
+ *
+ * Вызывается после разбора спецификации: раньше эндпоинтов ещё нет.
+ *
+ * Найдено прогоном против crAPI. Опечатка в одном символе давала два разных
+ * плохих исхода. В ресурсе — четыре находки BOLA молча исчезали, а объект
+ * оставался в отчёте как объявленный. В правиле политики — наоборот,
+ * фабриковались находки: чтение пользователем **своего** заказа объявлялось
+ * эскалацией привилегий, потому что правило, дающее доступ, перестало
+ * применяться.
+ *
+ * Это тот же класс, который уже ловят `UnknownCanaryEndpointError`
+ * и `EmptyRuleSelectorError`; здесь он был пропущен.
+ *
+ * @throws {UnknownEndpointReferenceError}
+ */
+export function assertReferencesResolve(config: RunConfig, endpoints: readonly Endpoint[]): void {
+  const known = new Set(endpoints.map((endpoint) => endpoint.id));
+
+  config.policy.rules.forEach((rule, index) => {
+    if (rule.endpoints === ANY) {
+      return;
+    }
+    for (const endpointId of rule.endpoints) {
+      if (!known.has(endpointId)) {
+        throw new UnknownEndpointReferenceError(`Правило политики #${index}`, endpointId);
+      }
+    }
+  });
+
+  for (const resource of config.resources) {
+    for (const endpointId of resource.endpointIds ?? []) {
+      if (!known.has(endpointId)) {
+        throw new UnknownEndpointReferenceError(`Объект "${resource.id}"`, endpointId);
+      }
+    }
+  }
+
+  for (const account of config.accounts) {
+    if (account.canary !== undefined && !known.has(account.canary)) {
+      throw new UnknownEndpointReferenceError(`Канарейка аккаунта "${account.id}"`, account.canary);
+    }
   }
 }
 
