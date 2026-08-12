@@ -40,14 +40,15 @@ const FLAG_FIELDS = {
   POLYGON_DEFECT_IDOR_SAME_TENANT: "idorSameTenant",
   POLYGON_DEFECT_LIST_NO_FILTER: "listNoFilter",
   POLYGON_DEFECT_CROSS_HOLDING: "crossHolding",
+  POLYGON_DEFECT_ANCESTOR_LEAK: "ancestorLeak",
 };
 
 /**
  * Локальная петля терпит частоту выше дефолтной.
  *
  * Дефолты инструмента (2 одновременно, 5 в секунду) рассчитаны на чужой стенд.
- * Здесь стенд свой, в том же процессе-родителе, и 47 обращений по 5 в секунду
- * растянули бы каждую из восьми комбинаций на десяток секунд.
+ * Здесь стенд свой, в том же процессе-родителе, и 56 обращений по 5 в секунду
+ * растянули бы каждую из шестнадцати комбинаций на десяток секунд.
  */
 const RUN_FLAGS = ["--rps", "50", "--concurrency", "4"];
 

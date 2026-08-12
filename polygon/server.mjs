@@ -100,12 +100,27 @@ const ORDERS = [
 ];
 
 /**
+ * Сводные расчётные документы холдинга.
+ *
+ * Отдельная коллекция, а не заказ с пустым владельцем. Причина не в опрятности:
+ * документ принадлежит **тенанту целиком**, владельца-пользователя у него нет
+ * вовсе, и это ровно тот случай, ради которого `ownerAccountId` в инструменте
+ * необязателен. Заказ без владельца был бы заказом, который никто не оформлял.
+ *
+ * Ради него здесь и заведён этот тип объекта: без объекта уровня холдинга
+ * отношение `ancestor-tenant` («бренд читает уровень своего холдинга»)
+ * невыразимо, и из двух отношений, введённых ADR-0013, сквозным прогоном
+ * проверялось только `descendant-tenant`.
+ */
+const STATEMENTS = [{ id: "H1-0001", tenant: "holding-1" }];
+
+/**
  * Переключатели дефектов.
  *
- * Четыре из пяти меняют ровно свой набор ячеек «аккаунт × эндпоинт × объект»
- * и видны по статусу: 200 там, где корректная реализация отвечает 403. Пятый —
- * принципиально другой: он не меняет ни одного статуса, и виден только через
- * сигнал над телом (ADR-0011).
+ * Пять из шести меняют ровно свой набор ячеек «аккаунт × эндпоинт × объект»
+ * и видны по статусу: 200 там, где корректная реализация отвечает 403.
+ * Шестой (`listNoFilter`) — принципиально другой: он не меняет ни одного
+ * статуса, и виден только через сигнал над телом (ADR-0011).
  */
 const DEFECT_FLAGS = {
   /** Нет фильтра по тенанту: объект чужого тенанта отдаётся 200 вместо 403. */
@@ -131,6 +146,21 @@ const DEFECT_FLAGS = {
    * `crossTenant` живёт на брендовых аккаунтах, этот — на холдинговых.
    */
   crossHolding: "POLYGON_DEFECT_CROSS_HOLDING",
+  /**
+   * Область видимости сводных документов раскрывается **вверх** по дереву:
+   * бренд получает документ своего холдинга — 200 вместо 403.
+   *
+   * Зеркало `crossHolding`, и потому отдельный флаг. Тот ломает взгляд сверху
+   * вниз (холдинг видит чужую ветвь), этот — снизу вверх (бренд видит уровень
+   * группы). ADR-0013 разделяет `descendant-tenant` и `ancestor-tenant` ровно
+   * потому, что это разные дефекты с разной ценой; свести их в один флаг значило
+   * бы вернуть на полигон различие, которое инструмент научили делать.
+   *
+   * Чужой бренд этим флагом не задет: `holding-1` ему не предок. Так дефект
+   * остаётся утверждением об отношении, а не про «документ стал публичным», —
+   * и ячейки `carol-b`, `dave-b` работают контролем.
+   */
+  ancestorLeak: "POLYGON_DEFECT_ANCESTOR_LEAK",
 };
 
 class ConfigurationError extends Error {
@@ -171,6 +201,7 @@ function readDefects() {
     idorSameTenant: readFlag(DEFECT_FLAGS.idorSameTenant),
     listNoFilter: readFlag(DEFECT_FLAGS.listNoFilter),
     crossHolding: readFlag(DEFECT_FLAGS.crossHolding),
+    ancestorLeak: readFlag(DEFECT_FLAGS.ancestorLeak),
   };
 }
 
@@ -248,6 +279,30 @@ function authorizeOrder(account, order, defects) {
   return defects.idorSameTenant ? 200 : 403;
 }
 
+/**
+ * Доступ к сводному документу холдинга.
+ *
+ * Владельца-пользователя у документа нет, поэтому «своё» здесь означает ровно
+ * совпадение тенантов — ни `own`, ни BOLA внутри тенанта тут не возникают.
+ *
+ * Отдельная функция, а не ветка в `authorizeOrder`: у заказов и у сводных
+ * документов разные правила видимости, и ломаются они независимо. Побочный
+ * и важный эффект — брендовая ветка заказов осталась нетронутой, поэтому ни
+ * одна прежняя ячейка не могла сменить исход.
+ */
+function authorizeStatement(account, statement, defects) {
+  if (statement.tenant === account.tenant) {
+    return 200;
+  }
+  // Дефект №6: фильтр раскрывается вверх по дереву вместо вниз. Реализация
+  // спрашивает «документ моего тенанта или любого его предка?» вместо «моего
+  // тенанта?» — и бренд получает документ уровня своей группы.
+  if (defects.ancestorLeak && isBelow(account.tenant, statement.tenant)) {
+    return 200;
+  }
+  return 403;
+}
+
 /** Доступ к админской ручке. Дефект №2: проверка роли отключена. */
 function authorizeAdmin(account, defects) {
   if (account.role === "admin") {
@@ -269,6 +324,7 @@ function send(res, status, payload) {
 }
 
 const ORDER_PATH = /^\/v1\/orders\/([^/]+)$/;
+const STATEMENT_PATH = /^\/v1\/statements\/([^/]+)$/;
 
 /** Список ручек. Дублируется в `endpoints.yaml` — там это объявление человека. */
 function handle(req, res, context) {
@@ -356,6 +412,24 @@ function handle(req, res, context) {
       return;
     }
     send(res, 200, { id: order.id, tenant: order.tenant, owner: order.owner });
+    return;
+  }
+
+  const statementMatch = STATEMENT_PATH.exec(pathname);
+  if (statementMatch !== null) {
+    const statementId = decodeURIComponent(statementMatch[1]);
+    const statement = STATEMENTS.find((entry) => entry.id === statementId);
+    if (statement === undefined) {
+      send(res, 404, { error: "not_found" });
+      return;
+    }
+    const status = authorizeStatement(account, statement, context.defects);
+    if (status !== 200) {
+      send(res, status, { error: "forbidden" });
+      return;
+    }
+    // Владельца в теле нет: у документа холдинга его не существует.
+    send(res, 200, { id: statement.id, tenant: statement.tenant });
     return;
   }
 
