@@ -6,15 +6,15 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     coverage: {
       provider: "v8",
-      // Пороги применяются к ядру. Адаптеры покрываются интеграционно,
-      // включать их сюда — значит размыть требование до бессмысленного среднего.
-      include: ["src/core/**/*.ts"],
+      include: ["src/core/**/*.ts", "src/adapters/**/*.ts"],
       reporter: ["text", "json-summary"],
+      // Пороги заданы отдельно по каталогам намеренно: общий порог позволил бы
+      // стопроцентному ядру замаскировать просадку в адаптерах.
       thresholds: {
-        lines: 95,
-        functions: 95,
-        branches: 90,
-        statements: 95,
+        "src/core/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
+        // У адаптеров ниже порог по функциям: часть из них — обёртки над системным
+        // временем, которые в тестах намеренно подменяются.
+        "src/adapters/**/*.ts": { statements: 95, branches: 90, functions: 90, lines: 95 },
       },
     },
   },
