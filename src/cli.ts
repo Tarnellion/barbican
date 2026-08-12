@@ -142,12 +142,18 @@ async function run(flags: RunFlags): Promise<number> {
     client,
     allowUnsafeMethods: flags.unsafeMethods === true,
     exclude: config.exclude,
+    resources: config.resources,
   });
   const finishedAt = new Date();
 
   // Матрица только из опрошенного: пропуск — пробел покрытия, а не расхождение
   // на каждый аккаунт. Иначе один пропуск даёт столько находок, сколько аккаунтов.
-  const matrix = buildAccessMatrix({ endpoints: probed, accounts, observations });
+  const matrix = buildAccessMatrix({
+    endpoints: probed,
+    accounts,
+    resources: config.resources,
+    observations,
+  });
   const findings = diffAccess(matrix, config.policy);
   const suspicions = findUnauthenticated(accounts, observations, config.policy);
   const unauthenticated = suspicions.map((s) => s.accountId);

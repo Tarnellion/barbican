@@ -5,7 +5,7 @@
  * в ADR-0006. Здесь только разрешение политики в конкретный ожидаемый исход.
  */
 
-import type { ExpectedOutcome, RoleId } from "./types.js";
+import type { ExpectedOutcome, ResourceRelation, RoleId } from "./types.js";
 
 /** Совпадает с любым значением поля. */
 export const ANY = "*";
@@ -17,6 +17,13 @@ export interface ExpectedAccessRule {
   readonly roles: readonly RoleId[] | Any;
   /** Идентификаторы эндпоинтов, к которым применимо правило, либо `*`. */
   readonly endpoints: readonly string[] | Any;
+  /**
+   * Отношение аккаунта к объекту, при котором правило действует.
+   *
+   * Отсутствие означает «при любом», включая обращения без объекта. Это
+   * сохраняет смысл политик, написанных до появления ресурсов (ADR-0010).
+   */
+  readonly scope?: ResourceRelation | undefined;
   readonly outcome: ExpectedOutcome;
 }
 
@@ -75,9 +82,13 @@ export function resolveExpected(
   policy: ExpectedAccessPolicy,
   roleId: RoleId,
   endpointId: string,
+  relation?: ResourceRelation,
 ): ExpectedOutcome {
   let outcome = policy.fallback;
   for (const rule of policy.rules) {
+    if (rule.scope !== undefined && rule.scope !== relation) {
+      continue;
+    }
     if (matches(rule.roles, roleId) && matches(rule.endpoints, endpointId)) {
       outcome = rule.outcome;
     }

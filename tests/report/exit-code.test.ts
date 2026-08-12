@@ -25,6 +25,7 @@ function report(overrides: {
     target: { baseUrl: "https://api.test", allowedHosts: ["api.test"] },
     accounts: [],
     endpoints: [],
+    resources: [],
     skipped: [],
     failures: [],
     unauthenticated: overrides.unauthenticated ?? [],
@@ -34,6 +35,7 @@ function report(overrides: {
     summary: {
       endpoints: 0,
       accounts: 0,
+      resources: 0,
       observations,
       skipped: 0,
       failures: 0,

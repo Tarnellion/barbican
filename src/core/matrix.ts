@@ -4,26 +4,27 @@
  * Чистые функции: ни сети, ни файловой системы. Вход — уже собранные наблюдения.
  */
 
-import type { AccessMatrix, AccessObservation, Account, Endpoint } from "./types.js";
+import type { AccessMatrix, AccessObservation, Account, Endpoint, Resource } from "./types.js";
 
 export class DuplicateIdError extends Error {
-  constructor(kind: "эндпоинт" | "аккаунт", id: string) {
+  constructor(kind: "эндпоинт" | "аккаунт" | "ресурс", id: string) {
     super(`Дублирующийся ${kind} с id "${id}"`);
     this.name = "DuplicateIdError";
   }
 }
 
 export class UnknownReferenceError extends Error {
-  constructor(kind: "эндпоинт" | "аккаунт", id: string) {
+  constructor(kind: "эндпоинт" | "аккаунт" | "ресурс", id: string) {
     super(`Наблюдение ссылается на неизвестный ${kind} "${id}"`);
     this.name = "UnknownReferenceError";
   }
 }
 
 export class ConflictingObservationError extends Error {
-  constructor(accountId: string, endpointId: string) {
+  constructor(accountId: string, endpointId: string, resourceId?: string) {
+    const cell = resourceId === undefined ? "" : ` × "${resourceId}"`;
     super(
-      `Больше одного наблюдения для пары "${accountId}" × "${endpointId}". ` +
+      `Больше одного наблюдения для "${accountId}" × "${endpointId}"${cell}. ` +
         `Какое из них отражает доступ — определить нельзя.`,
     );
     this.name = "ConflictingObservationError";
@@ -33,17 +34,47 @@ export class ConflictingObservationError extends Error {
 export interface AccessMatrixInput {
   readonly endpoints: readonly Endpoint[];
   readonly accounts: readonly Account[];
+  /** Объекты обращения. Пусто, если параметризованных эндпоинтов нет. */
+  readonly resources?: readonly Resource[];
   readonly observations: readonly AccessObservation[];
 }
 
 /**
- * Индекс наблюдений: аккаунт → эндпоинт → наблюдение.
+ * Индекс наблюдений: аккаунт → эндпоинт → объект → наблюдение.
  *
- * Вложенные карты, а не составной строковый ключ: склейка идентификаторов
- * в одну строку допускает коллизию, а тихо смешать результаты двух аккаунтов
- * в инструменте, который судит о правах доступа, недопустимо.
+ * Три уровня вложенных карт, а не составной строковый ключ: склейка
+ * идентификаторов допускает коллизию, а тихо смешать результаты двух аккаунтов
+ * или двух объектов в инструменте, который судит о правах доступа, недопустимо.
+ * Отсутствие объекта — ключ `undefined`, который Map поддерживает наравне
+ * со строками, поэтому выдумывать для него строковый маркер не нужно.
+ *
+ * Объект здесь координата, а не признак: одна и та же ручка со своим объектом
+ * и с чужим — разные ячейки с разным ожидаемым исходом.
  */
-export type ObservationIndex = ReadonlyMap<string, ReadonlyMap<string, AccessObservation>>;
+export type ObservationIndex = ReadonlyMap<
+  string,
+  ReadonlyMap<string, ReadonlyMap<string | undefined, AccessObservation>>
+>;
+
+const PARAMETER_NAME = /\{([^}]+)\}/g;
+
+/**
+ * Относится ли объект к эндпоинту.
+ *
+ * Одно правило на прогон и на дифф: разойдясь, они дали бы наблюдения,
+ * которым не с чем сравниваться, и находки без наблюдений.
+ */
+export function resourceApplies(endpoint: Endpoint, resource: Resource): boolean {
+  const names = [...endpoint.path.matchAll(PARAMETER_NAME)].map((match) => match[1] ?? "");
+  const covered = names.every((name) => resource.params[name] !== undefined);
+
+  if (resource.endpointIds !== undefined) {
+    return resource.endpointIds.includes(endpoint.id) && covered;
+  }
+  // Без явного списка объект относится только к эндпоинтам с параметрами:
+  // иначе объект с одним лишь query прицепился бы к каждой ручке подряд.
+  return names.length > 0 && covered;
+}
 
 /**
  * Собирает матрицу, проверяя целостность входа.
@@ -64,6 +95,14 @@ export function buildAccessMatrix(input: AccessMatrixInput): AccessMatrix {
     endpointIds.add(endpoint.id);
   }
 
+  const resourceIds = new Set<string>();
+  for (const resource of input.resources ?? []) {
+    if (resourceIds.has(resource.id)) {
+      throw new DuplicateIdError("ресурс", resource.id);
+    }
+    resourceIds.add(resource.id);
+  }
+
   const accountIds = new Set<string>();
   for (const account of input.accounts) {
     if (accountIds.has(account.id)) {
@@ -72,7 +111,7 @@ export function buildAccessMatrix(input: AccessMatrixInput): AccessMatrix {
     accountIds.add(account.id);
   }
 
-  const seen = new Map<string, Set<string>>();
+  const seen = new Map<string, Map<string, Set<string | undefined>>>();
   for (const observation of input.observations) {
     if (!accountIds.has(observation.accountId)) {
       throw new UnknownReferenceError("аккаунт", observation.accountId);
@@ -80,34 +119,52 @@ export function buildAccessMatrix(input: AccessMatrixInput): AccessMatrix {
     if (!endpointIds.has(observation.endpointId)) {
       throw new UnknownReferenceError("эндпоинт", observation.endpointId);
     }
+    if (observation.resourceId !== undefined && !resourceIds.has(observation.resourceId)) {
+      throw new UnknownReferenceError("ресурс", observation.resourceId);
+    }
 
-    let endpointsForAccount = seen.get(observation.accountId);
-    if (endpointsForAccount === undefined) {
-      endpointsForAccount = new Set();
-      seen.set(observation.accountId, endpointsForAccount);
+    let byEndpoint = seen.get(observation.accountId);
+    if (byEndpoint === undefined) {
+      byEndpoint = new Map();
+      seen.set(observation.accountId, byEndpoint);
     }
-    if (endpointsForAccount.has(observation.endpointId)) {
-      throw new ConflictingObservationError(observation.accountId, observation.endpointId);
+    let resourcesSeen = byEndpoint.get(observation.endpointId);
+    if (resourcesSeen === undefined) {
+      resourcesSeen = new Set();
+      byEndpoint.set(observation.endpointId, resourcesSeen);
     }
-    endpointsForAccount.add(observation.endpointId);
+    if (resourcesSeen.has(observation.resourceId)) {
+      throw new ConflictingObservationError(
+        observation.accountId,
+        observation.endpointId,
+        observation.resourceId,
+      );
+    }
+    resourcesSeen.add(observation.resourceId);
   }
 
   return {
     endpoints: input.endpoints,
     accounts: input.accounts,
+    resources: input.resources ?? [],
     observations: input.observations,
   };
 }
 
 export function indexObservations(matrix: AccessMatrix): ObservationIndex {
-  const index = new Map<string, Map<string, AccessObservation>>();
+  const index = new Map<string, Map<string, Map<string | undefined, AccessObservation>>>();
   for (const observation of matrix.observations) {
     let byEndpoint = index.get(observation.accountId);
     if (byEndpoint === undefined) {
       byEndpoint = new Map();
       index.set(observation.accountId, byEndpoint);
     }
-    byEndpoint.set(observation.endpointId, observation);
+    let byResource = byEndpoint.get(observation.endpointId);
+    if (byResource === undefined) {
+      byResource = new Map();
+      byEndpoint.set(observation.endpointId, byResource);
+    }
+    byResource.set(observation.resourceId, observation);
   }
   return index;
 }
@@ -116,6 +173,7 @@ export function findObservation(
   index: ObservationIndex,
   accountId: string,
   endpointId: string,
+  resourceId?: string,
 ): AccessObservation | undefined {
-  return index.get(accountId)?.get(endpointId);
+  return index.get(accountId)?.get(endpointId)?.get(resourceId);
 }

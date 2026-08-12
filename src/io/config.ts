@@ -10,7 +10,7 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import type { AuthScheme } from "../adapters/credentials.js";
 import { DEFAULT_AUTH_SCHEME } from "../adapters/credentials.js";
-import type { Account, ExpectedAccessPolicy } from "../core/index.js";
+import type { Account, ExpectedAccessPolicy, Resource } from "../core/index.js";
 import { ANY, assertPolicyIsSound } from "../core/index.js";
 
 /** Тот же предел раскрытия алиасов, что и для спецификаций. */
@@ -20,9 +20,13 @@ const outcomeSchema = z.enum(["allowed", "denied"]);
 
 const selectorSchema = z.union([z.literal(ANY), z.array(z.string().min(1)).min(1)]);
 
+const relationSchema = z.enum(["own", "same-tenant", "foreign-tenant"]);
+
 const ruleSchema = z.object({
   roles: selectorSchema,
   endpoints: selectorSchema,
+  /** Отсутствие означает «при любом отношении», включая обращения без объекта. */
+  scope: relationSchema.optional(),
   outcome: outcomeSchema,
 });
 
@@ -44,7 +48,13 @@ const configSchema = z.object({
         id: z.string().min(1),
         role: z.string().min(1),
         tenant: z.string().min(1),
-        tokenEnv: z.string().min(1),
+        /**
+         * Имя переменной окружения с токеном.
+         *
+         * Необязательно: аккаунт без него обращается анонимно. Без этого нельзя
+         * проверить утверждение «этот адрес не должен быть публичным».
+         */
+        tokenEnv: z.string().min(1).optional(),
         /**
          * Эндпоинт, заведомо доступный этому аккаунту.
          *
@@ -68,6 +78,25 @@ const configSchema = z.object({
    * `/createdb` сбрасывает базу, оставаясь GET.
    */
   exclude: z.array(z.string().min(1)).optional(),
+  /** Объекты обращения и их владельцы — см. ADR-0010. */
+  resources: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        tenant: z.string().min(1),
+        owner: z.string().min(1).optional(),
+        params: z.record(z.string().min(1), z.string()).optional(),
+        query: z.record(z.string().min(1), z.string()).optional(),
+        /**
+         * Эндпоинты, к которым относится объект.
+         *
+         * Обязательно, когда идентификатор в строке запроса: у такого эндпоинта
+         * нет параметров в пути, и связать его по совпадению имён невозможно.
+         */
+        endpoints: z.array(z.string().min(1)).min(1).optional(),
+      }),
+    )
+    .optional(),
   /** Схема аутентификации. По умолчанию Bearer — самый частый случай. */
   auth: authSchema.optional(),
 });
@@ -76,8 +105,8 @@ export interface AccountConfig {
   readonly id: string;
   readonly role: string;
   readonly tenant: string;
-  /** Имя переменной окружения с токеном. Не сам токен. */
-  readonly tokenEnv: string;
+  /** Имя переменной окружения с токеном. Не сам токен. Отсутствует у анонимных. */
+  readonly tokenEnv?: string | undefined;
   /**
    * Эндпоинт, заведомо доступный этому аккаунту.
    *
@@ -98,6 +127,7 @@ export interface RunConfig {
   readonly accounts: readonly AccountConfig[];
   readonly policy: ExpectedAccessPolicy;
   readonly exclude: readonly string[];
+  readonly resources: readonly Resource[];
 }
 
 export class ConfigParseError extends Error {
@@ -128,6 +158,16 @@ export class DuplicateAccountIdError extends Error {
   constructor(id: string) {
     super(`Аккаунт с id "${id}" объявлен больше одного раза`);
     this.name = "DuplicateAccountIdError";
+  }
+}
+
+export class UnknownResourceOwnerError extends Error {
+  constructor(resourceId: string, owner: string) {
+    super(
+      `Ресурс "${resourceId}" объявлен принадлежащим аккаунту "${owner}", ` +
+        `которого нет среди аккаунтов. Отношение «своё или чужое» стало бы неопределённым.`,
+    );
+    this.name = "UnknownResourceOwnerError";
   }
 }
 
@@ -187,12 +227,33 @@ export function parseRunConfig(source: string): RunConfig {
   const policy: ExpectedAccessPolicy = config.policy;
   assertPolicyIsSound(policy);
 
+  const resources: Resource[] = [];
+  const resourceIds = new Set<string>();
+  for (const declared of config.resources ?? []) {
+    if (resourceIds.has(declared.id)) {
+      throw new DuplicateAccountIdError(declared.id);
+    }
+    resourceIds.add(declared.id);
+    if (declared.owner !== undefined && !seen.has(declared.owner)) {
+      throw new UnknownResourceOwnerError(declared.id, declared.owner);
+    }
+    resources.push({
+      id: declared.id,
+      tenantId: declared.tenant,
+      ...(declared.owner === undefined ? {} : { ownerAccountId: declared.owner }),
+      params: declared.params ?? {},
+      ...(declared.query === undefined ? {} : { query: declared.query }),
+      ...(declared.endpoints === undefined ? {} : { endpointIds: declared.endpoints }),
+    });
+  }
+
   return {
     auth: config.auth ?? DEFAULT_AUTH_SCHEME,
     target: config.target,
     accounts: config.accounts,
     policy,
     exclude: config.exclude ?? [],
+    resources,
   };
 }
 
@@ -243,6 +304,10 @@ export function resolveTokens(
 ): ReadonlyMap<string, string> {
   const tokens = new Map<string, string>();
   for (const account of config.accounts) {
+    if (account.tokenEnv === undefined) {
+      // Анонимный аккаунт: учётных данных нет намеренно.
+      continue;
+    }
     const value = environment[account.tokenEnv];
     if (value === undefined || value.trim() === "") {
       throw new MissingCredentialError(account.id, account.tokenEnv);

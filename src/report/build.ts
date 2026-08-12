@@ -9,13 +9,14 @@
  * ответа приходят уже отредактированными из HTTP-клиента.
  */
 
-import type { AccessDiff, AccessObservation, DiffKind, Endpoint } from "../core/index.js";
+import type { AccessDiff, AccessObservation, DiffKind, Endpoint, Resource } from "../core/index.js";
 import type { RunConfig } from "../io/config.js";
 import type { ProbeFailure, SkippedEndpoint } from "../runner.js";
 
 export interface ReportSummary {
   readonly endpoints: number;
   readonly accounts: number;
+  readonly resources: number;
   readonly observations: number;
   readonly skipped: number;
   readonly failures: number;
@@ -37,6 +38,11 @@ export interface RunReport {
     readonly tenant: string;
   }[];
   readonly endpoints: readonly Endpoint[];
+  /**
+   * Объекты обращения. Без них находка о нарушении изоляции непроверяема:
+   * непонятно, к какому объекту относился доступ.
+   */
+  readonly resources: readonly Resource[];
   readonly skipped: readonly SkippedEndpoint[];
   readonly failures: readonly ProbeFailure[];
   /**
@@ -105,6 +111,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
       tenant: account.tenant,
     })),
     endpoints: options.endpoints,
+    resources: options.config.resources,
     skipped: options.skipped,
     failures: options.failures,
     unauthenticated: options.unauthenticated,
@@ -114,6 +121,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     summary: {
       endpoints: options.endpoints.length,
       accounts: options.config.accounts.length,
+      resources: options.config.resources.length,
       observations: options.observations.length,
       skipped: options.skipped.length,
       failures: options.failures.length,

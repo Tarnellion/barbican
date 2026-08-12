@@ -381,3 +381,98 @@ describe("путь из спецификации не управляет адр�
     expect(seen[0]?.url).toBe("https://api.example.test/v1/users");
   });
 });
+
+describe("обращение к объектам", () => {
+  const one: readonly Account[] = [{ id: "a", roleId: "r", tenantId: "t" }];
+  const credentials = createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "tok"]]));
+  const profile: Endpoint = { id: "profile", method: "GET", path: "/v1/players/{playerId}" };
+
+  it("подставляет значения объекта в путь и опрашивает каждый по разу", async () => {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: [profile],
+      accounts: one,
+      credentials,
+      client,
+      resources: [
+        { id: "r1", tenantId: "t", params: { playerId: "1001" } },
+        { id: "r2", tenantId: "t", params: { playerId: "2002" } },
+      ],
+    });
+
+    expect(seen.map((r) => r.url)).toEqual([
+      "https://api.test/v1/players/1001",
+      "https://api.test/v1/players/2002",
+    ]);
+    expect(result.observations.map((o) => o.resourceId)).toEqual(["r1", "r2"]);
+  });
+
+  it("кодирует значение, а не вставляет как есть", async () => {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: [profile],
+      accounts: one,
+      credentials,
+      client,
+      // Иначе значение с косой чертой сместило бы путь на другой ресурс.
+      resources: [{ id: "r", tenantId: "t", params: { playerId: "../admin" } }],
+    });
+
+    expect(seen[0]?.url).toBe("https://api.test/v1/players/..%2Fadmin");
+  });
+
+  it("добавляет параметры строки запроса", async () => {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: [{ id: "report", method: "GET", path: "/v1/report" }],
+      accounts: one,
+      credentials,
+      client,
+      // Найдено разведкой crAPI: идентификатор бывает в query, а не в пути.
+      // У такого эндпоинта нет параметров в шаблоне, поэтому привязка явная.
+      resources: [
+        { id: "r", tenantId: "t", params: {}, query: { report_id: "1" }, endpointIds: ["report"] },
+      ],
+    });
+
+    expect(seen[0]?.url).toBe("https://api.test/v1/report?report_id=1");
+  });
+
+  it("пропускает параметризованный эндпоинт, если объектов с такими параметрами нет", async () => {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: [profile],
+      accounts: one,
+      credentials,
+      client,
+      resources: [{ id: "other", tenantId: "t", params: { orderId: "7" } }],
+    });
+
+    expect(result.skipped).toEqual([{ endpointId: "profile", reason: "path-parameters" }]);
+    expect(seen).toEqual([]);
+  });
+
+  it("не привязывает объект к эндпоинту без параметров", async () => {
+    const { client } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: [{ id: "ping", method: "GET", path: "/ping" }],
+      accounts: one,
+      credentials,
+      client,
+      resources: [{ id: "r", tenantId: "t", params: { playerId: "1" } }],
+    });
+
+    expect(result.observations).toHaveLength(1);
+    expect(result.observations[0]?.resourceId).toBeUndefined();
+  });
+});

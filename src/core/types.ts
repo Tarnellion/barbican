@@ -39,6 +39,58 @@ export interface Endpoint {
   readonly operationId?: string;
 }
 
+/**
+ * Объект, к которому обращаются: значения параметров плюс владелец.
+ *
+ * Объявляется человеком, а не выуживается из ответов — обоснование в ADR-0010.
+ * Утверждение «объект 1001 принадлежит игроку A» есть заявление о намерении,
+ * ровно как и сама политика доступа.
+ */
+export interface Resource {
+  readonly id: string;
+  readonly tenantId: TenantId;
+  /** Аккаунт-владелец. Отсутствует, если объект принадлежит тенанту целиком. */
+  readonly ownerAccountId?: string;
+  /** Значения для параметров пути по именам из шаблона. */
+  readonly params: Readonly<Record<string, string>>;
+  /** Параметры строки запроса. */
+  readonly query?: Readonly<Record<string, string>>;
+  /**
+   * Эндпоинты, к которым относится объект.
+   *
+   * Нужно, когда идентификатор лежит в строке запроса, а не в пути: у такого
+   * эндпоинта нет параметров в шаблоне, и связать его с объектом по совпадению
+   * имён невозможно. Разведка crAPI показала, что так устроен целый BOLA
+   * (`mechanic_report?report_id=N`).
+   *
+   * Отсутствие означает «по совпадению параметров пути».
+   */
+  readonly endpointIds?: readonly string[];
+}
+
+/**
+ * Отношение аккаунта к объекту.
+ *
+ * Трёхзначно намеренно: администратору тенанта обычно положен доступ ко всем
+ * объектам своего тенанта и не положен ни к одному чужому, и одним признаком
+ * «не своё» это не выразить.
+ */
+export type ResourceRelation =
+  /** Владелец объекта — сам аккаунт. */
+  | "own"
+  /** Тот же тенант, но другой владелец: сюда попадает BOLA внутри тенанта. */
+  | "same-tenant"
+  /** Другой тенант: сюда попадает утечка между тенантами. */
+  | "foreign-tenant";
+
+/** Определяет отношение аккаунта к объекту. */
+export function relationOf(account: Account, resource: Resource): ResourceRelation {
+  if (account.tenantId !== resource.tenantId) {
+    return "foreign-tenant";
+  }
+  return resource.ownerAccountId === account.id ? "own" : "same-tenant";
+}
+
 /** Чем закончилось обращение с точки зрения доступа. */
 export type AccessOutcome = "allowed" | "denied" | "not-found" | "error";
 
@@ -52,6 +104,8 @@ export type AccessOutcome = "allowed" | "denied" | "not-found" | "error";
 export interface AccessObservation {
   readonly endpointId: string;
   readonly accountId: string;
+  /** Объект обращения. Отсутствует у эндпоинтов без параметров. */
+  readonly resourceId?: string;
   readonly status: number;
   readonly headers: Readonly<Record<string, string>>;
   readonly outcome: AccessOutcome;
@@ -62,6 +116,7 @@ export interface AccessObservation {
 export interface AccessMatrix {
   readonly endpoints: readonly Endpoint[];
   readonly accounts: readonly Account[];
+  readonly resources: readonly Resource[];
   readonly observations: readonly AccessObservation[];
 }
 
@@ -91,6 +146,10 @@ export type DiffKind =
 export interface AccessDiff {
   readonly accountId: string;
   readonly endpointId: string;
+  /** Объект обращения. Отсутствует у эндпоинтов без параметров. */
+  readonly resourceId?: string;
+  /** Отношение аккаунта к объекту. Отсутствует вместе с объектом. */
+  readonly relation?: ResourceRelation;
   readonly expected: ExpectedOutcome;
   /** Отсутствует, если наблюдения для пары нет. */
   readonly actual?: AccessOutcome;

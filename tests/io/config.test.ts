@@ -16,6 +16,7 @@ import {
   parseRunConfig,
   resolveTokens,
   toAccounts,
+  UnknownResourceOwnerError,
 } from "../../src/io/config.js";
 
 const VALID = `
@@ -181,5 +182,87 @@ describe("учётные данные", () => {
     expect(() =>
       resolveTokens(config, { TOKEN_PLAYER_A: "present", TOKEN_ADMIN_A: "   " }),
     ).toThrow(MissingCredentialError);
+  });
+});
+
+describe("объекты обращения", () => {
+  const WITH_RESOURCES = `
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts:
+  - { id: player-a, role: player, tenant: tenant-a, tokenEnv: TOK_A }
+resources:
+  - { id: mine,    tenant: tenant-a, owner: player-a, params: { playerId: "1001" } }
+  - { id: foreign, tenant: tenant-b, params: { playerId: "2002" } }
+  - { id: byquery, tenant: tenant-a, query: { report_id: "1" } }
+policy:
+  fallback: denied
+  rules:
+    - { roles: [player], endpoints: [profile], scope: own, outcome: allowed }
+`;
+
+  it("читает объекты с владельцем, параметрами и запросом", () => {
+    const config = parseRunConfig(WITH_RESOURCES);
+
+    expect(config.resources).toEqual([
+      {
+        id: "mine",
+        tenantId: "tenant-a",
+        ownerAccountId: "player-a",
+        params: { playerId: "1001" },
+      },
+      { id: "foreign", tenantId: "tenant-b", params: { playerId: "2002" } },
+      { id: "byquery", tenantId: "tenant-a", params: {}, query: { report_id: "1" } },
+    ]);
+  });
+
+  it("читает область действия правила", () => {
+    expect(parseRunConfig(WITH_RESOURCES).policy.rules[0]?.scope).toBe("own");
+  });
+
+  it("отвергает неизвестное отношение", () => {
+    expect(() => parseRunConfig(WITH_RESOURCES.replace("scope: own", "scope: чужое"))).toThrow(
+      ConfigValidationError,
+    );
+  });
+
+  // Иначе отношение «своё или чужое» стало бы неопределённым молча.
+  it("отвергает объект, объявленный принадлежащим несуществующему аккаунту", () => {
+    expect(() =>
+      parseRunConfig(WITH_RESOURCES.replace("owner: player-a", "owner: нет-такого")),
+    ).toThrow(UnknownResourceOwnerError);
+  });
+
+  it("отвергает повторяющийся id объекта", () => {
+    expect(() => parseRunConfig(WITH_RESOURCES.replace("id: foreign", "id: mine"))).toThrow(
+      DuplicateAccountIdError,
+    );
+  });
+
+  it("без объектов список пуст, а не отсутствует", () => {
+    expect(parseRunConfig(VALID).resources).toEqual([]);
+  });
+});
+
+describe("анонимный аккаунт", () => {
+  const ANON = `
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts:
+  - { id: anon,     role: guest,  tenant: public }
+  - { id: player-a, role: player, tenant: tenant-a, tokenEnv: TOK_A }
+policy: { fallback: denied, rules: [] }
+`;
+
+  it("допускает аккаунт без переменной с токеном", () => {
+    const config = parseRunConfig(ANON);
+
+    expect(config.accounts[0]?.tokenEnv).toBeUndefined();
+  });
+
+  // Без этого нельзя проверить утверждение «этот адрес не должен быть публичным».
+  it("не требует учётных данных для анонимного аккаунта", () => {
+    const tokens = resolveTokens(parseRunConfig(ANON), { TOK_A: "value" });
+
+    expect(tokens.has("anon")).toBe(false);
+    expect(tokens.get("player-a")).toBe("value");
   });
 });

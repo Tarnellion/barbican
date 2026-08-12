@@ -6,8 +6,14 @@
  */
 
 import type { CredentialProvider, HttpClient } from "./adapters/ports.js";
-import type { AccessObservation, AccessOutcome, Account, Endpoint } from "./core/index.js";
-import { SAFE_METHODS } from "./core/index.js";
+import type {
+  AccessObservation,
+  AccessOutcome,
+  Account,
+  Endpoint,
+  Resource,
+} from "./core/index.js";
+import { resourceApplies, SAFE_METHODS } from "./core/index.js";
 
 /**
  * Эндпоинт, который не опрашивался, и почему.
@@ -30,6 +36,7 @@ export interface SkippedEndpoint {
 export interface ProbeFailure {
   readonly accountId: string;
   readonly endpointId: string;
+  readonly resourceId?: string;
   readonly reason: string;
 }
 
@@ -41,6 +48,8 @@ export interface CollectOptions {
   readonly credentials: CredentialProvider;
   readonly client: HttpClient;
   readonly allowUnsafeMethods?: boolean;
+  /** Объекты обращения. Без них параметризованные эндпоинты не опрашиваются. */
+  readonly resources?: readonly Resource[];
   /**
    * Идентификаторы эндпоинтов, которые не трогать.
    *
@@ -121,6 +130,27 @@ function joinUrl(baseUrl: string, path: string): string {
     throw new PathEscapesTargetError(path, resolved.origin, base.origin);
   }
   return resolved.toString();
+}
+
+const PARAMETER_NAME = /\{([^}]+)\}/g;
+
+/** Подставляет значения объекта в шаблон пути. */
+function substitute(path: string, resource: Resource): string {
+  return path.replace(PARAMETER_NAME, (_match, name: string) =>
+    encodeURIComponent(resource.params[name] ?? ""),
+  );
+}
+
+function withQuery(url: string, resource: Resource | undefined): string {
+  const query = resource?.query;
+  if (query === undefined || Object.keys(query).length === 0) {
+    return url;
+  }
+  const parsed = new URL(url);
+  for (const [name, value] of Object.entries(query)) {
+    parsed.searchParams.set(name, value);
+  }
+  return parsed.toString();
 }
 
 /** Остаётся ли обращение по этому пути в пределах цели. */
@@ -224,7 +254,11 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       skipped.push({ endpointId: endpoint.id, reason: "excluded" });
     } else if (options.allowUnsafeMethods !== true && !safe.has(endpoint.method)) {
       skipped.push({ endpointId: endpoint.id, reason: "unsafe-method" });
-    } else if (TEMPLATE_PARAMETER.test(endpoint.path)) {
+    } else if (
+      TEMPLATE_PARAMETER.test(endpoint.path) &&
+      !(options.resources ?? []).some((resource) => resourceApplies(endpoint, resource))
+    ) {
+      // Параметры есть, а объекта с их значениями не объявлено — подставлять нечего.
       skipped.push({ endpointId: endpoint.id, reason: "path-parameters" });
     } else if (!staysWithinTarget(options.baseUrl, endpoint.path)) {
       // Путь уводит за пределы цели. Это свойство эндпоинта, а не сбой
@@ -239,13 +273,30 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
   const observations: AccessObservation[] = [];
   const failures: ProbeFailure[] = [];
 
+  // Эндпоинт без параметров опрашивается один раз; с параметрами — по разу
+  // на каждый объект, который эти параметры покрывает.
+  const cells: Array<{ endpoint: Endpoint; resource?: Resource }> = [];
+  for (const endpoint of probeable) {
+    const applicable = (options.resources ?? []).filter((resource) =>
+      resourceApplies(endpoint, resource),
+    );
+    if (applicable.length === 0) {
+      cells.push({ endpoint });
+      continue;
+    }
+    for (const resource of applicable) {
+      cells.push({ endpoint, resource });
+    }
+  }
+
   for (const account of options.accounts) {
     const authHeaders = options.credentials.headersFor(account.id);
-    for (const endpoint of probeable) {
+    for (const { endpoint, resource } of cells) {
       const startedAt = Date.now();
+      const path = resource === undefined ? endpoint.path : substitute(endpoint.path, resource);
       const request = {
         method: endpoint.method,
-        url: joinUrl(options.baseUrl, endpoint.path),
+        url: withQuery(joinUrl(options.baseUrl, path), resource),
         headers: authHeaders,
       };
 
@@ -262,6 +313,7 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         failures.push({
           accountId: account.id,
           endpointId: endpoint.id,
+          ...(resource === undefined ? {} : { resourceId: resource.id }),
           reason: cause instanceof Error ? cause.message : String(cause),
         });
       }
@@ -269,6 +321,7 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       observations.push({
         accountId: account.id,
         endpointId: endpoint.id,
+        ...(resource === undefined ? {} : { resourceId: resource.id }),
         status,
         headers,
         outcome: status === 0 ? "error" : classifyStatus(status),
