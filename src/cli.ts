@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import { styleText } from "node:util";
 import { Command, InvalidArgumentError } from "commander";
 import { createCredentialProvider } from "./adapters/credentials.js";
+import { createEndpointListParser } from "./adapters/endpoint-list.js";
 import { createHttpClient } from "./adapters/http.js";
 import { createOpenApiParser } from "./adapters/openapi.js";
 import { createThrottle } from "./adapters/throttle.js";
@@ -60,7 +61,8 @@ function positiveInteger(raw: string): number {
 
 interface RunFlags {
   readonly config: string;
-  readonly spec: string;
+  readonly spec?: string;
+  readonly endpoints?: string;
   readonly report?: string;
   readonly unsafeMethods?: boolean;
   readonly concurrency?: number;
@@ -70,7 +72,17 @@ interface RunFlags {
 
 async function run(flags: RunFlags): Promise<number> {
   const config = parseRunConfig(await readFile(flags.config, "utf8"));
-  const endpoints = await createOpenApiParser().parse(await readFile(flags.spec, "utf8"));
+
+  // Ровно один источник эндпоинтов: два молча разошлись бы, а ни одного
+  // дало бы отчёт без находок, неотличимый от успешного.
+  if ((flags.spec === undefined) === (flags.endpoints === undefined)) {
+    throw new Error(
+      "Укажите ровно один источник эндпоинтов: --spec (OpenAPI) или --endpoints (ручной список).",
+    );
+  }
+  const source = flags.spec ?? flags.endpoints ?? "";
+  const parser = flags.spec === undefined ? createEndpointListParser() : createOpenApiParser();
+  const endpoints = await parser.parse(await readFile(source, "utf8"));
   const credentials = createCredentialProvider(config.auth, resolveTokens(config, process.env));
 
   const throttle = createThrottle({
@@ -197,7 +209,8 @@ program
   .command("run")
   .description("Пройти матрицу «роль × эндпоинт» и сравнить с объявленной политикой")
   .requiredOption("-c, --config <path>", "конфигурация прогона (YAML или JSON)")
-  .requiredOption("-s, --spec <path>", "спецификация OpenAPI проверяемого API")
+  .option("-s, --spec <path>", "спецификация OpenAPI проверяемого API")
+  .option("-e, --endpoints <path>", "ручной список эндпоинтов, если спецификации нет")
   .option("-r, --report <path>", "куда записать JSON-отчёт (по умолчанию в stdout)")
   .option("--unsafe-methods", "разрешить методы, изменяющие состояние")
   .option("--concurrency <n>", "одновременных обращений", positiveInteger)
