@@ -121,6 +121,27 @@ const configSchema = z.object({
     .object({
       tenantScoped: z.array(z.string().min(1)).min(1),
       maxBodyBytes: z.number().int().positive().optional(),
+      /**
+       * Дополнительные скаляры для отчёта.
+       *
+       * Находок сами по себе не порождают — они нужны человеку, разбирающему
+       * находку дайджеста. «Совпали ответы у alice и carol» — сигнал тревоги,
+       * но триаж начинается с вопроса «а сколько записей кто увидел».
+       *
+       * `digest` здесь не объявляется: его смысл задаётся пометкой tenantScoped
+       * и проверкой, которая его читает. Дайджест без потребителя бесполезен.
+       */
+      signals: z
+        .array(
+          z.object({
+            name: z.string().min(1),
+            kind: z.enum(["count", "present"]),
+            path: z.string(),
+            endpoints: z.array(z.string().min(1)).min(1),
+          }),
+        )
+        .min(1)
+        .optional(),
     })
     .optional(),
 });
@@ -145,10 +166,29 @@ export interface RunTarget {
   readonly allowedHosts: readonly string[];
 }
 
+export interface DeclaredSignal {
+  readonly name: string;
+  readonly kind: "count" | "present";
+  readonly path: string;
+  /** Эндпоинты, у которых этот скаляр вычисляется. */
+  readonly endpoints: readonly string[];
+}
+
 export interface BodySignalsConfig {
   /** Эндпоинты, ответ которых обязан различаться между тенантами. */
   readonly tenantScoped: readonly string[];
   readonly maxBodyBytes?: number | undefined;
+  readonly signals?: readonly DeclaredSignal[] | undefined;
+}
+
+export class DuplicateSignalNameError extends Error {
+  constructor(name: string) {
+    super(
+      `Сигнал с именем "${name}" объявлен больше одного раза. Имена — ключи ` +
+        `в наблюдении, и повторное имя молча затирало бы предыдущий скаляр.`,
+    );
+    this.name = "DuplicateSignalNameError";
+  }
 }
 
 export interface RunConfig {
@@ -296,6 +336,19 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
       throw new UnknownEndpointReferenceError("Пометка tenantScoped", endpointId);
     }
   }
+
+  const seenNames = new Set<string>();
+  for (const signal of config.bodySignals?.signals ?? []) {
+    if (seenNames.has(signal.name)) {
+      throw new DuplicateSignalNameError(signal.name);
+    }
+    seenNames.add(signal.name);
+    for (const endpointId of signal.endpoints) {
+      if (!known.has(endpointId)) {
+        throw new UnknownEndpointReferenceError(`Сигнал "${signal.name}"`, endpointId);
+      }
+    }
+  }
 }
 
 /**
@@ -305,17 +358,25 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
  * ничего не знают и знать не должны: это заявление человека о намерении,
  * ровно как и политика доступа. См. ADR-0006 и ADR-0011.
  */
-export function applyTenantScope(
+export function applyBodySignals(
   endpoints: readonly Endpoint[],
   config: RunConfig,
 ): readonly Endpoint[] {
   const scoped = new Set(config.bodySignals?.tenantScoped ?? []);
-  if (scoped.size === 0) {
+  const declared = config.bodySignals?.signals ?? [];
+  if (scoped.size === 0 && declared.length === 0) {
     return endpoints;
   }
-  return endpoints.map((endpoint) =>
-    scoped.has(endpoint.id) ? { ...endpoint, tenantScoped: true } : endpoint,
-  );
+  return endpoints.map((endpoint) => {
+    const extra = declared
+      .filter((signal) => signal.endpoints.includes(endpoint.id))
+      .map(({ name, kind, path }) => ({ name, kind, path }) as const);
+    return {
+      ...endpoint,
+      ...(scoped.has(endpoint.id) ? { tenantScoped: true } : {}),
+      ...(extra.length === 0 ? {} : { signals: extra }),
+    };
+  });
 }
 
 export class MissingCredentialError extends Error {

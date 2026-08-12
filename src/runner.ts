@@ -356,11 +356,17 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       }
       // Тело читается только у эндпоинтов, помеченных человеком как tenantScoped:
       // где не объявлено, там поток отменяется непрочитанным. См. ADR-0011.
+      // Дайджест подразумевается пометкой tenantScoped, остальные скаляры
+      // объявлены человеком явно. Пусто — тело не читается вовсе.
+      const specs: readonly SignalSpec[] = [
+        ...(endpoint.tenantScoped === true ? DIGEST_SIGNALS : []),
+        ...(endpoint.signals ?? []),
+      ];
       const request = {
         method: endpoint.method,
         url,
         headers: authHeaders,
-        ...(endpoint.tenantScoped === true ? { signals: DIGEST_SIGNALS } : {}),
+        ...(specs.length === 0 ? {} : { signals: specs }),
       };
 
       let status: number;

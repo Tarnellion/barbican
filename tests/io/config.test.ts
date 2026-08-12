@@ -7,13 +7,14 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  applyTenantScope,
+  applyBodySignals,
   assertReferencesResolve,
   ConfigParseError,
   ConfigValidationError,
   CredentialsInUrlError,
   DuplicateAccountIdError,
   DuplicateResourceIdError,
+  DuplicateSignalNameError,
   HostOutsideScopeError,
   InvalidCredentialError,
   MissingCredentialError,
@@ -341,11 +342,56 @@ policy:
     expect(() => assertReferencesResolve(config, endpoints)).not.toThrow();
   });
 
-  describe("applyTenantScope", () => {
+  describe("объявленные скаляры", () => {
+    const withSignals = `${base}bodySignals:
+  tenantScoped: [orders.read]
+  signals:
+    - { name: orderCount, kind: count, path: orders, endpoints: [orders.read] }
+`;
+
+    it("читает объявленные сигналы", () => {
+      const config = parseRunConfig(withSignals);
+
+      expect(config.bodySignals?.signals).toEqual([
+        { name: "orderCount", kind: "count", path: "orders", endpoints: ["orders.read"] },
+      ]);
+    });
+
+    it("проставляет их эндпоинту вместе с пометкой", () => {
+      const config = parseRunConfig(withSignals);
+
+      const marked = applyBodySignals(endpoints, config);
+      const target = marked.find((endpoint) => endpoint.id === "orders.read");
+
+      expect(target?.tenantScoped).toBe(true);
+      expect(target?.signals).toEqual([{ name: "orderCount", kind: "count", path: "orders" }]);
+    });
+
+    it("отвергает опечатку в эндпоинте сигнала", () => {
+      const config = parseRunConfig(
+        withSignals.replace("endpoints: [orders.read] }", "endpoints: [orders.raed] }"),
+      );
+
+      expect(() => assertReferencesResolve(config, endpoints)).toThrow(
+        UnknownEndpointReferenceError,
+      );
+    });
+
+    /** Имена — ключи в наблюдении: повтор молча затирал бы предыдущий скаляр. */
+    it("отвергает повторяющееся имя сигнала", () => {
+      const config = parseRunConfig(
+        `${withSignals}    - { name: orderCount, kind: present, path: next, endpoints: [orders.read] }\n`,
+      );
+
+      expect(() => assertReferencesResolve(config, endpoints)).toThrow(DuplicateSignalNameError);
+    });
+  });
+
+  describe("applyBodySignals", () => {
     it("проставляет пометку только перечисленным эндпоинтам", () => {
       const config = parseRunConfig(`${base}bodySignals: { tenantScoped: [orders.read] }\n`);
 
-      const marked = applyTenantScope(endpoints, config);
+      const marked = applyBodySignals(endpoints, config);
 
       expect(marked.find((endpoint) => endpoint.id === "orders.read")?.tenantScoped).toBe(true);
       expect(marked.filter((endpoint) => endpoint.tenantScoped === true)).toHaveLength(1);
@@ -353,7 +399,7 @@ policy:
 
     /** Без секции тела не читаются нигде — это и есть «выключено по умолчанию». */
     it("без секции bodySignals не трогает ничего", () => {
-      const marked = applyTenantScope(endpoints, parseRunConfig(base));
+      const marked = applyBodySignals(endpoints, parseRunConfig(base));
 
       expect(marked).toBe(endpoints);
       expect(marked.some((endpoint) => endpoint.tenantScoped === true)).toBe(false);

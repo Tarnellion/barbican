@@ -113,6 +113,44 @@ describe("collectObservations", () => {
       expect(result.observations[0]?.signals).toEqual({ digest: 42 });
     });
 
+    /**
+     * Дайджест подразумевается пометкой, объявленные скаляры добавляются к нему.
+     * Раньше пометка перекрывала объявление: запрашивался только дайджест.
+     */
+    it("складывает подразумеваемый дайджест с объявленными скалярами", async () => {
+      const marked: readonly Endpoint[] = [
+        {
+          id: "users.list",
+          method: "GET",
+          path: "/v1/admin/users",
+          tenantScoped: true,
+          signals: [{ name: "n", kind: "count", path: "items" }],
+        },
+      ];
+
+      const { seen } = await collect(marked, { status: 200, headers: {} });
+
+      expect(seen[0]?.signals).toEqual([
+        { name: "digest", kind: "digest" },
+        { name: "n", kind: "count", path: "items" },
+      ]);
+    });
+
+    it("читает тело и по одному объявленному скаляру, без пометки", async () => {
+      const marked: readonly Endpoint[] = [
+        {
+          id: "users.list",
+          method: "GET",
+          path: "/v1/admin/users",
+          signals: [{ name: "n", kind: "count", path: "items" }],
+        },
+      ];
+
+      const { seen } = await collect(marked, { status: 200, headers: {} });
+
+      expect(seen[0]?.signals).toEqual([{ name: "n", kind: "count", path: "items" }]);
+    });
+
     it("без пометки наблюдение остаётся без сигналов", async () => {
       const { result } = await collect([{ id: "users.list", method: "GET", path: "/v1/x" }], {
         status: 200,

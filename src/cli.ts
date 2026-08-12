@@ -27,7 +27,7 @@ import {
   diffAccess,
 } from "./core/index.js";
 import {
-  applyTenantScope,
+  applyBodySignals,
   assertReferencesResolve,
   parseRunConfig,
   resolveTokens,
@@ -109,7 +109,7 @@ async function run(flags: RunFlags): Promise<number> {
   // Ссылки сверяются после разбора спецификации: раньше эндпоинтов ещё нет.
   assertReferencesResolve(config, parsed);
   // Пометка tenantScoped — заявление человека, источники эндпоинтов о ней не знают.
-  const endpoints = applyTenantScope(parsed, config);
+  const endpoints = applyBodySignals(parsed, config);
 
   const credentials = createCredentialProvider(config.auth, resolveTokens(config, process.env));
 
