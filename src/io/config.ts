@@ -97,6 +97,15 @@ const configSchema = z.object({
       }),
     )
     .optional(),
+  /**
+   * Перечень тенантов.
+   *
+   * Необязателен, но если задан — имена тенантов у аккаунтов и объектов
+   * сверяются с ним. Нужен потому, что опечатка в имени тенанта **прячет
+   * находку**: объект уезжает в `foreign-tenant`, правило со `scope` перестаёт
+   * применяться, и настоящая утечка проваливается в `fallback`.
+   */
+  tenants: z.array(z.string().min(1)).min(1).optional(),
   /** Схема аутентификации. По умолчанию Bearer — самый частый случай. */
   auth: authSchema.optional(),
 });
@@ -154,6 +163,17 @@ export class HostOutsideScopeError extends Error {
   }
 }
 
+export class CredentialsInUrlError extends Error {
+  constructor() {
+    super(
+      "В baseUrl указаны логин и пароль. Учётные данные передаются только через " +
+        "переменные окружения: baseUrl копируется в отчёт дословно, а отчёт " +
+        "по умолчанию печатается в stdout.",
+    );
+    this.name = "CredentialsInUrlError";
+  }
+}
+
 export class DuplicateAccountIdError extends Error {
   constructor(id: string) {
     super(`Аккаунт с id "${id}" объявлен больше одного раза`);
@@ -168,6 +188,18 @@ export class UnknownResourceOwnerError extends Error {
         `которого нет среди аккаунтов. Отношение «своё или чужое» стало бы неопределённым.`,
     );
     this.name = "UnknownResourceOwnerError";
+  }
+}
+
+export class UnknownTenantError extends Error {
+  constructor(where: string, tenant: string, known: readonly string[]) {
+    super(
+      `${where} относится к тенанту "${tenant}", которого нет среди объявленных ` +
+        `(${known.join(", ")}). Опечатка здесь прячет находку: объект уезжает ` +
+        `в «чужой тенант», правило со scope перестаёт применяться, и настоящая ` +
+        `утечка проваливается в fallback.`,
+    );
+    this.name = "UnknownTenantError";
   }
 }
 
@@ -274,11 +306,36 @@ export function parseRunConfig(source: string): RunConfig {
     seen.add(account.id);
   }
 
+  // Пробелы по краям имени тенанта — всегда опечатка, и опечатка опасная:
+  // «tenant-a » и «tenant-a» дают разные отношения и разный вердикт.
+  const declaredTenants = config.tenants?.map((tenant) => tenant.trim());
+  const accountTenants = config.accounts.map((account) => account.tenant.trim());
+  if (declaredTenants !== undefined) {
+    for (const [index, tenant] of accountTenants.entries()) {
+      if (!declaredTenants.includes(tenant)) {
+        throw new UnknownTenantError(
+          `Аккаунт "${config.accounts[index]?.id ?? index}"`,
+          tenant,
+          declaredTenants,
+        );
+      }
+    }
+  }
+
   // Проверяется здесь, а не при первом запросе: прогон должен падать до сети.
-  const host = new URL(config.target.baseUrl).hostname.toLowerCase();
+  const target = new URL(config.target.baseUrl);
+  if (target.username !== "" || target.password !== "") {
+    throw new CredentialsInUrlError();
+  }
   const allowed = config.target.allowedHosts.map((entry) => entry.trim().toLowerCase());
-  if (!allowed.includes(host)) {
-    throw new HostOutsideScopeError(host, config.target.allowedHosts);
+  // Запись с портом сверяется вместе с портом — та же логика, что в HTTP-клиенте.
+  // Раньше конфигурация понимала только имя, и возможность клиента была
+  // недостижима через CLI.
+  if (
+    !allowed.includes(target.hostname.toLowerCase()) &&
+    !allowed.includes(target.host.toLowerCase())
+  ) {
+    throw new HostOutsideScopeError(target.host, config.target.allowedHosts);
   }
 
   const policy: ExpectedAccessPolicy = config.policy;
@@ -294,9 +351,17 @@ export function parseRunConfig(source: string): RunConfig {
     if (declared.owner !== undefined && !seen.has(declared.owner)) {
       throw new UnknownResourceOwnerError(declared.id, declared.owner);
     }
+    const tenant = declared.tenant.trim();
+    // Тенант объекта сверяется с объявленными, а при их отсутствии — с тенантами
+    // аккаунтов. Второе слабее (объект чужого тенанта без аккаунта в нём —
+    // законный случай), поэтому для строгой проверки заводится `tenants`.
+    const knownTenants = declaredTenants ?? accountTenants;
+    if (declaredTenants !== undefined && !knownTenants.includes(tenant)) {
+      throw new UnknownTenantError(`Объект "${declared.id}"`, tenant, knownTenants);
+    }
     resources.push({
       id: declared.id,
-      tenantId: declared.tenant,
+      tenantId: tenant,
       ...(declared.owner === undefined ? {} : { ownerAccountId: declared.owner }),
       params: declared.params ?? {},
       ...(declared.query === undefined ? {} : { query: declared.query }),
@@ -319,7 +384,7 @@ export function toAccounts(config: RunConfig): readonly Account[] {
   return config.accounts.map((account) => ({
     id: account.id,
     roleId: account.role,
-    tenantId: account.tenant,
+    tenantId: account.tenant.trim(),
   }));
 }
 

@@ -12,6 +12,7 @@ import type { Account, Endpoint } from "../src/core/index.js";
 import {
   classifyStatus,
   collectObservations,
+  ExcludedCanaryError,
   probeCanaries,
   TemplatedCanaryError,
   UnknownCanaryEndpointError,
@@ -304,6 +305,24 @@ describe("предохранители против недостоверного
     ).rejects.toThrow(UnknownCanaryEndpointError);
   });
 
+  // Список исключений заводится ровно для адресов, которые трогать нельзя —
+  // GET, сбрасывающий базу. Канарейка не должна быть лазейкой мимо него.
+  it("отвергает канарейку на исключённый эндпоинт", async () => {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    await expect(
+      probeCanaries({
+        baseUrl: "https://api.test",
+        endpoints,
+        canaries: [{ accountId: "a", endpointId: "me" }],
+        credentials,
+        client,
+        exclude: ["me"],
+      }),
+    ).rejects.toThrow(ExcludedCanaryError);
+    expect(seen).toEqual([]);
+  });
+
   it("отвергает канарейку на эндпоинт с параметром в пути", async () => {
     const { client } = fakeClient(() => ({ status: 200, headers: {} }));
 
@@ -474,5 +493,158 @@ describe("обращение к объектам", () => {
 
     expect(result.observations).toHaveLength(1);
     expect(result.observations[0]?.resourceId).toBeUndefined();
+  });
+});
+
+describe("значение объекта не уводит обращение", () => {
+  const one: readonly Account[] = [{ id: "a", roleId: "r", tenantId: "t" }];
+  const credentials = createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "tok"]]));
+  const profile: Endpoint = { id: "p", method: "GET", path: "/v1/players/{playerId}" };
+
+  async function probeWith(params: Record<string, string>) {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+    const result = await collectObservations({
+      baseUrl: "https://api.test/api",
+      endpoints: [profile],
+      accounts: one,
+      credentials,
+      client,
+      resources: [{ id: "r", tenantId: "t", params }],
+    });
+    return { seen, result };
+  }
+
+  // Механизм тоньше, чем кажется: encodeURIComponent кодирует слэш, но НЕ точки,
+  // поэтому одиночный `..` поднимает ровно на уровень вверх. Если параметр стоит
+  // в начале пути, этого хватает, чтобы выйти за объявленный базовый путь.
+  // Проверка области делалась над шаблоном, до подстановки, и этого не видела.
+  it("не даёт значению с .. выйти за базовый путь", async () => {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test/api",
+      endpoints: [{ id: "p", method: "GET", path: "/{playerId}/orders" }],
+      accounts: one,
+      credentials,
+      client,
+      resources: [{ id: "r", tenantId: "t", params: { playerId: ".." } }],
+    });
+
+    expect(seen).toEqual([]);
+    expect(result.failures[0]?.reason).toContain("уводит обращение");
+  });
+
+  it("слэш в значении кодируется и обхода не даёт", async () => {
+    const { seen } = await probeWith({ playerId: "../.." });
+
+    expect(seen[0]?.url).toBe("https://api.test/api/v1/players/..%2F..");
+  });
+
+  it("кодирует обычное значение и остаётся внутри базового пути", async () => {
+    const { seen } = await probeWith({ playerId: "1001" });
+
+    expect(seen[0]?.url).toBe("https://api.test/api/v1/players/1001");
+  });
+
+  // Имена параметров берутся из недоверенной спецификации, а прототип
+  // отвечает на {constructor} у любого объекта.
+  it("не цепляет объект по имени из цепочки прототипов", async () => {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: [{ id: "x", method: "GET", path: "/v1/x/{constructor}" }],
+      accounts: one,
+      credentials,
+      client,
+      resources: [{ id: "r", tenantId: "t", params: { playerId: "1001" } }],
+    });
+
+    expect(seen).toEqual([]);
+    expect(result.skipped).toEqual([{ endpointId: "x", reason: "path-parameters" }]);
+  });
+});
+
+describe("объект с параметрами, которых нет у эндпоинта", () => {
+  it("подставляет пустую строку для имени, которого нет в объекте", async () => {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    // Объект привязан явным списком, но покрывает не все параметры пути:
+    // недостающее имя даёт пустой сегмент, а не мусор из прототипа.
+    await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: [{ id: "p", method: "GET", path: "/v1/{a}/{b}" }],
+      accounts: [{ id: "a", roleId: "r", tenantId: "t" }],
+      credentials: createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "tok"]])),
+      client,
+      resources: [{ id: "r", tenantId: "t", params: { a: "1", b: "2" }, endpointIds: ["p"] }],
+    });
+
+    expect(seen[0]?.url).toBe("https://api.test/v1/1/2");
+  });
+});
+
+describe("обрыв прогона", () => {
+  const one: readonly Account[] = [{ id: "a", roleId: "r", tenantId: "t" }];
+  const credentials = createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "tok"]]));
+  const two: readonly Endpoint[] = [
+    { id: "e1", method: "GET", path: "/1" },
+    { id: "e2", method: "GET", path: "/2" },
+  ];
+
+  // Исчерпанный потолок обращений обрывает обход посреди матрицы: хвост
+  // не проверен, и без этого признака вердикт «чисто» неотличим от настоящего.
+  it("помечается признаком при исчерпании бюджета", async () => {
+    const budget = Object.assign(new Error("бюджет исчерпан"), {
+      name: "RunBudgetExhaustedError",
+    });
+    let call = 0;
+    const { client } = fakeClient(() => {
+      call += 1;
+      return call === 1 ? { status: 200, headers: {} } : budget;
+    });
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: two,
+      accounts: one,
+      credentials,
+      client,
+    });
+
+    expect(result.truncated).toBe(true);
+  });
+
+  it("не помечается при обычном сбое обращения", async () => {
+    const { client } = fakeClient(() => new Error("соединение разорвано"));
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: two,
+      accounts: one,
+      credentials,
+      client,
+    });
+
+    expect(result.truncated).toBe(false);
+  });
+
+  it("канарейка не падает, когда обращение сорвалось", async () => {
+    const { client } = fakeClient(() => new Error("стенд не отвечает"));
+
+    const results = await probeCanaries({
+      baseUrl: "https://api.test",
+      endpoints: two,
+      canaries: [{ accountId: "a", endpointId: "e1" }],
+      credentials,
+      client,
+    });
+
+    expect(results[0]).toEqual({
+      accountId: "a",
+      endpointId: "e1",
+      status: 0,
+      authenticated: false,
+    });
   });
 });

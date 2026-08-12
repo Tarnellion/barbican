@@ -130,6 +130,7 @@ async function run(flags: RunFlags): Promise<number> {
       canaries,
       credentials,
       client,
+      exclude: config.exclude,
     });
     canariesChecked = results.length;
     const broken = results.filter((result) => !result.authenticated);

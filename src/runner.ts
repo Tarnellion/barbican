@@ -135,8 +135,15 @@ export class PathEscapesTargetError extends Error {
 function joinUrl(baseUrl: string, path: string): string {
   const base = new URL(baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
   const resolved = new URL(path.replace(/^[/\\]+/, ""), base);
-  if (resolved.origin !== base.origin) {
-    throw new PathEscapesTargetError(path, resolved.origin, base.origin);
+  // Сверяется и origin, и префикс пути. Одного origin мало: `..` в значении
+  // объекта уводил обращение выше объявленного базового пути, оставаясь
+  // на том же хосте, — то есть на соседний API той же системы.
+  if (resolved.origin !== base.origin || !resolved.pathname.startsWith(base.pathname)) {
+    throw new PathEscapesTargetError(
+      path,
+      `${resolved.origin}${resolved.pathname}`,
+      `${base.origin}${base.pathname}`,
+    );
   }
   return resolved.toString();
 }
@@ -146,7 +153,7 @@ const PARAMETER_NAME = /\{([^}]+)\}/g;
 /** Подставляет значения объекта в шаблон пути. */
 function substitute(path: string, resource: Resource): string {
   return path.replace(PARAMETER_NAME, (_match, name: string) =>
-    encodeURIComponent(resource.params[name] ?? ""),
+    encodeURIComponent(Object.hasOwn(resource.params, name) ? (resource.params[name] ?? "") : ""),
   );
 }
 
@@ -186,6 +193,17 @@ export class UnknownCanaryEndpointError extends Error {
   }
 }
 
+export class ExcludedCanaryError extends Error {
+  constructor(accountId: string, endpointId: string) {
+    super(
+      `Канарейка аккаунта "${accountId}" указывает на исключённый эндпоинт "${endpointId}". ` +
+        `Список исключений существует ровно для адресов, которые трогать нельзя, — ` +
+        `канарейка не должна быть лазейкой мимо него.`,
+    );
+    this.name = "ExcludedCanaryError";
+  }
+}
+
 export class TemplatedCanaryError extends Error {
   constructor(accountId: string, endpointId: string) {
     super(
@@ -209,6 +227,7 @@ export async function probeCanaries(options: {
   readonly canaries: readonly { readonly accountId: string; readonly endpointId: string }[];
   readonly credentials: CredentialProvider;
   readonly client: HttpClient;
+  readonly exclude?: readonly string[];
 }): Promise<readonly CanaryResult[]> {
   const byId = new Map(options.endpoints.map((endpoint) => [endpoint.id, endpoint]));
   const results: CanaryResult[] = [];
@@ -220,6 +239,9 @@ export async function probeCanaries(options: {
     }
     if (TEMPLATE_PARAMETER.test(endpoint.path)) {
       throw new TemplatedCanaryError(canary.accountId, canary.endpointId);
+    }
+    if ((options.exclude ?? []).includes(canary.endpointId)) {
+      throw new ExcludedCanaryError(canary.accountId, canary.endpointId);
     }
 
     let status = 0;
@@ -304,11 +326,22 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     for (const { endpoint, resource } of cells) {
       const startedAt = Date.now();
       const path = resource === undefined ? endpoint.path : substitute(endpoint.path, resource);
-      const request = {
-        method: endpoint.method,
-        url: withQuery(joinUrl(options.baseUrl, path), resource),
-        headers: authHeaders,
-      };
+      // Проверка области — над готовым путём, а не над шаблоном: значение объекта
+      // с `..` уводило обращение выше объявленного базового пути, потому что
+      // шаблон проверялся до подстановки.
+      let url: string;
+      try {
+        url = withQuery(joinUrl(options.baseUrl, path), resource);
+      } catch (cause) {
+        failures.push({
+          accountId: account.id,
+          endpointId: endpoint.id,
+          ...(resource === undefined ? {} : { resourceId: resource.id }),
+          reason: cause instanceof Error ? cause.message : String(cause),
+        });
+        continue;
+      }
+      const request = { method: endpoint.method, url, headers: authHeaders };
 
       let status: number;
       let headers: Readonly<Record<string, string>>;

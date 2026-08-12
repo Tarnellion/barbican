@@ -66,7 +66,11 @@ const PARAMETER_NAME = /\{([^}]+)\}/g;
  */
 export function resourceApplies(endpoint: Endpoint, resource: Resource): boolean {
   const names = [...endpoint.path.matchAll(PARAMETER_NAME)].map((match) => match[1] ?? "");
-  const covered = names.every((name) => resource.params[name] !== undefined);
+  // `Object.hasOwn`, а не проверка на undefined: имена берутся из пути, то есть
+  // из недоверенной спецификации, и `{constructor}` отвечал бы у любого объекта
+  // через цепочку прототипов — враждебная спека получала бы обращения от каждого
+  // аккаунта на каждый объявленный объект.
+  const covered = names.every((name) => Object.hasOwn(resource.params, name));
 
   if (resource.endpointIds !== undefined) {
     return resource.endpointIds.includes(endpoint.id) && covered;

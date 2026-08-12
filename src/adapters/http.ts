@@ -130,9 +130,27 @@ export class CircuitOpenError extends Error {
   }
 }
 
+/**
+ * Убирает из адреса всё, что может нести секрет.
+ *
+ * Текст ошибки попадает в `failures[].reason`, то есть в JSON-отчёт. Полный URL
+ * тащил туда query-параметры (`?api_key=…`) и учётные данные из userinfo.
+ */
+function safeUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.username = "";
+    parsed.password = "";
+    const query = parsed.search === "" ? "" : "?[REDACTED]";
+    return `${parsed.origin}${parsed.pathname}${query}`;
+  } catch {
+    return REDACTED;
+  }
+}
+
 export class RequestFailedError extends Error {
   constructor(url: string, attempts: number, options?: { cause: unknown }) {
-    super(`Обращение к "${url}" не удалось за ${attempts} попыток`, options);
+    super(`Обращение к "${safeUrl(url)}" не удалось за ${attempts} попыток`, options);
     this.name = "RequestFailedError";
   }
 }

@@ -10,6 +10,7 @@ import {
   assertReferencesResolve,
   ConfigParseError,
   ConfigValidationError,
+  CredentialsInUrlError,
   DuplicateAccountIdError,
   HostOutsideScopeError,
   InvalidCredentialError,
@@ -19,6 +20,7 @@ import {
   toAccounts,
   UnknownEndpointReferenceError,
   UnknownResourceOwnerError,
+  UnknownTenantError,
 } from "../../src/io/config.js";
 
 const VALID = `
@@ -323,5 +325,78 @@ policy:
     );
 
     expect(() => assertReferencesResolve(config, endpoints)).not.toThrow();
+  });
+});
+
+describe("тенанты", () => {
+  const WITH_TENANTS = `
+tenants: [tenant-a, tenant-b]
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts:
+  - { id: u, role: player, tenant: tenant-a, tokenEnv: TOK }
+resources:
+  - { id: mine, tenant: tenant-a, owner: u, params: { id: "1" } }
+policy: { fallback: denied, rules: [] }
+`;
+
+  it("принимает объявленные тенанты", () => {
+    expect(() => parseRunConfig(WITH_TENANTS)).not.toThrow();
+  });
+
+  // Самое опасное: опечатка не ломает прогон, а ПРЯЧЕТ находку — объект уезжает
+  // в чужой тенант, правило со scope перестаёт применяться, утечка проваливается
+  // в fallback и не попадает в отчёт вовсе.
+  it("отвергает опечатку в тенанте объекта", () => {
+    expect(() =>
+      parseRunConfig(WITH_TENANTS.replace("mine, tenant: tenant-a", "mine, tenant: tenant-c")),
+    ).toThrow(UnknownTenantError);
+  });
+
+  it("отвергает опечатку в тенанте аккаунта", () => {
+    expect(() =>
+      parseRunConfig(
+        WITH_TENANTS.replace("tenant: tenant-a, tokenEnv", "tenant: tenant-x, tokenEnv"),
+      ),
+    ).toThrow(UnknownTenantError);
+  });
+
+  it("срезает пробелы: «tenant-a » и «tenant-a» — один тенант", () => {
+    const config = parseRunConfig(
+      WITH_TENANTS.replace("tenant: tenant-a, owner", 'tenant: "tenant-a ", owner'),
+    );
+
+    expect(config.resources[0]?.tenantId).toBe("tenant-a");
+    expect(toAccounts(config)[0]?.tenantId).toBe("tenant-a");
+  });
+
+  it("без объявленного перечня не придирается: объект чужого тенанта законен", () => {
+    const withoutList = WITH_TENANTS.replace("tenants: [tenant-a, tenant-b]\n", "");
+
+    expect(() =>
+      parseRunConfig(withoutList.replace("mine, tenant: tenant-a", "mine, tenant: tenant-z")),
+    ).not.toThrow();
+  });
+});
+
+describe("учётные данные в адресе", () => {
+  it("отвергает логин и пароль в baseUrl", () => {
+    const config = `
+target: { baseUrl: "https://svc:S3cret@a.test", allowedHosts: [a.test] }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: TOK }]
+policy: { fallback: denied, rules: [] }
+`;
+
+    // baseUrl копируется в отчёт дословно, а отчёт печатается в stdout.
+    expect(() => parseRunConfig(config)).toThrow(CredentialsInUrlError);
+  });
+
+  it("понимает запись allowedHosts с портом", () => {
+    const config = `
+target: { baseUrl: "https://a.test:8443/v1", allowedHosts: ["a.test:8443"] }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: TOK }]
+policy: { fallback: denied, rules: [] }
+`;
+
+    expect(() => parseRunConfig(config)).not.toThrow();
   });
 });
