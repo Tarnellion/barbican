@@ -13,6 +13,7 @@ export * from "./adapters/endpoint-list.js";
 export * from "./adapters/http.js";
 export * from "./adapters/openapi.js";
 export * from "./adapters/ports.js";
+export * from "./adapters/postman.js";
 export * from "./adapters/throttle.js";
 export * from "./core/index.js";
 export * from "./io/config.js";

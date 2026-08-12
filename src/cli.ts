@@ -16,6 +16,8 @@ import { createCredentialProvider } from "./adapters/credentials.js";
 import { createEndpointListParser } from "./adapters/endpoint-list.js";
 import { createHttpClient } from "./adapters/http.js";
 import { createOpenApiParser } from "./adapters/openapi.js";
+import type { SpecParser } from "./adapters/ports.js";
+import { createPostmanCollectionParser } from "./adapters/postman.js";
 import { createThrottle } from "./adapters/throttle.js";
 import { buildAccessMatrix, diffAccess } from "./core/index.js";
 import { assertReferencesResolve, parseRunConfig, resolveTokens, toAccounts } from "./io/config.js";
@@ -64,6 +66,7 @@ interface RunFlags {
   readonly config: string;
   readonly spec?: string;
   readonly endpoints?: string;
+  readonly postman?: string;
   readonly report?: string;
   readonly unsafeMethods?: boolean;
   readonly concurrency?: number;
@@ -76,14 +79,21 @@ async function run(flags: RunFlags): Promise<number> {
 
   // Ровно один источник эндпоинтов: два молча разошлись бы, а ни одного
   // дало бы отчёт без находок, неотличимый от успешного.
-  if ((flags.spec === undefined) === (flags.endpoints === undefined)) {
+  const sources = [
+    { path: flags.spec, create: createOpenApiParser },
+    { path: flags.endpoints, create: createEndpointListParser },
+    { path: flags.postman, create: createPostmanCollectionParser },
+  ].filter(
+    (entry): entry is { path: string; create: () => SpecParser } => entry.path !== undefined,
+  );
+  const [source] = sources;
+  if (sources.length !== 1 || source === undefined) {
     throw new Error(
-      "Укажите ровно один источник эндпоинтов: --spec (OpenAPI) или --endpoints (ручной список).",
+      "Укажите ровно один источник эндпоинтов: --spec (OpenAPI), " +
+        "--endpoints (ручной список) или --postman (коллекция Postman).",
     );
   }
-  const source = flags.spec ?? flags.endpoints ?? "";
-  const parser = flags.spec === undefined ? createEndpointListParser() : createOpenApiParser();
-  const endpoints = await parser.parse(await readFile(source, "utf8"));
+  const endpoints = await source.create().parse(await readFile(source.path, "utf8"));
   // Ссылки сверяются после разбора спецификации: раньше эндпоинтов ещё нет.
   assertReferencesResolve(config, endpoints);
 
@@ -236,6 +246,7 @@ program
   .requiredOption("-c, --config <path>", "конфигурация прогона (YAML или JSON)")
   .option("-s, --spec <path>", "спецификация OpenAPI проверяемого API")
   .option("-e, --endpoints <path>", "ручной список эндпоинтов, если спецификации нет")
+  .option("-p, --postman <path>", "коллекция Postman v2.1")
   .option("-r, --report <path>", "куда записать JSON-отчёт (по умолчанию в stdout)")
   .option("--unsafe-methods", "разрешить методы, изменяющие состояние")
   .option("--concurrency <n>", "одновременных обращений", positiveInteger)
