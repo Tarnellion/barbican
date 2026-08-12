@@ -44,9 +44,18 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
       "Ответ помеченного tenantScoped эндпоинта побайтово совпал у аккаунтов " +
       "из разных тенантов: признак отсутствующего фильтра по тенанту",
     severity: "high",
+    /**
+     * API3 (property-level) убран намеренно: проверка ничего не знает о полях,
+     * она сравнивает ответ целиком. Числиться за находкой класса, который она
+     * не умеет находить, — это завышенная заявка о покрытии.
+     *
+     * CWE-285, а не 862 или 863: снаружи «проверки нет» и «проверка есть,
+     * но неверна» дают неотличимый ответ, поэтому честен только класс-родитель.
+     */
     standards: [
       { standard: "OWASP-API-2023", clause: "API1" },
-      { standard: "OWASP-API-2023", clause: "API3" },
+      { standard: "OWASP-ASVS-5.0", clause: "8.4.1" },
+      { standard: "CWE", clause: "285" },
     ],
 
     run(context: CheckContext): readonly Finding[] {

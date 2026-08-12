@@ -49,6 +49,21 @@ function matrixOf(
 
 const check = createIdenticalResponseCheck();
 
+describe("маппинг на стандарты", () => {
+  /**
+   * Заявка о покрытии — тоже утверждение, и завышать её нельзя. API3 (BOPLA)
+   * про уровень полей, а проверка сравнивает ответ целиком и о полях ничего
+   * не знает. CWE-285, а не 862/863: снаружи «проверки нет» и «проверка есть,
+   * но неверна» неотличимы.
+   */
+  it("не числится за классами, которые не умеет находить", () => {
+    const clauses = check.standards.map((ref) => `${ref.standard}:${ref.clause}`);
+
+    expect(clauses).toEqual(["OWASP-API-2023:API1", "OWASP-ASVS-5.0:8.4.1", "CWE:285"]);
+    expect(clauses).not.toContain("OWASP-API-2023:API3");
+  });
+});
+
 describe("identical-response-across-tenants", () => {
   it("находит одинаковый ответ у аккаунтов из разных тенантов", () => {
     const findings = check.run({
