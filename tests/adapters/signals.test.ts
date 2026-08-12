@@ -146,6 +146,65 @@ describe("count и present", () => {
     expect(signals["str"]).toBe(false);
   });
 
+  /**
+   * Найдено ресерчем по аффилиатским кабинетам: видимость полей там задаётся
+   * флагами на аккаунте, поэтому лишняя колонка не меняет статус ответа —
+   * это BOPLA по конструкции. Проверять её нечем, пока путь не входит в список.
+   *
+   * Прежнее поведение было не просто пробелом: `present` отвечал `false` для
+   * поля, которое в ответе ЕСТЬ, и такой сигнал неотличим от честного «нет».
+   */
+  it("видит поле внутри элемента списка по числовому индексу", async () => {
+    const extractor = createSignalExtractor({ salt: SALT });
+    const probes: readonly SignalSpec[] = [
+      { name: "emailCol", kind: "present", path: "rows.0.email" },
+      { name: "phoneCol", kind: "present", path: "rows.0.phone" },
+    ];
+
+    const signals = await extractor.extract(
+      streamOf('{"rows":[{"id":1,"email":"klient@example.com"}]}'),
+      probes,
+    );
+
+    expect(signals["emailCol"]).toBe(true);
+    expect(signals["phoneCol"]).toBe(false);
+  });
+
+  /**
+   * Индексом считается только запись из десятичных цифр.
+   *
+   * Первая версия этого теста брала сегмент `email` и не проверяла ничего:
+   * `Number("email")` — это `NaN`, обращение по `NaN` тоже даёт `undefined`,
+   * и результат совпадал при снятой проверке. Мутация «индексировать любым
+   * сегментом» её проходила. Разница видна только там, где строка численно
+   * приводится: `Number("1e0")` — это 1, `Number(" 0 ")` — это 0.
+   */
+  it("не индексирует список сегментом, который лишь приводится к числу", async () => {
+    const extractor = createSignalExtractor({ salt: SALT });
+    const probes: readonly SignalSpec[] = [
+      { name: "sci", kind: "present", path: "rows.1e0.email" },
+      { name: "padded", kind: "present", path: "rows. 0 .email" },
+      { name: "hex", kind: "present", path: "rows.0x0.email" },
+      { name: "word", kind: "present", path: "rows.email" },
+    ];
+
+    const signals = await extractor.extract(streamOf('{"rows":[{"email":"a@b.c"}]}'), probes);
+
+    expect(signals["sci"]).toBe(false);
+    expect(signals["padded"]).toBe(false);
+    expect(signals["hex"]).toBe(false);
+    expect(signals["word"]).toBe(false);
+  });
+
+  it("за границей списка сигнала нет, а не ложное присутствие", async () => {
+    const extractor = createSignalExtractor({ salt: SALT });
+    const probes: readonly SignalSpec[] = [{ name: "x", kind: "present", path: "rows.7.email" }];
+
+    const signals = await extractor.extract(streamOf('{"rows":[{"email":"a@b.c"}]}'), probes);
+
+    expect(signals["x"]).toBe(false);
+  });
+
   it("не выдаёт сигналы по путям, если тело не разбирается как JSON", async () => {
     const extractor = createSignalExtractor({ salt: SALT });
 

@@ -56,6 +56,8 @@ export function parseSignalPath(path: string): readonly string[] {
  * и `{"constructor": …}` или `{"toString": …}` иначе находились бы через цепочку
  * прототипов. Та же ошибка уже была допущена в связывании объектов с эндпоинтами.
  */
+const ARRAY_INDEX = /^(0|[1-9][0-9]*)$/;
+
 function resolvePath(root: unknown, segments: readonly string[]): unknown {
   let current: unknown = root;
   for (const segment of segments) {
@@ -63,7 +65,15 @@ function resolvePath(root: unknown, segments: readonly string[]): unknown {
       return undefined;
     }
     if (Array.isArray(current)) {
-      return undefined;
+      // Числовой сегмент индексирует список. Без этого `present` отвечал `false`
+      // на поле, которое в ответе есть, — а неверный сигнал неотличим от
+      // честного «поля нет». Целый класс BOPLA («в отчёте появилась колонка
+      // с почтой») из-за этого не проверялся. Расширения `SignalValue` не нужно.
+      if (!ARRAY_INDEX.test(segment)) {
+        return undefined;
+      }
+      current = current[Number(segment)];
+      continue;
     }
     if (!Object.hasOwn(current, segment)) {
       return undefined;
