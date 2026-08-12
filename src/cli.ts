@@ -18,9 +18,21 @@ import { createHttpClient } from "./adapters/http.js";
 import { createOpenApiParser } from "./adapters/openapi.js";
 import type { SpecParser } from "./adapters/ports.js";
 import { createPostmanCollectionParser } from "./adapters/postman.js";
+import { createSignalExtractor } from "./adapters/signals.js";
 import { createThrottle } from "./adapters/throttle.js";
-import { buildAccessMatrix, diffAccess } from "./core/index.js";
-import { assertReferencesResolve, parseRunConfig, resolveTokens, toAccounts } from "./io/config.js";
+import {
+  buildAccessMatrix,
+  CheckRegistry,
+  createIdenticalResponseCheck,
+  diffAccess,
+} from "./core/index.js";
+import {
+  applyTenantScope,
+  assertReferencesResolve,
+  parseRunConfig,
+  resolveTokens,
+  toAccounts,
+} from "./io/config.js";
 import { findUnauthenticated } from "./report/authenticity.js";
 import { buildReport, exitCodeFor } from "./report/build.js";
 import { collectObservations, probeCanaries } from "./runner.js";
@@ -93,9 +105,11 @@ async function run(flags: RunFlags): Promise<number> {
         "--endpoints (ручной список) или --postman (коллекция Postman).",
     );
   }
-  const endpoints = await source.create().parse(await readFile(source.path, "utf8"));
+  const parsed = await source.create().parse(await readFile(source.path, "utf8"));
   // Ссылки сверяются после разбора спецификации: раньше эндпоинтов ещё нет.
-  assertReferencesResolve(config, endpoints);
+  assertReferencesResolve(config, parsed);
+  // Пометка tenantScoped — заявление человека, источники эндпоинтов о ней не знают.
+  const endpoints = applyTenantScope(parsed, config);
 
   const credentials = createCredentialProvider(config.auth, resolveTokens(config, process.env));
 
@@ -109,6 +123,11 @@ async function run(flags: RunFlags): Promise<number> {
     allowedHosts: config.target.allowedHosts,
     throttle,
     allowUnsafeMethods: flags.unsafeMethods === true,
+    ...(config.bodySignals?.maxBodyBytes === undefined
+      ? {}
+      : {
+          signalExtractor: createSignalExtractor({ maxBodyBytes: config.bodySignals.maxBodyBytes }),
+        }),
   });
 
   const accounts = toAccounts(config);
@@ -169,6 +188,12 @@ async function run(flags: RunFlags): Promise<number> {
     observations,
   });
   const findings = diffAccess(matrix, config.policy);
+
+  // Реестр создаётся явно и локально: глобального состояния в ядре нет (ADR-0003).
+  // Проверка сама промолчит, если ни один эндпоинт не помечен tenantScoped.
+  const registry = new CheckRegistry();
+  registry.register(createIdenticalResponseCheck());
+  const checks = registry.list().flatMap((check) => check.run({ matrix }));
   const suspicions = findUnauthenticated(accounts, observations, config.policy, config.resources);
   const unauthenticated = suspicions.map((s) => s.accountId);
 
@@ -183,6 +208,7 @@ async function run(flags: RunFlags): Promise<number> {
     canariesChecked,
     truncated,
     findings,
+    checks,
     startedAt,
     finishedAt,
   });
@@ -227,6 +253,11 @@ async function run(flags: RunFlags): Promise<number> {
       : paint("Эскалации привилегий не найдено", "green"),
     `Прочие расхождения: неожиданных отказов ${summary.byKind["unexpected-denial"]}, ` +
       `не наблюдалось ${summary.byKind["not-observed"]}, ошибок обращения ${summary.byKind["probe-error"]}`,
+    // Находки проверок называются отдельной строкой: они увидены не по статусу,
+    // и смешивать их с эскалацией значило бы стереть это различие.
+    summary.checkFindings > 0
+      ? paint(`Находки проверок: ${summary.checkFindings} (см. checks в отчёте)`, "red")
+      : undefined,
     flags.report === undefined ? undefined : `Отчёт: ${flags.report}`,
   ].filter((line): line is string => line !== undefined);
 

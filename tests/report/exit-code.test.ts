@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import type { Finding } from "../../src/core/index.js";
 import type { RunReport } from "../../src/report/build.js";
 import { exitCodeFor } from "../../src/report/build.js";
 
@@ -17,6 +18,7 @@ function report(overrides: {
   probeErrors?: number;
   unauthenticated?: readonly string[];
   truncated?: boolean;
+  checks?: readonly Finding[];
 }): RunReport {
   const observations = overrides.observations ?? 4;
   return {
@@ -34,6 +36,7 @@ function report(overrides: {
     truncated: overrides.truncated ?? false,
     observations: [],
     findings: [],
+    checks: overrides.checks ?? [],
     summary: {
       endpoints: 0,
       accounts: 0,
@@ -48,11 +51,38 @@ function report(overrides: {
         "not-observed": 0,
         "probe-error": overrides.probeErrors ?? 0,
       },
+      checkFindings: (overrides.checks ?? []).length,
     },
   };
 }
 
 describe("exitCodeFor", () => {
+  /**
+   * Находка проверки видна не по статусу, но это такое же расхождение.
+   * Без этого прогон с найденной межтенантной утечкой выглядел бы в CI успешным.
+   */
+  it("1 — находка проверки высокой серьёзности", () => {
+    const leak: Finding = {
+      checkId: "identical-response-across-tenants",
+      severity: "high",
+      title: "одинаковый ответ у разных тенантов",
+      evidence: {},
+    };
+
+    expect(exitCodeFor(report({ checks: [leak] }))).toBe(1);
+  });
+
+  it("0 — находка проверки только информационная", () => {
+    const note: Finding = {
+      checkId: "whatever",
+      severity: "info",
+      title: "к сведению",
+      evidence: {},
+    };
+
+    expect(exitCodeFor(report({ checks: [note] }))).toBe(0);
+  });
+
   it("0 — проверено и чисто", () => {
     expect(exitCodeFor(report({}))).toBe(0);
   });

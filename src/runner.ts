@@ -12,8 +12,21 @@ import type {
   Account,
   Endpoint,
   Resource,
+  SignalSpec,
+  SignalValue,
 } from "./core/index.js";
 import { resourceApplies, SAFE_METHODS } from "./core/index.js";
+
+/**
+ * Что вычисляется над телом помеченного эндпоинта.
+ *
+ * Один дайджест: он отвечает на вопрос «получили ли два тенанта один и тот же
+ * ответ», ради которого послабление и вводилось. Расширять набор без нужды
+ * незачем — каждый лишний сигнал означает лишнее прочитанное тело.
+ */
+const DIGEST_SIGNALS = [
+  { name: "digest", kind: "digest" },
+] as const satisfies readonly SignalSpec[];
 
 /**
  * Эндпоинт, который не опрашивался, и почему.
@@ -341,14 +354,23 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         });
         continue;
       }
-      const request = { method: endpoint.method, url, headers: authHeaders };
+      // Тело читается только у эндпоинтов, помеченных человеком как tenantScoped:
+      // где не объявлено, там поток отменяется непрочитанным. См. ADR-0011.
+      const request = {
+        method: endpoint.method,
+        url,
+        headers: authHeaders,
+        ...(endpoint.tenantScoped === true ? { signals: DIGEST_SIGNALS } : {}),
+      };
 
       let status: number;
       let headers: Readonly<Record<string, string>>;
+      let signals: Readonly<Record<string, SignalValue>> | undefined;
       try {
         const response = await options.client.send(request);
         status = response.status;
         headers = response.headers;
+        signals = response.signals;
       } catch (cause) {
         const name = cause instanceof Error ? cause.name : "";
         if (name === "RunBudgetExhaustedError" || name === "CircuitOpenError") {
@@ -373,6 +395,7 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         headers,
         outcome: status === 0 ? "error" : classifyStatus(status),
         durationMs: Date.now() - startedAt,
+        ...(signals === undefined ? {} : { signals }),
       });
     }
   }

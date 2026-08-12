@@ -108,6 +108,21 @@ const configSchema = z.object({
   tenants: z.array(z.string().min(1)).min(1).optional(),
   /** Схема аутентификации. По умолчанию Bearer — самый частый случай. */
   auth: authSchema.optional(),
+  /**
+   * Чтение тел ответов ради скалярных сигналов. Выключено, если секции нет.
+   *
+   * Тело читается **только** у перечисленных здесь эндпоинтов: там, где ответ
+   * обязан различаться между тенантами, и совпадение — признак отсутствующего
+   * фильтра. Совпадение этих двух списков не случайно: читать тело там, где
+   * из этого не следует вывода, значит расширять поверхность риска впустую.
+   * См. ADR-0011.
+   */
+  bodySignals: z
+    .object({
+      tenantScoped: z.array(z.string().min(1)).min(1),
+      maxBodyBytes: z.number().int().positive().optional(),
+    })
+    .optional(),
 });
 
 export interface AccountConfig {
@@ -130,6 +145,12 @@ export interface RunTarget {
   readonly allowedHosts: readonly string[];
 }
 
+export interface BodySignalsConfig {
+  /** Эндпоинты, ответ которых обязан различаться между тенантами. */
+  readonly tenantScoped: readonly string[];
+  readonly maxBodyBytes?: number | undefined;
+}
+
 export interface RunConfig {
   readonly auth: AuthScheme;
   readonly target: RunTarget;
@@ -137,6 +158,7 @@ export interface RunConfig {
   readonly policy: ExpectedAccessPolicy;
   readonly exclude: readonly string[];
   readonly resources: readonly Resource[];
+  readonly bodySignals?: BodySignalsConfig | undefined;
 }
 
 export class ConfigParseError extends Error {
@@ -265,6 +287,35 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
       throw new UnknownEndpointReferenceError(`Канарейка аккаунта "${account.id}"`, account.canary);
     }
   }
+
+  // Опечатка здесь отказывает молча и закрыто: тело не читается, проверка
+  // не срабатывает, отчёт выглядит чистым. Тот же класс, что и опечатка
+  // в имени тенанта, — молчаливое сужение области проверки.
+  for (const endpointId of config.bodySignals?.tenantScoped ?? []) {
+    if (!known.has(endpointId)) {
+      throw new UnknownEndpointReferenceError("Пометка tenantScoped", endpointId);
+    }
+  }
+}
+
+/**
+ * Проставляет эндпоинтам пометку `tenantScoped` из конфигурации.
+ *
+ * Источники эндпоинтов (спецификация, список, коллекция Postman) о тенантах
+ * ничего не знают и знать не должны: это заявление человека о намерении,
+ * ровно как и политика доступа. См. ADR-0006 и ADR-0011.
+ */
+export function applyTenantScope(
+  endpoints: readonly Endpoint[],
+  config: RunConfig,
+): readonly Endpoint[] {
+  const scoped = new Set(config.bodySignals?.tenantScoped ?? []);
+  if (scoped.size === 0) {
+    return endpoints;
+  }
+  return endpoints.map((endpoint) =>
+    scoped.has(endpoint.id) ? { ...endpoint, tenantScoped: true } : endpoint,
+  );
 }
 
 export class MissingCredentialError extends Error {
@@ -382,6 +433,7 @@ export function parseRunConfig(source: string): RunConfig {
     accounts: config.accounts,
     policy,
     exclude: config.exclude ?? [],
+    ...(config.bodySignals === undefined ? {} : { bodySignals: config.bodySignals }),
     resources,
   };
 }

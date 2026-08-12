@@ -71,6 +71,58 @@ describe("collectObservations", () => {
     { id: "tickets.list", method: "GET", path: "/v1/support/tickets" },
   ];
 
+  describe("сигналы над телом", () => {
+    function collect(marked: readonly Endpoint[], response: HttpResponse) {
+      const { client, seen } = fakeClient(() => response);
+      return collectObservations({
+        baseUrl: "https://api.test",
+        endpoints: marked,
+        accounts: accounts.slice(0, 1),
+        credentials: createCredentialProvider(
+          DEFAULT_AUTH_SCHEME,
+          new Map([["player-a", "токен-игрока"]]),
+        ),
+        client,
+      }).then((result) => ({ result, seen }));
+    }
+
+    /** Тело читается только там, где человек объявил tenantScoped. */
+    it("просит сигналы только у помеченных эндпоинтов", async () => {
+      const marked: readonly Endpoint[] = [
+        { id: "users.list", method: "GET", path: "/v1/admin/users", tenantScoped: true },
+        { id: "tickets.list", method: "GET", path: "/v1/support/tickets" },
+      ];
+
+      const { seen } = await collect(marked, { status: 200, headers: {} });
+
+      expect(seen[0]?.signals).toEqual([{ name: "digest", kind: "digest" }]);
+      expect(seen[1]?.signals).toBeUndefined();
+    });
+
+    it("переносит вычисленные сигналы в наблюдение", async () => {
+      const marked: readonly Endpoint[] = [
+        { id: "users.list", method: "GET", path: "/v1/admin/users", tenantScoped: true },
+      ];
+
+      const { result } = await collect(marked, {
+        status: 200,
+        headers: {},
+        signals: { digest: 42 },
+      });
+
+      expect(result.observations[0]?.signals).toEqual({ digest: 42 });
+    });
+
+    it("без пометки наблюдение остаётся без сигналов", async () => {
+      const { result } = await collect([{ id: "users.list", method: "GET", path: "/v1/x" }], {
+        status: 200,
+        headers: {},
+      });
+
+      expect(result.observations[0]?.signals).toBeUndefined();
+    });
+  });
+
   it("опрашивает каждую пару «аккаунт × эндпоинт»", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 

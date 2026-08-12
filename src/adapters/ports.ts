@@ -6,23 +6,32 @@
  * Реализации появятся в сессии 3.
  */
 
-import type { Endpoint, HttpMethod } from "../core/types.js";
+import type { Endpoint, HttpMethod, SignalSpec, SignalValue } from "../core/types.js";
+
+export type { SignalSpec, SignalValue };
 
 export interface HttpRequest {
   readonly method: HttpMethod;
   readonly url: string;
   readonly headers: Readonly<Record<string, string>>;
+  /**
+   * Сигналы, ради которых тело будет прочитано. Пусто или отсутствует —
+   * поток отменяется непрочитанным, как было до ADR-0011.
+   */
+  readonly signals?: readonly SignalSpec[];
 }
 
 /**
  * Ответ без тела.
  *
- * Это не упущение: тела не сохраняются по умолчанию, потому что содержат PII.
- * Порт не даёт возможности «случайно» их протащить.
+ * Это не упущение: тела не сохраняются, потому что содержат PII. Порт не даёт
+ * возможности «случайно» их протащить — поля для тела просто нет, а `signals`
+ * по типу вмещает только скаляры.
  */
 export interface HttpResponse {
   readonly status: number;
   readonly headers: Readonly<Record<string, string>>;
+  readonly signals?: Readonly<Record<string, SignalValue>>;
 }
 
 export interface HttpClient {

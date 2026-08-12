@@ -58,8 +58,10 @@ const ORDERS = [
 /**
  * Переключатели дефектов.
  *
- * Каждый меняет ровно свой набор ячеек «аккаунт × эндпоинт × объект» и виден
- * по статусу: 200 там, где корректная реализация отвечает 403.
+ * Первые три меняют ровно свой набор ячеек «аккаунт × эндпоинт × объект» и видны
+ * по статусу: 200 там, где корректная реализация отвечает 403. Четвёртый —
+ * принципиально другой: он не меняет ни одного статуса, и виден только через
+ * сигнал над телом (ADR-0011).
  */
 const DEFECT_FLAGS = {
   /** Нет фильтра по тенанту: объект чужого тенанта отдаётся 200 вместо 403. */
@@ -68,6 +70,13 @@ const DEFECT_FLAGS = {
   noRoleCheck: "POLYGON_DEFECT_NO_ROLE_CHECK",
   /** IDOR внутри тенанта: чужой объект своего тенанта отдаётся 200 вместо 403. */
   idorSameTenant: "POLYGON_DEFECT_IDOR_SAME_TENANT",
+  /**
+   * Нет фильтра по тенанту в списке: GET /v1/orders отдаёт заказы всех тенантов.
+   *
+   * Статус не меняется — 200 и с дефектом, и без него. Ровно тот класс, который
+   * до ADR-0011 был для инструмента невидим, и ради которого тела стали читаться.
+   */
+  listNoFilter: "POLYGON_DEFECT_LIST_NO_FILTER",
 };
 
 class ConfigurationError extends Error {
@@ -106,6 +115,7 @@ function readDefects() {
     crossTenant: readFlag(DEFECT_FLAGS.crossTenant),
     noRoleCheck: readFlag(DEFECT_FLAGS.noRoleCheck),
     idorSameTenant: readFlag(DEFECT_FLAGS.idorSameTenant),
+    listNoFilter: readFlag(DEFECT_FLAGS.listNoFilter),
   };
 }
 
@@ -221,10 +231,13 @@ function handle(req, res, context) {
   }
 
   if (pathname === "/v1/orders") {
-    // Список своего тенанта. Разница между тенантами здесь видна только в теле,
-    // то есть для инструмента её нет — дефекта на этой ручке намеренно нет.
-    const own = ORDERS.filter((order) => order.tenant === account.tenant);
-    send(res, 200, { orders: own.map((order) => ({ id: order.id, owner: order.owner })) });
+    // Список. С дефектом отдаются заказы всех тенантов — и статус при этом
+    // остаётся 200, как у корректной реализации. Различить их можно только
+    // по телу: у корректной оно разное у разных тенантов, у дефектной одинаковое.
+    const visible = context.defects.listNoFilter
+      ? ORDERS
+      : ORDERS.filter((order) => order.tenant === account.tenant);
+    send(res, 200, { orders: visible.map((order) => ({ id: order.id, owner: order.owner })) });
     return;
   }
 

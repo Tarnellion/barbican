@@ -19,6 +19,8 @@
 import type { HttpMethod } from "../core/types.js";
 import { SAFE_METHODS } from "../core/types.js";
 import type { HttpClient, HttpRequest, HttpResponse, Throttle } from "./ports.js";
+import type { SignalExtractor } from "./signals.js";
+import { createSignalExtractor } from "./signals.js";
 import type { Clock } from "./throttle.js";
 import { systemClock } from "./throttle.js";
 
@@ -164,6 +166,12 @@ export interface HttpClientOptions {
   readonly breaker?: Partial<BreakerPolicy>;
   readonly timeoutMs?: number;
   readonly clock?: Clock;
+  /**
+   * Вычислитель сигналов над телом. Тело читается только для тех обращений,
+   * где сигналы объявлены явно; во всех остальных поток отменяется
+   * непрочитанным, как было до ADR-0011.
+   */
+  readonly signalExtractor?: SignalExtractor;
   /** Источник случайности для джиттера. Отдельно — чтобы тесты были воспроизводимы. */
   readonly random?: () => number;
 }
@@ -226,6 +234,7 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
   const clock = options.clock ?? systemClock;
   const random = options.random ?? Math.random;
   const allowUnsafeMethods = options.allowUnsafeMethods ?? false;
+  const signalExtractor = options.signalExtractor ?? createSignalExtractor();
 
   let consecutiveFailures = 0;
   let circuitOpen = false;
@@ -269,9 +278,18 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
     });
 
     const result = toHttpResponse(response);
-    // Тело не читается: там PII. Поток отменяется, чтобы освободить соединение.
-    await response.body?.cancel();
-    return result;
+
+    const specs = request.signals ?? [];
+    if (specs.length === 0) {
+      // Тело не читается: там PII. Поток отменяется, чтобы освободить соединение.
+      await response.body?.cancel();
+      return result;
+    }
+
+    // Тело читается транзитно и остаётся внутри вычислителя. Наружу уходят
+    // только скаляры: тип `SignalValue` физически не вмещает содержимое.
+    const signals = await signalExtractor.extract(response.body, specs);
+    return { ...result, signals };
   }
 
   return {

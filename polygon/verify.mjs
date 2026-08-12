@@ -38,6 +38,7 @@ const FLAG_FIELDS = {
   POLYGON_DEFECT_CROSS_TENANT: "crossTenant",
   POLYGON_DEFECT_NO_ROLE_CHECK: "noRoleCheck",
   POLYGON_DEFECT_IDOR_SAME_TENANT: "idorSameTenant",
+  POLYGON_DEFECT_LIST_NO_FILTER: "listNoFilter",
 };
 
 /**
@@ -138,11 +139,23 @@ function runCli(reportPath, environment) {
 }
 
 /** Ключ ячейки. Объект отсутствует у эндпоинтов без параметров пути. */
+/**
+ * Ключ ячейки. Понимает и расхождения матрицы, и находки проверок.
+ *
+ * У расхождения третья координата — объект, у находки проверки — второй аккаунт
+ * пары: дефект списка проявляется не на объекте, а на совпадении двух ответов.
+ */
 function cellKey(finding) {
-  const resource = finding.resource ?? finding.resourceId ?? "—";
   const account = finding.account ?? finding.accountId;
   const endpoint = finding.endpoint ?? finding.endpointId;
-  return `${account} × ${endpoint} × ${resource} [${finding.kind}]`;
+  const kind = finding.kind ?? finding.checkId;
+  const detail =
+    finding.other ??
+    finding.evidence?.otherAccountId ??
+    finding.resource ??
+    finding.resourceId ??
+    "—";
+  return `${account} × ${endpoint} × ${detail} [${kind}]`;
 }
 
 function difference(left, right) {
@@ -225,7 +238,9 @@ async function main() {
     const report = JSON.parse(await readFile(reportPath, "utf8"));
 
     const expected = new Set(combination.findings.map(cellKey));
-    const actual = new Set(report.findings.map(cellKey));
+    // Находки проверок сравниваются наравне с расхождениями матрицы: дефект,
+    // невидимый по статусу, — такой же дефект.
+    const actual = new Set([...report.findings, ...report.checks].map(cellKey));
     const missing = difference(expected, actual);
     const extra = difference(actual, expected);
 
@@ -257,7 +272,9 @@ async function main() {
     process.stdout.write(
       `  опрошено ячеек: ${report.summary.observations}, ` +
         `канареек: ${report.canariesChecked}, ` +
-        `находок: ${report.summary.findings} (ожидалось ${combination.findings.length})\n`,
+        `находок: ${report.summary.findings + report.summary.checkFindings} ` +
+        `(из них по телу ${report.summary.checkFindings}) ` +
+        `(ожидалось ${combination.findings.length})\n`,
     );
 
     if (problems.length === 0) {

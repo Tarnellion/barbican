@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  applyTenantScope,
   assertReferencesResolve,
   ConfigParseError,
   ConfigValidationError,
@@ -321,6 +322,42 @@ policy:
     const config = parseRunConfig(base.replace("canary: me", "canary: mee"));
 
     expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnknownEndpointReferenceError);
+  });
+
+  /**
+   * Опечатка здесь отказывает молча и закрыто: тело не читается, проверка
+   * не срабатывает, отчёт выглядит чистым. Тот же класс, что опечатка в тенанте.
+   */
+  it("отвергает опечатку в пометке tenantScoped", () => {
+    const config = parseRunConfig(`${base}bodySignals: { tenantScoped: [orders.raed] }\n`);
+
+    expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnknownEndpointReferenceError);
+  });
+
+  it("пропускает корректную пометку tenantScoped", () => {
+    const config = parseRunConfig(`${base}bodySignals: { tenantScoped: [orders.read] }\n`);
+
+    expect(config.bodySignals?.tenantScoped).toEqual(["orders.read"]);
+    expect(() => assertReferencesResolve(config, endpoints)).not.toThrow();
+  });
+
+  describe("applyTenantScope", () => {
+    it("проставляет пометку только перечисленным эндпоинтам", () => {
+      const config = parseRunConfig(`${base}bodySignals: { tenantScoped: [orders.read] }\n`);
+
+      const marked = applyTenantScope(endpoints, config);
+
+      expect(marked.find((endpoint) => endpoint.id === "orders.read")?.tenantScoped).toBe(true);
+      expect(marked.filter((endpoint) => endpoint.tenantScoped === true)).toHaveLength(1);
+    });
+
+    /** Без секции тела не читаются нигде — это и есть «выключено по умолчанию». */
+    it("без секции bodySignals не трогает ничего", () => {
+      const marked = applyTenantScope(endpoints, parseRunConfig(base));
+
+      expect(marked).toBe(endpoints);
+      expect(marked.some((endpoint) => endpoint.tenantScoped === true)).toBe(false);
+    });
   });
 
   it("не придирается к правилу с «*»", () => {

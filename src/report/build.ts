@@ -9,7 +9,14 @@
  * ответа приходят уже отредактированными из HTTP-клиента.
  */
 
-import type { AccessDiff, AccessObservation, DiffKind, Endpoint, Resource } from "../core/index.js";
+import type {
+  AccessDiff,
+  AccessObservation,
+  DiffKind,
+  Endpoint,
+  Finding,
+  Resource,
+} from "../core/index.js";
 import type { RunConfig } from "../io/config.js";
 import type { ProbeFailure, SkippedEndpoint } from "../runner.js";
 
@@ -22,6 +29,8 @@ export interface ReportSummary {
   readonly failures: number;
   readonly findings: number;
   readonly byKind: Readonly<Record<DiffKind, number>>;
+  /** Находки проверок-плагинов. Считаются отдельно: у них своя природа. */
+  readonly checkFindings: number;
 }
 
 export interface RunReport {
@@ -64,6 +73,15 @@ export interface RunReport {
   readonly truncated: boolean;
   readonly observations: readonly AccessObservation[];
   readonly findings: readonly AccessDiff[];
+  /**
+   * Находки проверок из реестра.
+   *
+   * Отдельно от `findings`: те — расхождения матрицы с объявленной политикой,
+   * эти — выводы проверок, которым матрицы недостаточно. Смешать их значило бы
+   * потерять различие между «доступ не совпал с намерением» и «ответ выглядит
+   * так, будто фильтра нет».
+   */
+  readonly checks: readonly Finding[];
   readonly summary: ReportSummary;
 }
 
@@ -78,6 +96,8 @@ export interface BuildReportOptions {
   readonly canariesChecked: number;
   readonly truncated: boolean;
   readonly findings: readonly AccessDiff[];
+  /** Находки проверок из реестра. Отсутствие означает «проверки не запускались». */
+  readonly checks?: readonly Finding[];
   readonly startedAt: Date;
   readonly finishedAt: Date;
 }
@@ -122,6 +142,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     truncated: options.truncated,
     observations: options.observations,
     findings: options.findings,
+    checks: options.checks ?? [],
     summary: {
       endpoints: options.endpoints.length,
       accounts: options.config.accounts.length,
@@ -131,6 +152,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
       failures: options.failures.length,
       findings: options.findings.length,
       byKind: countByKind(options.findings),
+      checkFindings: (options.checks ?? []).length,
     },
   };
 }
@@ -168,5 +190,15 @@ export function exitCodeFor(report: RunReport): number {
   if (report.summary.byKind["probe-error"] === report.summary.observations) {
     return 2;
   }
-  return report.summary.byKind["privilege-escalation"] > 0 ? 1 : 0;
+  if (report.summary.byKind["privilege-escalation"] > 0) {
+    return 1;
+  }
+  // Находка проверки — такое же расхождение, как эскалация, просто увиденное
+  // не по статусу. Молчать о ней кодом возврата значило бы, что прогон
+  // с найденной межтенантной утечкой выглядит успешным в CI.
+  return report.checks.some(
+    (finding) => finding.severity === "high" || finding.severity === "critical",
+  )
+    ? 1
+    : 0;
 }

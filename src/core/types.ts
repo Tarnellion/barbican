@@ -37,7 +37,30 @@ export interface Endpoint {
   /** Шаблон пути, например `/v1/players/{playerId}`. */
   readonly path: string;
   readonly operationId?: string;
+  /**
+   * Ответ обязан различаться между тенантами.
+   *
+   * Объявляется человеком и никогда не выводится: `GET /v1/health`, отдающий
+   * всем одинаковое `{"status":"ok"}`, — законная одинаковость, а не утечка.
+   * Без явной пометки отличить одно от другого нельзя. См. ADR-0011.
+   */
+  readonly tenantScoped?: boolean;
 }
+
+/**
+ * Значение сигнала над телом ответа.
+ *
+ * Строкового варианта нет намеренно: строка вмещает тело целиком, и запрет
+ * на PII в отчёте из конструктивного стал бы дисциплинарным. Расширение типа
+ * требует отдельного ADR — см. ADR-0011.
+ */
+export type SignalValue = number | boolean;
+
+/** Что вычислять над телом. Объявляется человеком, не выводится. */
+export type SignalSpec =
+  | { readonly name: string; readonly kind: "digest" }
+  | { readonly name: string; readonly kind: "count"; readonly path: string }
+  | { readonly name: string; readonly kind: "present"; readonly path: string };
 
 /**
  * Объект, к которому обращаются: значения параметров плюс владелец.
@@ -97,9 +120,10 @@ export type AccessOutcome = "allowed" | "denied" | "not-found" | "error";
 /**
  * Наблюдённый результат одного обращения.
  *
- * Тело ответа отсутствует намеренно: по умолчанию не сохраняем — там PII клиента.
- * Если когда-нибудь понадобится, это должно быть отдельное опциональное поле
- * под явным флагом, а не молчаливое расширение этого типа.
+ * Тело ответа отсутствует намеренно: там PII клиента. Вместо него — `signals`,
+ * необратимые скаляры, вычисленные над телом и не позволяющие его восстановить.
+ * Границы этого послабления заданы в ADR-0011; расширять `SignalValue` строкой
+ * или объектом нельзя без отдельного ADR.
  */
 export interface AccessObservation {
   readonly endpointId: string;
@@ -110,6 +134,10 @@ export interface AccessObservation {
   readonly headers: Readonly<Record<string, string>>;
   readonly outcome: AccessOutcome;
   readonly durationMs: number;
+  /**
+   * Скаляры, вычисленные над телом. Само тело не сохраняется нигде — ADR-0011.
+   */
+  readonly signals?: Readonly<Record<string, SignalValue>>;
 }
 
 /** Фактическая матрица доступа: кто, куда и с каким результатом. */
