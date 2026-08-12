@@ -39,6 +39,7 @@ const FLAG_FIELDS = {
   POLYGON_DEFECT_NO_ROLE_CHECK: "noRoleCheck",
   POLYGON_DEFECT_IDOR_SAME_TENANT: "idorSameTenant",
   POLYGON_DEFECT_LIST_NO_FILTER: "listNoFilter",
+  POLYGON_DEFECT_CROSS_HOLDING: "crossHolding",
 };
 
 /**
