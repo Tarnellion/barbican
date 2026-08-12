@@ -27,8 +27,16 @@ npm install barbican
 
 ## Example
 
-Observations come from your own harness for now. Feed them in, declare what access you
-intended, and get back only what disagrees:
+The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config
+and [`polygon/`](polygon/) for a working target with deliberate defects and a hand-written
+oracle:
+
+```bash
+barbican run --config examples/minimal/barbican.run.yaml --endpoints examples/minimal/endpoints.yaml
+```
+
+The library is the same machinery without the transport. Feed in observations from your
+own harness, declare what access you intended, and get back only what disagrees:
 
 ```ts
 import { ANY, buildAccessMatrix, diffAccess } from "barbican";
@@ -75,8 +83,12 @@ conservative and enforced by construction rather than by flags you have to remem
 
 - Only `GET` and `HEAD` are issued unless `--unsafe-methods` is passed explicitly.
 - A host allowlist is mandatory; without one the tool refuses to run.
-- Response bodies are never stored — only status codes, headers, and whether access was
-  granted. Bodies hold your customers' data.
+- Response bodies are never stored. By default they are not even read: the stream is
+  cancelled. Where you explicitly declare `bodySignals.tenantScoped`, a body is read in
+  transit to compute an irreversible scalar — a salted 48-bit digest — and discarded. The
+  signal type admits numbers and booleans only, so a body structurally cannot fit in it.
+  This is what makes a missing tenant filter on a list endpoint visible at all: it returns
+  200 either way, so no status code distinguishes it.
 - External `$ref`s in OpenAPI documents are never resolved, over HTTP or the filesystem
   (SSRF and path traversal).
 - Throttling is always on: concurrency and rate caps, exponential backoff, a circuit
