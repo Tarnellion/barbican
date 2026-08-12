@@ -9,12 +9,27 @@ BOLA/IDOR, and cross-tenant leaks.
 
 ## Status
 
-Early development. The core is usable as a library; the network layer does not exist yet.
+Early development, but end-to-end: `barbican run` walks a live API and writes a report.
+Validated against three targets — [crAPI](docs/polygons/crapi.md), VAmPI, and a
+[reference platform](polygon/) with switchable defects and a hand-written oracle.
 
-- **Works today** — declaring an access policy, building an access matrix from
-  observations, and diffing the two into classified findings.
-- **Not yet** — the HTTP client, the OpenAPI parser, and the CLI commands that tie them
-  together. The `barbican` binary currently answers only `--help` and `--version`.
+- **Works today** — OpenAPI/Postman/manual endpoint sources, throttled probing across
+  accounts and roles, path and query parameter substitution, cross-tenant and BOLA
+  detection, scalar signals over response bodies, JSON report and exit codes.
+- **Not yet** — see the limitation below, plus [tasks.md](tasks.md).
+
+### Known limitation: flat tenants
+
+`tenantId` is a flat string, so the only relation between two tenants is "not equal".
+**A platform with a holding structure above its brands is not modelled correctly, and
+the failure is silent.** Given a holding that owns brands A and B, the tool will both
+flag the holding's legitimate read of its own brand as privilege escalation *and* miss a
+real leak into a third brand belonging to a different holding — because "another
+tenant" and "another tenant inside my own holding" are indistinguishable to it.
+
+A clean run against such a platform is not evidence of isolation. This is demonstrated,
+not theorised: see [tests/core/tenant-hierarchy.test.ts](tests/core/tenant-hierarchy.test.ts)
+and [docs/research/coverage-model.md](docs/research/coverage-model.md).
 
 See [plan.md](plan.md) for the roadmap and [docs/adr/](docs/adr/) for the reasoning
 behind each design decision.
