@@ -277,6 +277,12 @@ async function run(flags: RunFlags): Promise<number> {
       : `По серьёзности: критических ${summary.bySeverity.critical}, ` +
         `высоких ${summary.bySeverity.high}, средних ${summary.bySeverity.medium}, ` +
         `низких ${summary.bySeverity.low}`,
+    // Число строк говорит о размере матрицы, число сигнатур — о числе проблем.
+    // «Не менее», а не «ровно»: два дефекта с одинаковой сигнатурой снаружи
+    // неразличимы, и завышать точность нельзя.
+    summary.findings === 0
+      ? undefined
+      : `Различных дефектов: не менее ${summary.defectGroups} (наблюдений ${summary.findings})`,
     // Находки проверок называются отдельной строкой: они увидены не по статусу,
     // и смешивать их с эскалацией значило бы стереть это различие.
     summary.checkFindings > 0

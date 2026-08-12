@@ -38,6 +38,7 @@ function report(overrides: {
     observations: [],
     findings: [],
     checks: overrides.checks ?? [],
+    defects: [],
     summary: {
       endpoints: 0,
       accounts: 0,
@@ -54,6 +55,7 @@ function report(overrides: {
       },
       checkFindings: (overrides.checks ?? []).length,
       bySeverity: { info: 0, low: 0, medium: 0, high: 0, critical: 0 },
+      defectGroups: 0,
     },
   };
 }

@@ -12,12 +12,14 @@
 import type {
   AccessDiff,
   AccessObservation,
+  DefectGroup,
   DiffKind,
   Endpoint,
   Finding,
   Resource,
   Severity,
 } from "../core/index.js";
+import { groupDefects } from "../core/index.js";
 import type { RunConfig } from "../io/config.js";
 import type { ProbeFailure, SkippedEndpoint } from "../runner.js";
 
@@ -32,6 +34,12 @@ export interface ReportSummary {
   readonly byKind: Readonly<Record<DiffKind, number>>;
   /** Расхождения по серьёзности — с чего читателю начинать. См. ADR-0014. */
   readonly bySeverity: Readonly<Record<Severity, number>>;
+  /**
+   * Различных сигнатур дефекта. **Нижняя граница** числа проблем: две разные
+   * ошибки с одинаковой сигнатурой снаружи неразличимы. Верхняя граница —
+   * `findings`.
+   */
+  readonly defectGroups: number;
   /** Находки проверок-плагинов. Считаются отдельно: у них своя природа. */
   readonly checkFindings: number;
 }
@@ -85,6 +93,13 @@ export interface RunReport {
    * так, будто фильтра нет».
    */
   readonly checks: readonly Finding[];
+  /**
+   * Расхождения, сведённые к сигнатурам «эндпоинт × вид × отношение».
+   *
+   * Один дефект платформы задевает столько ячеек, сколько их есть; без
+   * группировки отчёт сообщает размер матрицы, а не число проблем.
+   */
+  readonly defects: readonly DefectGroup[];
   readonly summary: ReportSummary;
 }
 
@@ -162,6 +177,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     observations: options.observations,
     findings: options.findings,
     checks: options.checks ?? [],
+    defects: groupDefects(options.findings),
     summary: {
       endpoints: options.endpoints.length,
       accounts: options.config.accounts.length,
@@ -172,6 +188,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
       findings: options.findings.length,
       byKind: countByKind(options.findings),
       bySeverity: countBySeverity(options.findings),
+      defectGroups: groupDefects(options.findings).length,
       checkFindings: (options.checks ?? []).length,
     },
   };
