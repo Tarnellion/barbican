@@ -19,17 +19,25 @@ export interface AuthenticitySuspicion {
   readonly accountId: string;
   /** Сколько эндпоинтов политика считает доступными этому аккаунту. */
   readonly expectedAllowed: number;
-  /** Из них ответили 401. */
-  readonly unauthorized: number;
+  /** Из них не дали доступа. */
+  readonly refused: number;
+  /** Самый частый статус среди отказов — подсказка, куда смотреть. */
+  readonly dominantStatus: number;
 }
 
 /**
- * Находит аккаунты, у которых **все** объявленные доступными эндпоинты
- * ответили 401.
+ * Находит аккаунты, у которых **ни один** объявленный доступным эндпоинт
+ * не дал доступа.
  *
- * Порог намеренно строгий: частичные отказы — это обычная находка
- * «неожиданный отказ», и поднимать по ним тревогу значило бы приучить
- * к ложным срабатываниям.
+ * Проверка не привязана к 401 намеренно. Разведка crAPI показала, что отказы
+ * бывают неоднородны даже внутри одного продукта: сервис на Java отвечает 404
+ * там, где сервис на Django отвечает 401. А сплошные 404 — ещё и типичный
+ * признак неверного `baseUrl` или префикса пути. Во всех этих случаях
+ * результату верить нельзя одинаково, поэтому смотрим на сам факт: человек
+ * объявил доступ, доступа нет нигде.
+ *
+ * Порог намеренно строгий: частичные отказы — обычная находка «неожиданный
+ * отказ», и тревога по ним приучила бы к ложным срабатываниям.
  */
 export function findUnauthenticated(
   accounts: readonly Account[],
@@ -40,7 +48,8 @@ export function findUnauthenticated(
 
   for (const account of accounts) {
     let expectedAllowed = 0;
-    let unauthorized = 0;
+    let refused = 0;
+    const statusCounts = new Map<number, number>();
 
     for (const observation of observations) {
       if (observation.accountId !== account.id) {
@@ -50,13 +59,22 @@ export function findUnauthenticated(
         continue;
       }
       expectedAllowed += 1;
-      if (observation.status === 401) {
-        unauthorized += 1;
+      if (observation.outcome !== "allowed") {
+        refused += 1;
+        statusCounts.set(observation.status, (statusCounts.get(observation.status) ?? 0) + 1);
       }
     }
 
-    if (expectedAllowed > 0 && unauthorized === expectedAllowed) {
-      suspicions.push({ accountId: account.id, expectedAllowed, unauthorized });
+    if (expectedAllowed > 0 && refused === expectedAllowed) {
+      let dominantStatus = 0;
+      let best = 0;
+      for (const [status, count] of statusCounts) {
+        if (count > best) {
+          best = count;
+          dominantStatus = status;
+        }
+      }
+      suspicions.push({ accountId: account.id, expectedAllowed, refused, dominantStatus });
     }
   }
 

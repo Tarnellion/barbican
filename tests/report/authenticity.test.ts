@@ -29,14 +29,9 @@ const policy: ExpectedAccessPolicy = {
 };
 
 function observe(accountId: string, endpointId: string, status: number): AccessObservation {
-  return {
-    accountId,
-    endpointId,
-    status,
-    headers: {},
-    outcome: status === 401 ? "denied" : "allowed",
-    durationMs: 1,
-  };
+  const outcome =
+    status >= 200 && status < 300 ? "allowed" : status === 404 ? "not-found" : "denied";
+  return { accountId, endpointId, status, headers: {}, outcome, durationMs: 1 };
 }
 
 describe("findUnauthenticated", () => {
@@ -57,7 +52,7 @@ describe("findUnauthenticated", () => {
     const observations = [observe("user", "me", 401), observe("user", "users.list", 200)];
 
     expect(findUnauthenticated(accounts, observations, policy)).toEqual([
-      { accountId: "user", expectedAllowed: 1, unauthorized: 1 },
+      { accountId: "user", expectedAllowed: 1, refused: 1, dominantStatus: 401 },
     ]);
   });
 
@@ -77,10 +72,29 @@ describe("findUnauthenticated", () => {
     expect(findUnauthenticated(accounts, observations, closed)).toEqual([]);
   });
 
-  it("различает 401 и 403", () => {
-    const observations = [observe("user", "me", 403)];
+  // Разведка crAPI: identity-сервис отвечает 404 там, где workshop отвечает 401.
+  // Сплошные 404 — ещё и типичный признак неверного baseUrl или префикса пути.
+  it("замечает сплошные 404 так же, как сплошные 401", () => {
+    const observations = [observe("user", "me", 404)];
 
-    // 403 — это «вошёл, но не положено», то есть аутентификация состоялась.
-    expect(findUnauthenticated(accounts, observations, policy)).toEqual([]);
+    expect(findUnauthenticated(accounts, observations, policy)).toEqual([
+      { accountId: "user", expectedAllowed: 1, refused: 1, dominantStatus: 404 },
+    ]);
+  });
+
+  it("подсказывает преобладающий статус отказа", () => {
+    const wide: ExpectedAccessPolicy = {
+      fallback: "denied",
+      rules: [{ roles: ANY, endpoints: ANY, outcome: "allowed" }],
+    };
+    const observations = [
+      observe("user", "a", 404),
+      observe("user", "b", 404),
+      observe("user", "c", 401),
+    ];
+
+    expect(findUnauthenticated(accounts, observations, wide)).toEqual([
+      { accountId: "user", expectedAllowed: 3, refused: 3, dominantStatus: 404 },
+    ]);
   });
 });

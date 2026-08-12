@@ -173,9 +173,14 @@ async function run(flags: RunFlags): Promise<number> {
   const escalations = summary.byKind["privilege-escalation"];
   if (unauthenticated.length > 0) {
     process.stderr.write(
-      `${paint("Аутентификация не сработала:", "red")} ${unauthenticated.join(", ")} — ` +
-        `каждый объявленный доступным эндпоинт ответил 401. Это признак неработающих ` +
-        `учётных данных, а не результата политики: результатам прогона верить нельзя.\n`,
+      `${paint("Доступа нет нигде:", "red")} ${suspicions
+        .map(
+          (s) =>
+            `${s.accountId} (${s.refused}/${s.expectedAllowed}, чаще всего ${s.dominantStatus})`,
+        )
+        .join(", ")}. ` +
+        `Ни один объявленный доступным эндпоинт не открылся — это признак неработающих ` +
+        `учётных данных или неверного адреса, а не результата политики. Результатам верить нельзя.\n`,
     );
   }
   const lines = [
