@@ -8,7 +8,13 @@
 import { describe, expect, it } from "vitest";
 import type { HttpClient, HttpRequest, HttpResponse } from "../src/adapters/ports.js";
 import type { Account, Endpoint } from "../src/core/index.js";
-import { classifyStatus, collectObservations } from "../src/runner.js";
+import {
+  classifyStatus,
+  collectObservations,
+  probeCanaries,
+  TemplatedCanaryError,
+  UnknownCanaryEndpointError,
+} from "../src/runner.js";
 
 const accounts: readonly Account[] = [
   { id: "player-a", roleId: "player", tenantId: "tenant-a" },
@@ -101,8 +107,8 @@ describe("collectObservations", () => {
       client,
     });
 
-    expect(seen[0]?.headers["authorization"]).toBe("Bearer токен-игрока");
-    expect(seen[1]?.headers["authorization"]).toBe("Bearer токен-админа");
+    expect(seen[0]?.headers.authorization).toBe("Bearer токен-игрока");
+    expect(seen[1]?.headers.authorization).toBe("Bearer токен-админа");
   });
 
   it("пропускает эндпоинты с параметрами в пути и сообщает об этом", async () => {
@@ -230,5 +236,124 @@ describe("что инструмент не трогает", () => {
     // GET не обязан быть безопасным на деле: /createdb сбрасывает базу.
     expect(result.skipped).toContainEqual({ endpointId: "db.reset", reason: "excluded" });
     expect(seen.map((r) => r.url)).not.toContain("https://api.test/createdb");
+  });
+});
+
+describe("предохранители против недостоверного прогона", () => {
+  const endpoints: readonly Endpoint[] = [
+    { id: "me", method: "GET", path: "/v1/me" },
+    { id: "users.list", method: "GET", path: "/v1/users" },
+    { id: "profile", method: "GET", path: "/v1/players/{id}" },
+  ];
+  const two: readonly Account[] = [
+    { id: "a", roleId: "player", tenantId: "t" },
+    { id: "b", roleId: "admin", tenantId: "t" },
+  ];
+  const tokens = new Map([
+    ["a", "tok-a"],
+    ["b", "tok-b"],
+  ]);
+
+  it("сообщает, что аккаунт не аутентифицирован, когда канарейка отвечает отказом", async () => {
+    const { client } = fakeClient((request) => ({
+      status: request.headers.authorization === "Bearer tok-a" ? 401 : 200,
+      headers: {},
+    }));
+
+    const results = await probeCanaries({
+      baseUrl: "https://api.test",
+      endpoints,
+      canaries: [
+        { accountId: "a", endpointId: "me" },
+        { accountId: "b", endpointId: "me" },
+      ],
+      tokens,
+      client,
+    });
+
+    expect(results).toEqual([
+      { accountId: "a", endpointId: "me", status: 401, authenticated: false },
+      { accountId: "b", endpointId: "me", status: 200, authenticated: true },
+    ]);
+  });
+
+  it("отвергает канарейку на неизвестный эндпоинт", async () => {
+    const { client } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    await expect(
+      probeCanaries({
+        baseUrl: "https://api.test",
+        endpoints,
+        canaries: [{ accountId: "a", endpointId: "нет-такого" }],
+        tokens,
+        client,
+      }),
+    ).rejects.toThrow(UnknownCanaryEndpointError);
+  });
+
+  it("отвергает канарейку на эндпоинт с параметром в пути", async () => {
+    const { client } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    await expect(
+      probeCanaries({
+        baseUrl: "https://api.test",
+        endpoints,
+        canaries: [{ accountId: "a", endpointId: "profile" }],
+        tokens,
+        client,
+      }),
+    ).rejects.toThrow(TemplatedCanaryError);
+  });
+
+  // Самый опасный сценарий: токен протух, всё вернуло 401, и прогон
+  // отрапортовал бы «эскалаций не найдено», не проверив ничего.
+  it("замечает аккаунт, у которого все обращения вернули 401", async () => {
+    const { client } = fakeClient((request) => ({
+      status: request.headers.authorization === "Bearer tok-a" ? 401 : 200,
+      headers: {},
+    }));
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints,
+      accounts: two,
+      tokens,
+      client,
+    });
+
+    expect(result.unauthenticated).toEqual(["a"]);
+  });
+
+  it("не поднимает тревогу, когда 401 перемешаны с успехами", async () => {
+    let call = 0;
+    const { client } = fakeClient(() => {
+      call += 1;
+      return { status: call % 2 === 0 ? 401 : 200, headers: {} };
+    });
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints,
+      accounts: two,
+      tokens,
+      client,
+    });
+
+    expect(result.unauthenticated).toEqual([]);
+  });
+
+  it("возвращает список реально опрошенных эндпоинтов", async () => {
+    const { client } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints,
+      accounts: [two[0] ?? { id: "a", roleId: "r", tenantId: "t" }],
+      tokens,
+      client,
+    });
+
+    // profile пропущен из-за параметра в пути и в матрицу попасть не должен.
+    expect(result.probed.map((e) => e.id)).toEqual(["me", "users.list"]);
   });
 });

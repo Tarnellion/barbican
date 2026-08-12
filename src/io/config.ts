@@ -36,6 +36,15 @@ const configSchema = z.object({
         role: z.string().min(1),
         tenant: z.string().min(1),
         tokenEnv: z.string().min(1),
+        /**
+         * Эндпоинт, заведомо доступный этому аккаунту.
+         *
+         * Проверяется до основного прогона. Без него нельзя отличить «доступа
+         * действительно нет» от «мы не аутентифицировались»: 401 читается как
+         * отказ, отказ совпадает с ожиданием там, где доступ не положен, —
+         * и прогон отрапортует «эскалаций не найдено», ничего не проверив.
+         */
+        canary: z.string().min(1).optional(),
       }),
     )
     .min(1),
@@ -58,6 +67,13 @@ export interface AccountConfig {
   readonly tenant: string;
   /** Имя переменной окружения с токеном. Не сам токен. */
   readonly tokenEnv: string;
+  /**
+   * Эндпоинт, заведомо доступный этому аккаунту.
+   *
+   * `| undefined` явно: под `exactOptionalPropertyTypes` zod отдаёт именно
+   * такой тип для необязательного поля.
+   */
+  readonly canary?: string | undefined;
 }
 
 export interface RunTarget {

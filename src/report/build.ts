@@ -39,6 +39,13 @@ export interface RunReport {
   readonly endpoints: readonly Endpoint[];
   readonly skipped: readonly SkippedEndpoint[];
   readonly failures: readonly ProbeFailure[];
+  /**
+   * Аккаунты, у которых все обращения вернули 401.
+   *
+   * Непустой список означает, что находкам верить нельзя: скорее всего
+   * не сработала аутентификация, а не политика.
+   */
+  readonly unauthenticated: readonly string[];
   readonly observations: readonly AccessObservation[];
   readonly findings: readonly AccessDiff[];
   readonly summary: ReportSummary;
@@ -51,6 +58,7 @@ export interface BuildReportOptions {
   readonly observations: readonly AccessObservation[];
   readonly skipped: readonly SkippedEndpoint[];
   readonly failures: readonly ProbeFailure[];
+  readonly unauthenticated: readonly string[];
   readonly findings: readonly AccessDiff[];
   readonly startedAt: Date;
   readonly finishedAt: Date;
@@ -90,6 +98,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     endpoints: options.endpoints,
     skipped: options.skipped,
     failures: options.failures,
+    unauthenticated: options.unauthenticated,
     observations: options.observations,
     findings: options.findings,
     summary: {
@@ -111,5 +120,10 @@ export function buildReport(options: BuildReportOptions): RunReport {
  * остальные расхождения требуют внимания, но не означают дыры в доступе.
  */
 export function exitCodeFor(report: RunReport): number {
+  // Недостоверный прогон — проблема прогона, а не находка: код 2, как у ошибки.
+  // Иначе «эскалаций нет» на непройденной аутентификации читалось бы как успех.
+  if (report.unauthenticated.length > 0) {
+    return 2;
+  }
   return report.summary.byKind["privilege-escalation"] > 0 ? 1 : 0;
 }

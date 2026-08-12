@@ -18,7 +18,7 @@ import { createThrottle } from "./adapters/throttle.js";
 import { buildAccessMatrix, diffAccess } from "./core/index.js";
 import { parseRunConfig, resolveTokens, toAccounts } from "./io/config.js";
 import { buildReport, exitCodeFor } from "./report/build.js";
-import { collectObservations } from "./runner.js";
+import { collectObservations, probeCanaries } from "./runner.js";
 
 // Версия читается из package.json, а не дублируется константой: разошедшись,
 // дубликат заставил бы CLI врать о собственной версии в отчётах о прогонах.
@@ -83,9 +83,41 @@ async function run(flags: RunFlags): Promise<number> {
     allowUnsafeMethods: flags.unsafeMethods === true,
   });
 
-  const startedAt = new Date();
   const accounts = toAccounts(config);
-  const { observations, skipped, failures } = await collectObservations({
+
+  const canaries = config.accounts
+    .filter((account) => account.canary !== undefined)
+    .map((account) => ({ accountId: account.id, endpointId: account.canary ?? "" }));
+
+  if (canaries.length === 0) {
+    process.stderr.write(
+      `${paint("Аутентификация не проверена:", "yellow")} ни у одного аккаунта нет канарейки. ` +
+        `Если токены не работают, прогон покажет «эскалаций не найдено», ничего не проверив.\n`,
+    );
+  } else {
+    const results = await probeCanaries({
+      baseUrl: config.target.baseUrl,
+      endpoints,
+      canaries,
+      tokens,
+      client,
+    });
+    const broken = results.filter((result) => !result.authenticated);
+    if (broken.length > 0) {
+      const details = broken
+        .map(
+          (r) => `  ${r.accountId}: ${r.endpointId} вернул ${r.status === 0 ? "сбой" : r.status}`,
+        )
+        .join("\n");
+      throw new Error(
+        `Аккаунты не аутентифицированы, прогон остановлен:\n${details}\n` +
+          `Продолжать нельзя: 401 читается как отказ, и отчёт выглядел бы чистым.`,
+      );
+    }
+  }
+
+  const startedAt = new Date();
+  const { observations, skipped, failures, probed, unauthenticated } = await collectObservations({
     baseUrl: config.target.baseUrl,
     endpoints,
     accounts,
@@ -96,7 +128,9 @@ async function run(flags: RunFlags): Promise<number> {
   });
   const finishedAt = new Date();
 
-  const matrix = buildAccessMatrix({ endpoints, accounts, observations });
+  // Матрица только из опрошенного: пропуск — пробел покрытия, а не расхождение
+  // на каждый аккаунт. Иначе один пропуск даёт столько находок, сколько аккаунтов.
+  const matrix = buildAccessMatrix({ endpoints: probed, accounts, observations });
   const findings = diffAccess(matrix, config.policy);
 
   const report = buildReport({
@@ -106,6 +140,7 @@ async function run(flags: RunFlags): Promise<number> {
     observations,
     skipped,
     failures,
+    unauthenticated,
     findings,
     startedAt,
     finishedAt,
@@ -120,6 +155,12 @@ async function run(flags: RunFlags): Promise<number> {
 
   const { summary } = report;
   const escalations = summary.byKind["privilege-escalation"];
+  if (unauthenticated.length > 0) {
+    process.stderr.write(
+      `${paint("Все обращения вернули 401:", "red")} ${unauthenticated.join(", ")}. ` +
+        `Похоже на неработающие токены, а не на результат политики — результатам верить нельзя.\n`,
+    );
+  }
   const lines = [
     `Опрошено: ${summary.observations} пар, эндпоинтов ${summary.endpoints}, аккаунтов ${summary.accounts}`,
     summary.skipped > 0

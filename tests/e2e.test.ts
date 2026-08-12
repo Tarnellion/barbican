@@ -96,7 +96,7 @@ policy:
       const accounts = toAccounts(config);
 
       const startedAt = new Date();
-      const { observations, skipped, failures } = await collectObservations({
+      const { observations, skipped, failures, unauthenticated } = await collectObservations({
         baseUrl: config.target.baseUrl,
         endpoints,
         accounts,
@@ -116,6 +116,7 @@ policy:
         observations,
         skipped,
         failures,
+        unauthenticated,
         findings,
         startedAt,
         finishedAt: new Date(),
@@ -181,7 +182,7 @@ policy:
 `);
       const endpoints = await createOpenApiParser().parse(SPEC);
       const accounts = toAccounts(config);
-      const { observations, skipped, failures } = await collectObservations({
+      const { observations, skipped, failures, unauthenticated } = await collectObservations({
         baseUrl: config.target.baseUrl,
         endpoints,
         accounts,
@@ -203,6 +204,7 @@ policy:
         observations,
         skipped,
         failures,
+        unauthenticated,
         findings,
         startedAt: new Date(),
         finishedAt: new Date(),
