@@ -1,0 +1,71 @@
+# Ручной список эндпоинтов VAmPI.
+#
+# Написан от таблицы действий в README самого VAmPI и сверен с его openapi3.yml.
+# Это не выгрузка спецификации: спецификацию VAmPI отдаёт по `/openapi.json`,
+# и разбирать её было бы удобнее — но список нужен полный, включая то, до чего
+# инструмент не дойдёт. Строка «PUT, который меняет пароль любому» в отчёте
+# как пропуск честнее, чем её отсутствие.
+endpoints:
+  # Баннер. Отвечает всем и всегда — контроль на то, что стенд вообще жив.
+  - id: home
+    method: GET
+    path: /
+
+  # Сбрасывает и пересоздаёт базу. GET, то есть `SAFE_METHODS` его не остановит.
+  # Исключён поимённо в barbican.run.yaml — см. там же почему.
+  - id: db.createdb
+    method: GET
+    path: /createdb
+
+  - id: users.list
+    method: GET
+    path: /users/v1
+
+  # Отладочная ручка: пароли и флаг admin всех пользователей.
+  - id: users.debug
+    method: GET
+    path: /users/v1/_debug
+
+  - id: users.register
+    method: POST
+    path: /users/v1/register
+
+  - id: users.login
+    method: POST
+    path: /users/v1/login
+
+  # Единственная ручка VAmPI, где авторизацию проверяет сам connexion:
+  # без токена 401. Канарейка для аутентифицированных аккаунтов.
+  - id: me
+    method: GET
+    path: /me
+
+  - id: users.read
+    method: GET
+    path: /users/v1/{username}
+
+  - id: users.delete
+    method: DELETE
+    path: /users/v1/{username}
+
+  - id: users.update-email
+    method: PUT
+    path: /users/v1/{username}/email
+
+  - id: users.update-password
+    method: PUT
+    path: /users/v1/{username}/password
+
+  - id: books.list
+    method: GET
+    path: /books/v1
+
+  - id: books.add
+    method: POST
+    path: /books/v1
+
+  # Секрет книги. Здесь живёт единственный дефект VAmPI, различимый по статусу
+  # между режимами: в уязвимом чужая книга отдаётся 200, в защищённом — 404.
+  - id: books.read
+    method: GET
+    path: /books/v1/{book_title}

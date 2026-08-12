@@ -1,0 +1,275 @@
+{
+  "note": "Оракул VAmPI: известные дефекты полигона и ячейки «аккаунт × эндпоинт × объект», которые обязаны дать находку. Список написан вручную от модели доступа VAmPI (README полигона плюс ветки `if vuln:` в его исходниках) и НЕ снят с вывода barbican: эталон, порождённый проверяемой программой, проверяет её на согласованность с самой собой. Обоснование подхода — ADR-0009.",
+  "cellKey": "account + endpoint + resource; resource = null у эндпоинтов без параметров пути",
+  "visibility": {
+    "status": "Виден barbican: код ответа отличается от объявленного политикой. Только такие дефекты попадают в findings.",
+    "body-only": "Различим лишь по телу ответа. Тела не читаются принципиально (ADR-0005), поэтому для инструмента дефекта не существует.",
+    "unsafe-method": "Живёт на POST/PUT/DELETE. Без --unsafe-methods эндпоинт не опрашивается вовсе; с ним потребовалось бы ещё и осмысленное тело запроса.",
+    "excluded": "Виден был бы по статусу, но эндпоинт исключён из прогона намеренно: обращение к нему разрушает стенд.",
+    "out-of-scope": "Вне области модуля 1: не про матрицу «роль × эндпоинт»."
+  },
+  "defects": {
+    "user-directory-public": {
+      "title": "GET /users/v1 отдаёт перечень всех пользователей с адресами почты кому угодно, включая обращение без токена",
+      "owasp": "API1:2023 Broken Object Level Authorization / перечисление пользователей",
+      "visibility": "status",
+      "note": "Политика объявляет ручку закрытой для всех: перечень учётных записей с почтой не публичные данные. Режим `vulnerable` на неё не влияет."
+    },
+    "debug-endpoint-public": {
+      "title": "GET /users/v1/_debug отдаёт всех пользователей вместе с паролями и флагом admin, без аутентификации",
+      "owasp": "API3:2023 Broken Object Property Level Authorization",
+      "visibility": "status",
+      "note": "По статусу виден сам факт публичности. Что именно утекает — пароли, а не только имена — видно лишь в теле, поэтому инструмент не отличит эту находку от предыдущей по серьёзности. VAmPI не чинит её и при vulnerable=0: это «дурная практика», а не переключаемый дефект."
+    },
+    "book-list-public": {
+      "title": "GET /books/v1 отдаёт список всех книг с именами владельцев без токена",
+      "owasp": "API1:2023 Broken Object Level Authorization",
+      "visibility": "status",
+      "note": "Находка ровно одна — анонимная. Аутентифицированному пользователю список положен по политике: по замыслу VAmPI это его полка."
+    },
+    "profile-any-user": {
+      "title": "GET /users/v1/{username} отдаёт профиль любого пользователя любому обратившемуся, включая анонима",
+      "owasp": "API1:2023 Broken Object Level Authorization",
+      "visibility": "status",
+      "note": "Требует подстановки в шаблонный путь (ADR-0010): без объекта эндпоинт не опрашивается. Режим `vulnerable` не влияет — меняется лишь способ выборки (в уязвимом режиме это конкатенация SQL), но не проверка прав, которой нет в обоих."
+    },
+    "bola-book-secret": {
+      "title": "GET /books/v1/{book_title} в уязвимом режиме отдаёт секрет чужой книги любому аутентифицированному пользователю",
+      "owasp": "API1:2023 Broken Object Level Authorization",
+      "visibility": "status",
+      "note": "Единственный дефект VAmPI, различимый по коду ответа между режимами: vulnerable=1 отдаёт 200, vulnerable=0 фильтрует выборку по владельцу и отдаёт 404. Именно тот случай, о котором ADR-0009 писал «пересмотреть, когда появится подстановка в шаблонные пути»."
+    },
+    "createdb-public": {
+      "title": "GET /createdb сбрасывает и пересоздаёт базу, доступен без аутентификации",
+      "owasp": "API5:2023 Broken Function Level Authorization",
+      "visibility": "excluded",
+      "note": "Формально виден по статусу — 200 анониму там, где политика объявляет отказ. Но обращение стирает пользователей и книги, созданные для прогона, и остаток матрицы опрашивается против пустой базы. Эндпоинт исключён поимённо; в отчёте он числится пропуском с причиной `excluded`."
+    },
+    "sqli-username": {
+      "title": "SQL-инъекция в GET /users/v1/{username}: в уязвимом режиме имя подставляется в текст запроса конкатенацией",
+      "owasp": "API8:2023 Security Misconfiguration / инъекция",
+      "visibility": "body-only",
+      "note": "Инструмент обращается объявленными идентификаторами объектов и не подбирает payload'ы. Подтверждение инъекции — в теле ответа."
+    },
+    "mass-assignment-admin": {
+      "title": "POST /users/v1/register принимает поле admin и делает регистрирующегося администратором",
+      "owasp": "API6:2023 Unrestricted Access to Sensitive Business Flows",
+      "visibility": "unsafe-method",
+      "note": "Небезопасный метод плюс подтверждение только в теле."
+    },
+    "password-change-any": {
+      "title": "PUT /users/v1/{username}/password в уязвимом режиме меняет пароль пользователю из пути, а не владельцу токена",
+      "owasp": "API5:2023 Broken Function Level Authorization",
+      "visibility": "unsafe-method",
+      "note": "Самый тяжёлый дефект VAmPI и полностью недостижимый: без --unsafe-methods эндпоинт не опрашивается, а с ним инструмент всё равно не сочиняет тело запроса."
+    },
+    "email-update-bola": {
+      "title": "PUT /users/v1/{username}/email правит почту владельцу токена независимо от имени в пути, а в уязвимом режиме ещё и разбирает адрес катастрофическим регулярным выражением",
+      "owasp": "API5:2023 Broken Function Level Authorization / ReDoS",
+      "visibility": "unsafe-method",
+      "note": "Единственная ячейка, где ADR-0009 намерил разницу режимов по статусу (204 против 400), — и она за пределами безопасных методов."
+    },
+    "login-enumeration": {
+      "title": "POST /users/v1/login в уязвимом режиме отвечает по-разному на «нет такого пользователя» и «неверный пароль»",
+      "owasp": "API2:2023 Broken Authentication",
+      "visibility": "body-only",
+      "note": "Оба ответа — 200. Различие только в тексте сообщения, то есть недостижимо даже с --unsafe-methods."
+    },
+    "jwt-weak-key": {
+      "title": "Токены подписаны ключом «random»: подпись подделывается за секунды",
+      "owasp": "API2:2023 Broken Authentication",
+      "visibility": "out-of-scope",
+      "note": "Инструмент проверяет доступ с выданными учётными данными и не подделывает их. Это работа для отдельной проверки, а не для матрицы доступа."
+    },
+    "no-rate-limiting": {
+      "title": "Ограничения частоты обращений нет",
+      "owasp": "API4:2023 Unrestricted Resource Consumption",
+      "visibility": "out-of-scope",
+      "note": "Инструмент троттлит себя сам, и это инвариант, а не опция: режима «без лимитов» у него нет. Обнаружить отсутствие чужого лимита он поэтому не может по построению."
+    }
+  },
+  "modes": [
+    {
+      "id": "vulnerable",
+      "vulnerable": 1,
+      "expectedExitCode": 1,
+      "findings": [
+        {
+          "account": "alice",
+          "endpoint": "users.list",
+          "resource": null,
+          "kind": "privilege-escalation",
+          "defect": "user-directory-public"
+        },
+        {
+          "account": "bob",
+          "endpoint": "users.list",
+          "resource": null,
+          "kind": "privilege-escalation",
+          "defect": "user-directory-public"
+        },
+        {
+          "account": "anonymous",
+          "endpoint": "users.list",
+          "resource": null,
+          "kind": "privilege-escalation",
+          "defect": "user-directory-public"
+        },
+        {
+          "account": "alice",
+          "endpoint": "users.debug",
+          "resource": null,
+          "kind": "privilege-escalation",
+          "defect": "debug-endpoint-public"
+        },
+        {
+          "account": "bob",
+          "endpoint": "users.debug",
+          "resource": null,
+          "kind": "privilege-escalation",
+          "defect": "debug-endpoint-public"
+        },
+        {
+          "account": "anonymous",
+          "endpoint": "users.debug",
+          "resource": null,
+          "kind": "privilege-escalation",
+          "defect": "debug-endpoint-public"
+        },
+        {
+          "account": "anonymous",
+          "endpoint": "books.list",
+          "resource": null,
+          "kind": "privilege-escalation",
+          "defect": "book-list-public"
+        },
+        {
+          "account": "alice",
+          "endpoint": "users.read",
+          "resource": "user-bob",
+          "kind": "privilege-escalation",
+          "defect": "profile-any-user"
+        },
+        {
+          "account": "bob",
+          "endpoint": "users.read",
+          "resource": "user-alice",
+          "kind": "privilege-escalation",
+          "defect": "profile-any-user"
+        },
+        {
+          "account": "anonymous",
+          "endpoint": "users.read",
+          "resource": "user-alice",
+          "kind": "privilege-escalation",
+          "defect": "profile-any-user"
+        },
+        {
+          "account": "anonymous",
+          "endpoint": "users.read",
+          "resource": "user-bob",
+          "kind": "privilege-escalation",
+          "defect": "profile-any-user"
+        },
+        {
+          "account": "alice",
+          "endpoint": "books.read",
+          "resource": "book-bob",
+          "kind": "privilege-escalation",
+          "defect": "bola-book-secret"
+        },
+        {
+          "account": "bob",
+          "endpoint": "books.read",
+          "resource": "book-alice",
+          "kind": "privilege-escalation",
+          "defect": "bola-book-secret"
+        }
+      ]
+    },
+    {
+      "id": "secure",
+      "vulnerable": 0,
+      "expectedExitCode": 1,
+      "findings": [
+        {
+          "account": "alice",
+          "endpoint": "users.list",
+          "resource": null,
+          "kind": "privilege-escalation",
+          "defect": "user-directory-public"
+        },
+        {
+          "account": "bob",
+          "endpoint": "users.list",
+          "resource": null,
+          "kind": "privilege-escalation",
+          "defect": "user-directory-public"
+        },
+        {
+          "account": "anonymous",
+          "endpoint": "users.list",
+          "resource": null,
+          "kind": "privilege-escalation",
+          "defect": "user-directory-public"
+        },
+        {
+          "account": "alice",
+          "endpoint": "users.debug",
+          "resource": null,
+          "kind": "privilege-escalation",
+          "defect": "debug-endpoint-public"
+        },
+        {
+          "account": "bob",
+          "endpoint": "users.debug",
+          "resource": null,
+          "kind": "privilege-escalation",
+          "defect": "debug-endpoint-public"
+        },
+        {
+          "account": "anonymous",
+          "endpoint": "users.debug",
+          "resource": null,
+          "kind": "privilege-escalation",
+          "defect": "debug-endpoint-public"
+        },
+        {
+          "account": "anonymous",
+          "endpoint": "books.list",
+          "resource": null,
+          "kind": "privilege-escalation",
+          "defect": "book-list-public"
+        },
+        {
+          "account": "alice",
+          "endpoint": "users.read",
+          "resource": "user-bob",
+          "kind": "privilege-escalation",
+          "defect": "profile-any-user"
+        },
+        {
+          "account": "bob",
+          "endpoint": "users.read",
+          "resource": "user-alice",
+          "kind": "privilege-escalation",
+          "defect": "profile-any-user"
+        },
+        {
+          "account": "anonymous",
+          "endpoint": "users.read",
+          "resource": "user-alice",
+          "kind": "privilege-escalation",
+          "defect": "profile-any-user"
+        },
+        {
+          "account": "anonymous",
+          "endpoint": "users.read",
+          "resource": "user-bob",
+          "kind": "privilege-escalation",
+          "defect": "profile-any-user"
+        }
+      ]
+    }
+  ]
+}
