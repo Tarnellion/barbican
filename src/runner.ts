@@ -18,7 +18,7 @@ import { SAFE_METHODS } from "./core/index.js";
  */
 export interface SkippedEndpoint {
   readonly endpointId: string;
-  readonly reason: "path-parameters" | "unsafe-method" | "excluded";
+  readonly reason: "path-parameters" | "unsafe-method" | "excluded" | "escapes-target";
 }
 
 /**
@@ -88,11 +88,49 @@ export function classifyStatus(status: number): AccessOutcome {
   return "error";
 }
 
+export class PathEscapesTargetError extends Error {
+  readonly endpointPath: string;
+
+  constructor(endpointPath: string, resolved: string, expectedOrigin: string) {
+    super(
+      `Путь "${endpointPath}" уводит обращение на "${resolved}" вместо "${expectedOrigin}". ` +
+        `Путь эндпоинта берётся из спецификации проверяемой системы и доверенным ` +
+        `не является: абсолютный адрес в нём позволил бы задать чужую схему и порт.`,
+    );
+    this.name = "PathEscapesTargetError";
+    this.endpointPath = endpointPath;
+  }
+}
+
+/**
+ * Собирает адрес обращения.
+ *
+ * Origin результата сверяется с origin цели. Причина найдена состязательной
+ * проверкой: `new URL(path, base)` отдаёт приоритет абсолютному адресу, поэтому
+ * путь вида `http://тот-же-хост:9999/x` из спецификации перебивал базовый URL
+ * целиком — понижал https до http и уводил на произвольный порт. Проверка
+ * allowlist этого не ловила: она сверяла только имя хоста.
+ *
+ * Обратный слэш и `..` тоже отсекаются: сравнение origin делает форму записи
+ * неважной.
+ */
 function joinUrl(baseUrl: string, path: string): string {
-  return new URL(
-    path.replace(/^\/+/, ""),
-    baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`,
-  ).toString();
+  const base = new URL(baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
+  const resolved = new URL(path.replace(/^[/\\]+/, ""), base);
+  if (resolved.origin !== base.origin) {
+    throw new PathEscapesTargetError(path, resolved.origin, base.origin);
+  }
+  return resolved.toString();
+}
+
+/** Остаётся ли обращение по этому пути в пределах цели. */
+export function staysWithinTarget(baseUrl: string, path: string): boolean {
+  try {
+    joinUrl(baseUrl, path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export interface CanaryResult {
@@ -188,6 +226,11 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       skipped.push({ endpointId: endpoint.id, reason: "unsafe-method" });
     } else if (TEMPLATE_PARAMETER.test(endpoint.path)) {
       skipped.push({ endpointId: endpoint.id, reason: "path-parameters" });
+    } else if (!staysWithinTarget(options.baseUrl, endpoint.path)) {
+      // Путь уводит за пределы цели. Это свойство эндпоинта, а не сбой
+      // обращения, поэтому пропуск, а не ошибка: один враждебный путь
+      // в спецификации не должен обрывать весь прогон.
+      skipped.push({ endpointId: endpoint.id, reason: "escapes-target" });
     } else {
       probeable.push(endpoint);
     }

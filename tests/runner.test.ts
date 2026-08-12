@@ -333,3 +333,51 @@ describe("предохранители против недостоверного
     expect(result.probed.map((e) => e.id)).toEqual(["me", "users.list"]);
   });
 });
+
+// Найдено состязательной проверкой: `new URL(path, base)` отдаёт приоритет
+// абсолютному адресу, поэтому путь из спецификации перебивал базовый URL целиком.
+// Имя хоста при этом не менялось, и allowlist пропускал — токен уходил открытым
+// текстом на порт, заданный проверяемой системой.
+describe("путь из спецификации не управляет адресом", () => {
+  const one: readonly Account[] = [{ id: "a", roleId: "r", tenantId: "t" }];
+  const credentials = createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "секрет"]]));
+
+  async function probe(path: string) {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+    const result = await collectObservations({
+      baseUrl: "https://api.example.test/v1",
+      endpoints: [{ id: "e", method: "GET", path }],
+      accounts: one,
+      credentials,
+      client,
+    });
+    return { seen, result };
+  }
+
+  it("отвергает абсолютный адрес с чужой схемой и портом", async () => {
+    const { seen, result } = await probe("http://api.example.test:9999/exfil");
+
+    expect(seen).toEqual([]);
+    expect(result.skipped).toEqual([{ endpointId: "e", reason: "escapes-target" }]);
+  });
+
+  it("отвергает абсолютный адрес на другой хост", async () => {
+    const { seen, result } = await probe("https://evil.test/x");
+
+    expect(seen).toEqual([]);
+    expect(result.skipped).toEqual([{ endpointId: "e", reason: "escapes-target" }]);
+  });
+
+  it("не даёт обратному слэшу увести на чужой хост", async () => {
+    const { seen } = await probe("/\\evil.test/x");
+
+    // Обходной путь через обратный слэш остаётся внутри цели.
+    expect(seen[0]?.url).toBe("https://api.example.test/v1/evil.test/x");
+  });
+
+  it("обычный путь собирается как прежде", async () => {
+    const { seen } = await probe("/users");
+
+    expect(seen[0]?.url).toBe("https://api.example.test/v1/users");
+  });
+});

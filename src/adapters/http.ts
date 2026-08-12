@@ -23,16 +23,38 @@ import type { Clock } from "./throttle.js";
 import { systemClock } from "./throttle.js";
 
 /**
- * Заголовки ответа, значения которых не сохраняются.
+ * Заголовки ответа, значения которых сохраняются. **Всё остальное редактируется.**
  *
- * Список задаётся здесь и никогда не берётся из пользовательского ввода:
- * `set-cookie` несёт сессионные токены проверяемой платформы.
+ * Именно allowlist, а не denylist. Состязательная проверка показала, что список
+ * запрещённых имён неверен структурно: мимо него проходили `x-auth-token`,
+ * `authentication-info`, `x-amz-security-token` и `x-user-email` с почтой клиента.
+ * Перечислить все имена, которые когда-либо понесут секрет, нельзя — а перечислить
+ * те немногие, что нужны для вердикта о доступе, можно.
+ *
+ * Список задаётся здесь и никогда не берётся из пользовательского ввода.
  */
-const REDACTED_RESPONSE_HEADERS: ReadonlySet<string> = new Set([
-  "set-cookie",
-  "authorization",
-  "proxy-authorization",
+const VALUE_PRESERVED_HEADERS: ReadonlySet<string> = new Set([
+  "content-type",
+  "content-length",
+  "allow",
+  "retry-after",
+  "www-authenticate",
 ]);
+
+/**
+ * `location` полезен для разбора 3xx, но его query и фрагмент несут токены:
+ * OAuth-редирект возвращает `access_token` именно во фрагменте. Сохраняем
+ * только адрес без параметров.
+ */
+function sanitizeLocation(value: string): string {
+  try {
+    const url = new URL(value, "https://placeholder.invalid");
+    const path = `${url.origin === "https://placeholder.invalid" ? "" : url.origin}${url.pathname}`;
+    return url.search === "" && url.hash === "" ? path : `${path}?[REDACTED]`;
+  } catch {
+    return REDACTED;
+  }
+}
 
 const REDACTED = "[REDACTED]";
 
@@ -160,7 +182,15 @@ function toHttpResponse(response: Response): HttpResponse {
   const headers: Record<string, string> = {};
   response.headers.forEach((value, name) => {
     const key = name.toLowerCase();
-    headers[key] = REDACTED_RESPONSE_HEADERS.has(key) ? REDACTED : value;
+    // Имя сохраняется даже у отредактированных: факт присутствия заголовка —
+    // сигнал для разбора прогона, а его значение — нет.
+    if (VALUE_PRESERVED_HEADERS.has(key)) {
+      headers[key] = value;
+    } else if (key === "location") {
+      headers[key] = sanitizeLocation(value);
+    } else {
+      headers[key] = REDACTED;
+    }
   });
   return { status: response.status, headers };
 }
@@ -256,11 +286,15 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
           break;
         }
 
-        const retryAfter =
+        const advised =
           response === undefined
             ? undefined
             : parseRetryAfter(response.headers["retry-after"] ?? null, clock.now());
-        // Указание сервера приоритетнее нашей формулы: он знает, когда ему полегчает.
+        // Указание сервера приоритетнее нашей формулы — но не выше нашего потолка.
+        // Без ограничения огромный Retry-After снимал выдержку целиком: setTimeout
+        // зажимает значения свыше 2^31-1 мс до одной миллисекунды, и три попытки
+        // проходили за считанные миллисекунды вместо экспоненциального backoff.
+        const retryAfter = advised === undefined ? undefined : Math.min(advised, retry.maxDelayMs);
         await clock.sleep(retryAfter ?? backoffFor(attempt));
       }
 

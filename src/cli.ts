@@ -37,6 +37,7 @@ const SKIP_LABELS: Readonly<Record<string, string>> = {
   "path-parameters": "с параметрами в пути",
   "unsafe-method": "небезопасным методом",
   excluded: "исключено вручную",
+  "escapes-target": "путь уводит за пределы цели",
 };
 
 /** Расшифровка пропусков: одно число без причин читается как «что-то не проверено». */
@@ -103,6 +104,7 @@ async function run(flags: RunFlags): Promise<number> {
     .filter((account) => account.canary !== undefined)
     .map((account) => ({ accountId: account.id, endpointId: account.canary ?? "" }));
 
+  let canariesChecked = 0;
   if (canaries.length === 0) {
     process.stderr.write(
       `${paint("Аутентификация не проверена:", "yellow")} ни у одного аккаунта нет канарейки. ` +
@@ -116,6 +118,7 @@ async function run(flags: RunFlags): Promise<number> {
       credentials,
       client,
     });
+    canariesChecked = results.length;
     const broken = results.filter((result) => !result.authenticated);
     if (broken.length > 0) {
       const details = broken
@@ -157,6 +160,7 @@ async function run(flags: RunFlags): Promise<number> {
     skipped,
     failures,
     unauthenticated,
+    canariesChecked,
     findings,
     startedAt,
     finishedAt,

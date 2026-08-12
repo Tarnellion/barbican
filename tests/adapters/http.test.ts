@@ -165,11 +165,18 @@ describe("тело ответа и чувствительные заголовк
     }
   });
 
-  it("редактирует set-cookie: там сессионный токен платформы", async () => {
+  // Найдено состязательной проверкой: список запрещённых имён был структурно
+  // неверен — мимо него проходили x-auth-token, authentication-info,
+  // x-amz-security-token и почта клиента в x-user-email.
+  it("редактирует любой заголовок, которого нет в разрешённом списке", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(200, {
         "set-cookie": "session=super-secret-token; HttpOnly",
-        "x-request-id": "abc-123",
+        "x-auth-token": "XAUTH-SESSION-abc123",
+        "authentication-info": "nextnonce=NONCE-SECRET",
+        "x-amz-security-token": "AWS-STS-SESSION-TOKEN",
+        "x-user-email": "client.pii@example.test",
+        "content-type": "application/json",
       });
       response.end();
     });
@@ -178,10 +185,39 @@ describe("тело ответа и чувствительные заголовк
 
       const response = await client.send(GET(server.port));
 
-      expect(response.headers["set-cookie"]).toBe("[REDACTED]");
-      expect(JSON.stringify(response)).not.toContain("super-secret-token");
-      // Несекретные заголовки сохраняются: они нужны для разбора прогона.
-      expect(response.headers["x-request-id"]).toBe("abc-123");
+      for (const secret of [
+        "super-secret-token",
+        "XAUTH-SESSION-abc123",
+        "NONCE-SECRET",
+        "AWS-STS-SESSION-TOKEN",
+        "client.pii@example.test",
+      ]) {
+        expect(JSON.stringify(response)).not.toContain(secret);
+      }
+      // Имена сохраняются: факт присутствия заголовка — сигнал, значение — нет.
+      expect(response.headers["x-auth-token"]).toBe("[REDACTED]");
+      // Разрешённые сохраняются целиком: они нужны для вердикта.
+      expect(response.headers["content-type"]).toBe("application/json");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("вычищает query и фрагмент из location: там приезжает OAuth-токен", async () => {
+    const server = await startServer((_request, response) => {
+      response.writeHead(302, {
+        location: "https://sso.example.test/cb#access_token=ya29.LEAKED_OAUTH_TOKEN&state=1",
+      });
+      response.end();
+    });
+    try {
+      const { client } = clientFor();
+
+      const response = await client.send(GET(server.port));
+
+      expect(JSON.stringify(response)).not.toContain("ya29.LEAKED_OAUTH_TOKEN");
+      // Адрес назначения сохраняется — по нему видно, куда уводит редирект.
+      expect(response.headers["location"]).toContain("sso.example.test/cb");
     } finally {
       await server.close();
     }
@@ -231,6 +267,27 @@ describe("повторы и backoff", () => {
       expect(response.status).toBe(200);
       expect(calls).toBe(2);
       expect(clock.sleeps).toEqual([7000]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  // Найдено состязательной проверкой: setTimeout зажимает значения свыше
+  // 2^31-1 мс до одной миллисекунды, поэтому огромный Retry-After снимал
+  // выдержку целиком — три попытки проходили за считанные миллисекунды.
+  it("не даёт серверу отменить выдержку огромным Retry-After", async () => {
+    const server = await startServer((_request, response) => {
+      response.writeHead(429, { "retry-after": "2147484" }).end();
+    });
+    try {
+      const { client, clock } = clientFor({
+        retry: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 30_000 },
+        breaker: { consecutiveFailures: 99 },
+      });
+
+      await client.send(GET(server.port));
+
+      expect(clock.sleeps).toEqual([30_000]);
     } finally {
       await server.close();
     }

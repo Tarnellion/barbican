@@ -46,6 +46,14 @@ export interface RunReport {
    * не сработала аутентификация, а не политика.
    */
   readonly unauthenticated: readonly string[];
+  /**
+   * Сколько канареек проверено перед прогоном.
+   *
+   * Ноль означает, что аутентификация не подтверждалась. В JSON это должно быть
+   * видно: иначе отчёт непроверенного прогона побайтово совпадает с отчётом
+   * успешного, и разница остаётся только в предупреждении на stderr.
+   */
+  readonly canariesChecked: number;
   readonly observations: readonly AccessObservation[];
   readonly findings: readonly AccessDiff[];
   readonly summary: ReportSummary;
@@ -59,6 +67,7 @@ export interface BuildReportOptions {
   readonly skipped: readonly SkippedEndpoint[];
   readonly failures: readonly ProbeFailure[];
   readonly unauthenticated: readonly string[];
+  readonly canariesChecked: number;
   readonly findings: readonly AccessDiff[];
   readonly startedAt: Date;
   readonly finishedAt: Date;
@@ -99,6 +108,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     skipped: options.skipped,
     failures: options.failures,
     unauthenticated: options.unauthenticated,
+    canariesChecked: options.canariesChecked,
     observations: options.observations,
     findings: options.findings,
     summary: {
@@ -119,10 +129,25 @@ export function buildReport(options: BuildReportOptions): RunReport {
  * Эскалация привилегий — единственное, что делает прогон проваленным:
  * остальные расхождения требуют внимания, но не означают дыры в доступе.
  */
+/**
+ * Код возврата процесса.
+ *
+ * 0 — проверено и чисто, 1 — найдена эскалация, 2 — прогон недостоверен.
+ *
+ * Различать 0 и 2 принципиально. Состязательная проверка показала три способа
+ * получить «чистый» отчёт, ничего не проверив: спецификация без единого
+ * эндпоинта, стенд, отвечающий сплошными ошибками, и исчерпанный бюджет
+ * обращений. Во всех трёх случаях находок нет ровно потому, что не было
+ * и проверки, — и код 0 читался бы как подтверждение защищённости.
+ */
 export function exitCodeFor(report: RunReport): number {
-  // Недостоверный прогон — проблема прогона, а не находка: код 2, как у ошибки.
-  // Иначе «эскалаций нет» на непройденной аутентификации читалось бы как успех.
+  if (report.summary.observations === 0) {
+    return 2;
+  }
   if (report.unauthenticated.length > 0) {
+    return 2;
+  }
+  if (report.summary.byKind["probe-error"] === report.summary.observations) {
     return 2;
   }
   return report.summary.byKind["privilege-escalation"] > 0 ? 1 : 0;
