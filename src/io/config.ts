@@ -17,7 +17,12 @@ import type {
   Resource,
   TenantNode,
 } from "../core/index.js";
-import { ANY, assertPolicyIsSound, createTenantHierarchy } from "../core/index.js";
+import {
+  ANY,
+  assertPolicyIsSound,
+  createTenantHierarchy,
+  RESOURCE_RELATIONS,
+} from "../core/index.js";
 
 /** Тот же предел раскрытия алиасов, что и для спецификаций. */
 const MAX_ALIAS_COUNT = 100;
@@ -26,7 +31,9 @@ const outcomeSchema = z.enum(["allowed", "denied"]);
 
 const selectorSchema = z.union([z.literal(ANY), z.array(z.string().min(1)).min(1)]);
 
-const relationSchema = z.enum(["own", "same-tenant", "foreign-tenant"]);
+// Перечень берётся из ядра, а не переписывается здесь: рукописный дубль уже
+// разошёлся с типом и сделал иерархию тенантов недостижимой через CLI.
+const relationSchema = z.enum(RESOURCE_RELATIONS);
 
 const ruleSchema = z.object({
   roles: selectorSchema,

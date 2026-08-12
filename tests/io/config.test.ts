@@ -6,7 +6,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { TenantCycleError, UnknownParentTenantError } from "../../src/core/index.js";
+import {
+  RESOURCE_RELATIONS,
+  TenantCycleError,
+  UnknownParentTenantError,
+} from "../../src/core/index.js";
 import {
   applyBodySignals,
   assertReferencesResolve,
@@ -190,6 +194,30 @@ describe("учётные данные", () => {
     expect(() =>
       resolveTokens(config, { TOKEN_PLAYER_A: "present", TOKEN_ADMIN_A: "   " }),
     ).toThrow(MissingCredentialError);
+  });
+});
+
+describe("scope принимает все отношения", () => {
+  /**
+   * Прямая защита от расхождения схемы с типом. Оно уже случилось: при вводе
+   * иерархии `ResourceRelation` вырос до пяти значений, а рукописное
+   * zod-перечисление осталось трёхзначным — и вся возможность оказалась
+   * недостижима через CLI, хотя ядро её понимало.
+   *
+   * Юнит-тесты ядра этого не ловили: они собирают политику объектом на
+   * TypeScript, минуя zod. Путь «YAML → политика» не проверялся ничем.
+   */
+  it.each(RESOURCE_RELATIONS)("принимает scope: %s", (relation) => {
+    const config = `
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
+policy:
+  fallback: denied
+  rules:
+    - { roles: [r], endpoints: [e], scope: ${relation}, outcome: allowed }
+`;
+
+    expect(parseRunConfig(config).policy.rules[0]?.scope).toBe(relation);
   });
 });
 

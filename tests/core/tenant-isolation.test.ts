@@ -145,6 +145,47 @@ describe("identical-response-across-tenants", () => {
     expect(findings).toEqual([]);
   });
 
+  /**
+   * Холдинг видит объединение своих брендов. Когда бренд один, ответ законно
+   * совпадает с ответом этого бренда — и без учёта дерева проверка объявила бы
+   * утечкой роллап на исправной платформе. Найдено прогоном на референс-платформе.
+   */
+  it("молчит на совпадении между холдингом и его собственным брендом", () => {
+    const matrix: AccessMatrix = {
+      endpoints: [LIST],
+      accounts: [
+        { id: "holding", roleId: "holding", tenantId: "holding-1" },
+        { id: "op-a", roleId: "operator", tenantId: "brand-a" },
+      ],
+      resources: [],
+      observations: [observed("holding", 111), observed("op-a", 111)],
+      tenants: [{ id: "holding-1" }, { id: "brand-a", parentId: "holding-1" }],
+    };
+
+    expect(check.run({ matrix })).toEqual([]);
+  });
+
+  /** Родства нет — совпадение остаётся находкой. */
+  it("не молчит на совпадении между брендами разных холдингов", () => {
+    const matrix: AccessMatrix = {
+      endpoints: [LIST],
+      accounts: [
+        { id: "op-a", roleId: "operator", tenantId: "brand-a" },
+        { id: "op-c", roleId: "operator", tenantId: "brand-c" },
+      ],
+      resources: [],
+      observations: [observed("op-a", 111), observed("op-c", 111)],
+      tenants: [
+        { id: "holding-1" },
+        { id: "brand-a", parentId: "holding-1" },
+        { id: "holding-2" },
+        { id: "brand-c", parentId: "holding-2" },
+      ],
+    };
+
+    expect(check.run({ matrix })).toHaveLength(1);
+  });
+
   it("выдаёт находки в устойчивом порядке", () => {
     const first = check.run({
       matrix: matrixOf([observed("carol-b", 111), observed("alice-a", 111)]),

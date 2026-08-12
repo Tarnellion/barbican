@@ -6,6 +6,7 @@
  * Разница целиком в теле — см. ADR-0011.
  */
 
+import { createTenantHierarchy, FLAT_HIERARCHY } from "../tenancy.js";
 import type { AccessObservation, Account } from "../types.js";
 import type { Check, CheckContext, Finding } from "./types.js";
 
@@ -73,6 +74,14 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
       const accountById = new Map<string, Account>(
         accounts.map((account) => [account.id, account]),
       );
+      // Пары, связанные родством, сравнивать нельзя. Холдинг видит объединение
+      // своих брендов; если бренд у него один, ответ законно совпадает с ответом
+      // этого бренда — и без учёта дерева проверка объявила бы утечкой роллап
+      // на исправной платформе. Найдено прогоном холдингового сценария.
+      const hierarchy =
+        context.matrix.tenants === undefined
+          ? FLAT_HIERARCHY
+          : createTenantHierarchy(context.matrix.tenants);
       const findings: Finding[] = [];
 
       for (const endpointId of [...tenantScoped].sort()) {
@@ -100,6 +109,12 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
               continue;
             }
             if (leftAccount.tenantId === rightAccount.tenantId) {
+              continue;
+            }
+            if (
+              hierarchy.isAncestor(leftAccount.tenantId, rightAccount.tenantId) ||
+              hierarchy.isAncestor(rightAccount.tenantId, leftAccount.tenantId)
+            ) {
               continue;
             }
             if (digestOf(left, digestSignal) !== digestOf(right, digestSignal)) {
