@@ -1,5 +1,5 @@
 {
-  "note": "Оракул референс-платформы: какие ячейки «аккаунт × эндпоинт × объект» обязаны дать находку при каждой комбинации флагов. Написан вручную от модели доступа, а не снят с вывода инструмента: эталон, порождённый проверяемой программой, проверяет её на согласованность с самой собой. Комбинаций 19, а не 128: флаги задевают непересекающиеся наборы ячеек — кроме одной пары, — поэтому проверяются поодиночке, попарно там, где пересечение правдоподобно, и все вместе. Заявление об ортогональности проверяется самой сверкой: в «all-seven» расхождения матрицы обязаны совпасть с объединением одиночных комбинаций, а находки по телу — с «list-no-filter».",
+  "note": "Оракул референс-платформы: какие ячейки «аккаунт × эндпоинт × объект» обязаны дать находку при каждой комбинации флагов. Написан вручную от модели доступа, а не снят с вывода инструмента: эталон, порождённый проверяемой программой, проверяет её на согласованность с самой собой. Комбинаций 21, а не 256: флаги задевают непересекающиеся наборы ячеек — кроме одной пары, — поэтому проверяются поодиночке, попарно там, где пересечение правдоподобно, и все вместе. Заявление об ортогональности проверяется самой сверкой: в «all-eight» расхождения матрицы обязаны совпасть с объединением одиночных комбинаций, а находки по телу — с «list-no-filter».",
   "cellKey": "account + endpoint + resource; resource = null у эндпоинтов без параметров пути",
   "target": "polygon",
   "defects": {
@@ -11,7 +11,7 @@
     "POLYGON_DEFECT_NO_ROLE_CHECK": {
       "title": "Не проверяется роль в GET /v1/admin/accounts: любой не-администратор получает 200 вместо 403",
       "visibility": "status",
-      "note": "Не проверяется роль в GET /v1/admin/accounts: любой не-администратор получает 200 вместо 403. Задевает 6 ячеек — четверо пользователей обоих брендов, холдинговый аккаунт и аффилиат. Администратор получает 200 и без дефекта, аноним по-прежнему 401. Аффилиат добавил сюда ячейку, потому что он такой же не-администратор; это единственное место, где новый аккаунт задел прежний флаг, и прежние пять ячеек при этом остались прежними."
+      "note": "Не проверяется роль в GET /v1/admin/accounts: любой не-администратор получает 200 вместо 403. Задевает 7 ячеек — четверо пользователей обоих брендов, холдинговый аккаунт, аффилиат и саппорт двух брендов. Администратор получает 200 и без дефекта, аноним по-прежнему 401. Аффилиат и саппорт добавили сюда по ячейке, потому что оба такие же не-администраторы; это единственное место, где каждый из этих аккаунтов задел прежний флаг, и прежние ячейки при этом остались прежними."
     },
     "POLYGON_DEFECT_IDOR_SAME_TENANT": {
       "title": "IDOR внутри тенанта в GET /v1/orders/{orderId}: чужой заказ своего тенанта отдаётся 200 вместо 403",
@@ -21,7 +21,7 @@
     "POLYGON_DEFECT_LIST_NO_FILTER": {
       "title": "Нет фильтра по тенанту в брендовом списке GET /v1/orders: отдаются заказы всех тенантов",
       "visibility": "body-signal",
-      "note": "Нет фильтра по тенанту в брендовом списке GET /v1/orders: отдаются заказы всех тенантов. Статус не меняется — 200 и с дефектом, и без него, — поэтому дефект виден только через сигнал над телом (ADR-0011). Задевает 6 пар: три аккаунта тенанта-a (alice-a, bob-a, admin-a) против двух аккаунтов тенанта-b (carol-b, dave-b). Аноним получает 401 и в сравнение не входит. Холдинговый роллап этим флагом не задет — это другой запрос — и в пары не попадает никогда: его строки несут бренд, поэтому тело не совпадает с брендовым ни в одном режиме. Аффилиат в пары не входит вовсе: список заказов ему закрыт (403), тела нет."
+      "note": "Нет фильтра по тенанту в брендовом списке GET /v1/orders: отдаются заказы всех тенантов. Статус не меняется — 200 и с дефектом, и без него, — поэтому дефект виден только через сигнал над телом (ADR-0011). Задевает 6 пар: три аккаунта тенанта-a (alice-a, bob-a, admin-a) против двух аккаунтов тенанта-b (carol-b, dave-b). Аноним получает 401 и в сравнение не входит. Холдинговый роллап этим флагом не задет — это другой запрос — и в пары не попадает никогда: его строки несут бренд, поэтому тело не совпадает с брендовым ни в одном режиме. Аффилиат в пары не входит вовсе: список заказов ему закрыт (403), тела нет. Саппорт двух брендов не входит по двум причинам сразу: его список — другой запрос, этим флагом не задетый, а сравнивать его не с кем, потому что с каждым брендовым аккаунтом у него общий тенант, а с холдинговым — родство."
     },
     "POLYGON_DEFECT_CROSS_HOLDING": {
       "title": "Роллап холдинга не ограничен собственным поддеревом: GET /v1/orders/{orderId} отдаёт холдингу объект бренда чужого холдинга — 200 вместо 403",
@@ -31,12 +31,17 @@
     "POLYGON_DEFECT_ANCESTOR_LEAK": {
       "title": "Видимость сводных документов раскрывается вверх по дереву вместо вниз, причём по ВСЕЙ цепочке предков: GET /v1/statements/{statementId} отдаёт аккаунту документ любого тенанта, стоящего над ним",
       "visibility": "status",
-      "note": "Видимость сводных документов раскрывается вверх по дереву вместо вниз, причём по ВСЕЙ цепочке предков: GET /v1/statements/{statementId} отдаёт аккаунту документ любого тенанта, стоящего над ним. Задевает 5 ячеек: alice-a, bob-a и admin-a против документа их холдинга плюс ivan-af1 против обоих документов сразу — и бренда (шаг), и холдинга (два шага). Роль тут ни при чём — админ бренда задет ровно так же, как его пользователи, потому что дефект в отношении к объекту, а не в проверке роли. Не задевает carol-b и dave-b: holding-1 им не предок. Не задевает helen-h1: документ его тенанта и документ его бренда положены ему и на исправной платформе."
+      "note": "Видимость сводных документов раскрывается вверх по дереву вместо вниз, причём по ВСЕЙ цепочке предков: GET /v1/statements/{statementId} отдаёт аккаунту документ любого тенанта, стоящего над ним. Задевает 6 ячеек: alice-a, bob-a и admin-a против документа их холдинга, ivan-af1 против обоих документов сразу — и бренда (шаг), и холдинга (два шага), — плюс sara-ac против документа holding-1, который стоит выше её членства в tenant-a. Роль тут ни при чём — админ бренда задет ровно так же, как его пользователи, потому что дефект в отношении к объекту, а не в проверке роли. Не задевает carol-b и dave-b: holding-1 им не предок. Не задевает helen-h1: документ его тенанта и документ его бренда положены ему и на исправной платформе."
     },
     "POLYGON_DEFECT_PARENT_LEAK": {
       "title": "То же раскрытие вверх, но ровно на ОДИН уровень: платформа спрашивает «документ моего тенанта или моего родителя?» вместо обхода дерева — типичная реализация через денормализованное поле «родительский тенант» в токене",
       "visibility": "status",
-      "note": "То же раскрытие вверх, но ровно на ОДИН уровень: платформа спрашивает «документ моего тенанта или моего родителя?» вместо обхода дерева — типичная реализация через денормализованное поле «родительский тенант» в токене. Задевает 4 ячейки: те же три брендовых, что и ANCESTOR_LEAK, плюс ivan-af1 против документа его бренда. Ячейку ivan-af1 × statement-h1-0001 не задевает — до холдинга отсюда два шага, — и в этой одной ячейке вся разница между двумя флагами. На двухуровневом дереве её не существует, и дефекты неразличимы; ради её появления в дерево и добавлен третий уровень."
+      "note": "То же раскрытие вверх, но ровно на ОДИН уровень: платформа спрашивает «документ моего тенанта или моего родителя?» вместо обхода дерева — типичная реализация через денормализованное поле «родительский тенант» в токене. Задевает 5 ячеек: те же три брендовых, что и ANCESTOR_LEAK, плюс ivan-af1 против документа его бренда и sara-ac против документа holding-1 — до него от её членства в tenant-a ровно один шаг, поэтому оба флага дают эту ячейку одинаково. Ячейку ivan-af1 × statement-h1-0001 не задевает — до холдинга отсюда два шага, — и в этой одной ячейке вся разница между двумя флагами. На двухуровневом дереве её не существует, и дефекты неразличимы; ради её появления в дерево и добавлен третий уровень."
+    },
+    "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": {
+      "title": "Набор членств аккаунта схлопнут до первого тенанта: GET /v1/orders/{orderId} отдаёт саппорту двух брендов только первый бренд, во втором отказывает 403 там, где доступ объявлен положенным",
+      "visibility": "status",
+      "note": "Набор членств аккаунта схлопнут до первого тенанта: в токене лежит одно поле «тенант», потому что когда-то у всех аккаунтов тенант был один. Задевает 2 ячейки: sara-ac против двух заказов tenant-b. Единственный дефект полигона, который проявляется отказом, а не лишним доступом, — kind: unexpected-denial. До ADR-0017 он был бы неотличим от исправной работы: второй бренд объявить своим было нечем, отказ в нём совпадал бы с ожиданием. Прочие аккаунты не задеты — набор членств есть только у одного."
     }
   },
   "variants": [
@@ -49,7 +54,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": false,
         "POLYGON_DEFECT_CROSS_HOLDING": false,
         "POLYGON_DEFECT_ANCESTOR_LEAK": false,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 0,
       "findings": []
@@ -63,7 +69,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": false,
         "POLYGON_DEFECT_CROSS_HOLDING": false,
         "POLYGON_DEFECT_ANCESTOR_LEAK": false,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -158,7 +165,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": false,
         "POLYGON_DEFECT_CROSS_HOLDING": false,
         "POLYGON_DEFECT_ANCESTOR_LEAK": false,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -209,6 +217,14 @@
           "other": null,
           "kind": "privilege-escalation",
           "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
         }
       ]
     },
@@ -221,7 +237,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": false,
         "POLYGON_DEFECT_CROSS_HOLDING": false,
         "POLYGON_DEFECT_ANCESTOR_LEAK": false,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -268,7 +285,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": false,
         "POLYGON_DEFECT_CROSS_HOLDING": true,
         "POLYGON_DEFECT_ANCESTOR_LEAK": false,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -299,7 +317,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": false,
         "POLYGON_DEFECT_CROSS_HOLDING": false,
         "POLYGON_DEFECT_ANCESTOR_LEAK": true,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -337,6 +356,14 @@
         },
         {
           "account": "ivan-af1",
+          "endpoint": "statements.read",
+          "resource": "statement-h1-0001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_ANCESTOR_LEAK"]
+        },
+        {
+          "account": "sara-ac",
           "endpoint": "statements.read",
           "resource": "statement-h1-0001",
           "other": null,
@@ -354,7 +381,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": false,
         "POLYGON_DEFECT_CROSS_HOLDING": false,
         "POLYGON_DEFECT_ANCESTOR_LEAK": false,
-        "POLYGON_DEFECT_PARENT_LEAK": true
+        "POLYGON_DEFECT_PARENT_LEAK": true,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -389,6 +417,46 @@
           "other": null,
           "kind": "privilege-escalation",
           "defects": ["POLYGON_DEFECT_PARENT_LEAK"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "statements.read",
+          "resource": "statement-h1-0001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_PARENT_LEAK"]
+        }
+      ]
+    },
+    {
+      "id": "primary-tenant-only",
+      "selector": {
+        "POLYGON_DEFECT_CROSS_TENANT": false,
+        "POLYGON_DEFECT_NO_ROLE_CHECK": false,
+        "POLYGON_DEFECT_IDOR_SAME_TENANT": false,
+        "POLYGON_DEFECT_LIST_NO_FILTER": false,
+        "POLYGON_DEFECT_CROSS_HOLDING": false,
+        "POLYGON_DEFECT_ANCESTOR_LEAK": false,
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": true
+      },
+      "expectedExitCode": 1,
+      "findings": [
+        {
+          "account": "sara-ac",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "unexpected-denial",
+          "defects": ["POLYGON_DEFECT_PRIMARY_TENANT_ONLY"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "unexpected-denial",
+          "defects": ["POLYGON_DEFECT_PRIMARY_TENANT_ONLY"]
         }
       ]
     },
@@ -401,7 +469,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": false,
         "POLYGON_DEFECT_CROSS_HOLDING": false,
         "POLYGON_DEFECT_ANCESTOR_LEAK": false,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -532,6 +601,14 @@
           "other": null,
           "kind": "privilege-escalation",
           "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
         }
       ]
     },
@@ -544,7 +621,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": false,
         "POLYGON_DEFECT_CROSS_HOLDING": false,
         "POLYGON_DEFECT_ANCESTOR_LEAK": false,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -671,7 +749,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": false,
         "POLYGON_DEFECT_CROSS_HOLDING": false,
         "POLYGON_DEFECT_ANCESTOR_LEAK": false,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -754,6 +833,14 @@
           "other": null,
           "kind": "privilege-escalation",
           "defects": ["POLYGON_DEFECT_IDOR_SAME_TENANT"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
         }
       ]
     },
@@ -766,7 +853,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": false,
         "POLYGON_DEFECT_CROSS_HOLDING": true,
         "POLYGON_DEFECT_ANCESTOR_LEAK": false,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -877,7 +965,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": false,
         "POLYGON_DEFECT_CROSS_HOLDING": true,
         "POLYGON_DEFECT_ANCESTOR_LEAK": true,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -931,6 +1020,14 @@
         },
         {
           "account": "ivan-af1",
+          "endpoint": "statements.read",
+          "resource": "statement-h1-0001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_ANCESTOR_LEAK"]
+        },
+        {
+          "account": "sara-ac",
           "endpoint": "statements.read",
           "resource": "statement-h1-0001",
           "other": null,
@@ -948,7 +1045,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": false,
         "POLYGON_DEFECT_CROSS_HOLDING": false,
         "POLYGON_DEFECT_ANCESTOR_LEAK": true,
-        "POLYGON_DEFECT_PARENT_LEAK": true
+        "POLYGON_DEFECT_PARENT_LEAK": true,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -991,6 +1089,14 @@
           "other": null,
           "kind": "privilege-escalation",
           "defects": ["POLYGON_DEFECT_ANCESTOR_LEAK"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "statements.read",
+          "resource": "statement-h1-0001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_ANCESTOR_LEAK", "POLYGON_DEFECT_PARENT_LEAK"]
         }
       ]
     },
@@ -1003,7 +1109,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": false,
         "POLYGON_DEFECT_CROSS_HOLDING": false,
         "POLYGON_DEFECT_ANCESTOR_LEAK": false,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -1166,6 +1273,14 @@
           "other": null,
           "kind": "privilege-escalation",
           "defects": ["POLYGON_DEFECT_IDOR_SAME_TENANT"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
         }
       ]
     },
@@ -1178,7 +1293,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": true,
         "POLYGON_DEFECT_CROSS_HOLDING": false,
         "POLYGON_DEFECT_ANCESTOR_LEAK": false,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -1241,7 +1357,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": true,
         "POLYGON_DEFECT_CROSS_HOLDING": false,
         "POLYGON_DEFECT_ANCESTOR_LEAK": false,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -1452,6 +1569,14 @@
           "other": "dave-b",
           "kind": "identical-response-across-tenants",
           "defects": ["POLYGON_DEFECT_LIST_NO_FILTER"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
         }
       ]
     },
@@ -1464,7 +1589,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": true,
         "POLYGON_DEFECT_CROSS_HOLDING": true,
         "POLYGON_DEFECT_ANCESTOR_LEAK": false,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -1691,6 +1817,14 @@
           "other": null,
           "kind": "privilege-escalation",
           "defects": ["POLYGON_DEFECT_CROSS_HOLDING"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
         }
       ]
     },
@@ -1703,7 +1837,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": true,
         "POLYGON_DEFECT_CROSS_HOLDING": true,
         "POLYGON_DEFECT_ANCESTOR_LEAK": true,
-        "POLYGON_DEFECT_PARENT_LEAK": false
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -1965,6 +2100,22 @@
         },
         {
           "account": "ivan-af1",
+          "endpoint": "statements.read",
+          "resource": "statement-h1-0001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_ANCESTOR_LEAK"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
+        },
+        {
+          "account": "sara-ac",
           "endpoint": "statements.read",
           "resource": "statement-h1-0001",
           "other": null,
@@ -1982,7 +2133,8 @@
         "POLYGON_DEFECT_LIST_NO_FILTER": true,
         "POLYGON_DEFECT_CROSS_HOLDING": true,
         "POLYGON_DEFECT_ANCESTOR_LEAK": true,
-        "POLYGON_DEFECT_PARENT_LEAK": true
+        "POLYGON_DEFECT_PARENT_LEAK": true,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -2249,6 +2401,334 @@
           "other": null,
           "kind": "privilege-escalation",
           "defects": ["POLYGON_DEFECT_ANCESTOR_LEAK"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "statements.read",
+          "resource": "statement-h1-0001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_ANCESTOR_LEAK", "POLYGON_DEFECT_PARENT_LEAK"]
+        }
+      ]
+    },
+    {
+      "id": "all-eight",
+      "selector": {
+        "POLYGON_DEFECT_CROSS_TENANT": true,
+        "POLYGON_DEFECT_NO_ROLE_CHECK": true,
+        "POLYGON_DEFECT_IDOR_SAME_TENANT": true,
+        "POLYGON_DEFECT_LIST_NO_FILTER": true,
+        "POLYGON_DEFECT_CROSS_HOLDING": true,
+        "POLYGON_DEFECT_ANCESTOR_LEAK": true,
+        "POLYGON_DEFECT_PARENT_LEAK": true,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": true
+      },
+      "expectedExitCode": 1,
+      "findings": [
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_CROSS_TENANT"]
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_CROSS_TENANT"]
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_CROSS_TENANT"]
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_CROSS_TENANT"]
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_CROSS_TENANT"]
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_CROSS_TENANT"]
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_CROSS_TENANT"]
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_CROSS_TENANT"]
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_CROSS_TENANT"]
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_CROSS_TENANT"]
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
+        },
+        {
+          "account": "helen-h1",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
+        },
+        {
+          "account": "ivan-af1",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "orders.read",
+          "resource": "order-a-1002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_IDOR_SAME_TENANT"]
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.read",
+          "resource": "order-a-1001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_IDOR_SAME_TENANT"]
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_IDOR_SAME_TENANT"]
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_IDOR_SAME_TENANT"]
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.list",
+          "resource": null,
+          "other": "carol-b",
+          "kind": "identical-response-across-tenants",
+          "defects": ["POLYGON_DEFECT_LIST_NO_FILTER"]
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.list",
+          "resource": null,
+          "other": "dave-b",
+          "kind": "identical-response-across-tenants",
+          "defects": ["POLYGON_DEFECT_LIST_NO_FILTER"]
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "orders.list",
+          "resource": null,
+          "other": "carol-b",
+          "kind": "identical-response-across-tenants",
+          "defects": ["POLYGON_DEFECT_LIST_NO_FILTER"]
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "orders.list",
+          "resource": null,
+          "other": "dave-b",
+          "kind": "identical-response-across-tenants",
+          "defects": ["POLYGON_DEFECT_LIST_NO_FILTER"]
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.list",
+          "resource": null,
+          "other": "carol-b",
+          "kind": "identical-response-across-tenants",
+          "defects": ["POLYGON_DEFECT_LIST_NO_FILTER"]
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.list",
+          "resource": null,
+          "other": "dave-b",
+          "kind": "identical-response-across-tenants",
+          "defects": ["POLYGON_DEFECT_LIST_NO_FILTER"]
+        },
+        {
+          "account": "helen-h1",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_CROSS_HOLDING"]
+        },
+        {
+          "account": "helen-h1",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_CROSS_HOLDING"]
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "statements.read",
+          "resource": "statement-h1-0001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_ANCESTOR_LEAK", "POLYGON_DEFECT_PARENT_LEAK"]
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "statements.read",
+          "resource": "statement-h1-0001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_ANCESTOR_LEAK", "POLYGON_DEFECT_PARENT_LEAK"]
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "statements.read",
+          "resource": "statement-h1-0001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_ANCESTOR_LEAK", "POLYGON_DEFECT_PARENT_LEAK"]
+        },
+        {
+          "account": "ivan-af1",
+          "endpoint": "statements.read",
+          "resource": "statement-a-0001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_ANCESTOR_LEAK", "POLYGON_DEFECT_PARENT_LEAK"]
+        },
+        {
+          "account": "ivan-af1",
+          "endpoint": "statements.read",
+          "resource": "statement-h1-0001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_ANCESTOR_LEAK"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "admin.accounts",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_NO_ROLE_CHECK"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "statements.read",
+          "resource": "statement-h1-0001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_ANCESTOR_LEAK", "POLYGON_DEFECT_PARENT_LEAK"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "orders.read",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "unexpected-denial",
+          "defects": ["POLYGON_DEFECT_PRIMARY_TENANT_ONLY"]
+        },
+        {
+          "account": "sara-ac",
+          "endpoint": "orders.read",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "unexpected-denial",
+          "defects": ["POLYGON_DEFECT_PRIMARY_TENANT_ONLY"]
         }
       ]
     }

@@ -186,6 +186,8 @@ export interface RunReport {
   readonly accounts: readonly {
     readonly id: string;
     readonly role: string;
+    /** Набор членств, если аккаунт состоит сразу в нескольких тенантах. */
+    readonly tenants?: readonly string[] | undefined;
     /** Схема, которой аккаунт представлялся. Только вид и имена, без значений. */
     readonly auth?: AuthScheme;
     /** Отсутствует у аккаунта вне тенантов: в JSON ключа просто нет. */
@@ -390,6 +392,10 @@ export function buildReport(options: BuildReportOptions): RunReport {
       id: account.id,
       role: account.role,
       tenant: account.tenant,
+      // Набор членств печатается наравне с одиночным тенантом. Без этого
+      // аккаунт с набором выглядел в отчёте как аккаунт вовсе без тенанта,
+      // то есть неотличимо от анонима — при том что вердикты по нему верны.
+      tenants: account.tenants,
       // Каким контуром ходил аккаунт. Без этого читатель не отличит «ручка
       // закрыта» от «мы стучались не тем транспортом»: и то и другое даёт 401.
       // Здесь только вид схемы и имя заголовка или куки — значений нет нигде.

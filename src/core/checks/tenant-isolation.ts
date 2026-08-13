@@ -6,8 +6,10 @@
  * Разница целиком в теле — см. ADR-0011.
  */
 
+import type { TenantHierarchy } from "../tenancy.js";
 import { createTenantHierarchy, FLAT_HIERARCHY } from "../tenancy.js";
-import type { AccessObservation, Account } from "../types.js";
+import type { AccessObservation, Account, TenantId } from "../types.js";
+import { tenantIdsOf } from "../types.js";
 import type { Check, CheckContext, Finding } from "./types.js";
 
 export const IDENTICAL_RESPONSE_CHECK_ID = "identical-response-across-tenants";
@@ -32,9 +34,39 @@ function digestOf(observation: AccessObservation, name: string): number | undefi
  * от настоящего тенанта с таким же именем.
  */
 function tenantLabel(account: Account): string {
-  return account.tenantId === undefined
-    ? `аккаунта вне тенантов (${account.id})`
-    : `тенанта ${account.tenantId}`;
+  const tenants = tenantIdsOf(account);
+  if (tenants.length === 0) {
+    return `аккаунта вне тенантов (${account.id})`;
+  }
+  return tenants.length === 1 ? `тенанта ${tenants[0]}` : `тенантов ${tenants.join(", ")}`;
+}
+
+/**
+ * Есть ли у двух аккаунтов общий тенант.
+ *
+ * Обобщение прежнего сравнения `leftTenant === rightTenant` на наборы: если
+ * хоть один тенант общий, совпадение ответов законно и об изоляции ничего
+ * не говорит — так же, как оно ничего не говорило про двух соседей по тенанту.
+ */
+function shareTenant(left: readonly TenantId[], right: readonly TenantId[]): boolean {
+  return left.some((tenant) => right.includes(tenant));
+}
+
+/**
+ * Связаны ли наборы родством хоть одной парой.
+ *
+ * Родство считается только между объявленными тенантами: у аккаунта вне
+ * тенантов набор пуст, родни у него нет, и такая пара сравнивается — как
+ * и прежде.
+ */
+function related(
+  left: readonly TenantId[],
+  right: readonly TenantId[],
+  hierarchy: TenantHierarchy,
+): boolean {
+  return left.some((outer) =>
+    right.some((inner) => hierarchy.isAncestor(outer, inner) || hierarchy.isAncestor(inner, outer)),
+  );
 }
 
 /**
@@ -128,24 +160,26 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
             if (leftAccount === undefined || rightAccount === undefined) {
               continue;
             }
-            const leftTenant = leftAccount.tenantId;
-            const rightTenant = rightAccount.tenantId;
-            // Сюда попадают и два аккаунта вне тенантов: тенанта нет ни у того,
-            // ни у другого, разным он у них быть не может, и совпадение ответов
-            // об изоляции ничего не говорит.
-            if (leftTenant === rightTenant) {
+            const leftTenants = tenantIdsOf(leftAccount);
+            const rightTenants = tenantIdsOf(rightAccount);
+            // Два аккаунта вне тенантов: тенанта нет ни у того, ни у другого,
+            // разным он у них быть не может, и совпадение ответов об изоляции
+            // ничего не говорит.
+            if (leftTenants.length === 0 && rightTenants.length === 0) {
+              continue;
+            }
+            // Общий тенант — та же законная одинаковость, что и прежде у пары
+            // соседей. С наборами она возникает и у частично пересекающихся
+            // аккаунтов: саппорт на брендах A и B против пользователя бренда A
+            // законно видит его строки, и утверждать по совпадению нечего.
+            if (shareTenant(leftTenants, rightTenants)) {
               continue;
             }
             // Родство считается только между объявленными тенантами: у аккаунта
             // вне тенантов узла в дереве нет, а значит нет и родни. Пара «тенант
             // против аккаунта вне тенантов» сравнивается — и должна: совпадение
             // ответов означает, что данные тенанта видны тому, кто в нём не состоит.
-            if (
-              leftTenant !== undefined &&
-              rightTenant !== undefined &&
-              (hierarchy.isAncestor(leftTenant, rightTenant) ||
-                hierarchy.isAncestor(rightTenant, leftTenant))
-            ) {
+            if (related(leftTenants, rightTenants, hierarchy)) {
               continue;
             }
             if (digestOf(left, digestSignal) !== digestOf(right, digestSignal)) {
@@ -164,8 +198,16 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
                 otherAccountId: rightAccount.id,
                 // Ключ отсутствует, если тенанта нет: пустое место читается
                 // как «вне тенантов», а заглушка читалась бы как имя.
-                ...(leftTenant === undefined ? {} : { tenant: leftTenant }),
-                ...(rightTenant === undefined ? {} : { otherTenant: rightTenant }),
+                //
+                // У аккаунта с набором членств ключа тоже нет, и это та же
+                // причина, а не экономия. Склейка имён через запятую вернула бы
+                // в поле, где стоят настоящие идентификаторы, строку, которой
+                // ни один тенант не называется, — а прочитана она была бы как имя.
+                // Имена набора называет заголовок находки.
+                ...(leftAccount.tenantId === undefined ? {} : { tenant: leftAccount.tenantId }),
+                ...(rightAccount.tenantId === undefined
+                  ? {}
+                  : { otherTenant: rightAccount.tenantId }),
                 status: left.status,
                 // Само значение дайджеста не выносится: оно осмыслено только
                 // внутри прогона (соль случайна), а читателю отчёта ничего

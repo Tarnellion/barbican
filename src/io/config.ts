@@ -19,8 +19,10 @@ import type {
 } from "../core/index.js";
 import {
   ANY,
+  assertIndependentMemberships,
   assertPolicyIsSound,
   createTenantHierarchy,
+  FLAT_HIERARCHY,
   RESOURCE_RELATIONS,
 } from "../core/index.js";
 
@@ -88,44 +90,69 @@ const configSchema = z.object({
   }),
   accounts: z
     .array(
-      z.object({
-        id: z.string().min(1),
-        role: z.string().min(1),
-        /**
-         * Тенант аккаунта.
-         *
-         * Необязательно: аккаунт без него объявлен **вне тенантов**, и это
-         * аноним. Служебного имени вроде `none` здесь быть не должно — оно
-         * лежало бы в одном пространстве значений с настоящими именами, и
-         * платформа с таким тенантом сломала бы классификацию молча.
-         */
-        tenant: z.string().min(1).optional(),
-        /**
-         * Имя переменной окружения с токеном.
-         *
-         * Необязательно: аккаунт без него обращается анонимно. Без этого нельзя
-         * проверить утверждение «этот адрес не должен быть публичным».
-         */
-        tokenEnv: z.string().min(1).optional(),
-        /**
-         * Эндпоинт, заведомо доступный этому аккаунту.
-         *
-         * Проверяется до основного прогона. Без него нельзя отличить «доступа
-         * действительно нет» от «мы не аутентифицировались»: 401 читается как
-         * отказ, отказ совпадает с ожиданием там, где доступ не положен, —
-         * и прогон отрапортует «эскалаций не найдено», ничего не проверив.
-         */
-        canary: z.string().min(1).optional(),
-        /**
-         * Имя схемы аутентификации из `authSchemes`.
-         *
-         * Необязательно: без него аккаунт идёт по корневой `auth`. Здесь
-         * **ссылка**, а не схема целиком, — параметры схемы (имя заголовка,
-         * имя куки) принадлежат контуру, а не аккаунту, и повторённые у каждого
-         * аккаунта они рано или поздно разойдутся опечаткой. См. ADR-0016.
-         */
-        authScheme: z.string().min(1).optional(),
-      }),
+      z
+        .object({
+          id: z.string().min(1),
+          role: z.string().min(1),
+          /**
+           * Тенант аккаунта.
+           *
+           * Необязательно: аккаунт без него объявлен **вне тенантов**, и это
+           * аноним. Служебного имени вроде `none` здесь быть не должно — оно
+           * лежало бы в одном пространстве значений с настоящими именами, и
+           * платформа с таким тенантом сломала бы классификацию молча.
+           */
+          tenant: z.string().min(1).optional(),
+          /**
+           * Несколько тенантов сразу — когда аккаунту положены тенанты,
+           * не образующие поддерева (ADR-0017).
+           *
+           * Отдельный ключ, а не второе значение у `tenant`: «один тенант»
+           * и «набор тенантов» — разные утверждения о проверяемой платформе,
+           * и писать их одним словом значит поощрять оговорку. Меньше двух
+           * элементов не принимается: набор из одного — это `tenant`, и две
+           * записи одного смысла разошлись бы в чтении и в отчёте.
+           */
+          tenants: z
+            .array(z.string().min(1))
+            .min(2, "нужно не меньше двух тенантов: набор из одного — это поле tenant")
+            .optional(),
+          /**
+           * Имя переменной окружения с токеном.
+           *
+           * Необязательно: аккаунт без него обращается анонимно. Без этого нельзя
+           * проверить утверждение «этот адрес не должен быть публичным».
+           */
+          tokenEnv: z.string().min(1).optional(),
+          /**
+           * Эндпоинт, заведомо доступный этому аккаунту.
+           *
+           * Проверяется до основного прогона. Без него нельзя отличить «доступа
+           * действительно нет» от «мы не аутентифицировались»: 401 читается как
+           * отказ, отказ совпадает с ожиданием там, где доступ не положен, —
+           * и прогон отрапортует «эскалаций не найдено», ничего не проверив.
+           */
+          canary: z.string().min(1).optional(),
+          /**
+           * Имя схемы аутентификации из `authSchemes`.
+           *
+           * Необязательно: без него аккаунт идёт по корневой `auth`. Здесь
+           * **ссылка**, а не схема целиком, — параметры схемы (имя заголовка,
+           * имя куки) принадлежат контуру, а не аккаунту, и повторённые
+           * у каждого аккаунта они рано или поздно разойдутся опечаткой.
+           * См. ADR-0017.
+           */
+          authScheme: z.string().min(1).optional(),
+        })
+        // Оба поля сразу — противоречие, а не уточнение: непонятно, какое
+        // из них считать членством, и любое разрешение конфликта было бы
+        // молчаливым выбором за человека.
+        .refine((account) => account.tenant === undefined || account.tenants === undefined, {
+          error:
+            'у аккаунта заданы и "tenant", и "tenants". Это взаимоисключающие ' +
+            "утверждения: один узел дерева либо набор узлов",
+          path: ["tenants"],
+        }),
     )
     .min(1),
   policy: z.object({
@@ -246,6 +273,13 @@ export interface AccountConfig {
   readonly role: string;
   /** Тенант. Отсутствует у аккаунта вне тенантов, то есть у анонимного. */
   readonly tenant?: string | undefined;
+  /**
+   * Набор тенантов — когда аккаунту положены узлы, не образующие поддерева.
+   *
+   * Взаимоисключающе с `tenant` и содержит не меньше двух имён: набор
+   * из одного и есть `tenant`. См. ADR-0017.
+   */
+  readonly tenants?: readonly string[] | undefined;
   /** Имя переменной окружения с токеном. Не сам токен. Отсутствует у анонимных. */
   readonly tokenEnv?: string | undefined;
   /**
@@ -690,8 +724,8 @@ export function parseRunConfig(source: string): RunConfig {
   );
   // Дерево строится здесь, чтобы неизвестный родитель и цикл падали на старте,
   // а не посреди прогона против чужого стенда.
+  const hierarchy = tenantNodes === undefined ? FLAT_HIERARCHY : createTenantHierarchy(tenantNodes);
   if (tenantNodes !== undefined) {
-    createTenantHierarchy(tenantNodes);
     for (const node of tenantNodes) {
       if (node.baseUrl === undefined) {
         continue;
@@ -707,19 +741,29 @@ export function parseRunConfig(source: string): RunConfig {
     }
   }
   const declaredTenants = tenantNodes?.map((node) => node.id);
+  // Членства аккаунта одним списком: у обычного аккаунта их ноль или одно,
+  // у аккаунта с набором — несколько. Дальше все проверки идут по списку,
+  // и случай «набор» не заводит себе отдельной ветки в каждой из них.
+  const membershipsOf = (account: AccountConfig): readonly string[] =>
+    account.tenants?.map((tenant) => tenant.trim()) ??
+    (account.tenant === undefined ? [] : [account.tenant.trim()]);
   // Аккаунт без тенанта в сверку не входит и записи в перечне не требует:
   // он объявлен вне тенантов, а не отнесён к какому-то из них. Требовать для
   // него строки в `tenants` значило бы вернуть сентинел через чёрный ход.
-  const accountTenants = config.accounts
-    .map((account) => account.tenant?.trim())
-    .filter((tenant) => tenant !== undefined);
-  if (declaredTenants !== undefined) {
-    for (const account of config.accounts) {
-      const tenant = account.tenant?.trim();
-      if (tenant !== undefined && !declaredTenants.includes(tenant)) {
-        throw new UnknownTenantError(`Аккаунт "${account.id}"`, tenant, declaredTenants);
+  const accountTenants = config.accounts.flatMap(membershipsOf);
+  for (const account of config.accounts) {
+    const memberships = membershipsOf(account);
+    if (declaredTenants !== undefined) {
+      for (const tenant of memberships) {
+        if (!declaredTenants.includes(tenant)) {
+          throw new UnknownTenantError(`Аккаунт "${account.id}"`, tenant, declaredTenants);
+        }
       }
     }
+    // Повтор и вложенность в наборе меняют отношение молча — см. ADR-0017.
+    // Проверка идёт после сверки имён: на неизвестном тенанте вложенность
+    // всё равно не определена, и внятнее сказать про имя.
+    assertIndependentMemberships(`Аккаунт "${account.id}"`, memberships, hierarchy);
   }
 
   // Проверяется здесь, а не при первом запросе: прогон должен падать до сети.
@@ -780,14 +824,26 @@ export function parseRunConfig(source: string): RunConfig {
 
 /** Приводит аккаунты конфигурации к доменному типу ядра. */
 export function toAccounts(config: RunConfig): readonly Account[] {
-  return config.accounts.map((account) => ({
-    id: account.id,
-    roleId: account.role,
-    // Поле не проставляется вовсе, а не заполняется заглушкой: отсутствие
-    // тенанта — это утверждение «аккаунт вне тенантов», и оно должно доехать
-    // до `relationOf` как отсутствие.
-    ...(account.tenant === undefined ? {} : { tenantId: account.tenant.trim() }),
-  }));
+  return config.accounts.map((account) => {
+    if (account.tenants !== undefined) {
+      // Набор доезжает до ядра набором. Свести его к «первому тенанту»
+      // означало бы объявить остальные членства чужими — ровно та подмена,
+      // из-за которой законное чтение второго бренда выглядело эскалацией.
+      return {
+        id: account.id,
+        roleId: account.role,
+        tenantIds: account.tenants.map((tenant) => tenant.trim()),
+      };
+    }
+    return {
+      id: account.id,
+      roleId: account.role,
+      // Поле не проставляется вовсе, а не заполняется заглушкой: отсутствие
+      // тенанта — это утверждение «аккаунт вне тенантов», и оно должно доехать
+      // до `relationOf` как отсутствие.
+      ...(account.tenant === undefined ? {} : { tenantId: account.tenant.trim() }),
+    };
+  });
 }
 
 export class InvalidCredentialError extends Error {

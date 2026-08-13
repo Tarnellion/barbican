@@ -26,10 +26,13 @@ export const SAFE_METHODS = ["GET", "HEAD"] as const satisfies readonly HttpMeth
 
 export type SafeMethod = (typeof SAFE_METHODS)[number];
 
-/** Учётная запись, от имени которой выполняется обращение. */
-export interface Account {
+interface AccountIdentity {
   readonly id: string;
   readonly roleId: RoleId;
+}
+
+/** Аккаунт в одном узле дерева тенантов либо вне тенантов вовсе. */
+export interface SingleTenantAccount extends AccountIdentity {
   /**
    * Тенант аккаунта. **Отсутствие означает «аккаунт вне тенантов»** — это аноним.
    *
@@ -41,6 +44,45 @@ export interface Account {
    * наравне с остальными неверно по существу, а не только по форме записи.
    */
   readonly tenantId?: TenantId;
+  readonly tenantIds?: undefined;
+}
+
+/**
+ * Аккаунт, состоящий сразу в нескольких тенантах, не связанных поддеревом.
+ *
+ * Саппорт на двух брендах разных холдингов, аффилиат на части брендов группы —
+ * случай, который деревом не выражается: общего предка у таких тенантов нет,
+ * кроме корня платформы, а посадив аккаунт в корень, ему отдают всё поддерево
+ * целиком. Обоснование и эксперимент — ADR-0017.
+ */
+export interface MultiTenantAccount extends AccountIdentity {
+  readonly tenantId?: undefined;
+  /** Членства. Порядок не значим; пересчёт отношения не зависит от него. */
+  readonly tenantIds: readonly TenantId[];
+}
+
+/**
+ * Учётная запись, от имени которой выполняется обращение.
+ *
+ * Union, а не два необязательных поля в одном типе: «один тенант» и «набор
+ * тенантов» — взаимоисключающие утверждения, и запрет на их одновременную
+ * запись держится компилятором, а не соглашением. Дубль, который нельзя
+ * проверить компилятором, рано или поздно расходится — этим уже кончился
+ * рукописный перечень отношений в схеме конфигурации.
+ */
+export type Account = SingleTenantAccount | MultiTenantAccount;
+
+/**
+ * Членства аккаунта одним списком.
+ *
+ * Пустой список означает «вне тенантов»: у анонима членств нет, и это
+ * утверждение, а не пропуск.
+ */
+export function tenantIdsOf(account: Account): readonly TenantId[] {
+  if (account.tenantIds !== undefined) {
+    return account.tenantIds;
+  }
+  return account.tenantId === undefined ? [] : [account.tenantId];
 }
 
 /** Эндпоинт как шаблон, без подставленных значений. */
@@ -155,6 +197,13 @@ export type ResourceRelation = (typeof RESOURCE_RELATIONS)[number];
  *
  * Без дерева тенантов (`FLAT_HIERARCHY`) отвечает ровно так же, как до ADR-0013:
  * `descendant` и `ancestor` не возникают, любые разные тенанты — чужие.
+ *
+ * У аккаунта с набором членств отношение считается по **каждому** членству,
+ * и выигрывает самое близкое из полученных, в том же порядке, в каком стоят
+ * проверки ниже. Шестого значения ADR-0017 не вводит намеренно: набор — это
+ * свойство аккаунта, а не новый вид родства, и лишнее значение молча сузило бы
+ * существующие правила (см. комментарий про аккаунт вне тенантов).
+ * На наборе из одного элемента результат совпадает с прежним побайтово.
  */
 export function relationOf(
   account: Account,
@@ -180,16 +229,17 @@ export function relationOf(
   // Проверка стоит первой, до сверки владельца: аккаунт без тенанта не может
   // быть владельцем объекта тенанта, и `own` не должно возникать здесь даже
   // при опечатке в поле `owner`.
-  if (account.tenantId === undefined) {
+  const memberships = tenantIdsOf(account);
+  if (memberships.length === 0) {
     return "foreign-tenant";
   }
-  if (account.tenantId === resource.tenantId) {
+  if (memberships.includes(resource.tenantId)) {
     return resource.ownerAccountId === account.id ? "own" : "same-tenant";
   }
-  if (hierarchy.isAncestor(account.tenantId, resource.tenantId)) {
+  if (memberships.some((membership) => hierarchy.isAncestor(membership, resource.tenantId))) {
     return "descendant-tenant";
   }
-  if (hierarchy.isAncestor(resource.tenantId, account.tenantId)) {
+  if (memberships.some((membership) => hierarchy.isAncestor(resource.tenantId, membership))) {
     return "ancestor-tenant";
   }
   return "foreign-tenant";

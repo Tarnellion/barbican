@@ -37,6 +37,15 @@ of isolation. This is demonstrated, not theorised — see
 [tests/core/tenant-hierarchy.test.ts](tests/core/tenant-hierarchy.test.ts), which pins
 both behaviours side by side, and [docs/guide.md](docs/guide.md) for how to declare it.
 
+An account whose reach is a *set* of tenants rather than a subtree — support staff
+covering brands under two different holdings, an affiliate working two of a group's
+three brands — declares `tenants: [brand-a, brand-c]` instead of `tenant`. The relation
+is then computed against every membership, and the nearest one wins; there is no sixth
+relation value. Forcing such an account into a single node fails in the familiar way,
+and [tests/core/tenant-set.test.ts](tests/core/tenant-set.test.ts) pins all three
+workarounds and what each of them gets wrong. See
+[ADR-0017](docs/adr/0017-account-tenant-set.md).
+
 ## Documentation
 
 The guides are written in Russian, matching the rest of `docs/`; this README is

@@ -40,9 +40,67 @@ export class DuplicateTenantIdError extends Error {
   }
 }
 
+export class DuplicateMembershipError extends Error {
+  constructor(where: string, id: TenantId) {
+    super(
+      `${where} объявлен в тенанте "${id}" дважды. Повтор — всегда опечатка: ` +
+        `на отношение он не влияет, но прячет второй, настоящий тенант, ` +
+        `который хотели написать.`,
+    );
+    this.name = "DuplicateMembershipError";
+  }
+}
+
+export class SubsumedMembershipError extends Error {
+  constructor(where: string, ancestor: TenantId, descendant: TenantId) {
+    super(
+      `${where} объявлен сразу в "${ancestor}" и в "${descendant}", а второй лежит ` +
+        `в поддереве первого. Такой набор меняет смысл молча: объекты "${descendant}" ` +
+        `перестают быть descendant-tenant и становятся same-tenant, правило со scope: ` +
+        `descendant-tenant к ним больше не применяется, и ячейка уходит в fallback. ` +
+        `Оставьте "${ancestor}": членство в предке уже покрывает всё поддерево.`,
+    );
+    this.name = "SubsumedMembershipError";
+  }
+}
+
 export interface TenantHierarchy {
   /** Строго выше по дереву: тенант сам себе предком не считается. */
   isAncestor(ancestor: TenantId, descendant: TenantId): boolean;
+}
+
+/**
+ * Проверяет набор членств аккаунта на повторы и на вложенность.
+ *
+ * Вложенность отвергается не из чистоплюйства. Отношение считается по самому
+ * близкому членству, поэтому добавление бренда к уже объявленному холдингу
+ * переводит объекты бренда из `descendant-tenant` в `same-tenant` — и правило,
+ * написанное для взгляда сверху вниз, перестаёт применяться, ничем этого
+ * не обозначив. Это тот же класс, что опечатка в имени тенанта: смысл поменялся,
+ * отчёт остался прежним на вид.
+ *
+ * @throws {DuplicateMembershipError}
+ * @throws {SubsumedMembershipError}
+ */
+export function assertIndependentMemberships(
+  where: string,
+  tenantIds: readonly TenantId[],
+  hierarchy: TenantHierarchy,
+): void {
+  const seen = new Set<TenantId>();
+  for (const id of tenantIds) {
+    if (seen.has(id)) {
+      throw new DuplicateMembershipError(where, id);
+    }
+    seen.add(id);
+  }
+  for (const outer of tenantIds) {
+    for (const inner of tenantIds) {
+      if (hierarchy.isAncestor(outer, inner)) {
+        throw new SubsumedMembershipError(where, outer, inner);
+      }
+    }
+  }
 }
 
 /**

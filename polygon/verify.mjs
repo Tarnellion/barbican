@@ -43,6 +43,7 @@ const FLAG_FIELDS = {
   POLYGON_DEFECT_CROSS_HOLDING: "crossHolding",
   POLYGON_DEFECT_ANCESTOR_LEAK: "ancestorLeak",
   POLYGON_DEFECT_PARENT_LEAK: "parentLeak",
+  POLYGON_DEFECT_PRIMARY_TENANT_ONLY: "primaryTenantOnly",
 };
 
 /**
