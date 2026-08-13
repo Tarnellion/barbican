@@ -109,7 +109,8 @@ async function run(flags: RunFlags): Promise<number> {
   const parsed = await source.create().parse(await readFile(source.path, "utf8"));
   // Ссылки сверяются после разбора спецификации: раньше эндпоинтов ещё нет.
   assertReferencesResolve(config, parsed);
-  // Пометка tenantScoped — заявление человека, источники эндпоинтов о ней не знают.
+  // responseMustDifferByTenant — заявление человека об ожидании; источники
+  // эндпоинтов (спека, список, коллекция) о нём не знают и знать не должны.
   const endpoints = applyBodySignals(parsed, config);
   // Шаблоны раскрываются здесь, до построения матрицы: шаблон, не совпавший
   // ни с одним эндпоинтом, обязан упасть на старте, а не увести пары в fallback.
@@ -213,7 +214,8 @@ async function run(flags: RunFlags): Promise<number> {
   const findings = diffAccess(matrix, policy);
 
   // Реестр создаётся явно и локально: глобального состояния в ядре нет (ADR-0003).
-  // Проверка сама промолчит, если ни один эндпоинт не помечен tenantScoped.
+  // Проверка сама промолчит, если ни у одного эндпоинта нет объявления
+  // responseMustDifferByTenant.
   const registry = new CheckRegistry();
   registry.register(createIdenticalResponseCheck());
   const checks = registry.list().flatMap((check) => check.run({ matrix }));
