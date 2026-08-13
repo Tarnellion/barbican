@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { parseRunConfig } from "../../src/io/config.js";
 import type { ReportFinding, RunReport } from "../../src/report/build.js";
-import { buildReport, exitCodeFor } from "../../src/report/build.js";
+import { buildReport, exitCodeFor, REPORT_SCHEMA_VERSION } from "../../src/report/build.js";
 
 const CONFIG = parseRunConfig(`
 target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
@@ -29,6 +29,18 @@ function report(overrides: {
 }): RunReport {
   const observations = overrides.observations ?? 4;
   return {
+    schemaVersion: "1",
+    runId: "00000000-0000-4000-8000-000000000000",
+    configDigest: "0000000000000000",
+    coverage: {
+      endpointsTotal: 0,
+      endpointsProbed: 0,
+      cellsObserved: observations,
+      cellsNotObserved: 0,
+      notProbed: {},
+      bodiesComparedOn: [],
+      writeMethodsProbed: false,
+    },
     tool: { name: "barbican", version: "test" },
     startedAt: "2026-08-12T00:00:00.000Z",
     finishedAt: "2026-08-12T00:00:01.000Z",
@@ -110,6 +122,73 @@ describe("сводка по серьёзности", () => {
     });
 
     expect(built.summary.bySeverity.high).toBe(2);
+  });
+});
+
+describe("покрытие и опознание прогона", () => {
+  function build(overrides: Record<string, unknown> = {}) {
+    return buildReport({
+      version: "test",
+      config: CONFIG,
+      endpoints: [
+        { id: "a", method: "GET", path: "/a", responseMustDifferByTenant: true },
+        { id: "b", method: "POST", path: "/b" },
+      ],
+      probed: [{ id: "a", method: "GET", path: "/a" }],
+      observations: [],
+      skipped: [{ endpointId: "b", reason: "unsafe-method" }],
+      failures: [],
+      unauthenticated: [],
+      canariesChecked: 0,
+      truncated: false,
+      findings: [],
+      policy: { fallback: "denied", rules: [] },
+      startedAt: new Date(0),
+      finishedAt: new Date(1),
+      ...overrides,
+    });
+  }
+
+  /**
+   * Без знаменателя «опрошено шесть эндпоинтов» не значит ничего: это может
+   * быть вся поверхность API, а может двадцатая её часть.
+   */
+  it("называет знаменатель, а не только числитель", () => {
+    const coverage = build().coverage;
+
+    expect(coverage.endpointsTotal).toBe(2);
+    expect(coverage.endpointsProbed).toBe(1);
+    expect(coverage.notProbed).toEqual({ "unsafe-method": 1 });
+  });
+
+  /**
+   * Отсутствие находки на ручке, где тела не сравнивались, означает
+   * «не проверяли», а не «совпадений нет». Разницу иначе не увидеть.
+   */
+  it("называет поимённо, где сравнивались тела", () => {
+    expect(build().coverage.bodiesComparedOn).toEqual(["a"]);
+  });
+
+  it("говорит, выполнялись ли методы записи", () => {
+    expect(build().coverage.writeMethodsProbed).toBe(false);
+    expect(build({ unsafeMethods: true }).coverage.writeMethodsProbed).toBe(true);
+  });
+
+  /** Два отчёта иначе не отличить друг от друга и не продиффать. */
+  it("даёт разный идентификатор разным прогонам", () => {
+    expect(build().runId).not.toBe(build().runId);
+  });
+
+  /**
+   * Отпечаток считается по разобранной конфигурации: комментарии и отступы
+   * на результат прогона не влияют, а на хеш текста влияли бы.
+   */
+  it("даёт одинаковый отпечаток одной и той же конфигурации", () => {
+    expect(build().configDigest).toBe(build().configDigest);
+  });
+
+  it("объявляет версию формы отчёта", () => {
+    expect(build().schemaVersion).toBe(REPORT_SCHEMA_VERSION);
   });
 });
 

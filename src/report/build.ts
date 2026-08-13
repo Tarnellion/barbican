@@ -9,6 +9,7 @@
  * ответа приходят уже отредактированными из HTTP-клиента.
  */
 
+import { createHash, randomUUID } from "node:crypto";
 import type { AuthScheme } from "../adapters/credentials.js";
 import type {
   AccessDiff,
@@ -29,6 +30,11 @@ import type {
 import { groupDefects } from "../core/index.js";
 import type { RunConfig } from "../io/config.js";
 import type { ProbeFailure, SkippedEndpoint } from "../runner.js";
+
+/**
+ * Версия формы отчёта. Поднимается при несовместимом изменении структуры.
+ */
+export const REPORT_SCHEMA_VERSION = "1";
 
 export interface ReportSummary {
   readonly endpoints: number;
@@ -123,7 +129,53 @@ export interface RunInputs {
   readonly auth: AuthScheme;
 }
 
+/**
+ * Что именно проверено, а что нет.
+ *
+ * Отвечает на вопрос, которого в отчёте не хватало больше всего: «шесть
+ * эндпоинтов — это сколько процентов поверхности?». Без знаменателя число
+ * опрошенного не значит ничего, а отсутствие находки на непроверенном
+ * читается как «чисто».
+ */
+export interface Coverage {
+  /** Сколько эндпоинтов дал источник — спецификация, список или коллекция. */
+  readonly endpointsTotal: number;
+  /** Сколько из них действительно опрашивались. */
+  readonly endpointsProbed: number;
+  readonly cellsObserved: number;
+  /** Ячейки, объявленные политикой, но не пронаблюдённые. */
+  readonly cellsNotObserved: number;
+  /** Почему эндпоинты не опрашивались, по причинам. */
+  readonly notProbed: Readonly<Record<string, number>>;
+  /**
+   * Ручки, на которых сравнивались тела.
+   *
+   * Названы поимённо намеренно: на всех остальных отсутствие находки означает
+   * «не сравнивали», а не «совпадений нет». Разницу иначе не увидеть.
+   */
+  readonly bodiesComparedOn: readonly string[];
+  /** Выполнялись ли методы, изменяющие состояние. */
+  readonly writeMethodsProbed: boolean;
+}
+
 export interface RunReport {
+  /**
+   * Версия формы отчёта.
+   *
+   * Без неё парсер ломается молча при первом же изменении структуры —
+   * а структура менялась уже трижды.
+   */
+  readonly schemaVersion: string;
+  /** Идентификатор прогона: два отчёта иначе не отличить друг от друга. */
+  readonly runId: string;
+  /**
+   * Отпечаток конфигурации.
+   *
+   * Считается по разобранной конфигурации, а не по тексту файла: комментарии
+   * и форматирование на результат прогона не влияют, а на хеш влияли бы.
+   * Нужен, чтобы отличить «платформа изменилась» от «мы поменяли объявление».
+   */
+  readonly configDigest: string;
   readonly tool: { readonly name: string; readonly version: string };
   readonly startedAt: string;
   readonly finishedAt: string;
@@ -174,6 +226,8 @@ export interface RunReport {
 
   /** Вводные, на которых стоят выводы. */
   readonly inputs: RunInputs;
+  /** Что проверено и что нет. */
+  readonly coverage: Coverage;
   /**
    * Расхождения, сведённые к сигнатурам «эндпоинт × вид × отношение».
    *
@@ -188,6 +242,8 @@ export interface BuildReportOptions {
   readonly version: string;
   readonly config: RunConfig;
   readonly endpoints: readonly Endpoint[];
+  /** Эндпоинты, которые действительно опрашивались. */
+  readonly probed?: readonly Endpoint[];
   readonly observations: readonly AccessObservation[];
   readonly skipped: readonly SkippedEndpoint[];
   readonly failures: readonly ProbeFailure[];
@@ -195,6 +251,8 @@ export interface BuildReportOptions {
   readonly canariesChecked: number;
   readonly canaries?: readonly CanaryOutcome[];
   readonly truncated: boolean;
+  /** Выполнялись ли методы, изменяющие состояние. */
+  readonly unsafeMethods?: boolean;
   readonly findings: readonly AccessDiff[];
   /** Политика с раскрытыми шаблонами — та, что выносила вердикты. */
   readonly policy: ResolvedAccessPolicy;
@@ -299,9 +357,24 @@ function countByKind(findings: readonly ReportFinding[]): Readonly<Record<string
   return counts;
 }
 
+function countByReason(skipped: readonly SkippedEndpoint[]): Readonly<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const item of skipped) {
+    counts[item.reason] = (counts[item.reason] ?? 0) + 1;
+  }
+  return counts;
+}
+
 export function buildReport(options: BuildReportOptions): RunReport {
   const merged = mergeFindings(options.findings, options.checks ?? [], options.observations);
+  const notObserved = options.findings.filter((finding) => finding.kind === "not-observed").length;
   return {
+    schemaVersion: REPORT_SCHEMA_VERSION,
+    runId: randomUUID(),
+    configDigest: createHash("sha256")
+      .update(JSON.stringify(options.config))
+      .digest("hex")
+      .slice(0, 16),
     tool: { name: "barbican", version: options.version },
     startedAt: options.startedAt.toISOString(),
     finishedAt: options.finishedAt.toISOString(),
@@ -326,6 +399,17 @@ export function buildReport(options: BuildReportOptions): RunReport {
     truncated: options.truncated,
     observations: options.observations,
     findings: merged,
+    coverage: {
+      endpointsTotal: options.endpoints.length,
+      endpointsProbed: options.probed?.length ?? options.endpoints.length - options.skipped.length,
+      cellsObserved: options.observations.length,
+      cellsNotObserved: notObserved,
+      notProbed: countByReason(options.skipped),
+      bodiesComparedOn: options.endpoints
+        .filter((endpoint) => endpoint.responseMustDifferByTenant === true)
+        .map((endpoint) => endpoint.id),
+      writeMethodsProbed: options.unsafeMethods ?? false,
+    },
     inputs: {
       policy: options.policy,
       tenants: options.config.tenants ?? [],
