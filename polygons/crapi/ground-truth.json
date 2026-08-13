@@ -1,0 +1,255 @@
+{
+  "note": "Оракул crAPI: известные дефекты полигона и ячейки «аккаунт × эндпоинт × объект», которые обязаны дать находку. Написан вручную от модели доступа crAPI — официального перечня задач самого проекта (восемнадцать штук), объявленной политики прогона и матрицы статусов, снятой независимым клиентом до прогона. С вывода barbican он не снят: эталон, порождённый проверяемой программой, проверяет её на согласованность с самой собой. Обоснование подхода — ADR-0009, формат — ADR-0012. Три дефекта перечислены сверх восемнадцати официальных: BFLA на списке пользователей, BOLA чужого заказа и запись методом GET — их нашла разведка.",
+  "cellKey": "account + endpoint + resource; resource = null у эндпоинтов без объектов",
+  "target": "crapi",
+  "defects": {
+    "bola-vehicle-location": {
+      "title": "GET /identity/api/v2/vehicle/{vehicleId}/location отдаёт координаты чужой машины любому аутентифицированному",
+      "visibility": "status",
+      "note": "Задача crAPI 1 (API1, BOLA). Владение не проверяется вовсе, поэтому 200 приходит и обычному пользователю, и администратору. Виден по статусу, но только после подстановки идентификатора в путь (ADR-0010): несуществующий UUID даёт 404, и без реального чужого объекта ячейки нет."
+    },
+    "bola-mechanic-report": {
+      "title": "GET /workshop/api/mechanic/mechanic_report отдаёт чужой сервис-отчёт по номеру в query",
+      "visibility": "status",
+      "note": "Задача crAPI 2 (API1, BOLA). Идентификатор живёт не в пути, а в query, поэтому объект объявлен через resources.query — без подстановки в query эндпоинт недостижим совсем."
+    },
+    "bola-order-by-id": {
+      "title": "GET /workshop/api/shop/orders/{order_id} отдаёт чужой заказ",
+      "visibility": "status",
+      "note": "В официальном перечне задач crAPI этого нет — нашла разведка. Проверки владения у ручки нет ни для пользователя, ни для администратора: 200 приходит на любой номер заказа."
+    },
+    "broken-auth-order-by-id": {
+      "title": "GET /workshop/api/shop/orders/{order_id} отдаёт заказ вообще без токена",
+      "visibility": "status",
+      "note": "Задача crAPI 14 (API5, «эндпоинт без проверки аутентификации»). Отдельный дефект, а не частный случай предыдущего: там нет проверки владения, здесь нет проверки самой аутентификации. Две анонимные ячейки объясняются обоими сразу, поэтому у них в defects два идентификатора — ровно тот случай вложенности, ради которого поле сделано массивом."
+    },
+    "public-return-qr-code": {
+      "title": "GET /workshop/api/shop/return_qr_code отвечает 200 без токена",
+      "visibility": "status",
+      "note": "Задача crAPI 14 (API5). Чувствительных данных в ответе нет, но утверждение «ручка не публична» ложно, и видно это по одному лишь статусу."
+    },
+    "bfla-workshop-users-all": {
+      "title": "GET /workshop/api/management/users/all отдаёт список всех пользователей роли user",
+      "visibility": "status",
+      "note": "В официальном перечне задач crAPI этого нет — нашла разведка. Самая дешёвая находка полигона: ни идентификаторов, ни чтения тела, достаточно объявить в политике доступ только администратору."
+    },
+    "sensitive-data-in-recent-posts": {
+      "title": "GET /community/api/v2/community/posts/recent отдаёт вместе с постами почту и идентификатор машины их авторов",
+      "visibility": "body-only",
+      "note": "Задача crAPI 4 (API3, лишние поля). Проверено чтением ответа вручную: у каждого поста в author лежат nickname, email, vehicleid, profile_pic_url, created_at. Статус законный 200, лента и правда положена аутентифицированному, — разница только в наборе полей. Скаляр над телом её тоже не берёт: дайджест и count говорят, что ответы различны, но не что в них лишнего."
+    },
+    "internal-video-property": {
+      "title": "GET /identity/api/v2/user/videos/{video_id} отдаёт владельцу внутреннее поле conversion_params",
+      "visibility": "body-only",
+      "note": "Задача crAPI 5 (API3). Проверено чтением ответа вручную: ключи id, video_name, conversion_params, profileVideo. Ответ законен — это своё видео, — и статус ничего не выдаёт. Вдобавок объект в пути не объявлен, так что эндпоинт даже не опрашивается; но подстановка идентификатора здесь ничего бы не дала."
+    },
+    "service-report-write-via-get": {
+      "title": "GET /workshop/api/mechanic/receive_report создаёт сервис-отчёт и объявлен в спецификации без аутентификации",
+      "visibility": "excluded",
+      "note": "Найдено разведкой, в перечне задач crAPI не значится. Операция называется create_service_report, summary — Create and Assign a Service Report, security пустой: это запись, спрятанная за безопасным по букве методом. Безопасный режим её не остановит, потому что метод GET, поэтому эндпоинт исключён поимённо через exclude. Без обязательных параметров он отвечает 400 и даёт probe-error у всех четырёх аккаунтов; с параметрами дал бы 200 анониму, то есть был бы виден по статусу — ценой записи в стенд. В отчёте числится пропуском с причиной excluded."
+    },
+    "reset-password-of-another-user": {
+      "title": "Сброс пароля чужой учётной записи перебором одноразового кода",
+      "visibility": "unsafe-method",
+      "note": "Задача crAPI 3 (API2). Живёт на POST check-otp и reset-password: без --unsafe-methods эндпоинты не опрашиваются, а с ним инструмент всё равно не сочиняет тела запросов и не перебирает коды."
+    },
+    "delete-video-of-another-user": {
+      "title": "DELETE /identity/api/v2/admin/videos/{video_id} доступен не администратору",
+      "visibility": "unsafe-method",
+      "note": "Задача crAPI 7 (API5, BFLA). По природе это ровно то, что инструмент ищет, — роль не проверяется на административной ручке. Но метод разрушающий: без --unsafe-methods эндпоинт не опрашивается, и вопрос даже не задаётся. Обращением не проверялось намеренно."
+    },
+    "update-internal-video-properties": {
+      "title": "PUT /identity/api/v2/user/videos/{video_id} принимает поля сверх названия",
+      "visibility": "unsafe-method",
+      "note": "Задача crAPI 10 (API6, mass assignment). Небезопасный метод плюс подтверждение только в теле."
+    },
+    "item-for-free": {
+      "title": "Заказ можно получить бесплатно через возврат",
+      "visibility": "unsafe-method",
+      "note": "Задача crAPI 8 (API6, злоупотребление бизнес-потоком). Живёт на POST-ах магазина; инструмент проверяет доступ, а не последовательности бизнес-операций."
+    },
+    "increase-balance": {
+      "title": "Баланс увеличивается повторным применением купона",
+      "visibility": "unsafe-method",
+      "note": "Задача crAPI 9 (API6). Тот же класс: POST плюс бизнес-логика, а не матрица «роль × эндпоинт»."
+    },
+    "contact-mechanic-dos": {
+      "title": "Отказ в обслуживании через повторители в contact_mechanic",
+      "visibility": "out-of-scope",
+      "note": "Задача crAPI 6 (API4). Вопрос о потреблении ресурсов, а не о доступе. Инструмент троттлит себя сам, и это инвариант, а не опция: устраивать нагрузку он не станет ни под каким флагом."
+    },
+    "ssrf-contact-mechanic": {
+      "title": "Через contact_mechanic crAPI ходит по произвольному адресу",
+      "visibility": "out-of-scope",
+      "note": "Задача crAPI 11 (API7, SSRF). Не вопрос матрицы «роль × эндпоинт» вовсе; вдобавок POST."
+    },
+    "nosql-injection-coupon": {
+      "title": "Купон выдаётся без кода через инъекцию в NoSQL",
+      "visibility": "out-of-scope",
+      "note": "Задача crAPI 12 (API8). Инструмент обращается объявленными идентификаторами объектов и не подбирает payload'ы. Инъекции — работа другого инструмента."
+    },
+    "sql-injection-coupon": {
+      "title": "Уже использованный купон применяется повторно через инъекцию в SQL",
+      "visibility": "out-of-scope",
+      "note": "Задача crAPI 13 (API8). То же: инъекция, а не доступ."
+    },
+    "jwt-forgery": {
+      "title": "Токены crAPI подделываются: подпись не проверяется должным образом",
+      "visibility": "out-of-scope",
+      "note": "Задача crAPI 15 (API2). Инструмент проверяет доступ с выданными учётными данными и не подделывает их — иначе он проверял бы не платформу, а собственную фантазию."
+    },
+    "chatbot-prompt-injection": {
+      "title": "Чат-бот поддаётся инъекции в подсказку",
+      "visibility": "out-of-scope",
+      "note": "Задача crAPI 16. Контейнер чат-бота на полигоне не поднимается вовсе: образ 1,18 ГБ и внешний LLM. К матрице доступа отношения не имеет."
+    },
+    "chatbot-credential-extraction": {
+      "title": "Через чат-бота выманиваются чужие учётные данные",
+      "visibility": "out-of-scope",
+      "note": "Задача crAPI 17. Та же причина: контейнер не поднимается, и вопрос не о доступе к эндпоинтам."
+    },
+    "chatbot-action-on-behalf": {
+      "title": "Чат-бот выполняет действие от имени другого пользователя",
+      "visibility": "out-of-scope",
+      "note": "Задача crAPI 18. Та же причина."
+    }
+  },
+  "variants": [
+    {
+      "id": "default",
+      "note": "Вариант ровно один, и это не упущение. У crAPI нет переключателя уязвимостей: ни флага вроде vulnerable у VAmPI, ни защищённого режима — дефекты вкомпилированы, «починенной» сборки не существует. Две переменные её окружения, ENABLE_SHELL_INJECTION и ENABLE_LOG4J, переключают дефекты совсем других классов — внедрение команд и log4shell, — и ни одной ячейки этого оракула не меняют. Поэтому selector пуст: варианту нечего задавать, и схема это допускает — от selector требуется форма «имя → значение», а не непустота.",
+      "selector": {},
+      "expectedExitCode": 1,
+      "findings": [
+        {
+          "account": "adam",
+          "endpoint": "get_location",
+          "resource": "vehicle-pogba",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bola-vehicle-location"]
+        },
+        {
+          "account": "pogba",
+          "endpoint": "get_location",
+          "resource": "vehicle-adam",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bola-vehicle-location"]
+        },
+        {
+          "account": "admin",
+          "endpoint": "get_location",
+          "resource": "vehicle-adam",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bola-vehicle-location"]
+        },
+        {
+          "account": "admin",
+          "endpoint": "get_location",
+          "resource": "vehicle-pogba",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bola-vehicle-location"]
+        },
+        {
+          "account": "adam",
+          "endpoint": "get_order_byID",
+          "resource": "order-pogba",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bola-order-by-id"]
+        },
+        {
+          "account": "pogba",
+          "endpoint": "get_order_byID",
+          "resource": "order-adam",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bola-order-by-id"]
+        },
+        {
+          "account": "admin",
+          "endpoint": "get_order_byID",
+          "resource": "order-adam",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bola-order-by-id"]
+        },
+        {
+          "account": "admin",
+          "endpoint": "get_order_byID",
+          "resource": "order-pogba",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bola-order-by-id"]
+        },
+        {
+          "account": "anonymous",
+          "endpoint": "get_order_byID",
+          "resource": "order-adam",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bola-order-by-id", "broken-auth-order-by-id"]
+        },
+        {
+          "account": "anonymous",
+          "endpoint": "get_order_byID",
+          "resource": "order-pogba",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bola-order-by-id", "broken-auth-order-by-id"]
+        },
+        {
+          "account": "adam",
+          "endpoint": "get_report_byID",
+          "resource": "report-1",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bola-mechanic-report"]
+        },
+        {
+          "account": "pogba",
+          "endpoint": "get_report_byID",
+          "resource": "report-1",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bola-mechanic-report"]
+        },
+        {
+          "account": "admin",
+          "endpoint": "get_report_byID",
+          "resource": "report-1",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bola-mechanic-report"]
+        },
+        {
+          "account": "adam",
+          "endpoint": "get_workshop_users_all",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bfla-workshop-users-all"]
+        },
+        {
+          "account": "pogba",
+          "endpoint": "get_workshop_users_all",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["bfla-workshop-users-all"]
+        },
+        {
+          "account": "anonymous",
+          "endpoint": "get_workshop_qr_code",
+          "resource": null,
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["public-return-qr-code"]
+        }
+      ]
+    }
+  ]
+}
