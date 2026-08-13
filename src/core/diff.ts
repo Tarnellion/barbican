@@ -5,7 +5,7 @@
  */
 
 import type { ResolvedAccessPolicy } from "./expected.js";
-import { resolveExpected } from "./expected.js";
+import { resolveExpectedVerdict } from "./expected.js";
 import { indexObservations, resourceApplies } from "./matrix.js";
 import { createTenantHierarchy, FLAT_HIERARCHY } from "./tenancy.js";
 import type {
@@ -67,10 +67,19 @@ export function diffAccess(
     expected: ExpectedOutcome,
     actual: AccessOutcome | undefined,
     kind: DiffKind,
+    ruleIndex?: number,
     resourceId?: string,
     relation?: ResourceRelation,
   ): void {
-    const base = { accountId, endpointId, expected, kind, severity: severityOf(kind, relation) };
+    const base = {
+      accountId,
+      endpointId,
+      expected,
+      kind,
+      severity: severityOf(kind, relation),
+      // Отсутствие означает `fallback`: ни одно правило не подошло.
+      ...(ruleIndex === undefined ? {} : { ruleIndex }),
+    };
     const withResource =
       resourceId === undefined ? base : { ...base, resourceId, ...(relation && { relation }) };
     diffs.push(actual === undefined ? withResource : { ...withResource, actual });
@@ -85,21 +94,32 @@ export function diffAccess(
       if (applicable.length > 0) {
         for (const resource of applicable) {
           const relation = relationOf(account, resource, hierarchy);
-          const expected = resolveExpected(policy, account.roleId, endpoint.id, relation);
+          const verdict = resolveExpectedVerdict(policy, account.roleId, endpoint.id, relation);
+          const expected = verdict.outcome;
           const actual = byEndpoint?.get(endpoint.id)?.get(resource.id)?.outcome;
           const kind = classify(expected, actual);
           if (kind !== null) {
-            record(account.id, endpoint.id, expected, actual, kind, resource.id, relation);
+            record(
+              account.id,
+              endpoint.id,
+              expected,
+              actual,
+              kind,
+              verdict.ruleIndex,
+              resource.id,
+              relation,
+            );
           }
         }
         continue;
       }
 
-      const expected = resolveExpected(policy, account.roleId, endpoint.id);
+      const verdict = resolveExpectedVerdict(policy, account.roleId, endpoint.id);
+      const expected = verdict.outcome;
       const actual = byEndpoint?.get(endpoint.id)?.get(undefined)?.outcome;
       const kind = classify(expected, actual);
       if (kind !== null) {
-        record(account.id, endpoint.id, expected, actual, kind);
+        record(account.id, endpoint.id, expected, actual, kind, verdict.ruleIndex);
       }
     }
   }

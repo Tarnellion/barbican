@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildAccessMatrix, diffAccess, severityOf } from "../../src/core/index.js";
+import type { ResolvedAccessPolicy } from "../../src/core/index.js";
+import {
+  ANY,
+  buildAccessMatrix,
+  diffAccess,
+  resolveExpectedVerdict,
+  severityOf,
+} from "../../src/core/index.js";
 import {
   accounts,
   cleanObservations,
@@ -35,6 +42,50 @@ describe("серьёзность расхождения", () => {
   });
 });
 
+describe("ссылка на правило", () => {
+  /**
+   * Политика в отчёте есть, но искать среди десятка правил то, которое объявило
+   * доступ запрещённым, — работа, которую инструмент может сделать сам.
+   */
+  it("называет правило, давшее ожидание", () => {
+    const policy: ResolvedAccessPolicy = {
+      fallback: "denied",
+      rules: [
+        { roles: ANY, endpoints: ["a"], outcome: "allowed" },
+        { roles: ["player"], endpoints: ["a"], outcome: "denied" },
+      ],
+    };
+
+    expect(resolveExpectedVerdict(policy, "player", "a")).toEqual({
+      outcome: "denied",
+      ruleIndex: 1,
+    });
+  });
+
+  /**
+   * Отсутствие номера — содержательный ответ «ни одно правило не подошло»,
+   * а не пропуск поля.
+   */
+  it("не называет правила, когда сработал fallback", () => {
+    const policy: ResolvedAccessPolicy = { fallback: "denied", rules: [] };
+
+    expect(resolveExpectedVerdict(policy, "player", "a")).toEqual({ outcome: "denied" });
+  });
+
+  /** Побеждает последнее подошедшее — номер обязан указывать на него же. */
+  it("указывает на последнее подошедшее правило, а не на первое", () => {
+    const policy: ResolvedAccessPolicy = {
+      fallback: "denied",
+      rules: [
+        { roles: ANY, endpoints: ANY, outcome: "allowed" },
+        { roles: ANY, endpoints: ANY, outcome: "denied" },
+      ],
+    };
+
+    expect(resolveExpectedVerdict(policy, "any", "any").ruleIndex).toBe(1);
+  });
+});
+
 describe("diffAccess", () => {
   // Главный тест набора. Инструмент, находящий несуществующее, теряет доверие
   // быстрее, чем тот, который что-то пропускает.
@@ -67,6 +118,9 @@ describe("diffAccess", () => {
         expected: "allowed",
         actual: "denied",
         kind: "unexpected-denial",
+        // Правило, объявившее доступ положенным. Находка называет его сама,
+        // чтобы читателю не искать среди десятка правил.
+        ruleIndex: 2,
         severity: "medium",
       },
     ]);

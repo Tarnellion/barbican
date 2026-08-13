@@ -102,22 +102,48 @@ export function assertPolicyIsSound(policy: ExpectedAccessPolicy): void {
  * Выигрывает **последнее** подходящее правило: это позволяет задать широкое
  * правило и сузить его последующими.
  */
+/**
+ * Ожидаемый исход вместе с правилом, которое его дало.
+ *
+ * Номер правила нужен читателю отчёта: политика в отчёте есть, но искать среди
+ * десятка правил то, которое объявило доступ запрещённым, — работа, которую
+ * инструмент может сделать сам. Его отсутствие значит «ни одно правило
+ * не подошло, сработал `fallback`» — и это отдельное, содержательное сообщение,
+ * а не пропуск.
+ */
+export interface ExpectedVerdict {
+  readonly outcome: ExpectedOutcome;
+  /** Номер правила в `policy.rules`. Отсутствует, когда сработал `fallback`. */
+  readonly ruleIndex?: number;
+}
+
+export function resolveExpectedVerdict(
+  policy: ResolvedAccessPolicy,
+  roleId: RoleId,
+  endpointId: string,
+  relation?: ResourceRelation,
+): ExpectedVerdict {
+  let verdict: ExpectedVerdict = { outcome: policy.fallback };
+  // Побеждает последнее подошедшее, поэтому перебор идёт до конца, а не до
+  // первого совпадения: номер должен указывать на то же правило, что и исход.
+  for (const [index, rule] of policy.rules.entries()) {
+    if (rule.scope !== undefined && rule.scope !== relation) {
+      continue;
+    }
+    if (matches(rule.roles, roleId) && matches(rule.endpoints, endpointId)) {
+      verdict = { outcome: rule.outcome, ruleIndex: index };
+    }
+  }
+  return verdict;
+}
+
 export function resolveExpected(
   policy: ResolvedAccessPolicy,
   roleId: RoleId,
   endpointId: string,
   relation?: ResourceRelation,
 ): ExpectedOutcome {
-  let outcome = policy.fallback;
-  for (const rule of policy.rules) {
-    if (rule.scope !== undefined && rule.scope !== relation) {
-      continue;
-    }
-    if (matches(rule.roles, roleId) && matches(rule.endpoints, endpointId)) {
-      outcome = rule.outcome;
-    }
-  }
-  return outcome;
+  return resolveExpectedVerdict(policy, roleId, endpointId, relation).outcome;
 }
 
 /**

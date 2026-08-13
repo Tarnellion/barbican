@@ -35,7 +35,7 @@ describe("groupDefects", () => {
     ]);
 
     expect(groups).toHaveLength(1);
-    expect(groups[0]?.observations).toBe(2);
+    expect(groups[0]?.violations).toBe(2);
     expect(groups[0]?.accountIds).toEqual(["admin", "user"]);
   });
 
@@ -71,7 +71,7 @@ describe("groupDefects", () => {
 
     expect(groups[0]?.resourceIds).toEqual(["o-1", "o-2"]);
     expect(groups[0]?.accountIds).toEqual(["a", "b"]);
-    expect(groups[0]?.observations).toBe(2);
+    expect(groups[0]?.violations).toBe(2);
   });
 
   it("берёт наибольшую серьёзность группы", () => {
