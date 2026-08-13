@@ -26,6 +26,12 @@ function report(overrides: {
   truncated?: boolean;
   checks?: readonly ReportFinding[];
   denials?: number;
+  canariesChecked?: number;
+  accounts?: readonly {
+    readonly id: string;
+    readonly role: string;
+    readonly anonymous?: boolean;
+  }[];
 }): RunReport {
   const observations = overrides.observations ?? 4;
   return {
@@ -49,13 +55,13 @@ function report(overrides: {
     startedAt: "2026-08-12T00:00:00.000Z",
     finishedAt: "2026-08-12T00:00:01.000Z",
     target: { baseUrl: "https://api.test", allowedHosts: ["api.test"] },
-    accounts: [],
+    accounts: overrides.accounts ?? [{ id: "u", role: "r", anonymous: false }],
     endpoints: [],
     resources: [],
     skipped: [],
     failures: [],
     unauthenticated: overrides.unauthenticated ?? [],
-    canariesChecked: 0,
+    canariesChecked: overrides.canariesChecked ?? 1,
     canaries: [],
     inputs: {
       policy: { fallback: "denied", rules: [] },
@@ -482,6 +488,16 @@ contexts:
         { id: "u", roleId: "r", tenantId: "t" },
         { id: "u@geo", roleId: "r", tenantId: "t", contextId: "geo", baseAccountId: "u" },
       ],
+      cells: [
+        {
+          accountId: "u@geo",
+          endpointId: "a",
+          contextId: "geo",
+          expected: "denied",
+          actual: "denied",
+          match: true,
+        },
+      ],
       startedAt: new Date(0),
       finishedAt: new Date(1),
     });
@@ -532,9 +548,37 @@ contexts:
   it("называет число совпавших ячеек, а не оставляет его вычитанием", () => {
     const built = build();
 
+    // ADR-0020 обещает равенство, и раньше оно не выполнялось: счёт шёл
+    // вычитанием, в котором участвовали и `not-observed` — ячейки, у которых
+    // наблюдения нет вовсе. Найдено состязательной проверкой.
+    expect(built.coverage.cellsMatched).toBe(
+      built.observations.filter((observation) => observation.match === true).length,
+    );
     expect(built.coverage.cellsMatched).toBe(1);
-    const discrepancies = Object.values(built.summary.byKind).reduce((a, b) => a + b, 0);
-    expect(built.coverage.cellsMatched + discrepancies).toBe(built.coverage.cellsObserved);
+  });
+
+  /**
+   * Ноль читался бы как «не совпало ни одной ячейки» — утверждение
+   * о платформе. Сказать же нужно «мы этого не считали».
+   */
+  it("не печатает число совпавших ячеек, когда вердиктов не считали", () => {
+    const built = buildReport({
+      version: "test",
+      config: WITH_CONTEXT,
+      endpoints: [{ id: "a", method: "GET", path: "/a" }],
+      observations: [],
+      skipped: [],
+      failures: [],
+      unauthenticated: [],
+      canariesChecked: 1,
+      truncated: false,
+      findings: [],
+      policy: { fallback: "denied", rules: [] },
+      startedAt: new Date(0),
+      finishedAt: new Date(1),
+    });
+
+    expect(built.coverage).not.toHaveProperty("cellsMatched");
   });
 
   /** 9 аккаунтов × 6 ручек не давало 135 ячеек, и арифметика не сходилась. */
@@ -610,6 +654,30 @@ describe("exitCodeFor", () => {
   // а код возврата был 0.
   it("2 — прогон оборван, хвост матрицы не проверен", () => {
     expect(exitCodeFor(report({ truncated: true }))).toBe(2);
+  });
+
+  /**
+   * Класс «ничего не проверено выглядит как всё чисто», найденный
+   * состязательной проверкой. Стенд отвечал 401 на всё, токены были протухшие,
+   * политика состояла из одних запретов — и предохранитель `findUnauthenticated`
+   * промолчал по построению: доступным не объявлено ничего, значит и «нигде
+   * не дали» не про что сказать. Отчёт вышел чистым с кодом 0.
+   */
+  it("2 — аутентификация не подтверждена ни одной канарейкой", () => {
+    expect(exitCodeFor(report({ canariesChecked: 0 }))).toBe(2);
+  });
+
+  /**
+   * Анонимному прогону — «проверьте, что сюда нельзя вообще никому» —
+   * аутентифицировать нечего, и требовать канарейку значило бы запретить
+   * законный сценарий.
+   */
+  it("0 — прогон только от анонимов канарейки не требует", () => {
+    expect(
+      exitCodeFor(
+        report({ canariesChecked: 0, accounts: [{ id: "anon", role: "guest", anonymous: true }] }),
+      ),
+    ).toBe(0);
   });
 
   it("2 — аутентификация не сработала", () => {

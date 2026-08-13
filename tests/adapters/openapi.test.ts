@@ -21,6 +21,7 @@ import {
   SpecParseError,
   SpecTooDeepError,
   SpecTooLargeError,
+  UnsupportedYamlTagError,
 } from "../../src/adapters/openapi.js";
 
 const parser = createOpenApiParser();
@@ -323,5 +324,57 @@ paths:
 
   it("сообщает о неразбираемом документе, а не падает", async () => {
     await expect(parser.parse("{ это: [не, закрыт")).rejects.toThrow(SpecParseError);
+  });
+});
+
+/**
+ * Найдено состязательной проверкой. Узлы с тегами `!!omap` и `!!set` парсер
+ * даёт как Map и Set, а обход по `Object.values` в них не заходит: внешняя
+ * ссылка под таким узлом проезжала мимо барьера, а `paths` под ним давал
+ * **ноль эндпоинтов без единой ошибки** — сто процентов покрытия пустоты.
+ * Psych такие документы эмитирует штатно, то есть случай не выдуманный.
+ */
+describe("узлы, невидимые обходу", () => {
+  const parser = createOpenApiParser();
+
+  it("отвергает внешнюю ссылку, спрятанную под !!omap", async () => {
+    await expect(
+      parser.parse(`
+openapi: 3.0.0
+info: { title: t, version: "1" }
+components: !!omap
+  - schemas:
+      Order: { $ref: "http://127.0.0.1:9/x.yaml#/c" }
+paths:
+  /v1/orders:
+    get: { operationId: orders.list, responses: { "200": { description: ok } } }
+`),
+    ).rejects.toThrow(UnsupportedYamlTagError);
+  });
+
+  it("отвергает ручки, спрятанные под !!omap, вместо тихого нуля", async () => {
+    await expect(
+      parser.parse(`
+openapi: 3.0.0
+info: { title: t, version: "1" }
+paths: !!omap
+  - /v1/admin/accounts:
+      get: { operationId: admin.accounts, responses: { "200": { description: ok } } }
+`),
+    ).rejects.toThrow(UnsupportedYamlTagError);
+  });
+
+  it("отвергает и !!set", async () => {
+    await expect(
+      parser.parse(`
+openapi: 3.0.0
+info: { title: t, version: "1" }
+components: !!set
+  ? $ref
+paths:
+  /v1/orders:
+    get: { operationId: orders.list, responses: { "200": { description: ok } } }
+`),
+    ).rejects.toThrow(UnsupportedYamlTagError);
   });
 });

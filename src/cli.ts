@@ -31,6 +31,7 @@ import {
 } from "./core/index.js";
 import {
   applyBodySignals,
+  assertContextsCannotWrite,
   assertReferencesResolve,
   parseRunConfig,
   resolveTokens,
@@ -121,6 +122,9 @@ async function run(flags: RunFlags): Promise<number> {
   const parsed = await source.create().parse(await readFile(source.path, "utf8"));
   // Ссылки сверяются после разбора спецификации: раньше эндпоинтов ещё нет.
   assertReferencesResolve(config, parsed);
+  // Подмена метода атрибутами условий: проверяется здесь, а не при разборе,
+  // потому что зависит от флага прогона. См. ADR-0019.
+  assertContextsCannotWrite(config, { allowUnsafeMethods: flags.unsafeMethods === true });
   // responseMustDifferByTenant — заявление человека об ожидании; источники
   // эндпоинтов (спека, список, коллекция) о нём не знают и знать не должны.
   const endpoints = applyBodySignals(parsed, config);

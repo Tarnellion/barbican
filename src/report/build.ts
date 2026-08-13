@@ -289,7 +289,7 @@ export interface Coverage {
    * существовало в отчёте только как вычитание. Числом оно проверяемо:
    * сумма с расхождениями обязана дать `cellsObserved`.
    */
-  readonly cellsMatched: number;
+  readonly cellsMatched?: number;
 }
 
 export interface RunReport {
@@ -705,6 +705,7 @@ function countByContext(options: BuildReportOptions): Readonly<Record<string, nu
 }
 
 export function buildReport(options: BuildReportOptions): RunReport {
+  const observations = withVerdicts(options);
   const merged = mergeFindings(
     options.findings,
     options.checks ?? [],
@@ -780,7 +781,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     canariesChecked: options.canariesChecked,
     canaries: options.canaries ?? [],
     truncated: options.truncated,
-    observations: withVerdicts(options),
+    observations,
     findings: merged,
     coverage: {
       endpointsTotal: options.endpoints.length,
@@ -795,10 +796,20 @@ export function buildReport(options: BuildReportOptions): RunReport {
       checksRun: options.checksRun ?? [],
       bodyComparison: options.bodyComparison ?? [],
       contextsProbed: countByContext(options),
-      // Расхождения матрицы и есть «не совпало»: находки проверок живут поверх
-      // тех же ячеек и вычитать их второй раз нельзя — сумма перестала бы
-      // сходиться с числом наблюдений.
-      cellsMatched: options.observations.length - options.findings.length,
+      // Считается по самим вердиктам, а не вычитанием. Вычитание врало:
+      // среди расхождений есть `not-observed`, у которых наблюдения нет вовсе,
+      // и число занижалось. ADR-0020 обещает равенство с числом наблюдений,
+      // у которых `match: true`, — теперь это одно и то же число, а не два.
+      // Найдено состязательной проверкой.
+      //
+      // Ключа нет вовсе, когда вердиктов не считали: ноль читался бы как
+      // «не совпало ни одной ячейки», то есть как утверждение о платформе,
+      // а сказать нужно «мы этого не считали».
+      ...(options.cells === undefined
+        ? {}
+        : {
+            cellsMatched: observations.filter((observation) => observation.match === true).length,
+          }),
     },
     inputs: {
       policy: options.policy,
@@ -866,6 +877,22 @@ export function exitCodeFor(report: RunReport): number {
     return 2;
   }
   if (report.unauthenticated.length > 0) {
+    return 2;
+  }
+  // Ни одной канарейки — значит аутентификация не подтверждена ничем.
+  // Предохранитель `findUnauthenticated` тут не помогает по построению: он
+  // устроен как «объявлено доступным, но нигде не дали», а у политики из одних
+  // запретов доступным не объявлено ничего, и он молчит.
+  //
+  // Найдено состязательной проверкой: стенд отвечал 401 на всё, токены были
+  // протухшие, и отчёт вышел чистый с кодом 0 — да ещё и с `match: true`
+  // на каждой из двенадцати ячеек. Это ровно тот случай, ради которого
+  // двойка и существует: непроверенное не бывает чистым.
+  //
+  // Аккаунты без учётных данных из правила исключены: анонимному прогону —
+  // «проверьте, что сюда нельзя вообще никому» — аутентифицировать нечего,
+  // и требовать от него канарейку значило бы запретить законный сценарий.
+  if (report.canariesChecked === 0 && report.accounts.some((account) => !account.anonymous)) {
     return 2;
   }
   if (report.summary.byKind["probe-error"] === report.summary.observations) {

@@ -9,7 +9,10 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  assertContextsCannotWrite,
   ForbiddenContextHeaderError,
+  ForbiddenContextQueryError,
+  MethodOverrideInContextError,
   parseRunConfig,
   toAccounts,
   UnknownContextReferenceError,
@@ -170,5 +173,136 @@ policy:
 `),
       ),
     ).toThrow();
+  });
+});
+
+/**
+ * Найдено состязательной проверкой, и это была худшая находка дня: условия
+ * заставили платформу **удалить объект** при выключенных небезопасных методах.
+ * Гейт `SAFE_METHODS` смотрит на метод запроса и подмены не видит, а отчёт
+ * при этом писал `writeMethodsProbed: false` — то есть утверждал обратное
+ * произошедшему.
+ */
+describe("условия не могут подменить смысл обращения", () => {
+  /** Политика обязана называть условия, иначе прогон падает раньше проверки. */
+  function withContext(id: string, attributes: string): string {
+    return config(`
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [orders.list], context: ${id}, outcome: denied }
+contexts:
+  - id: ${id}
+    ${attributes}
+    endpoints: [orders.list]
+`);
+  }
+
+  it.each([
+    ["x-http-method-override", "заголовок подмены метода"],
+    ["X-HTTP-Method", "он же в другом написании"],
+    ["x-method-override", "и в третьем"],
+    ["x-original-url", "подмена адреса: обращение уйдёт мимо объявленного пути"],
+    ["x-rewrite-url", "она же"],
+    ["x-forwarded-host", "маршрутизация: меняет адресата, а не условия"],
+    ["x-forwarded-proto", "она же"],
+    ["proxy-authorization", "учётные данные"],
+    ["upgrade", "заголовок обмена"],
+  ])("отвергает заголовок %s (%s)", (header) => {
+    expect(() => parseRunConfig(withContext("bad", `headers: { "${header}": something }`))).toThrow(
+      ForbiddenContextHeaderError,
+    );
+  });
+
+  /** Гео-атрибут остаётся разрешённым: ради него условия и заводились. */
+  it("не трогает x-forwarded-for — это и есть типовой атрибут условий", () => {
+    expect(() =>
+      parseRunConfig(withContext("geo", 'headers: { x-forwarded-for: "203.0.113.10" }')),
+    ).not.toThrow();
+  });
+
+  it.each(["access_token", "api_key", "token", "jwt", "session"])(
+    "отвергает параметр запроса %s: им предъявляют учётные данные",
+    (key) => {
+      expect(() =>
+        parseRunConfig(withContext("bad", `query: { "${key}": "похоже на токен" }`)),
+      ).toThrow(ForbiddenContextQueryError);
+    },
+  );
+
+  it("отвергает имя заголовка, которое не уйдёт по проводу", () => {
+    expect(() => parseRunConfig(withContext("bad", 'headers: { "x-bad name": ok }'))).toThrow(
+      ForbiddenContextHeaderError,
+    );
+  });
+
+  it("отвергает значение, которое не уйдёт по проводу", () => {
+    expect(() => parseRunConfig(withContext("bad", 'headers: { x-note: "кириллица" }'))).toThrow(
+      ForbiddenContextHeaderError,
+    );
+  });
+
+  /**
+   * Самая тихая из подмен: вердикт считается по объявленному объекту,
+   * а спрашивается другой — и межтенантная утечка ложится в отчёт как
+   * «свой объект, проверено и совпало».
+   */
+  it("отвергает параметр, которым объекты задают себя", () => {
+    expect(() =>
+      parseRunConfig(`
+target: { baseUrl: "https://api.test", allowedHosts: [api.test] }
+accounts: [{ id: alice, role: user, tenant: tenant-a, tokenEnv: T }]
+resources:
+  - { id: own, tenant: tenant-a, owner: alice, query: { id: "1001" }, endpoints: [orders.list] }
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [orders.list], context: mobile, outcome: allowed }
+contexts:
+  - { id: mobile, query: { id: "2001" }, endpoints: [orders.list] }
+`),
+    ).toThrow(ForbiddenContextQueryError);
+  });
+
+  /**
+   * Правило по **значению**, а не по имени: имён у подмены метода десяток
+   * и будет больше, а значение у неё всегда одно — имя метода. Так ловится
+   * и вендорский заголовок, о котором никто не слышал.
+   */
+  describe("подмена метода ловится значением атрибута", () => {
+    const parsed = (attributes: string) => parseRunConfig(withContext("proxy", attributes));
+
+    it("отвергает заголовок, чьё значение — имя метода", () => {
+      expect(() =>
+        assertContextsCannotWrite(parsed("headers: { x-vendor-verb: DELETE }"), {
+          allowUnsafeMethods: false,
+        }),
+      ).toThrow(MethodOverrideInContextError);
+    });
+
+    it("отвергает и параметр запроса с тем же значением", () => {
+      expect(() =>
+        assertContextsCannotWrite(parsed('query: { _method: "delete" }'), {
+          allowUnsafeMethods: false,
+        }),
+      ).toThrow(MethodOverrideInContextError);
+    });
+
+    /** С явным согласием на запись запрещать нечего: человек уже решил. */
+    it("молчит, когда небезопасные методы разрешены явно", () => {
+      expect(() =>
+        assertContextsCannotWrite(parsed("headers: { x-vendor-verb: DELETE }"), {
+          allowUnsafeMethods: true,
+        }),
+      ).not.toThrow();
+    });
+
+    it("не мешает обычному значению атрибута", () => {
+      expect(() =>
+        assertContextsCannotWrite(parsed("headers: { cf-ipcountry: AQ }"), {
+          allowUnsafeMethods: false,
+        }),
+      ).not.toThrow();
+    });
   });
 });

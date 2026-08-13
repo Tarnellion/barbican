@@ -588,6 +588,16 @@ export class ForbiddenContextHeaderError extends Error {
   }
 }
 
+export class ForbiddenContextQueryError extends Error {
+  constructor(contextId: string, key: string, reason: string) {
+    super(
+      `Условия "${contextId}" задают параметр запроса "${key}": ${reason}. ` +
+        `Атрибуты условий добавляются к обращению, а не подменяют его основу.`,
+    );
+    this.name = "ForbiddenContextQueryError";
+  }
+}
+
 export class DuplicateContextIdError extends Error {
   constructor(contextId: string) {
     super(
@@ -961,6 +971,9 @@ export function parseRunConfig(source: string): RunConfig {
     policy,
     auth: config.auth ?? DEFAULT_AUTH_SCHEME,
     accountAuth,
+    // Ключи строки запроса, принадлежащие объектам: атрибут условий, совпавший
+    // с таким ключом, молча переписывал бы адрес объекта — см. ниже.
+    resourceQueryKeys: new Set(resources.flatMap((r) => Object.keys(r.query ?? {}))),
   });
 
   return {
@@ -977,6 +990,58 @@ export function parseRunConfig(source: string): RunConfig {
   };
 }
 
+export class MethodOverrideInContextError extends Error {
+  constructor(contextId: string, where: string, value: string) {
+    super(
+      `Условия "${contextId}" задают ${where} со значением "${value}" — это имя ` +
+        `HTTP-метода. Платформы, уважающие подмену метода (Rails, Laravel, Symfony, ` +
+        `Spring, большинство шлюзов), выполнят по такому обращению запись, хотя ` +
+        `по проводу уйдёт GET: гейт безопасных методов смотрит на метод запроса ` +
+        `и такой обход не видит. Если запись входит в намерение — запускайте ` +
+        `с --unsafe-methods, и тогда отчёт скажет об этом честно.`,
+    );
+    this.name = "MethodOverrideInContextError";
+  }
+}
+
+/**
+ * Отвергает атрибуты условий, которыми подменяют метод обращения.
+ *
+ * Проверка **по значению**, а не по имени, и в этом весь смысл. Имён у подмены
+ * метода десяток и будет больше; значение же у неё всегда одно — имя метода.
+ * Правило ловит и `x-http-method-override`, и вендорский заголовок, о котором
+ * я никогда не слышал, и `_method` в строке запроса.
+ *
+ * Живёт отдельно от разбора конфигурации, потому что зависит от флага прогона:
+ * с `--unsafe-methods` человек уже согласился на запись, и запрещать нечего.
+ *
+ * Найдено состязательной проверкой. Стенд удалил объект по обращению, которое
+ * инструмент считал чтением, а отчёт написал `writeMethodsProbed: false`.
+ *
+ * @throws {MethodOverrideInContextError}
+ */
+export function assertContextsCannotWrite(
+  config: RunConfig,
+  options: { readonly allowUnsafeMethods: boolean },
+): void {
+  if (options.allowUnsafeMethods) {
+    return;
+  }
+  const methods = new Set(["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"]);
+  for (const context of config.contexts) {
+    for (const [name, value] of Object.entries(context.headers)) {
+      if (methods.has(value.trim().toUpperCase())) {
+        throw new MethodOverrideInContextError(context.id, `заголовок "${name}"`, value);
+      }
+    }
+    for (const [key, value] of Object.entries(context.query)) {
+      if (methods.has(value.trim().toUpperCase())) {
+        throw new MethodOverrideInContextError(context.id, `параметр запроса "${key}"`, value);
+      }
+    }
+  }
+}
+
 /**
  * Заголовки, которых условия задавать не могут.
  *
@@ -986,14 +1051,76 @@ export function parseRunConfig(source: string): RunConfig {
  * `host` уводит запрос за пределы области проверки при неизменном адресе;
  * остальные ломают сам обмен.
  */
-const FORBIDDEN_CONTEXT_HEADERS: Readonly<Record<string, string>> = {
-  authorization: "это учётные данные аккаунта",
-  cookie: "это учётные данные аккаунта",
-  host: "подмена хоста уводит обращение за пределы области проверки",
-  "content-length": "заголовок обмена, а не атрибут обращения",
-  "transfer-encoding": "заголовок обмена, а не атрибут обращения",
-  connection: "заголовок обмена, а не атрибут обращения",
-};
+const FORBIDDEN_CONTEXT_HEADERS: ReadonlyMap<string, string> = new Map([
+  ["authorization", "это учётные данные аккаунта"],
+  ["proxy-authorization", "это учётные данные"],
+  ["cookie", "это учётные данные аккаунта"],
+  ["host", "подмена хоста уводит обращение за пределы области проверки"],
+  ["forwarded", "заголовок маршрутизации: он меняет адресата, а не условия"],
+  ["content-length", "заголовок обмена, а не атрибут обращения"],
+  ["transfer-encoding", "заголовок обмена, а не атрибут обращения"],
+  ["connection", "заголовок обмена, а не атрибут обращения"],
+  ["te", "заголовок обмена, а не атрибут обращения"],
+  ["upgrade", "заголовок обмена, а не атрибут обращения"],
+  ["expect", "заголовок обмена, а не атрибут обращения"],
+]);
+
+/**
+ * Семейства заголовков, меняющих **смысл** обращения, а не его условия.
+ *
+ * Найдено состязательной проверкой, и находка была худшего сорта: условия
+ * с `x-http-method-override: DELETE` заставили платформу удалить объект,
+ * пока по проводу шёл GET, — а отчёт при этом писал `writeMethodsProbed: false`.
+ * Гейт `SAFE_METHODS` смотрит на метод в запросе и такой обход не видит.
+ *
+ * Префиксом, а не точным именем: у override-заголовка десяток написаний
+ * (`X-HTTP-Method`, `X-HTTP-Method-Override`, `X-Method-Override`), и список
+ * точных имён отстанет от следующего фреймворка. `x-forwarded-for` при этом
+ * разрешён намеренно — это и есть типовой атрибут гео-условий; запрещены
+ * только те `x-forwarded-*`, что меняют адресата.
+ */
+const FORBIDDEN_HEADER_PREFIXES: readonly (readonly [string, string])[] = [
+  ["x-http-method", "заголовок подмены метода: платформа выполнит запись за GET"],
+  ["x-method", "заголовок подмены метода: платформа выполнит запись за GET"],
+  ["x-original-", "заголовок подмены адреса: обращение уйдёт мимо объявленного пути"],
+  ["x-rewrite-", "заголовок подмены адреса: обращение уйдёт мимо объявленного пути"],
+  ["x-forwarded-host", "заголовок маршрутизации: он меняет адресата, а не условия"],
+  ["x-forwarded-proto", "заголовок маршрутизации: он меняет адресата, а не условия"],
+  ["x-forwarded-port", "заголовок маршрутизации: он меняет адресата, а не условия"],
+  ["x-forwarded-prefix", "заголовок маршрутизации: он меняет адресата, а не условия"],
+  ["x-forwarded-uri", "заголовок маршрутизации: он меняет адресата, а не условия"],
+];
+
+/**
+ * Ключи строки запроса, которыми предъявляют учётные данные.
+ *
+ * Токен в строке запроса — это другой аккаунт: платформа обслужит обращение
+ * как его, а отчёт напишет исходный `baseAccountId`. Найдено состязательной
+ * проверкой: `access_token` в условиях обслуживался как чужой аккаунт, и вся
+ * половина матрицы ходила не тем, кем отчёт её называл. Плюс само значение
+ * уехало бы в отчёт открытым текстом — адреса обращений там печатаются.
+ */
+const FORBIDDEN_QUERY_KEYS: ReadonlySet<string> = new Set([
+  "access_token",
+  "accesstoken",
+  "api_key",
+  "apikey",
+  "auth",
+  "auth_token",
+  "authorization",
+  "id_token",
+  "jwt",
+  "session",
+  "sessionid",
+  "session_id",
+  "token",
+]);
+
+/** Значение заголовка: только видимый ASCII и таб — иначе `fetch` его не отправит. */
+const CONTEXT_VALUE_SAFE = /^[\t\x20-\x7e]*$/;
+
+/** Имя заголовка по RFC 9110: видимые ASCII без разделителей. */
+const CONTEXT_HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 /**
  * Приводит объявленные условия к рабочему виду и отвергает негодные.
@@ -1014,6 +1141,7 @@ function normalizeContexts(
   }[],
   options: {
     readonly accountIds: ReadonlySet<string>;
+    readonly resourceQueryKeys: ReadonlySet<string>;
     readonly policy: ExpectedAccessPolicy;
     readonly auth: AuthScheme;
     readonly accountAuth: ReadonlyMap<string, AuthScheme>;
@@ -1056,7 +1184,24 @@ function normalizeContexts(
     const headers: Record<string, string> = {};
     for (const [name, value] of Object.entries(context.headers ?? {})) {
       const lower = name.toLowerCase();
-      const forbidden = FORBIDDEN_CONTEXT_HEADERS[lower];
+      if (!CONTEXT_HEADER_NAME.test(name)) {
+        throw new ForbiddenContextHeaderError(
+          context.id,
+          name,
+          "это не имя заголовка по RFC 9110 — обращение с ним не уйдёт вовсе",
+        );
+      }
+      if (!CONTEXT_VALUE_SAFE.test(value)) {
+        throw new ForbiddenContextHeaderError(
+          context.id,
+          name,
+          "значение содержит символы, недопустимые в заголовке: каждая ячейка " +
+            "такого прогона умрёт непрозрачным сбоем обращения",
+        );
+      }
+      const forbidden =
+        FORBIDDEN_CONTEXT_HEADERS.get(lower) ??
+        FORBIDDEN_HEADER_PREFIXES.find(([prefix]) => lower.startsWith(prefix))?.[1];
       if (forbidden !== undefined) {
         throw new ForbiddenContextHeaderError(context.id, name, forbidden);
       }
@@ -1068,6 +1213,38 @@ function normalizeContexts(
         );
       }
       headers[lower] = value;
+    }
+
+    for (const [key, value] of Object.entries(context.query ?? {})) {
+      const lower = key.toLowerCase();
+      if (FORBIDDEN_QUERY_KEYS.has(lower)) {
+        throw new ForbiddenContextQueryError(
+          context.id,
+          key,
+          "этим предъявляют учётные данные: платформа обслужит обращение как другой " +
+            "аккаунт, а отчёт назовёт исходный — и само значение уедет в отчёт " +
+            "открытым текстом, потому что адреса обращений там печатаются",
+        );
+      }
+      // Ключ объекта, переписанный условиями, — самая тихая из подмен:
+      // вердикт считается по объявленному объекту, а спрашивается другой.
+      // Найдено состязательной проверкой: межтенантная утечка легла в отчёт
+      // как «свой объект, проверено и совпало».
+      if (options.resourceQueryKeys.has(key)) {
+        throw new ForbiddenContextQueryError(
+          context.id,
+          key,
+          "этим ключом объекты задают себя в строке запроса: условия переписали бы " +
+            "адрес объекта, а вердикт считался бы по объявленному",
+        );
+      }
+      if (!CONTEXT_VALUE_SAFE.test(value)) {
+        throw new ForbiddenContextQueryError(
+          context.id,
+          key,
+          "значение содержит символы, недопустимые в адресе обращения",
+        );
+      }
     }
 
     for (const accountId of context.accounts ?? []) {

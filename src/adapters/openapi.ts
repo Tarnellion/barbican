@@ -94,6 +94,19 @@ function describe(cause: unknown): string {
  * поддеревья, и наивный обход по ним сам стал бы источником экспоненциального
  * разрастания. Раскрытие алиасов при этом уже ограничено `maxAliasCount`.
  */
+export class UnsupportedYamlTagError extends Error {
+  constructor(tag: string) {
+    super(
+      `Спецификация содержит узел с тегом ${tag}. В OpenAPI такого узла быть ` +
+        `не может: это JSON-совместимая структура. Разбор остановлен, потому что ` +
+        `такой узел не виден обходу — внешняя ссылка под ним прошла бы мимо ` +
+        `проверки, а список ручек под ним дал бы ноль эндпоинтов без единой ошибки, ` +
+        `то есть стопроцентное покрытие пустоты.`,
+    );
+    this.name = "UnsupportedYamlTagError";
+  }
+}
+
 function assertSafeShape(root: unknown, limits: SpecParserLimits): void {
   const seen = new WeakSet<object>();
 
@@ -105,6 +118,20 @@ function assertSafeShape(root: unknown, limits: SpecParserLimits): void {
       return;
     }
     seen.add(node);
+
+    // Узлы, которых не бывает в OpenAPI и которые обход не видит: YAML-теги
+    // `!!omap`, `!!set`, `!!pairs` дают Map и Set, а `Object.values` по ним
+    // не идёт. Найдено состязательной проверкой, и находка двойная: внешний
+    // `$ref` под таким тегом проезжал мимо барьера, а `paths` под ним давал
+    // **ноль эндпоинтов без единой ошибки** — покрытие 1/1, то есть 100%
+    // от пустоты. Psych такие документы эмитирует штатно.
+    //
+    // Отвергается, а не обходится глубже: OpenAPI — это JSON-совместимая
+    // структура, и упорядоченная карта в ней означает либо ошибку выгрузки,
+    // либо попытку спрятать узел от разбора. Оба случая — повод остановиться.
+    if (node instanceof Map || node instanceof Set) {
+      throw new UnsupportedYamlTagError(node instanceof Map ? "!!omap" : "!!set");
+    }
 
     const ref = node.$ref;
     if (typeof ref === "string" && !ref.startsWith("#")) {
