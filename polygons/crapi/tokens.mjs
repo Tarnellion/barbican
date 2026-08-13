@@ -58,7 +58,7 @@ export const USERS = [
 
 export class ProvisionError extends Error {
   constructor(message) {
-    super(`Подготовка crAPI не удалась: ${message}`);
+    super(`crAPI setup failed: ${message}`);
     this.name = "ProvisionError";
   }
 }
@@ -77,13 +77,13 @@ async function login(baseUrl, account) {
   try {
     response = await fetch(new URL(LOGIN_ROUTE, baseUrl), options);
   } catch (cause) {
-    throw new ProvisionError(`вход ${account.id}: ${cause.message}`);
+    throw new ProvisionError(`login of ${account.id}: ${cause.message}`);
   }
 
   const parsed = await response.json().catch(() => undefined);
   const token = parsed?.token;
   if (typeof token !== "string" || token === "") {
-    throw new ProvisionError(`вход ${account.id} не дал токена: ${response.status}`);
+    throw new ProvisionError(`login of ${account.id} produced no token: ${response.status}`);
   }
   return token;
 }
@@ -100,7 +100,7 @@ export async function provision(options) {
   const tokens = new Map();
   for (const account of USERS) {
     tokens.set(account.tokenEnv, await login(baseUrl, account));
-    log(`${account.id}: вошёл`);
+    log(`${account.id}: logged in`);
   }
   return tokens;
 }
@@ -121,7 +121,7 @@ async function main() {
   // Токены — в stdout, чтобы работал eval; всё прочее — в stderr.
   for (const [name, token] of tokens) {
     if (!TOKEN_SHAPE.test(token)) {
-      throw new ProvisionError(`токен ${name} содержит неожиданные символы`);
+      throw new ProvisionError(`token ${name} contains unexpected characters`);
     }
     process.stdout.write(`export ${name}=${token}\n`);
   }

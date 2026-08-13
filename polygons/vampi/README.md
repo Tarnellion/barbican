@@ -1,81 +1,83 @@
-# VAmPI как воспроизводимый полигон
+# VAmPI as a reproducible polygon
 
-Публичный намеренно уязвимый API ([erev0s/VAmPI](https://github.com/erev0s/VAmPI)).
-Здесь — всё, что нужно, чтобы прогон против него повторялся одной командой:
-запуск стенда, получение токенов, конфигурация прогона и оракул.
+A public, deliberately vulnerable API ([erev0s/VAmPI](https://github.com/erev0s/VAmPI)).
+Everything needed to make a run against it repeatable with one command is here:
+starting the deployment, obtaining the tokens, the run configuration and the oracle.
 
-Полигон одноарендный: «чужого тенанта» в нём нет, и межтенантную утечку
-не смоделировать — для этого есть своя референс-платформа в `polygon/`.
-VAmPI проверяет другую половину — **BOLA внутри тенанта и публичность ручек,
-которые публичными быть не должны**, на настоящем приложении, а не на синтетике.
+The polygon is single-tenant: there is no "other tenant" in it, and a cross-tenant
+leak cannot be modelled — the reference platform in `polygon/` exists for that.
+VAmPI tests the other half — **BOLA inside a tenant, and endpoints that are public
+while they must not be** — on a real application rather than on a synthetic one.
 
-## Быстрый старт
-
-```
-docker pull erev0s/vampi:latest   # образ тянется явно, не посреди сверки
-pnpm run build                    # verify.mjs гоняет собранный dist/cli.js
-node polygons/vampi/verify.mjs    # оба режима, сверка с оракулом
-```
-
-Код возврата: 0 — всё совпало с оракулом, 1 — есть расхождения, 2 — прогнать
-не удалось.
+## Quick start
 
 ```
-node polygons/vampi/verify.mjs vulnerable   # только названный режим
-node polygons/vampi/verify.mjs --keep       # не гасить стенд после прогона
+docker pull erev0s/vampi:latest   # the image is pulled explicitly, not mid-verification
+pnpm run build                    # verify.mjs runs the built dist/cli.js
+node polygons/vampi/verify.mjs    # both modes, verification against the oracle
 ```
 
-## Что внутри
+Exit code: 0 — everything matched the oracle, 1 — there are discrepancies, 2 —
+the run could not be made.
 
-| Файл | Что это |
+```
+node polygons/vampi/verify.mjs vulnerable   # only the named mode
+node polygons/vampi/verify.mjs --keep       # do not shut the deployment down afterwards
+```
+
+## What is inside
+
+| File | What it is |
 |---|---|
-| `docker-compose.yaml` | стенд: один контейнер, режим задаётся переменной |
-| `tokens.mjs` | заводит пользователей и книги, выдаёт токены |
-| `barbican.run.yaml` | конфигурация прогона в формате [ADR-0008](../../docs/adr/0008-run-configuration-format.md) |
-| `endpoints.yaml` | ручной список эндпоинтов VAmPI |
-| `ground-truth.json` | оракул: известные дефекты и обязательные находки |
-| `verify.mjs` | поднимает стенд, прогоняет инструмент, сверяет с оракулом |
+| `docker-compose.yaml` | the deployment: one container, the mode is set by a variable |
+| `tokens.mjs` | creates the users and the books, issues the tokens |
+| `barbican.run.yaml` | the run configuration in the format of [ADR-0008](../../docs/adr/0008-run-configuration-format.md) |
+| `endpoints.yaml` | a manual list of VAmPI endpoints |
+| `ground-truth.json` | the oracle: known defects and the findings that are required |
+| `verify.mjs` | brings the deployment up, runs the tool, verifies against the oracle |
 
-## Аккаунты
+## Accounts
 
-| Аккаунт | Роль | Токен из переменной | Канарейка |
+| Account | Role | Token from variable | Canary |
 |---|---|---|---|
 | `alice` | user | `VAMPI_TOKEN_ALICE` | `me` |
 | `bob` | user | `VAMPI_TOKEN_BOB` | `me` |
-| `anonymous` | anonymous | без токена | — |
+| `anonymous` | anonymous | no token | — |
 
-Двое равноправных пользователей — минимум, на котором вообще различима BOLA:
-одному нужен объект, другому — чужой объект. Аноним проверяет утверждение
-«эта ручка не публична»: почти половина находок здесь именно его.
+Two equal users are the minimum on which BOLA is distinguishable at all: one of
+them needs a resource, the other needs someone else's resource. The anonymous
+account tests the claim "this endpoint is not public": almost half of the findings
+here are its own.
 
-Администратор не заводится намеренно. В VAmPI роль admin даёт ровно одно
-право — `DELETE /users/v1/{username}`, то есть небезопасный метод, куда
-инструмент не ходит. Такой аккаунт дал бы столбец матрицы, тождественный
-пользовательскому, и создал бы видимость покрытия роли.
+No administrator is created, and that is deliberate. In VAmPI the admin role
+grants exactly one permission — `DELETE /users/v1/{username}`, that is, an unsafe
+method the tool does not go to. Such an account would give a matrix column
+identical to the user one, and would create the appearance that the role is covered.
 
-Канарейка у обоих — `GET /me`: это единственная ручка VAmPI, где токен
-проверяет сам connexion. Остальные ответили бы 200 и с мусором в заголовке,
-то есть канарейкой быть не могут.
+The canary for both is `GET /me`: it is the only VAmPI endpoint where connexion
+itself checks the token. The others would answer 200 even with garbage in the
+header, so they cannot be canaries.
 
-## Объекты
+## Resources
 
-| Объект | Владелец | Подстановка |
+| Resource | Owner | Substitution |
 |---|---|---|
 | `user-alice` | alice | `{username}` = `alice` |
 | `user-bob` | bob | `{username}` = `bob` |
 | `book-alice` | alice | `{book_title}` = `alice-secret-book` |
 | `book-bob` | bob | `{book_title}` = `bob-secret-book` |
 
-Пользователей и книги создаёт `tokens.mjs` перед прогоном; идентификаторы
-объявлены в конфигурации, а не выужены из ответов — тела мы не читаем.
-Имена в скрипте и в конфигурации обязаны совпадать, и `verify.mjs` это сверяет:
-несозданный объект даёт 404 на каждое обращение, 404 читается как отказ, отказ
-совпадает с политикой — и отчёт выходит чистым, не проверив ничего.
+`tokens.mjs` creates the users and the books before the run; the identifiers are
+declared in the configuration rather than fished out of responses — we do not read
+bodies. The names in the script and in the configuration must match, and
+`verify.mjs` verifies that: a resource that was not created gives 404 on every
+request, 404 reads as a denial, the denial agrees with the policy — and the report
+comes out clean having tested nothing.
 
-## Токены
+## Tokens
 
-Инструмент токены не добывает: логин — это POST, а без `--unsafe-methods`
-инструмент POST не выполняет. Учётные данные добывает оператор — `tokens.mjs`.
+The tool does not obtain tokens: a login is a POST, and without `--unsafe-methods`
+the tool does not issue POST. The operator obtains the credentials — `tokens.mjs`.
 
 ```
 docker compose -f polygons/vampi/docker-compose.yaml up -d
@@ -90,140 +92,145 @@ node dist/cli.js run \
 docker compose -f polygons/vampi/docker-compose.yaml down -v
 ```
 
-Пароли скрипт генерирует случайно на каждый прогон и никуда не записывает:
-ни в файл, ни в вывод. Наружу выходят только токены — их нельзя не выдать,
-они и есть предмет работы. В файлах репозитория учётных данных нет
-и быть не может: конфигурация называет **имя переменной окружения**, а не значение.
+The script generates the passwords at random for every run and writes them
+nowhere: not into a file, not into the output. Only the tokens go outside — they
+cannot not be issued, they are the very subject of the work. There are no
+credentials in the repository files and there cannot be: the configuration names
+**the name of an environment variable**, not a value.
 
-Перед регистрацией скрипт обращается к `GET /createdb`. Это не прихоть:
-имя пользователя и название книги в VAmPI уникальны, второй прогон подряд
-упёрся бы в «User already exists», а пароль от той учётной записи уже неизвестен —
-он случайный и не сохраняется. На только что поднятом контейнере база вообще
-отсутствует: без `/createdb` регистрация отвечает 500.
+Before registering, the script calls `GET /createdb`. That is not a whim: a user
+name and a book title are unique in VAmPI, a second run in a row would hit
+"User already exists", and the password of that account is no longer known — it is
+random and is not saved. On a freshly started container there is no database at
+all: without `/createdb` registration answers 500.
 
-Время жизни токена задаётся переменной `VAMPI_TOKEN_TTL` (по умолчанию 3600).
-Дефолт самого VAmPI — 60 секунд: токен истекает посреди прогона, ответы
-становятся 401, отказ совпадает с политикой там, где доступ не положен, —
-и отчёт выглядит чистым. Канарейка это не поймает: она проверяется до прогона,
-когда токен ещё жив.
+The token lifetime is set by `VAMPI_TOKEN_TTL` (3600 by default). VAmPI's own
+default is 60 seconds: the token expires in the middle of a run, the responses
+become 401, the denial agrees with the policy wherever access is not meant to be
+granted — and the report looks clean. A canary will not catch this: it is checked
+before the run, while the token is still alive.
 
-## Два режима, а не «дефекты вкл/выкл»
+## Two modes, not "defects on/off"
 
-У VAmPI есть глобальный переключатель `vulnerable=0/1`. [ADR-0009](../../docs/adr/0009-validation-oracle.md)
-намерил, что для инструмента режимы неразличимы: всё, что они меняют, — тела
-ответов, а тела не читаются. Тогда же было записано: пересмотреть, когда
-появится подстановка значений в шаблонные пути.
+VAmPI has a global switch `vulnerable=0/1`. [ADR-0009](../../docs/adr/0009-validation-oracle.md)
+measured that the modes are indistinguishable to the tool: all they change is
+response bodies, and bodies are not read. It was written down at the same time:
+revisit once substitution of values into templated paths exists.
 
-Она появилась ([ADR-0010](../../docs/adr/0010-resources-and-tenancy.md)), и режимы
-перестали быть неразличимыми — ровно в одном месте. `GET /books/v1/{book_title}`
-при `vulnerable=1` отдаёт секрет чужой книги (200), при `vulnerable=0` фильтрует
-выборку по владельцу и отвечает 404. Остальные дефекты одинаковы в обоих режимах.
+It appeared ([ADR-0010](../../docs/adr/0010-resources-and-tenancy.md)), and the
+modes stopped being indistinguishable — in exactly one place. With `vulnerable=1`,
+`GET /books/v1/{book_title}` hands out the secret of someone else's book (200);
+with `vulnerable=0` it filters the selection by owner and answers 404. The other
+defects are the same in both modes.
 
-Поэтому режимы здесь — **два разных непустых списка находок** (13 и 11),
-а не «есть находки / нет находок». Проверка на ноль в защищённом режиме
-по-прежнему не годится: ноль там не достигается и достигаться не должен.
+So the modes here are **two different non-empty lists of findings** (13 and 11),
+not "there are findings / there are none". Checking for zero in the secure mode is
+still no good: zero is not reached there and must not be.
 
-## Как читать ground-truth.json
+## How to read ground-truth.json
 
-Оракул написан вручную от модели доступа VAmPI — его README и веток `if vuln:`
-в исходниках. Это принципиально: эталон, снятый с вывода инструмента, проверял бы
-инструмент на согласованность с самим собой.
+The oracle is written by hand from VAmPI's access model — its README and the
+`if vuln:` branches in the sources. This is a matter of principle: a reference
+taken from the tool's output would be testing the tool for consistency with itself.
 
 ```
-defects{}          — известные дефекты полигона
-  title            — что сломано
-  owasp            — пункт OWASP API Security Top 10
-  visibility       — виден ли инструменту и почему
-  note             — оговорки
+defects{}          — known defects of the polygon
+  title            — what is broken
+  owasp            — the OWASP API Security Top 10 item
+  visibility       — whether the tool sees it, and why
+  note             — caveats
 
 modes[]
-  id               — имя режима, оно же аргумент verify.mjs
-  vulnerable       — значение переключателя VAmPI
-  expectedExitCode — 1 в обоих режимах: находки есть всегда
-  findings[]       — ячейки, обязанные дать находку
-    account        — id аккаунта из barbican.run.yaml
-    endpoint       — id эндпоинта из endpoints.yaml
-    resource       — id объекта; null у эндпоинтов без параметров пути
-    kind           — всегда privilege-escalation
-    defect         — ссылка на дефект из defects{}
+  id               — the name of the mode, and the argument to verify.mjs
+  vulnerable       — the value of VAmPI's switch
+  expectedExitCode — 1 in both modes: there are always findings
+  findings[]       — the cells required to produce a finding
+    account        — account id from barbican.run.yaml
+    endpoint       — endpoint id from endpoints.yaml
+    resource       — resource id; null for endpoints without path parameters
+    kind           — always privilege-escalation
+    defect         — a reference to a defect from defects{}
 ```
 
-Значения `visibility`:
+Values of `visibility`:
 
-| Значение | Смысл |
+| Value | Meaning |
 |---|---|
-| `status` | виден по коду ответа — только такие попадают в `findings` |
-| `body-only` | различим лишь по телу; тела не читаются ([ADR-0005](../../docs/adr/0005-tool-safety-invariants.md)) |
-| `unsafe-method` | живёт на POST/PUT/DELETE, куда инструмент не ходит |
-| `excluded` | был бы виден, но эндпоинт исключён: обращение разрушает стенд |
-| `out-of-scope` | не про матрицу «роль × эндпоинт» вовсе |
+| `status` | visible in the response status — only these land in `findings` |
+| `body-only` | distinguishable by the body only; bodies are not read ([ADR-0005](../../docs/adr/0005-tool-safety-invariants.md)) |
+| `unsafe-method` | lives on POST/PUT/DELETE, where the tool does not go |
+| `excluded` | would be visible, but the endpoint is excluded: a request to it destroys the deployment |
+| `out-of-scope` | not about the role × endpoint matrix at all |
 
-Сравнение идёт множествами, порядок в файле не важен. Находка, которой нет
-в списке, — такое же расхождение, как пропущенная: ложное срабатывание
-обесценивает инструмент не меньше пропуска.
+The comparison is made over sets, the order in the file does not matter. A finding
+that is not in the list is as much a discrepancy as a missing one: a false positive
+devalues the tool no less than a miss does.
 
-Оракул проверяется и на внутреннюю согласованность: ссылка на несуществующий
-дефект и находка, приписанная дефекту с `visibility` не `status`, останавливают
-сверку до запуска стенда.
+The oracle is checked for internal consistency as well: a reference to a defect
+that does not exist, and a finding attributed to a defect whose `visibility` is
+not `status`, stop the verification before the deployment is started.
 
-## `GET /createdb` исключён поимённо
+## `GET /createdb` is excluded by name
 
-`SAFE_METHODS` защищает от семантики метода, но не от эндпоинта, который её
-нарушает: ручка, сбрасывающая базу, остаётся GET. Обращение к ней посреди
-прогона стирает alice и bob вместе с книгами, и остаток матрицы опрашивается
-против пустой базы — с находками, которых там уже не может быть.
+`SAFE_METHODS` protects against the semantics of a method, but not against an
+endpoint that breaks those semantics: an endpoint that resets the database is
+still a GET. A request to it in the middle of a run wipes alice and bob together
+with the books, and the rest of the matrix is probed against an empty database —
+with findings that can no longer be there.
 
-Этот эндпоинт реально вызывался инструментом на первом, ручном прогоне против
-VAmPI; из-за него список `exclude` и появился. `verify.mjs` проверяет отдельно,
-что в отчёте он числится пропуском с причиной `excluded`.
+This endpoint was actually called by the tool on the first, manual run against
+VAmPI; the `exclude` list appeared because of it. `verify.mjs` checks separately
+that the report lists it as skipped with the reason `excluded`.
 
-## Результат сверки
+## The verification result
 
-Прогон 12 августа 2026, образ `erev0s/vampi@sha256:0a5a224b…`, Docker Desktop 4.46:
+Run of 12 August 2026, image `erev0s/vampi@sha256:0a5a224b…`, Docker Desktop 4.46:
 
 ```
 === vulnerable === vulnerable=1
-  опрошено ячеек: 27, канареек: 2, находок: 13 (ожидалось 13)
-  СОВПАЛО с оракулом, код возврата 1
+  cells probed: 27, canaries: 2, findings: 13 (expected 13)
+  MATCHED the oracle, exit code 1
 
 === secure === vulnerable=0
-  опрошено ячеек: 27, канареек: 2, находок: 11 (ожидалось 11)
-  СОВПАЛО с оракулом, код возврата 1
+  cells probed: 27, canaries: 2, findings: 11 (expected 11)
+  MATCHED the oracle, exit code 1
 
-Итог: режимов 2, расхождений 0.
+Total: modes 2, discrepancies 0.
 ```
 
-Подробности прогона — [docs/polygons/vampi.md](../../docs/polygons/vampi.md).
+Details of the run — [docs/polygons/vampi.md](../../docs/polygons/vampi.md).
 
-Сверка проверена на способность падать — иначе она бесполезна:
+The verification has been tested for its ability to fail — otherwise it is useless:
 
-| Подлог | Что сказала сверка | Код |
+| Tampering | What the verification said | Code |
 |---|---|---|
-| в оракул добавлена несуществующая находка `bob × me` | `не найдено (1)` | 1 |
-| из оракула убрана настоящая находка `alice × books.read × book-bob` | `найдено сверх оракула (1)` | 1 |
-| находка приписана дефекту с `visibility: body-only` | остановка до запуска стенда | 2 |
-| находка ссылается на несуществующий дефект | остановка до запуска стенда | 2 |
-| в `tokens.mjs` опечатка в названии книги | остановка до запуска стенда | 2 |
-| искусственный сбой подготовки | стенд погашен, сверка не выдала «совпало» | 2 |
+| a finding that does not exist, `bob × me`, added to the oracle | `not found (1)` | 1 |
+| a real finding, `alice × books.read × book-bob`, removed from the oracle | `found beyond the oracle (1)` | 1 |
+| a finding attributed to a defect with `visibility: body-only` | stopped before the deployment was started | 2 |
+| a finding references a defect that does not exist | stopped before the deployment was started | 2 |
+| a typo in the book title in `tokens.mjs` | stopped before the deployment was started | 2 |
+| an artificial failure of the setup | the deployment was shut down, the verification did not say "matched" | 2 |
 
-Последняя строка не про оракул, а про уборку: оставить поднятым намеренно
-уязвимый API, отдающий пароли без токена, — плохой способ закончить сверку.
+The last row is not about the oracle but about cleaning up: leaving a deliberately
+vulnerable API that hands out passwords without a token running is a bad way to
+finish a verification.
 
-## Границы
+## Boundaries
 
-Здесь не проверяется межтенантная изоляция: VAmPI одноарендна. И не проверяется
-поведение инструмента на **корректной** платформе: даже в защищённом режиме
-у VAmPI остаются публичный `_debug` с паролями и открытый перечень
-пользователей. Утверждение «инструмент не фабрикует находки на чистом стенде»
-проверяется в `polygon/`, где дефекты выключаются полностью.
+Cross-tenant isolation is not tested here: VAmPI is single-tenant. Nor is the
+tool's behaviour on a **correct** platform tested: even in the secure mode VAmPI
+keeps a public `_debug` with passwords and an open list of users. The claim "the
+tool does not fabricate findings on a clean deployment" is tested in `polygon/`,
+where the defects are switched off completely.
 
-## Если что-то не запускается
+## If something does not start
 
-- **`docker pull` висит без вывода.** На macOS это обычно credential helper
-  Docker Desktop, ждущий доступа к связке ключей в неинтерактивной сессии.
-  Обходится временным `DOCKER_CONFIG`, указывающим на каталог с пустым
-  `config.json`.
-- **`verify.mjs` сразу говорит «образ не найден».** Так и задумано: тянуть
-  образ молча посреди сверки незачем, `docker pull` выполняется отдельно.
-- **Регистрация отвечает 500.** База не создана: `tokens.mjs` запущен
-  с `--no-reset` на свежем контейнере.
+- **`docker pull` hangs with no output.** On macOS this is usually the Docker
+  Desktop credential helper waiting for keychain access in a non-interactive
+  session. Work around it with a temporary `DOCKER_CONFIG` pointing at a directory
+  with an empty `config.json`.
+- **`verify.mjs` says "image not found" right away.** That is by design: there is
+  no reason to pull an image silently in the middle of a verification, `docker pull`
+  is run separately.
+- **Registration answers 500.** The database was not created: `tokens.mjs` was run
+  with `--no-reset` on a fresh container.

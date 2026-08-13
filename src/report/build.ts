@@ -922,7 +922,7 @@ export function exitCodeFor(report: RunReport): number {
   // отчёт перестаёт что-либо утверждать; она объявлена здесь константой,
   // потому что число, спрятанное в выражении, никто не оспорит.
   if (
-    report.summary.byKind["probe-error"] >=
+    (report.summary.byKind["probe-error"] ?? 0) >=
     report.summary.observations * UNTRUSTWORTHY_ERROR_SHARE
   ) {
     return 2;

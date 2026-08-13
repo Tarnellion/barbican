@@ -1,128 +1,135 @@
-# crAPI как полигон: воспроизводимый прогон
+# crAPI as a polygon: a reproducible run
 
-Разведка и её выводы — [docs/polygons/crapi.md](../../docs/polygons/crapi.md).
-Здесь только то, чем прогон повторяется и сверяется. crAPI (OWASP) в репозиторий
-не вкладывается: это внешний проект под своей лицензией. Берётся у первоисточника.
+The reconnaissance and its conclusions — [docs/polygons/crapi.md](../../docs/polygons/crapi.md).
+Here is only what the run is repeated and verified with. crAPI (OWASP) is not
+vendored into the repository: it is an external project under its own license.
+It is taken from the original source.
 
-## Что здесь лежит
+## What is here
 
-| Файл | Зачем |
+| File | What for |
 |---|---|
-| `barbican.run.yaml` | конфигурация прогона: аккаунты, объекты, объявленная политика |
-| `ground-truth.json` | оракул в формате [ADR-0012](../../docs/adr/0012-ground-truth-format.md): дефекты с признаком видимости и ячейки, обязанные дать находку |
-| `verify.mjs` | поднять стенд, получить токены, прогнать инструмент, сверить с оракулом |
-| `tokens.mjs` | вход предзаведённых пользователей crAPI |
-| `docker-compose.override.yaml` | заглушка апстрима чат-бота поверх официального compose |
+| `barbican.run.yaml` | the run configuration: accounts, resources, the declared policy |
+| `ground-truth.json` | the oracle in the format of [ADR-0012](../../docs/adr/0012-ground-truth-format.md): defects with a visibility marker, and the cells required to produce a finding |
+| `verify.mjs` | bring the deployment up, get the tokens, run the tool, verify against the oracle |
+| `tokens.mjs` | logging in crAPI's pre-seeded users |
+| `docker-compose.override.yaml` | a stub for the chatbot upstream on top of the official compose |
 
-## Что понадобится извне
+## What is needed from outside
 
-Из репозитория `OWASP/crAPI` (ветка `develop`):
+From the `OWASP/crAPI` repository (branch `develop`):
 
-- каталог `deploy/docker` целиком — `docker-compose.yml`, `.env`, `keys/jwks.json`;
-- `openapi-spec/crapi-openapi-spec.json` — источник эндпоинтов для `--spec`.
+- the `deploy/docker` directory in full — `docker-compose.yml`, `.env`, `keys/jwks.json`;
+- `openapi-spec/crapi-openapi-spec.json` — the source of endpoints for `--spec`.
 
-Образы вытянуть заранее, около 2,5 ГБ:
+Pull the images in advance, about 2.5 GB:
 
 ```
 docker compose pull crapi-web crapi-identity crapi-community crapi-workshop
 ```
 
-Сверка проверяет их наличие и отказывается работать, если образа нет: тянуть
-полтора гигабайта молча посреди прогона незачем.
+The verification checks that they are present and refuses to work if an image is
+missing: there is no reason to pull a gigabyte and a half silently in the middle
+of a run.
 
-## Сверка одной командой
+## Verification in one command
 
 ```
 pnpm run build
-CRAPI_DEPLOY_DIR=/путь/к/crAPI/deploy/docker node polygons/crapi/verify.mjs
+CRAPI_DEPLOY_DIR=/path/to/crAPI/deploy/docker node polygons/crapi/verify.mjs
 ```
 
-Скрипт поднимает стенд (`LISTEN_IP` выставляется в `127.0.0.1` явно: полигон
-намеренно уязвим и наружу не публикуется), ждёт `GET /health`, логинит трёх
-предзаведённых пользователей, прогоняет `dist/cli.js run` и сравнивает находки
-с оракулом в обе стороны — пропущенное и лишнее. По окончании гасит стенд
-вместе с томами; `--keep` оставляет его поднятым.
+The script brings the deployment up (`LISTEN_IP` is set to `127.0.0.1` explicitly:
+the polygon is deliberately vulnerable and is not published outward), waits for
+`GET /health`, logs in three pre-seeded users, runs `dist/cli.js run` and compares
+the findings against the oracle in both directions — what is missing and what is
+extra. When it is done it shuts the deployment down together with the volumes;
+`--keep` leaves it running.
 
-Прогон 13 августа 2026 на живом стенде:
+Run of 13 August 2026 against a live deployment:
 
 ```
 === default ===
-  подготовка: adam: вошёл
-  подготовка: pogba: вошёл
-  подготовка: admin: вошёл
-  опрошено ячеек: 60, канареек: 3, находок: 16 (ожидалось 16)
-  СОВПАЛО с оракулом, код возврата 1
+  setup: adam: logged in
+  setup: pogba: logged in
+  setup: admin: logged in
+  cells probed: 60, canaries: 3, findings: 16 (expected 16)
+  MATCHED the oracle, exit code 1
 
-Итог: вариантов 1, расхождений 0.
+Total: variants 1, discrepancies 0.
 ```
 
-Переменные окружения:
+Environment variables:
 
-- `CRAPI_DEPLOY_DIR` — обязательна, каталог `deploy/docker` дерева crAPI;
-- `CRAPI_SPEC` — если спецификация лежит не в том же дереве.
+- `CRAPI_DEPLOY_DIR` — required, the `deploy/docker` directory of the crAPI tree;
+- `CRAPI_SPEC` — if the specification is not in the same tree.
 
-## Почему вариант один
+## Why there is one variant
 
-У VAmPI режимов два (`vulnerable=0/1`), у референс-платформы — девятнадцать
-комбинаций флагов. У crAPI переключателя нет вовсе: дефекты вкомпилированы,
-«починенной» сборки не существует. Две переменные её окружения,
-`ENABLE_SHELL_INJECTION` и `ENABLE_LOG4J`, переключают дефекты других классов
-и ни одной ячейки матрицы доступа не меняют.
+VAmPI has two modes (`vulnerable=0/1`), the reference platform has nineteen
+combinations of flags. crAPI has no switch at all: the defects are compiled in,
+a "fixed" build does not exist. Its two environment variables,
+`ENABLE_SHELL_INJECTION` and `ENABLE_LOG4J`, toggle defects of other classes and
+change not a single cell of the access matrix.
 
-Поэтому `selector` варианта пуст — и это объявлено в оракуле словами, а не
-оставлено на догадку. `verify.mjs` дополнительно падает, если `selector` вдруг
-окажется непустым: значит оракул поменялся, а передать это стенду нечем.
+That is why the variant's `selector` is empty — and this is declared in the oracle
+in words, not left to guesswork. `verify.mjs` additionally fails if `selector`
+turns out to be non-empty: that means the oracle changed, while there is nothing
+to pass that change to the deployment with.
 
-## Почему `receive_report` исключён
+## Why `receive_report` is excluded
 
-`GET /workshop/api/mechanic/receive_report` называется в спецификации
-`create_service_report`, описан как «Create and Assign a Service Report»
-и объявлен без аутентификации. Это запись, спрятанная за безопасным по букве
-методом: `--unsafe-methods` её не остановит, потому что метод — GET.
+`GET /workshop/api/mechanic/receive_report` is named `create_service_report` in
+the specification, described as "Create and Assign a Service Report" and declared
+without authentication. This is a write hidden behind a method that is safe by the
+letter: `--unsafe-methods` will not stop it, because the method is GET.
 
-Эндпоинт исключён поимённо через `exclude`. Обращение без обязательных
-параметров даёт 400 и `probe-error` у каждого аккаунта — ячейку, о которой
-инструменту нечего сказать; обращение с параметрами создало бы отчёт в стенде.
-`verify.mjs` проверяет, что эндпоинт числится в отчёте пропуском с причиной
-`excluded`: опрошенный, он менял бы состояние посреди прогона.
+The endpoint is excluded by name through `exclude`. A request without the required
+parameters gives 400 and a `probe-error` for every account — a cell the tool has
+nothing to say about; a request with parameters would create a service report on
+the deployment. `verify.mjs` checks that the endpoint is listed in the report as
+skipped with the reason `excluded`: probed, it would change state in the middle of
+a run.
 
-В оракуле он объявлен дефектом с видимостью `excluded` — пробел покрытия
-записан утверждением, а не оставлен умолчанием.
+In the oracle it is declared a defect with visibility `excluded` — the gap in
+coverage is recorded as a statement, not passed over in silence.
 
-## Руками, без сверки
+## By hand, without the verification
 
-Токены `barbican` не добывает: логин у crAPI только `POST`, а безопасный режим
-шлёт лишь `GET`/`HEAD`. Оператор логинится сам:
+`barbican` does not obtain tokens: crAPI's login is `POST` only, and safe mode
+sends `GET`/`HEAD` alone. The operator logs in themselves:
 
 ```
 eval "$(node polygons/crapi/tokens.mjs)"
 ```
 
-Пароли предзаведённых пользователей опубликованы самим crAPI
-(`adam007!123`, `pogba006!123`, `Admin!123`) и лежат в `tokens.mjs`: это
-константа стенда в петле, а не секрет.
+The passwords of the pre-seeded users are published by crAPI itself
+(`adam007!123`, `pogba006!123`, `Admin!123`) and sit in `tokens.mjs`: this is a
+constant of a deployment on loopback, not a secret.
 
 ```
 node dist/cli.js run \
   --config polygons/crapi/barbican.run.yaml \
-  --spec  /путь/к/crapi-openapi-spec.json \
+  --spec  /path/to/crapi-openapi-spec.json \
   --report /tmp/crapi.report.json \
   --rps 20 --concurrency 4
 ```
 
-## Про сигналы над телом (ADR-0011)
+## About signals over the body (ADR-0011)
 
-`bodySignals.responseMustDifferByTenant` называет три списочные ручки, обязанные различаться
-между пользователями: `get_vehicles`, `get_orders`, `get_dashboard`. crAPI
-фильтрует их по владельцу верно — дайджесты у разных пользователей расходятся,
-и проверка `identical-response-across-tenants` молчит. Это правильный ноль: того
-дефекта, который она ищет, в crAPI нет. Публичные `get_recent_posts`/`get_products`
-и BFLA `get_workshop_users_all` в этот список не внесены намеренно — их
-одинаковый для всех ответ законен, и объявление дало бы ложные срабатывания.
+`bodySignals.responseMustDifferByTenant` names three list endpoints that must
+differ between users: `get_vehicles`, `get_orders`, `get_dashboard`. crAPI filters
+them by owner correctly — the digests of different users diverge, and the
+`identical-response-across-tenants` check stays silent. This is a correct zero:
+the defect it looks for is not in crAPI. The public `get_recent_posts`/`get_products`
+and the BFLA `get_workshop_users_all` are deliberately not put on this list —
+their response, the same for everyone, is lawful, and declaring them would give
+false positives.
 
-## Убрать за собой
+## Cleaning up
 
-`verify.mjs` гасит стенд сам. После `--keep` — вручную, из дерева crAPI:
+`verify.mjs` shuts the deployment down itself. After `--keep` — by hand, from the
+crAPI tree:
 
 ```
 docker compose down -v

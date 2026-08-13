@@ -1,395 +1,430 @@
-# Референс-платформа как оракул
+# The reference platform as an oracle
 
-Минимальный мультитенантный API с переключаемыми дефектами. Нужен для проверки
-самого `barbican`: без него изоляция тенантов — половина назначения инструмента —
-проверялась только против синтетики, а публичные полигоны (VAmPI, crAPI)
-**одноарендны**, и «чужого тенанта» в них не смоделировать.
+A minimal multi-tenant API with switchable defects. It exists to test `barbican`
+itself: without it, tenant isolation — half of what the tool is for — was tested
+only against synthetic fixtures, while the public polygons (VAmPI, crAPI) are
+**single-tenant**, and "another tenant" cannot be modelled in them.
 
-Ноль зависимостей, только `node:http`. Слушает строго `127.0.0.1`.
+Zero dependencies, `node:http` only. It listens on `127.0.0.1` and nowhere else.
 
-## Главное требование
+## The main requirement
 
-**Каждый дефект должен быть различим инструментом.** Дефект, который ничем себя
-не выдаёт, проверяет не инструмент, а терпение читателя. На этом сгорел
-переключатель VAmPI: режимы `vulnerable=0/1` различались телами, и отчёты
-совпали побайтово (ADR-0009).
+**Every defect must be distinguishable by the tool.** A defect that gives
+nothing away tests the reader's patience, not the tool. That is what burned the
+VAmPI switch: the `vulnerable=0/1` modes differed by body, and the reports
+matched byte for byte (ADR-0009).
 
-**Восемь из десяти** дефектов видны **по коду ответа**: 200 там, где корректная
-реализация отвечает 403 или 451, либо — у одного из них — 403 там, где корректная
-отвечает 200.
+**Eight defects out of ten** are **visible in the response status**: 200 where a
+correct implementation answers 403 or 451, or — in one of them — 403 where a
+correct one answers 200.
 
-Оставшиеся два устроены иначе. `POLYGON_DEFECT_LIST_NO_FILTER` на `GET /v1/orders`
-не меняет ни одного статуса — 200 и с дефектом, и без него. Он различим только
-через **сигнал над телом** (ADR-0011): корректная реализация отдаёт разным
-тенантам разные списки, дефектная — один и тот же, и дайджесты совпадают.
-Второй такой же — `POLYGON_DEFECT_SCOPE_ALL_HONORED`: там фильтр есть, но его
-снимает скрытый параметр запроса, и статус опять не меняется.
+The remaining two work differently. `POLYGON_DEFECT_LIST_NO_FILTER` on
+`GET /v1/orders` changes no status at all — 200 both with the defect and without
+it. It is distinguishable only through a **signal over the body** (ADR-0011): a
+correct implementation gives different tenants different lists, a defective one
+gives the same list, and the digests match. The second one is the same kind —
+`POLYGON_DEFECT_SCOPE_ALL_HONORED`: there the filter is in place, but a hidden
+query parameter removes it, and again the status does not change.
 
-Эта ручка до ADR-0011 была намеренно оставлена без дефекта с формулировкой
-«разница видна только в теле, то есть для инструмента её нет». Теперь есть.
+Before ADR-0011 this endpoint was deliberately left without a defect, on the
+grounds that "the difference is visible only in the body, that is, for the tool
+it does not exist". Now it does.
 
-У требования есть вторая половина, менее очевидная: **два разных дефекта должны
-быть различимы между собой**. Дефект, чьи находки ячейка в ячейку совпадают
-с находками другого, проверяет не больше, чем тот другой, — и платформа, на
-которой они совпадают, свидетельствует не о дефектах, а о собственной бедности.
-Ровно это и происходило с раскрытием видимости вверх по дереву, пока дерево было
-двухуровневым: см. «Дефект, который ловится только глубиной».
+The requirement has a second half, less obvious: **two different defects must be
+distinguishable from each other**. A defect whose findings match another's cell
+for cell tests no more than that other one does — and a platform on which they
+match testifies not to the defects but to its own poverty. That is exactly what
+happened with visibility disclosed up the tree while the tree had two levels:
+see "The defect that only depth catches".
 
-## Что внутри
+## What is inside
 
-### Тенанты
+### Tenants
 
-Два холдинга, под каждым по бренду, под одним из брендов — аффилиат (ADR-0013):
+Two holdings, a brand under each, and under one of the brands an affiliate
+(ADR-0013):
 
 ```
 holding-1 ── tenant-a ── affiliate-a1
 holding-2 ── tenant-b
 ```
 
-Анонимного аккаунта в этом дереве нет намеренно: он объявлен **вне тенантов**,
-поле `tenant` у него отсутствует. Служебный корень с именем вроде `none` стоял бы
-в одном пространстве значений с настоящими тенантами, и платформа, где тенант
-действительно так называется, молча сделала бы аноним его соседом.
+The anonymous account is deliberately absent from this tree: it is declared
+**outside of tenants**, and it has no `tenant` field. A service root named
+something like `none` would sit in the same value space as real tenants, and on
+a platform where a tenant really is called that, it would silently make the
+anonymous account its neighbor.
 
-Второй холдинг нужен именно как **чужая ветвь**. Без него `tenant-b` был бы просто
-корнем, «утечка в чужой холдинг» ничем не отличалась бы от «утечки к тенанту без
-родни», и новый дефект проверял бы старое отношение.
+The second holding is there precisely as a **foreign branch**. Without it
+`tenant-b` would just be a root, "a leak into a foreign holding" would be no
+different from "a leak to a tenant with no kinship", and the new defect would be
+testing the old relation.
 
-Третий уровень нужен по родственной причине, но не про ширину дерева, а про его
-**глубину**. На двухуровневом дереве у любого аккаунта ровно один предок, поэтому
-«прямой родитель» и «любой предок» — одно и то же множество, и реализация,
-поднимающаяся на один шаг вместо всей цепочки, ведёт себя неотличимо от той, что
-поднимается по цепочке. У `affiliate-a1` предков **два**: `tenant-a` через шаг
-и `holding-1` через два.
+The third level is there for a related reason, but it is about the tree's
+**depth**, not its width. In a two-level tree every account has exactly one
+ancestor, so "the direct parent" and "any ancestor" are the same set, and an
+implementation that walks up one step instead of the whole chain behaves
+indistinguishably from one that walks the chain. `affiliate-a1` has **two**
+ancestors: `tenant-a` one step away and `holding-1` two.
 
-Родство объявлено отдельным полем и в `server.mjs`, и в `barbican.run.yaml`.
-Форма `holding-1/tenant-a` короче, но превращает идентификатор в разбираемую
-структуру: опечатка в префиксе молча делает бренд отдельным корнем,
-`descendant-tenant` становится `foreign-tenant`, правило перестаёт применяться —
-и находка исчезает.
+Kinship is declared as a separate field in both `server.mjs` and
+`barbican.run.yaml`. The form `holding-1/tenant-a` is shorter, but it turns an
+identifier into a structure to be parsed: a typo in the prefix silently makes the
+brand a root of its own, `descendant-tenant` becomes `foreign-tenant`, the rule
+stops applying — and the finding disappears.
 
-### Аккаунты
+### Accounts
 
-| Аккаунт | Роль | Тенант | Токен из переменной | Чем предъявляется |
+| Account | Role | Tenant | Token from variable | How it is presented |
 |---|---|---|---|---|
 | `alice-a` | user | tenant-a | `POLYGON_TOKEN_ALICE_A` | `Authorization: Bearer` |
 | `bob-a` | user | tenant-a | `POLYGON_TOKEN_BOB_A` | `Authorization: Bearer` |
 | `carol-b` | user | tenant-b | `POLYGON_TOKEN_CAROL_B` | `Authorization: Bearer` |
 | `dave-b` | user | tenant-b | `POLYGON_TOKEN_DAVE_B` | `Authorization: Bearer` |
-| `admin-a` | admin | tenant-a | `POLYGON_TOKEN_ADMIN_A` | кука `opsid` |
+| `admin-a` | admin | tenant-a | `POLYGON_TOKEN_ADMIN_A` | the `opsid` cookie |
 | `helen-h1` | holding | holding-1 | `POLYGON_TOKEN_HELEN_H1` | `Authorization: Bearer` |
-| `ivan-af1` | affiliate | affiliate-a1 | `POLYGON_TOKEN_IVAN_AF1` | заголовок `X-Affiliate-Key` |
-| `sara-ac` | support | tenant-a **и** tenant-b | `POLYGON_TOKEN_SARA_AC` | `Authorization: Bearer` |
-| `anonymous` | anonymous | — вне тенантов | без токена | — |
+| `ivan-af1` | affiliate | affiliate-a1 | `POLYGON_TOKEN_IVAN_AF1` | the `X-Affiliate-Key` header |
+| `sara-ac` | support | tenant-a **and** tenant-b | `POLYGON_TOKEN_SARA_AC` | `Authorization: Bearer` |
+| `anonymous` | anonymous | — outside of tenants | no token | — |
 
-По два пользователя на бренд — не для симметрии: без второго пользователя того же
-тенанта нельзя отличить **BOLA внутри тенанта** от **межтенантной утечки**, оба
-выглядели бы как «доступ к не своему». Аноним проверяет утверждение «эта ручка
-не публична».
+Two users per brand, and not for symmetry: without a second user of the same
+tenant there is no telling **BOLA inside a tenant** from a **cross-tenant leak**,
+both would look like "access to something not one's own". The anonymous account
+tests the claim "this endpoint is not public".
 
-`helen-h1` сидит **на самом холдинге**, а не на одном из его брендов. Приписать
-холдинг к бренду можно — так и приходилось делать до ADR-0013, — но тогда
-собственный бренд холдинга становится «чужим тенантом», и инструмент ошибается
-дважды сразу: придирается к законному чтению своего бренда и пропускает настоящую
-межхолдинговую утечку. Второго холдингового аккаунта нет намеренно: `holding-2`
-нужен как ветвь дерева, а не как ещё один набор ячеек.
+`helen-h1` sits **on the holding itself**, not on one of its brands.
+Attributing the holding to a brand is possible — that is what had to be done
+before ADR-0013 — but then the holding's own brand becomes a "foreign tenant",
+and the tool is wrong twice at once: it picks on a lawful read of its own
+brand and misses a real cross-holding leak. There is deliberately no second
+holding account: `holding-2` is needed as a branch of the tree, not as another
+set of cells.
 
-`ivan-af1` сидит **на третьем уровне** и существует ровно затем, зачем заведён сам
-третий уровень: он единственный, у кого предков два, и потому единственный, на ком
-видно, поднимается реализация по всей цепочке или на один шаг. Ему положена только
-своя статистика; брендовый контур — и список заказов, и расчётный документ бренда —
-ему закрыт, а уровень холдинга закрыт тем более. Второго аффилиата нет: он дал бы
-десять ячеек и ни одного нового утверждения — все они уже есть у первого.
+`ivan-af1` sits **on the third level** and exists for exactly the reason the
+third level itself exists: it is the only account with two ancestors, and
+therefore the only one on which you can see whether the implementation walks the
+whole chain or a single step. It is meant to get its own statistics only; the
+brand surface — both the order list and the brand's settlement statement — is
+closed to it, and the holding level all the more so. There is no second
+affiliate: it would give ten cells and not one new claim — the first one already
+carries them all.
 
-`sara-ac` — единственный аккаунт **не в узле дерева, а в наборе узлов**
-(ADR-0017): бренды `tenant-a` и `tenant-b` лежат под разными холдингами, общего
-предка у них на этой платформе нет вовсе. Деревом такой аккаунт не выражается
-ни одним способом, и это проверено запуском — см. «Мутация, ради которой
-аккаунт заведён». Ему положены заказы обоих своих брендов и расчётный документ
-бренда; уровень холдинга — нет, и это `ancestor-tenant`, полученный **не из
-единственного** тенанта: `holding-1` стоит выше членства в `tenant-a` и не связан
-родством с членством в `tenant-b`. Второго такого аккаунта нет: набор из трёх
-брендов дал бы ячейки, но ни одного нового утверждения.
+`sara-ac` is the only account that sits **not in a node of the tree but in a set
+of nodes** (ADR-0017): the brands `tenant-a` and `tenant-b` lie under different
+holdings, and on this platform they have no common ancestor at all. A tree
+cannot express such an account in any way, and that has been tested by a run —
+see "The mutation the account was created for". It is meant to get the orders of
+both of its brands and the brand's settlement statement; the holding level it is
+not, and that is an `ancestor-tenant` derived **not from a single** tenant:
+`holding-1` stands above the membership in `tenant-a` and has no kinship with
+the membership in `tenant-b`. There is no second account like it: a set of three
+brands would give cells, but not one new claim.
 
-### Объекты
+### Resources
 
-| Объект | Тенант | Владелец |
+| Resource | Tenant | Owner |
 |---|---|---|
 | `A-1001` | tenant-a | alice-a |
 | `A-1002` | tenant-a | bob-a |
 | `B-2001` | tenant-b | carol-b |
 | `B-2002` | tenant-b | dave-b |
-| `H1-0001` | holding-1 | — сводный документ холдинга |
-| `A-0001` | tenant-a | — сводный документ бренда |
+| `H1-0001` | holding-1 | — the holding's summary statement |
+| `A-0001` | tenant-a | — the brand's summary statement |
 
-У сводных документов владельца нет **не по недосмотру**: расчётный документ
-принадлежит тенанту целиком, и своим он не является ни для кого — даже для
-`helen-h1`, для которого `H1-0001` — `same-tenant`, а не `own`. Именно эти объекты
-вводят в матрицу отношение `ancestor-tenant`: для `alice-a`, `bob-a` и `admin-a`
-документ холдинга лежит **выше** по дереву. Без них из двух отношений, введённых
-ADR-0013, сквозным прогоном проверялось только `descendant-tenant`.
+The summary statements have no owner, and that is **not an oversight**: a
+settlement statement belongs to the tenant as a whole, and it is nobody's own —
+not even `helen-h1`'s, for whom `H1-0001` is `same-tenant`, not `own`. These are
+the resources that bring the `ancestor-tenant` relation into the matrix: for
+`alice-a`, `bob-a` and `admin-a` the holding's statement lies **higher** up the
+tree. Without them, of the two relations introduced by ADR-0013, only
+`descendant-tenant` was tested by an end-to-end run.
 
-Для `carol-b` и `dave-b` оба документа — `foreign-tenant`: `holding-1` им не предок,
-`tenant-a` тоже. Эти четыре ячейки работают контролем и обязаны остаться отказом
-при любом флаге. Второго документа, на `holding-2`, нет намеренно: он добавил бы
-восемь ячеек и ни одного нового утверждения — контроль уже есть.
+For `carol-b` and `dave-b` both statements are `foreign-tenant`: `holding-1` is
+not their ancestor, and neither is `tenant-a`. These four cells work as a control
+and must stay a denial under any flag. A second statement, on `holding-2`, is
+deliberately absent: it would add eight cells and not one new claim — the control
+already exists.
 
-`A-0001` добавлен ради глубины и держит на себе сразу четыре разных отношения:
-`same-tenant` для брендовых аккаунтов (положен), `descendant-tenant` для холдинга
-(положен — сводный взгляд лицензиата идёт вниз), `foreign-tenant` для чужого бренда
-(не положен никогда) и `ancestor-tenant` для аффилиата — **через один шаг**, тогда
-как `H1-0001` для него `ancestor-tenant` через два. Отношение у этих двух ячеек
-одно и то же, а расстояние разное, и вся разница между двумя дефектами раскрытия
-вверх живёт ровно здесь.
+`A-0001` was added for the sake of depth, and it carries four different relations
+at once: `same-tenant` for the brand accounts (allowed), `descendant-tenant` for
+the holding (allowed — the licensee's consolidated view goes downwards),
+`foreign-tenant` for the other brand (never allowed) and `ancestor-tenant` for
+the affiliate — **one step away**, whereas `H1-0001` is `ancestor-tenant` two
+steps away for it. The relation in these two cells is one and the same while the
+distance differs, and the whole difference between the two upward-disclosure
+defects lives exactly here.
 
-### Эндпоинты
+### Endpoints
 
-| id | Метод и путь | Корректное поведение |
+| id | Method and path | Correct behaviour |
 |---|---|---|
-| `health` | `GET /v1/health` | 200 всем, включая аноним |
-| `orders.list` | `GET /v1/orders` | 200 аутентифицированному, 401 анониму |
-| `orders.read` | `GET /v1/orders/{orderId}` | 200 владельцу, админу своего тенанта, холдингу — на объекты его брендов и саппорту — на объекты брендов из его набора; аффилиату 403 всегда; иначе 403 |
-| `statements.read` | `GET /v1/statements/{statementId}` | 200 аккаунту того же тенанта, что и документ, и любому тенанту выше него; всем остальным 403 |
-| `affiliate.stats` | `GET /v1/affiliate/stats` | 200 аффилиату, 403 всем прочим ролям, 401 анониму |
-| `admin.accounts` | `GET /v1/admin/accounts` | 200 админу, 403 пользователю, 401 анониму |
+| `health` | `GET /v1/health` | 200 to everyone, the anonymous account included |
+| `orders.list` | `GET /v1/orders` | 200 to an authenticated account, 401 to the anonymous one |
+| `orders.read` | `GET /v1/orders/{orderId}` | 200 to the owner, to the admin of its own tenant, to the holding — on resources of its brands, and to support — on resources of the brands in its set; 403 to the affiliate always; 403 otherwise |
+| `statements.read` | `GET /v1/statements/{statementId}` | 200 to an account of the same tenant as the statement, and to any tenant above it; 403 to everyone else |
+| `affiliate.stats` | `GET /v1/affiliate/stats` | 200 to the affiliate, 403 to every other role, 401 to the anonymous one |
+| `admin.accounts` | `GET /v1/admin/accounts` | 200 to the admin, 403 to a user, 401 to the anonymous one |
 
-Параметр у `statements.read` называется иначе, чем у `orders.read`, и это не
-косметика: объект привязывается к ручке по совпадению имён параметров пути,
-поэтому заказы не подставляются в документы, а документ — в заказы. Наборы ячеек
-двух ручек не пересекаются по построению.
+The parameter of `statements.read` is named differently from the one of
+`orders.read`, and that is not cosmetic: a resource is bound to an endpoint by
+matching path parameter names, so orders are not substituted into statements,
+nor a statement into orders. The sets of cells of the two endpoints do not
+intersect by construction.
 
-Оба документа живут на **одной** ручке, хотя брендовый по имени просился бы на свою.
-Своя ручка развела бы два дефекта раскрытия вверх по разным адресам, и они стали бы
-различимы по эндпоинту — то есть проверка перестала бы быть проверкой глубины дерева,
-ради которой заводится. Здесь же оба документа читаются одной функцией авторизации,
-и единственное, чем «шаг вверх» отличается от «всей цепочки», — одна ячейка.
+Both statements live on **one** endpoint, even though the brand one would ask
+for its own by name. A separate endpoint would spread the two upward-disclosure
+defects across different addresses, and they would become distinguishable by
+endpoint — that is, the check would stop being a check of the tree's depth,
+which is what it exists for. Here both statements are read by one authorization
+function, and the only thing by which "a step up" differs from "the whole chain"
+is a single cell.
 
-`affiliate.stats` не имеет переключателя вовсе и работает двумя способами сразу:
-это канарейка аффилиата — единственное место, где его токен обязан дать 200, поэтому
-неверный токен остановит прогон, а не притворится законным отказом, — и контроль,
-на котором лишняя находка означала бы ложное срабатывание. Канарейкой ему не годится
-ни `health` (отвечает 200 и без токена, то есть не проверяет ничего), ни `orders.list`
-(объявлен ему закрытым, и канарейка на нём остановила бы прогон ложной тревогой).
+`affiliate.stats` has no switch at all and works in two ways at once: it is the
+affiliate's canary — the one place where its token must give 200, so a wrong
+token will stop the run instead of passing itself off as a lawful denial — and a
+control, on which an extra finding would mean a false positive. Neither `health`
+(it answers 200 without a token too, that is, it tests nothing) nor `orders.list`
+(declared closed to it, and a canary on it would stop the run with a false
+alarm) will do as its canary.
 
-Аутентификация — статичные токены из окружения. Логина нет: `barbican` токены
-не добывает, оператор кладёт их в переменные сам (ADR-0008).
+Authentication is static tokens from the environment. There is no login:
+`barbican` does not obtain tokens, the operator puts them into the variables
+himself (ADR-0008).
 
-### Три контура, три схемы
+### Three surfaces, three schemes
 
-Платформа принимает токен **не одним способом на всех**, а по контуру аккаунта:
-клиентское API — `Authorization: Bearer`, операторская админка — сессионную куку
-`opsid`, кабинет аффилиата — ключ в заголовке `X-Affiliate-Key`. Так устроены
-мультибрендовые платформы (`docs/research/igaming-contours.md`, §1.2, §3.1),
-и так это объявлено в `barbican.run.yaml` через `authSchemes` (ADR-0016).
+The platform accepts a token **not in one way for everyone**, but by the
+account's surface: the customer API takes `Authorization: Bearer`, the operator
+console the session cookie `opsid`, the affiliate cabinet a key in the
+`X-Affiliate-Key` header. That is how multi-brand platforms are built
+(`docs/research/igaming-contours.md`, §1.2, §3.1), and that is how it is declared
+in `barbican.run.yaml` through `authSchemes` (ADR-0016).
 
-Существенно, что токен, предъявленный **не тем** транспортом, платформа
-не принимает: `authenticate` находит аккаунт по значению и отдельно сверяет,
-чем его предъявили. Без этой сверки проверка была бы бутафорской — инструмент,
-шлющий всё Bearer-ом, прошёл бы её насквозь, и полигон подтверждал бы работу
-того, чего инструмент не делает.
+What matters is that the platform does not accept a token presented over the
+**wrong** transport: `authenticate` finds the account by value and separately
+verifies how it was presented. Without that verification the check would be a
+stage prop — a tool that sends everything as Bearer would sail straight through
+it, and the polygon would be confirming that something works which the tool does
+not do.
 
-Ловится это канарейками, и не в теории: с конфигурацией, где переопределения
-убраны (то есть выразимой до ADR-0017), прогон останавливается на старте —
+The canaries catch this, and not in theory: with a configuration where the
+overrides are removed (that is, one expressible before ADR-0016), the run stops
+at startup —
 
 ```
-Аккаунты не аутентифицированы, прогон остановлен:
-  admin-a: orders.list вернул 401
-  ivan-af1: affiliate.stats вернул 401
+Accounts are not authenticated, the run stopped:
+  admin-a: orders.list returned 401
+  ivan-af1: affiliate.stats returned 401
 ```
 
-— а с полной конфигурацией на том же стенде даёт прежние 80 ячеек и ноль находок.
+— while with the full configuration on the same deployment it gives the same 80
+cells and zero findings.
 
-Что сверка транспорта не декоративна, проверено мутацией. `matchesScheme`
-заменяется на `return true` — платформа начинает принимать любой токен любым
-способом, — и та же урезанная конфигурация проходит **чисто**: 80 ячеек,
-ноль находок, код 0. То есть без этой сверки полигон подтверждал бы работу
-переопределения схем на инструменте, который его игнорирует.
+That the transport verification is not decorative has been tested by mutation.
+`matchesScheme` is replaced with `return true` — the platform starts accepting
+any token in any way — and the same trimmed configuration passes **clean**: 80
+cells, zero findings, exit code 0. That is, without this verification the polygon
+would be confirming that scheme overrides work on a tool that ignores them.
 
-## Дефекты
+## Defects
 
-Все десять выключены по умолчанию. Значение `1` или `true` включает, `0`/`false`/
-отсутствие — выключает. **Любое другое значение — отказ на старте**: молча принятая
-опечатка вида `=yes` дала бы прогон без находок, неотличимый от проверки корректной
-платформы.
+All ten are off by default. A value of `1` or `true` turns one on; `0`/`false`/
+absence turns it off. **Any other value is a refusal at startup**: a silently
+accepted typo like `=yes` would give a run with no findings, indistinguishable
+from a check of a correct platform.
 
-| Переменная | Что ломает | Ячеек |
+| Variable | What it breaks | Cells |
 |---|---|---|
-| `POLYGON_DEFECT_CROSS_TENANT` | нет фильтра по тенанту в `orders.read` у брендовых аккаунтов: чужой тенант отдаётся 200 вместо 403 | 10 |
-| `POLYGON_DEFECT_NO_ROLE_CHECK` | не проверяется роль в `admin.accounts`: любой не-администратор получает 200 вместо 403 | 7 |
-| `POLYGON_DEFECT_IDOR_SAME_TENANT` | IDOR внутри тенанта в `orders.read`: чужой заказ своего тенанта отдаётся 200 вместо 403 | 4 |
-| `POLYGON_DEFECT_CROSS_HOLDING` | роллап холдинга не ограничен своим поддеревом: `orders.read` отдаёт холдингу объект чужого холдинга 200 вместо 403 | 2 |
-| `POLYGON_DEFECT_ANCESTOR_LEAK` | видимость сводных документов раскрывается вверх по **всей цепочке предков**: `statements.read` отдаёт аккаунту документ любого тенанта над ним | 6 |
-| `POLYGON_DEFECT_PARENT_LEAK` | то же раскрытие вверх, но **ровно на один уровень**: виден документ прямого родителя, а не всей цепочки | 5 |
-| `POLYGON_DEFECT_PRIMARY_TENANT_ONLY` | набор членств схлопнут до первого тенанта: саппорту двух брендов отказано во втором — 403 там, где доступ положен | 2 |
-| `POLYGON_DEFECT_LIST_NO_FILTER` | нет фильтра по тенанту в брендовом списке `orders.list`; статус не меняется, виден только по телу | 6 пар |
-| `POLYGON_DEFECT_GEO_BYPASS` | не проверяется юрисдикция обращения: заказы отдаются и из запрещённой страны — 200 вместо 451 | 19 |
-| `POLYGON_DEFECT_SCOPE_ALL_HONORED` | скрытый `?scope=all` снимает фильтр по тенанту в брендовом списке; статус не меняется, виден только по телу | 6 пар |
+| `POLYGON_DEFECT_CROSS_TENANT` | no tenant filter in `orders.read` for the brand accounts: another tenant is served 200 instead of 403 | 10 |
+| `POLYGON_DEFECT_NO_ROLE_CHECK` | the role is not checked in `admin.accounts`: any non-administrator gets 200 instead of 403 | 7 |
+| `POLYGON_DEFECT_IDOR_SAME_TENANT` | IDOR inside a tenant in `orders.read`: another user's order in one's own tenant is served 200 instead of 403 | 4 |
+| `POLYGON_DEFECT_CROSS_HOLDING` | the holding rollup is not limited to its own subtree: `orders.read` serves the holding a resource of a foreign holding with 200 instead of 403 | 2 |
+| `POLYGON_DEFECT_ANCESTOR_LEAK` | visibility of the summary statements is disclosed upwards along the **whole chain of ancestors**: `statements.read` serves an account the statement of any tenant above it | 6 |
+| `POLYGON_DEFECT_PARENT_LEAK` | the same upward disclosure, but **exactly one level**: the direct parent's statement is visible, not the whole chain's | 5 |
+| `POLYGON_DEFECT_PRIMARY_TENANT_ONLY` | the set of memberships is collapsed to the first tenant: support over two brands is denied the second one — 403 where access is meant to be granted | 2 |
+| `POLYGON_DEFECT_LIST_NO_FILTER` | no tenant filter in the brand list `orders.list`; the status does not change, it is visible only by body | 6 pairs |
+| `POLYGON_DEFECT_GEO_BYPASS` | the jurisdiction of the request is not checked: orders are served from a prohibited country too — 200 instead of 451 | 19 |
+| `POLYGON_DEFECT_SCOPE_ALL_HONORED` | a hidden `?scope=all` removes the tenant filter in the brand list; the status does not change, it is visible only by body | 6 pairs |
 
-`primary-tenant-only` стоит в этом списке особняком: это **единственный дефект
-платформы, проявляющийся отказом**, а не лишним доступом, и потому единственный,
-дающий `unexpected-denial` вместо `privilege-escalation`. Правдоподобие у него
-такое же, как у `parent-leak`: в токене лежит одно поле «тенант», потому что
-когда-то тенант у всех был один, и набор членств до авторизации не доезжает.
-До ADR-0017 такой дефект был бы неотличим от исправной работы — второй бренд
-объявить своим было нечем, и отказ в нём совпадал бы с ожиданием.
+`primary-tenant-only` stands apart in this list: it is the **only defect of the
+platform that shows itself as a denial** rather than as excess access, and
+therefore the only one that gives `unexpected-denial` instead of
+`privilege-escalation`. It is as plausible as `parent-leak`: the token carries a
+single "tenant" field because everyone used to have one tenant, and the set of
+memberships never reaches authorization. Before ADR-0017 such a defect would have
+been indistinguishable from correct behaviour — there was nothing to declare the
+second brand one's own with, and a denial on it would have matched the
+expectation.
 
-Наборы ячеек не пересекаются — **кроме одной пары**, и это исключение здесь и есть
-предмет проверки. `PARENT_LEAK` целиком содержится в `ANCESTOR_LEAK`: раскрытие
-на один шаг вверх — частный случай раскрытия по всей цепочке. Поэтому `all-seven`
-обязан совпасть с `all-six` ячейка в ячейку, и это тоже проверяемое утверждение,
-а не совпадение чисел. Для остальных флагов правило прежнее: составные комбинации
-обязаны быть объединением одиночных, `all-six` даёт ровно 10+7+4+2+6+6 = 35,
-а `all-eight` — те же 35 плюс две ячейки `primary-tenant-only` = 37.
+The sets of cells do not intersect — **except for one pair**, and that exception
+is exactly what is under test here. `PARENT_LEAK` is wholly contained in
+`ANCESTOR_LEAK`: disclosure one step up is a special case of disclosure along the
+whole chain. So `all-seven` must match `all-six` cell for cell, and that too is a
+testable claim, not a coincidence of numbers. For the other flags the rule is
+unchanged: composite combinations must be the union of the single ones, `all-six`
+gives exactly 10+7+4+2+6+6 = 35, and `all-eight` the same 35 plus the two cells
+of `primary-tenant-only` = 37.
 
-`cross-holding` — отдельный флаг, а не частный случай `cross-tenant`, потому что
-это отдельный путь в коде: «мои заказы» и «заказы моей группы» — разные запросы
-с разными фильтрами, и ломаются они независимо. В `server.mjs` холдинговый контур
-вынесен в отдельную ветку `authorizeOrder` целиком, поэтому брендовая ветка осталась
-нетронутой, а прежние комбинации — прежними.
+`cross-holding` is a separate flag rather than a special case of `cross-tenant`,
+because it is a separate path in the code: "my orders" and "my group's orders"
+are different queries with different filters, and they break independently. In
+`server.mjs` the holding surface is pulled out into a separate branch of
+`authorizeOrder` in its entirety, so the brand branch stayed untouched and the
+previous combinations stayed as they were.
 
-`ancestor-leak` — зеркало `cross-holding`, и по той же причине отдельный флаг.
-Тот ломает взгляд **сверху вниз** (холдинг видит чужую ветвь), этот — **снизу
-вверх** (бренд видит уровень своей группы). ADR-0013 разделяет `descendant-tenant`
-и `ancestor-tenant` ровно потому, что это разные дефекты с разной ценой; свести их
-в один флаг значило бы вернуть на полигон различие, которое инструмент научили
-делать. Реализован он как правдоподобная ошибка, а не как «отдать всем»: платформа
-спрашивает «документ моего тенанта **или любого его предка**?» вместо «моего
-тенанта?» — классическое разрешение области видимости не в ту сторону.
+`ancestor-leak` is the mirror of `cross-holding`, and a separate flag for the
+same reason. That one breaks the view **top-down** (the holding sees a foreign
+branch), this one **bottom-up** (a brand sees the level of its group). ADR-0013
+separates `descendant-tenant` and `ancestor-tenant` precisely because these are
+different defects with different costs; merging them into one flag would put back
+on the polygon a distinction the tool was taught to make. It is implemented as a
+plausible mistake, not as "serve it to everyone": the platform asks "a statement
+of my tenant **or of any of its ancestors**?" instead of "of my tenant?" — the
+classic case of resolving a scope in the wrong direction.
 
-Роль на `ancestor-leak` не влияет: `admin-a` задет ровно так же, как пользователи
-его бренда, потому что дефект в отношении к объекту, а не в проверке роли. Чужой
-бренд не задет вовсе — `holding-1` ему не предок. Проверено мутацией: реализация,
-отдающая документ всем подряд, немедленно даёт находки сверх оракула.
+Role has no effect on `ancestor-leak`: `admin-a` is hit exactly like the users of
+its brand, because the defect is in the relation to the resource, not in the role
+check. The other brand is not hit at all — `holding-1` is not its ancestor.
+Tested by mutation: an implementation that serves the statement to all comers
+immediately produces findings beyond the oracle.
 
-Аноним не задет ни одним флагом: аутентификация проверяется раньше авторизации,
-и без токена ответ 401 в любом режиме.
+The anonymous account is hit by no flag: authentication is checked before
+authorization, and without a token the answer is 401 in any mode.
 
-Администратор не задет `idor-same-tenant`: объекты своего тенанта ему положены
-по политике, он получает 200 и на корректной платформе. Зато `cross-tenant`
-задевает и его — чужой тенант админу не положен.
+The administrator is not hit by `idor-same-tenant`: resources of its own tenant
+are allowed to it by policy, and it gets 200 on a correct platform too.
+`cross-tenant`, on the other hand, hits it as well — another tenant is not
+allowed to an admin.
 
-Холдинг не задет ни `cross-tenant`, ни `idor-same-tenant`, ни двумя дефектами
-раскрытия вверх: у него отдельная ветка авторизации заказов, а сводные документы —
-его собственного тенанта и его бренда, то есть положены ему на исправной платформе
-(вверх от `holding-1` дерево не идёт вовсе). Зато `no-role-check` задевает и его:
-он такой же не-администратор.
+The holding is hit neither by `cross-tenant`, nor by `idor-same-tenant`, nor by
+the two upward-disclosure defects: it has an order authorization branch of its
+own, and the summary statements are those of its own tenant and of its brand,
+that is, allowed to it on a correct platform (above `holding-1` the tree does not
+go at all). `no-role-check`, on the other hand, hits it as well: it is just as
+much a non-administrator.
 
-Аффилиат не задет `cross-tenant`, `idor-same-tenant`, `cross-holding` и
-`list-no-filter`: брендовый контур заказов ему закрыт отдельной веткой, стоящей
-до всех флагов. Это не перестраховка, а условие сохранности прежних наборов —
-проверено мутацией: стоит убрать эту ветку, и `cross-tenant` получает четыре ячейки
-сверх оракула, а `list-no-filter` — три. Зато `no-role-check` задевает и аффилиата
-(он такой же не-администратор), и оба дефекта раскрытия вверх — по-разному, ради
-чего он и заведён.
+The affiliate is not hit by `cross-tenant`, `idor-same-tenant`, `cross-holding`
+or `list-no-filter`: the brand order surface is closed to it by a separate branch
+that stands before all the flags. That is not over-caution but the condition on
+which the previous sets survive — tested by mutation: remove that branch and
+`cross-tenant` gets four cells beyond the oracle, and `list-no-filter` three.
+`no-role-check`, on the other hand, hits the affiliate as well (it is just as
+much a non-administrator), and so do both upward-disclosure defects — each
+differently, which is the very reason it exists.
 
-Саппорт двух брендов не задет `cross-tenant`, `idor-same-tenant`, `cross-holding`
-и `list-no-filter`, и по той же причине: у него своя ветка в `authorizeOrder`
-и в списке. Ветка не поблажка, а необходимость — брендовая ниже спрашивает
-«тенант заказа равен тенанту аккаунта?», а у него тенант не один, и общая ветка
-либо отдала бы лишнее, либо отказала бы во втором бренде, то есть встроила бы
-дефект в исправный режим. Зато `no-role-check` задевает и его, а оба дефекта
-раскрытия вверх дают ему одну и ту же ячейку — документ `holding-1` лежит выше
-его членства в `tenant-a` ровно на один шаг. Ветки в `authorizeStatement` у него
-нет намеренно: правило видимости документов у саппорта то же самое, и своя ветка
-означала бы, что дефекты раскрытия вверх его не задевают, — утверждение, которого
-никто не проверял.
+Support over two brands is not hit by `cross-tenant`, `idor-same-tenant`,
+`cross-holding` or `list-no-filter`, and for the same reason: it has its own
+branch in `authorizeOrder` and in the list. The branch is not a concession but a
+necessity — the brand one below asks "is the order's tenant equal to the
+account's tenant?", and this account does not have one tenant, so a shared branch
+would either serve too much or deny the second brand, that is, it would build a
+defect into the correct mode. `no-role-check`, on the other hand, hits it as
+well, and both upward-disclosure defects give it one and the same cell — the
+`holding-1` statement lies exactly one step above its membership in `tenant-a`.
+It deliberately has no branch in `authorizeStatement`: the statement visibility
+rule for support is the same one, and a branch of its own would mean that the
+upward-disclosure defects do not hit it — a claim nobody has tested.
 
-## Дефект, который ловится только глубиной
+## The defect that only depth catches
 
-`parent-leak` — не ещё один флаг в списке, а проверка утверждения о самой платформе:
-**двухуровневое дерево не различает «поднялись на уровень» и «поднялись по цепочке»**.
+`parent-leak` is not one more flag in the list but a test of a claim about the
+platform itself: **a two-level tree does not tell "walked up a level" from
+"walked up the chain"**.
 
-Обе реализации отвечают на один вопрос — «виден ли аккаунту документ, лежащий выше
-него», — и различаются одной строкой:
+Both implementations answer one question — "is a statement lying above the
+account visible to it" — and differ by one line:
 
 ```
-ancestor-leak:  isBelow(тенант аккаунта, тенант документа)     вся цепочка предков
-parent-leak:    parentOf(тенант аккаунта) === тенант документа  ровно один шаг
+ancestor-leak:  isBelow(account tenant, statement tenant)      the whole ancestor chain
+parent-leak:    parentOf(account tenant) === statement tenant  exactly one step
 ```
 
-Пока в дереве два уровня, у брендового аккаунта предок ровно один, и обе строки
-дают одно и то же на всех ячейках. Третий уровень ломает это совпадение: у `ivan-af1`
-предков два, и документ холдинга лежит от него через **два** шага.
+While the tree has two levels, a brand account has exactly one ancestor, and both
+lines give the same result on every cell. The third level breaks that
+coincidence: `ivan-af1` has two ancestors, and the holding's statement lies
+**two** steps away from it.
 
-| Ячейка | шагов вверх | `ancestor-leak` | `parent-leak` |
+| Cell | steps up | `ancestor-leak` | `parent-leak` |
 |---|---|---|---|
 | `alice-a` × `H1-0001` | 1 | 200 | 200 |
 | `bob-a` × `H1-0001` | 1 | 200 | 200 |
 | `admin-a` × `H1-0001` | 1 | 200 | 200 |
 | `ivan-af1` × `A-0001` | 1 | 200 | 200 |
 | `ivan-af1` × `H1-0001` | **2** | 200 | **403** |
-| `carol-b`, `dave-b` × оба | родства нет | 403 | 403 |
+| `carol-b`, `dave-b` × both | no kinship | 403 | 403 |
 
-Различает их одна-единственная ячейка — последняя строка с двойкой. Её не существует
-на двухуровневом дереве, и там два дефекта неотличимы.
+One single cell tells them apart — the last row, the one with the two. It does
+not exist in a two-level tree, and there the two defects are indistinguishable.
 
-### Абляция: то же прогоном, а не рассуждением
+### Ablation: the same by a run, not by reasoning
 
-Утверждение проверено запуском. Из конфигурации убирается аккаунт `ivan-af1`
-и тенант `affiliate-a1` — больше ничего, — и одни и те же два флага прогоняются
-на получившемся двухуровневом дереве и на полном:
+The claim has been tested by a run. The account `ivan-af1` and the tenant
+`affiliate-a1` are removed from the configuration — nothing else — and the same
+two flags are run against the resulting two-level tree and against the full one:
 
 ```
 cp polygon/barbican.run.yaml /tmp/two-level.run.yaml
-# вырезать из копии блок аккаунта ivan-af1 и строку тенанта affiliate-a1
+# cut the ivan-af1 account block and the affiliate-a1 tenant line out of the copy
 
-# на двухуровневом дереве
+# on the two-level tree
 POLYGON_DEFECT_ANCESTOR_LEAK=1 node polygon/server.mjs &
 node dist/cli.js run -c /tmp/two-level.run.yaml -e polygon/endpoints.yaml \
   -r /tmp/two-al.json --rps 50 --concurrency 4
-# то же с POLYGON_DEFECT_PARENT_LEAK=1 -> /tmp/two-pl.json
-# затем оба прогона с полной polygon/barbican.run.yaml
+# the same with POLYGON_DEFECT_PARENT_LEAK=1 -> /tmp/two-pl.json
+# then both runs with the full polygon/barbican.run.yaml
 ```
 
-Результат:
+The result:
 
 ```
-=== двухуровневое дерево (аффилиат убран) ===
-  ancestor-leak: ячеек 3, код 1
-  parent-leak:   ячеек 3, код 1
-  НАБОРЫ СОВПАДАЮТ — дефекты неразличимы
+=== two-level tree (affiliate removed) ===
+  ancestor-leak: 3 cells, exit code 1
+  parent-leak:   3 cells, exit code 1
+  THE SETS ARE IDENTICAL — the defects cannot be told apart
     admin-a × statements.read × statement-h1-0001
     alice-a × statements.read × statement-h1-0001
     bob-a   × statements.read × statement-h1-0001
 
-=== трёхуровневое дерево (аффилиат на месте) ===
-  ancestor-leak: ячеек 5, код 1
-  parent-leak:   ячеек 4, код 1
-  НАБОРЫ РАЗЛИЧАЮТСЯ
-    только у ancestor-leak: ivan-af1 × statements.read × statement-h1-0001
+=== three-level tree (affiliate in place) ===
+  ancestor-leak: 5 cells, exit code 1
+  parent-leak:   4 cells, exit code 1
+  THE SETS DIFFER
+    only in ancestor-leak: ivan-af1 × statements.read × statement-h1-0001
 ```
 
-На двух уровнях наборы совпадают ячейка в ячейку — то есть платформа, на которой
-стоял бы только один из этих дефектов, не дала бы способа узнать, какой именно.
-На трёх они расходятся, и расходятся ровно на той ячейке, до которой два шага вверх.
+On two levels the sets match cell for cell — that is, a platform carrying only
+one of these defects would give no way of telling which one it is. On three they
+diverge, and they diverge on exactly the cell that is two steps up.
 
-Это и есть ответ на вопрос, зачем полигону третий уровень. Не «для полноты модели»:
-без него целый класс ошибок области видимости — разрешение на один шаг вместо обхода
-дерева — проверялся бы вхолостую, а прогон при этом выглядел бы содержательным.
+That is the answer to the question of what the polygon needs a third level for.
+Not "for the completeness of the model": without it a whole class of scope
+mistakes — resolving one step instead of walking the tree — would be tested for
+nothing, while the run would look substantive all the same.
 
-## Как запустить
+## How to run
 
-### Автоматически: сверка с оракулом
+### Automatically: verification against the oracle
 
 ```
-pnpm run build            # verify.mjs гоняет собранный dist/cli.js
-node polygon/verify.mjs   # все двадцать пять комбинаций флагов
-node polygon/verify.mjs ancestor-leak parent-leak  # только названные
+pnpm run build            # verify.mjs runs the built dist/cli.js
+node polygon/verify.mjs   # all twenty-five flag combinations
+node polygon/verify.mjs ancestor-leak parent-leak  # only the named ones
 ```
 
-Скрипт сам поднимает платформу на каждую комбинацию, генерирует случайные токены,
-прогоняет инструмент, сверяет находки с `ground-truth.json` и печатает расхождения
-в обе стороны — пропущенное и лишнее. Код возврата: 0 — всё совпало, 1 — есть
-расхождения, 2 — прогнать не удалось.
+The script brings the platform up for each combination itself, generates random
+tokens, runs the tool, verifies the findings against `ground-truth.json` and
+prints the discrepancies in both directions — what was missed and what was extra.
+The exit code: 0 — everything matched, 1 — there are discrepancies, 2 — the run
+could not be made.
 
-Перед каждым прогоном скрипт сверяет, что платформа поднялась именно с теми
-флагами, которые запрошены (`/v1/health` отдаёт их состояние). Недолетевший флаг
-иначе выглядел бы как пропуск инструмента.
+Before every run the script verifies that the platform came up with exactly the
+flags that were requested (`/v1/health` serves their state). A flag that did not
+arrive would otherwise look like a miss by the tool.
 
-Прогон идёт с `--rps 50 --concurrency 4`: дефолты инструмента рассчитаны на чужой
-стенд, а здесь стенд свой и в петле.
+The run goes with `--rps 50 --concurrency 4`: the tool's defaults are meant for
+someone else's deployment, and here the deployment is our own and runs in a loop.
 
-### Вручную
+### Manually
 
 ```
 export POLYGON_TOKEN_ALICE_A=$(openssl rand -hex 24)
@@ -410,410 +445,436 @@ node dist/cli.js run \
   --rps 50 --concurrency 4
 ```
 
-Токенов нет ни в одном файле и быть не должно: конфигурация называет имя
-переменной окружения, а не значение. `POLYGON_PORT` задаёт порт (по умолчанию
-8787) и обязан совпадать с `baseUrl` в `barbican.run.yaml` — `verify.mjs` это
-сверяет, при ручном запуске следите сами. Разошедшись, они дали бы сплошные отказы
-и отчёт «всё чисто».
+There are no tokens in any file and there must not be: the configuration names
+the environment variable, not the value. `POLYGON_PORT` sets the port (8787 by
+default) and must match `baseUrl` in `barbican.run.yaml` — `verify.mjs` checks
+that, on a manual run watch it yourself. Once they diverge, they would give a
+solid wall of denials and a report saying "all clean".
 
-## Как читать ground-truth.json
+## How to read ground-truth.json
 
-Оракул написан вручную от модели доступа. Это принципиально: эталон, снятый
-с вывода инструмента, проверял бы инструмент на согласованность с самим собой.
+The oracle is written by hand from the access model. That matters on principle: a
+reference taken from the tool's own output would be testing the tool for
+consistency with itself.
 
 ```
-tenancy              — словами: кто кому родитель и что из этого следует
-ancestry             — словами: отношение каждого аккаунта к сводным документам
-                       и какие ячейки работают контролем
-depth                — словами: чем ancestor-leak отличается от parent-leak
-                       и какая единственная ячейка их различает
+tenancy              — in words: who is whose parent and what follows from it
+ancestry             — in words: the relation of every account to the summary
+                       statements, and which cells work as a control
+depth                — in words: how ancestor-leak differs from parent-leak
+                       and which single cell tells them apart
 combinations[]
-  id                 — имя комбинации, оно же аргумент verify.mjs
-  flags              — состояние всех десяти переключателей
-  expectedExitCode   — 0 без дефектов, 1 при любом включённом
-  findings[]         — ячейки, обязанные дать находку
-    account          — id аккаунта из barbican.run.yaml
-    endpoint         — id эндпоинта из endpoints.yaml
-    resource         — id объекта; null у эндпоинтов без параметров пути
-    other            — второй аккаунт пары у находок проверок над телом
-    kind             — privilege-escalation (политика объявила отказ, платформа
-                       ответила 200), unexpected-denial (наоборот: доступ объявлен
-                       положенным, платформа отказала) либо
-                       identical-response-across-tenants
+  id                 — the name of the combination, also the verify.mjs argument
+  flags              — the state of all ten switches
+  expectedExitCode   — 0 with no defects, 1 with any of them on
+  findings[]         — the cells that must produce a finding
+    account          — the account id from barbican.run.yaml
+    endpoint         — the endpoint id from endpoints.yaml
+    resource         — the resource id; null on endpoints without path parameters
+    other            — the second account of the pair, for findings by body checks
+    kind             — privilege-escalation (the policy declared a denial, the
+                       platform answered 200), unexpected-denial (the other way
+                       round: access is declared allowed, the platform denied it)
+                       or identical-response-across-tenants
 ```
 
-Ячейка — это тройка «аккаунт × эндпоинт × объект» (ADR-0010). Сравнение идёт
-множествами, порядок в файле не важен. Находка, которой нет в списке, — такое же
-расхождение, как и пропущенная: ложное срабатывание обесценивает инструмент
-не меньше пропуска.
+A cell is the triple "account × endpoint × resource" (ADR-0010). The comparison
+runs over sets, the order in the file does not matter. A finding that is not in
+the list is just as much a discrepancy as a missed one: a false positive
+devalues the tool no less than a miss.
 
-## Дефект, который не выражается правами
+## The defect that permissions cannot express
 
-`geo-bypass` стоит особняком сильнее прочих. Все остальные девять — про права:
-кому что положено. Этот — про **условия обращения**: роль, тенант и объект
-в его ячейках те же самые, что в базовых, и «alice-a видит свой заказ» верно
-в обоих случаях. Дефект в том, что верно оно и тогда, когда запрос помечен
-страной из запрета.
+`geo-bypass` stands apart more than the rest. The other nine are about
+permissions: who is meant to get what. This one is about **request conditions**:
+the role, the tenant and the resource in its cells are the very same as in the
+base ones, and "alice-a sees her own order" is true in both cases. The defect is
+that it is true when the request is tagged with a prohibited country too.
 
-Отсюда два следствия, которые полигон и проверяет:
+Two consequences follow from that, and the polygon tests them:
 
-- в исправном режиме те же ячейки дают **451**, и находок нет. Инструмент
-  читает 451 как отказ, а не как «судить нельзя», — иначе исправная платформа
-  давала бы стену `probe-error` ровно там, где работает верно;
-- `all-nine` обязан быть объединением: базовые ячейки те же, что в `all-eight`,
-  плюс та же картина прав, увиденная в условиях. С одним содержательным
-  исключением — схлопнутый набор членств (`primary-tenant-only`) виден в базовых
-  условиях отказом, а в условиях гео не виден вовсе: там отказ и есть
-  объявленное ожидание.
+- in the correct mode the same cells give **451**, and there are no findings. The
+  tool reads 451 as a denial rather than as "no conclusion can be drawn" —
+  otherwise a correct platform would give a wall of `probe-error` exactly where
+  it behaves correctly;
+- `all-nine` must be a union: the base cells are the same as in `all-eight`, plus
+  the same picture of permissions seen under conditions. With one substantive
+  exception — the collapsed set of memberships (`primary-tenant-only`) is visible
+  in the base conditions as a denial, and under the geo conditions it is not
+  visible at all: there a denial is the declared expectation.
 
-## Два вида атрибутов и почему нужны оба
+## Two kinds of attributes and why both are needed
 
-Условий на полигоне двое, и это не для симметрии. `geo-blocked` помечает
-обращение **заголовком**, `wide-scope` — **параметром запроса**. Пути у них
-разные: заголовок доезжает до платформы через набор заголовков, параметр —
-через сборку адреса, рядом с параметрами объекта. Без второй ячейки утверждение
-«параметр доезжает» держалось бы на одном модульном тесте.
+There are two sets of conditions on the polygon, and not for symmetry.
+`geo-blocked` tags the request with a **header**, `wide-scope` with a **query
+parameter**. Their paths differ: a header reaches the platform through the set of
+headers, a parameter through the building of the address, next to the resource's
+parameters. Without the second cell the claim "the parameter arrives" would rest
+on a single unit test.
 
-Дефекты у них тоже разные по природе:
+Their defects differ in nature too:
 
-- `geo-bypass` меняет **статус**: 200 вместо 451, и виден матрицей;
-- `scope-all` статуса не меняет вовсе и виден **только сравнением тел внутри
-  одних и тех же условий**. Пара «базовое обращение против обращения
-  с параметром» не сравнивается намеренно: там менялись бы сразу две
-  переменные, и совпадение не говорило бы ни о чём.
+- `geo-bypass` changes the **status**: 200 instead of 451, and it is visible
+  through the matrix;
+- `scope-all` does not change the status at all and is visible **only by
+  comparing bodies within one and the same set of conditions**. The pair "a base
+  request against a request with the parameter" is deliberately not compared:
+  two variables would change there at once, and a match would say nothing.
 
-И одно наблюдение, которое стоило мне неверного оракула. Дефект, видный
-в базовых условиях, обычно виден и в объявленных: `list-no-filter` течёт
-и с добавленным параметром, и без него, поэтому семь комбинаций из десяти
-получили по шесть пар сверх ожидаемого мной. Ошибка была в рассуждении, а не
-в инструменте, — и это ровно то, ради чего оракул пишется руками. Цена решения
-названа прямо: одна поломка платформы даёт две группы дефектов, отличающиеся
-только условиями.
+And one observation that cost me a wrong oracle. A defect visible in the base
+conditions is usually visible under the declared ones as well: `list-no-filter`
+leaks both with the added parameter and without it, so seven combinations out of
+ten got six pairs each beyond what I expected. The mistake was in the reasoning,
+not in the tool — and that is exactly what the oracle is written by hand for. The
+price of the decision is named plainly: one breakage of the platform gives two
+defect groups that differ only by their conditions.
 
-## Результат сверки
+## The result of the verification
 
-Числа ниже — с прогона **13 августа 2026**, все двадцать пять комбинаций,
-144 ячейки, 8 канареек. Ячеек больше не потому, что выросла платформа: 54 из них —
-те же ручки в объявленных условиях обращения (ADR-0019).
+The numbers below come from the run of **13 August 2026**, all twenty-five
+combinations, 144 cells, 8 canaries. There are more cells not because the
+platform grew: 54 of them are the same endpoints under declared request
+conditions (ADR-0019).
 
-Отдельно проверено раньше и остаётся верным: когда аккаунты разошлись по трём
-контурам аутентификации (ADR-0016), прежние девятнадцать комбинаций дали те же
-ячейки и те же числа. Это проверяемое утверждение — **транспорт не меняет ни
-одного вердикта**; изменись хоть одно число, схема влияла бы на результат,
-а она не должна.
+Tested separately earlier and still true: when the accounts spread across three
+authentication surfaces (ADR-0016), the previous nineteen combinations gave the
+same cells and the same numbers. This is a testable claim — **the transport
+changes not a single verdict**; had even one number changed, the scheme would be
+affecting the result, and it must not.
 
-```
-=== clean === флаги: все выключены
-  опрошено ячеек: 144, канареек: 8, находок: 0 (из них по телу 0) (ожидалось 0)
-  СОВПАЛО с оракулом, код возврата 0
+<!-- verify:begin -->
 
-=== cross-tenant === находок: 10 (ожидалось 10)             СОВПАЛО, код 1
-=== no-role-check === находок: 7 (ожидалось 7)              СОВПАЛО, код 1
-=== idor-same-tenant === находок: 4 (ожидалось 4)           СОВПАЛО, код 1
-=== cross-holding === находок: 2 (ожидалось 2)              СОВПАЛО, код 1
-=== ancestor-leak === находок: 6 (ожидалось 6)              СОВПАЛО, код 1
-=== parent-leak === находок: 5 (ожидалось 5)                СОВПАЛО, код 1
-=== primary-tenant-only === находок: 2 (ожидалось 2)        СОВПАЛО, код 1
-=== cross-tenant+no-role-check === 17 (ожидалось 17)        СОВПАЛО, код 1
-=== cross-tenant+idor-same-tenant === 14 (ожидалось 14)     СОВПАЛО, код 1
-=== no-role-check+idor-same-tenant === 11 (ожидалось 11)    СОВПАЛО, код 1
-=== cross-tenant+cross-holding === 12 (ожидалось 12)        СОВПАЛО, код 1
-=== ancestor-leak+cross-holding === 8 (ожидалось 8)         СОВПАЛО, код 1
-=== ancestor-leak+parent-leak === 6 (ожидалось 6)           СОВПАЛО, код 1
-=== all === находок: 21 (ожидалось 21)                      СОВПАЛО, код 1
-=== list-no-filter === 12, из них по телу 12 (ожидалось 12) СОВПАЛО, код 1
-=== geo-bypass === 19 (ожидалось 19)                        СОВПАЛО, код 1
-=== all-four === 33, из них по телу 12 (ожидалось 33)       СОВПАЛО, код 1
-=== all-five === 35, из них по телу 12 (ожидалось 35)       СОВПАЛО, код 1
-=== all-six === 41, из них по телу 12 (ожидалось 41)        СОВПАЛО, код 1
-=== all-seven === 41, из них по телу 12 (ожидалось 41)      СОВПАЛО, код 1
-=== all-eight === 43, из них по телу 12 (ожидалось 43)      СОВПАЛО, код 1
-=== scope-all === 6, из них по телу 6 (ожидалось 6)         СОВПАЛО, код 1
-=== all-nine === 82, из них по телу 18 (ожидалось 82)       СОВПАЛО, код 1
-=== all-ten === 82, из них по телу 18 (ожидалось 82)        СОВПАЛО, код 1
+Cells probed per combination: 144. Combinations: 25.
 
-Итог: комбинаций 25, расхождений 0.
-```
+| Combination | Findings | Oracle expects | Verdict | Exit code |
+|---|---|---|---|---|
+| `clean`                          | 0 | 0 | match | 0 |
+| `cross-tenant`                   | 10 | 10 | match | 1 |
+| `no-role-check`                  | 7 | 7 | match | 1 |
+| `idor-same-tenant`               | 4 | 4 | match | 1 |
+| `cross-holding`                  | 2 | 2 | match | 1 |
+| `ancestor-leak`                  | 6 | 6 | match | 1 |
+| `parent-leak`                    | 5 | 5 | match | 1 |
+| `primary-tenant-only`            | 2 | 2 | match | 1 |
+| `cross-tenant+no-role-check`     | 17 | 17 | match | 1 |
+| `cross-tenant+idor-same-tenant`  | 14 | 14 | match | 1 |
+| `no-role-check+idor-same-tenant` | 11 | 11 | match | 1 |
+| `cross-tenant+cross-holding`     | 12 | 12 | match | 1 |
+| `ancestor-leak+cross-holding`    | 8 | 8 | match | 1 |
+| `ancestor-leak+parent-leak`      | 6 | 6 | match | 1 |
+| `all`                            | 21 | 21 | match | 1 |
+| `list-no-filter`                 | 12, of them by body 12 | 12 | match | 1 |
+| `geo-bypass`                     | 19 | 19 | match | 1 |
+| `all-four`                       | 33, of them by body 12 | 33 | match | 1 |
+| `all-five`                       | 35, of them by body 12 | 35 | match | 1 |
+| `all-six`                        | 41, of them by body 12 | 41 | match | 1 |
+| `all-seven`                      | 41, of them by body 12 | 41 | match | 1 |
+| `all-eight`                      | 43, of them by body 12 | 43 | match | 1 |
+| `scope-all`                      | 6, of them by body 6 | 6 | match | 1 |
+| `all-nine`                       | 82, of them by body 18 | 82 | match | 1 |
+| `all-ten`                        | 82, of them by body 18 | 82 | match | 1 |
 
-**`all-ten` совпадает с `all-nine` ячейка в ячейку, и это утверждение, а не
-совпадение.** Десятый дефект — скрытый `?scope=all` — снимает фильтр по тенанту
-в брендовом списке, но при включённом `list-no-filter` фильтра там уже нет:
-снимать нечего. Дефект, невидимый в присутствии другого, — нормальная вещь,
-и хорошо, что это видно числом, а не рассуждением.
+<!-- verify:end -->
 
-**Числа в таблице сверены с выводом `verify.mjs` вручную.** Так уже дважды
-разъезжалось: сначала обновляли объяснение, а не число. Правильное лечение —
-печатать блок самим `verify.mjs`; пока этого нет, при любом изменении полигона
-таблицу нужно переснять целиком, а не править построчно.
+**`all-ten` matches `all-nine` cell for cell, and that is a claim, not a
+coincidence.** The tenth defect — the hidden `?scope=all` — removes the tenant
+filter in the brand list, but with `list-no-filter` on there is no filter there
+any more: nothing to remove. A defect invisible in the presence of another one is
+a normal thing, and it is good that this is visible as a number rather than as an
+argument.
 
-Отдельно и **до** расширения полигона проверена совместимость: прежний оракул
-из девятнадцати комбинаций сошёлся с новым ядром без единой правки в
-`ground-truth.json`, `barbican.run.yaml` и `server.mjs` — расхождений 0.
-Набор членств появляется в модели, но на аккаунте с одним тенантом ничего
-не меняет.
+**The table above is written by the run, not by a human.** It sits between
+`verify:begin` and `verify:end` markers and is regenerated by
+`node polygon/verify.mjs --update-readme`; CI runs `--check-readme`, which fails
+when the table and the run disagree. The numbers had already drifted apart twice
+before that existed — and the second time the neighbouring paragraph itself
+explained why the counts were higher: the explanation got updated, the number
+did not.
 
-Находки на `statements.read` несут `"relation": "ancestor-tenant"` — отношение
-не просто объявлено в конфигурации, а доехало через разбор, матрицу и дифф
-до строки отчёта. Причём несут его и ячейки аффилиата, обе: `ancestor-tenant`
-шагов не считает, и одинаковое отношение при разном расстоянии — ровно то место,
-где инструмент и платформа расходятся по-разному при разных дефектах.
+Compatibility was tested separately and **before** the polygon was extended: the
+previous oracle of nineteen combinations agreed with the new core without a single
+edit in `ground-truth.json`, `barbican.run.yaml` and `server.mjs` — 0
+discrepancies. The set of memberships appears in the model, but on an account
+with one tenant it changes nothing.
 
-Отдельная пара комбинаций, `cross-holding` и `ancestor-leak`, даёт утечку в обе
-стороны дерева порознь, а `ancestor-leak+cross-holding` — одновременно; их находки
-не пересекаются ни одной ячейкой. Пара `ancestor-leak+parent-leak` устроена наоборот
-и проверяет обратное: наборы вложены, поэтому объединение обязано совпасть с бо́льшим
-из них — 5, а не 9. То же утверждение в полном виде даёт `all-seven`, совпадающий
-с `all-six` ячейка в ячейку.
+Findings on `statements.read` carry `"relation": "ancestor-tenant"` — the relation
+is not merely declared in the configuration, it travelled through parsing, the
+matrix and the diff all the way to a line of the report. And the affiliate's cells
+carry it too, both of them: `ancestor-tenant` does not count steps, and the same
+relation at different distances is exactly the place where the tool and the
+platform diverge differently under different defects.
 
-Ноль находок при выключенных флагах важнее обнаружения: инструмент, фабрикующий
-находки на корректной платформе, бесполезен так же, как пропускающий дефекты.
-В отличие от VAmPI этот ноль не даётся даром — при включении флага находки
-появляются, значит критерий работает, а не выполняется тривиально.
+A separate pair of combinations, `cross-holding` and `ancestor-leak`, gives a leak
+in each direction of the tree apart, while `ancestor-leak+cross-holding` gives
+both at once; their findings do not intersect in a single cell. The pair
+`ancestor-leak+parent-leak` is built the other way round and tests the opposite:
+the sets are nested, so the union must match the larger of them — 5, not 9. The
+same claim in full is given by `all-seven`, which matches `all-six` cell for cell.
 
-С появлением холдингов у этого нуля прибавилось веса. Он теперь утверждает и то,
-что законное чтение холдингом собственного бренда **не** объявлено эскалацией, —
-а до ADR-0013 оно объявлялось, и прогон при этом выглядел содержательным.
+Zero findings with the flags off matters more than detection: a tool that
+fabricates findings on a correct platform is as useless as one that misses
+defects. Unlike VAmPI, this zero does not come for free — turn a flag on and the
+findings appear, which means the criterion works rather than being satisfied
+trivially.
 
-С появлением аффилиата прибавилось ещё: ноль утверждает, что законный отказ
-аффилиату в брендовом контуре не спутан с дефектом ни в одном из семи режимов,
-а его собственная статистика не объявлена ни утечкой, ни неожиданным отказом.
+With the arrival of the holdings this zero gained weight. It now also asserts
+that a lawful read by a holding of its own brand is **not** declared an
+escalation — and before ADR-0013 it was, while the run looked substantive all the
+same.
 
-### Оракул проверен на способность падать
+With the arrival of the affiliate it gained more: the zero asserts that a lawful
+denial to the affiliate on the brand surface is not confused with a defect in any
+of the seven modes, and that its own statistics are declared neither a leak nor
+an unexpected denial.
 
-Дефект подкладывался **в саму платформу**, оракул при этом не трогался: он
-утверждает, чего ждать, и если платформа ведёт себя иначе, расхождение обязано
-всплыть. Мутация, которую сверка не заметила бы, означала бы, что соответствующая
-ячейка не проверяется никем.
+### The oracle has been tested for its ability to fail
 
-| Что сломано в `server.mjs` | Комбинация | Что сказала сверка |
+A defect was planted **in the platform itself**, and the oracle was left
+untouched: it states what to expect, and if the platform behaves otherwise the
+discrepancy must surface. A mutation the verification would not notice would mean
+that the corresponding cell is tested by nobody.
+
+| What is broken in `server.mjs` | Combination | What the verification said |
 |---|---|---|
-| утечка в чужой холдинг всегда, флаг игнорируется | `clean` | найдено сверх оракула (2), код возврата 1 вместо 0 |
-| флаг `CROSS_HOLDING` ничего не ломает | `cross-holding` | не найдено (2), код возврата 0 вместо 1 |
-| холдингу закрыт его собственный бренд | `clean` | найдено сверх оракула (2), обе — `unexpected-denial` |
-| утечка вверх по дереву всегда, флаг игнорируется | `clean` | найдено сверх оракула (3), код возврата 1 вместо 0 |
-| флаг `ANCESTOR_LEAK` ничего не ломает | `ancestor-leak` | не найдено (3), код возврата 0 вместо 1 |
-| документ холдинга отдаётся всем, а не только потомкам | `ancestor-leak` | найдено сверх оракула (2): `carol-b` и `dave-b` |
-| холдингу закрыт его собственный сводный документ | `clean` | найдено сверх оракула (1), `unexpected-denial`, код возврата 0 |
+| a leak into a foreign holding always, the flag is ignored | `clean` | found beyond the oracle (2), exit code 1 instead of 0 |
+| the `CROSS_HOLDING` flag breaks nothing | `cross-holding` | not found (2), exit code 0 instead of 1 |
+| the holding's own brand is closed to it | `clean` | found beyond the oracle (2), both `unexpected-denial` |
+| a leak up the tree always, the flag is ignored | `clean` | found beyond the oracle (3), exit code 1 instead of 0 |
+| the `ANCESTOR_LEAK` flag breaks nothing | `ancestor-leak` | not found (3), exit code 0 instead of 1 |
+| the holding's statement is served to everyone, not only to descendants | `ancestor-leak` | found beyond the oracle (2): `carol-b` and `dave-b` |
+| the holding's own summary statement is closed to it | `clean` | found beyond the oracle (1), `unexpected-denial`, exit code 0 |
 
-С третьим уровнем дерева проверены ещё восемь мутаций — все про глубину и про
-аффилиатский контур:
+With the third level of the tree eight more mutations were tested — all about
+depth and about the affiliate surface:
 
-| Что сломано в `server.mjs` | Комбинация | Что сказала сверка |
+| What is broken in `server.mjs` | Combination | What the verification said |
 |---|---|---|
-| `PARENT_LEAK` поднимается по всей цепочке (`isBelow` вместо `parentOf`) | `parent-leak` | найдено сверх оракула (1): `ivan-af1 × statements.read × statement-h1-0001` |
-| флаг `PARENT_LEAK` ничего не ломает | `parent-leak` | не найдено (4), код возврата 0 вместо 1 |
-| `ANCESTOR_LEAK` поднимается на один шаг (`parentOf` вместо `isBelow`) | `ancestor-leak`, `all-seven` | не найдено (1) в обеих: `ivan-af1 × statement-h1-0001` |
-| статистика аффилиата открыта всем ролям | `clean` | найдено сверх оракула (6), код возврата 1 вместо 0 |
-| статистика закрыта самому аффилиату | `clean` | прогон остановлен: канарейка `ivan-af1` вернула 403, отчёта нет, код 2 |
-| убрана отдельная ветка аффилиата в `authorizeOrder` | `cross-tenant` | найдено сверх оракула (4): `ivan-af1` на всех четырёх заказах |
-| убрана отдельная ветка аффилиата в списке `/v1/orders` | `clean`, `list-no-filter` | найдено сверх оракула (1 и 3): к паре по телу с `carol-b` и `dave-b` добавилась эскалация на самом списке |
-| документ бренда не виден холдингу (снята видимость вниз) | `clean` | найдено сверх оракула (1): `helen-h1 × statement-a-0001`, `unexpected-denial` |
+| `PARENT_LEAK` walks up the whole chain (`isBelow` instead of `parentOf`) | `parent-leak` | found beyond the oracle (1): `ivan-af1 × statements.read × statement-h1-0001` |
+| the `PARENT_LEAK` flag breaks nothing | `parent-leak` | not found (4), exit code 0 instead of 1 |
+| `ANCESTOR_LEAK` walks up one step (`parentOf` instead of `isBelow`) | `ancestor-leak`, `all-seven` | not found (1) in both: `ivan-af1 × statement-h1-0001` |
+| the affiliate's statistics are open to every role | `clean` | found beyond the oracle (6), exit code 1 instead of 0 |
+| the statistics are closed to the affiliate itself | `clean` | the run stopped: the `ivan-af1` canary returned 403, no report, code 2 |
+| the separate affiliate branch in `authorizeOrder` is removed | `cross-tenant` | found beyond the oracle (4): `ivan-af1` on all four orders |
+| the separate affiliate branch in the `/v1/orders` list is removed | `clean`, `list-no-filter` | found beyond the oracle (1 and 3): an escalation on the list itself was added to the by-body pair with `carol-b` and `dave-b` |
+| the brand's statement is not visible to the holding (downward visibility removed) | `clean` | found beyond the oracle (1): `helen-h1 × statement-a-0001`, `unexpected-denial` |
 
-Строки про `unexpected-denial` стоят отдельного слова. Инструмент возвращает код 0:
-неожиданный отказ дырой в доступе не считается, и сам по себе прогон выглядел бы
-успешным. Расхождение ловит сверка множествами, а не код возврата, — ради чего
-сравнение и идёт в обе стороны. Заодно это тот самый `unexpected-denial`, который
-ADR-0013 сделал формулируемым: «холдинг не увидел то, что ему положено», до дерева
-тенантов было невыразимо.
+The rows about `unexpected-denial` deserve a word of their own. The tool returns
+exit code 0: an unexpected denial does not count as a hole in access, and the run
+on its own would look successful. The discrepancy is caught by the comparison
+over sets, not by the exit code — which is what the comparison runs in both
+directions for. This is also the very `unexpected-denial` that ADR-0013 made
+statable: "the holding did not see what it is meant to see" was inexpressible
+before the tenant tree.
 
-**Запись про код 0 — историческая.** Ровно этот прогон и стал доводом ADR-0014:
-расхождение есть расхождение, куда бы оно ни было направлено, и сегодня
-`unexpected-denial` даёт код 1. Строки таблицы оставлены как есть — они описывают
-то, что наблюдалось тогда, а не то, что будет наблюдаться сейчас.
+**The note about exit code 0 is historical.** This very run became the argument
+for ADR-0014: a discrepancy is a discrepancy whichever way it points, and today
+`unexpected-denial` gives exit code 1. The table rows are left as they are — they
+describe what was observed then, not what will be observed now.
 
-Строка про документ, отдаваемый всем подряд, проверяет не наличие дефекта, а его
-**границу**. Мутация оставляет находки на месте и добавляет две: чужой бренд получает
-документ, которого ему не положено ни в каком режиме. Без этой проверки оракул
-подтверждал бы лишь «что-то протекло», а не «протекло ровно вверх по дереву», —
-а различать эти два утверждения инструмент и учили.
+The row about the statement served to all comers tests not the presence of the
+defect but its **boundary**. The mutation leaves the findings in place and adds
+two: the other brand gets a statement it is not meant to have in any mode.
+Without this check the oracle would confirm only "something leaked", not "it
+leaked exactly up the tree" — and telling those two claims apart is what the tool
+was taught to do.
 
-Первые три строки второй таблицы — главные. Они проверяют не то, что дефект есть,
-и даже не его границу, а что платформа **отличает один шаг от цепочки**: подмена
-`parentOf` на `isBelow` и обратная подмена ловятся обе, и ловятся ровно на одной
-ячейке — той, до которой два шага. На двухуровневом дереве ни одна из этих трёх
-мутаций не была бы замечена вовсе.
+The first three rows of the second table are the main ones. They test neither
+that the defect exists nor even its boundary, but that the platform **tells one
+step from the chain**: swapping `parentOf` for `isBelow` and the reverse swap are
+both caught, and caught on exactly one cell — the one that is two steps away. In
+a two-level tree none of these three mutations would have been noticed at all.
 
-Две строки про ветки аффилиата — проверка того, что новый аккаунт не расширил
-наборы прежних флагов. Обе мутации выглядят безобидными упрощениями («зачем
-отдельная ветка, если общая делает то же»), и обе немедленно ломают прежние
-комбинации.
+The two rows about the affiliate branches test that the new account did not widen
+the sets of the previous flags. Both mutations look like harmless simplifications
+("why a separate branch if the shared one does the same"), and both immediately
+break the previous combinations.
 
-### Мутация, ради которой аккаунт заведён
+### The mutation the account was created for
 
-С приходом `sara-ac` проверены ещё три мутации. Первая ломает **платформу**,
-две другие — **инструмент**, и это здесь существеннее: полигон существует, чтобы
-проверять инструмент, а не себя.
+With the arrival of `sara-ac` three more mutations were tested. The first breaks
+the **platform**, the other two the **tool**, and that matters more here: the
+polygon exists to test the tool, not itself.
 
-| Что сломано | Комбинация | Что сказала сверка |
+| What is broken | Combination | What the verification said |
 |---|---|---|
-| флаг `PRIMARY_TENANT_ONLY` ничего не ломает (`server.mjs`) | `primary-tenant-only` | не найдено (2), код возврата 0 вместо 1 |
-| `relationOf` считает отношение только по первому членству (`src/core/types.ts`) | `clean` | найдено сверх оракула (2), обе критические, код возврата 1 вместо 0 |
-| `identical-response-across-tenants` не пропускает родственные пары (`src/core/checks/tenant-isolation.ts`) | `primary-tenant-only` | найдено сверх оракула (1): `helen-h1 × orders.list × sara-ac` по телу |
+| the `PRIMARY_TENANT_ONLY` flag breaks nothing (`server.mjs`) | `primary-tenant-only` | not found (2), exit code 0 instead of 1 |
+| `relationOf` computes the relation from the first membership only (`src/core/types.ts`) | `clean` | found beyond the oracle (2), both critical, exit code 1 instead of 0 |
+| `identical-response-across-tenants` does not skip related pairs (`src/core/checks/tenant-isolation.ts`) | `primary-tenant-only` | found beyond the oracle (1): `helen-h1 × orders.list × sara-ac` by body |
 
-Вторая строка — то же самое, что делает обходной путь без набора членств, только
-изнутри ядра. Она стоит здесь потому, что снаружи выглядит правдоподобно:
-«возьмём первый тенант, остальные потом», — и даёт две **критические** находки
-на исправной платформе.
+The second row is the same thing the workaround without a set of memberships
+does, only from inside the core. It is here because from the outside it looks
+plausible: "take the first tenant, the rest later" — and it gives two
+**critical** findings on a correct platform.
 
-Третья строка объясняет, зачем проверка над телом обобщена на наборы. При
-`primary-tenant-only` список `sara-ac` схлопывается до заказов `tenant-a` и —
-из-за одинаковой формы строк — совпадает с роллапом `helen-h1` побайтово. Пара
-связана родством (`tenant-a` ниже `holding-1`), и проверка обязана молчать. Стоит
-снять это правило, и на полигоне появляется утечка, которой нет.
+The third row explains why the check over the body was generalized to sets. Under
+`primary-tenant-only` the `sara-ac` list collapses to the orders of `tenant-a`
+and — because the rows have the same shape — matches the `helen-h1` rollup byte
+for byte. The pair is related by kinship (`tenant-a` is below `holding-1`), and
+the check must stay silent. Remove that rule and a leak that does not exist
+appears on the polygon.
 
-Отдельно проверено и главное утверждение ADR-0017 — что деревом такой аккаунт
-не выражается. В `barbican.run.yaml` набор `tenants: [tenant-a, tenant-b]`
-заменён на `tenant: tenant-a` (прежний способ описать такой аккаунт), платформа
-не тронута:
+The main claim of ADR-0017 — that a tree cannot express such an account — was
+tested separately as well. In `barbican.run.yaml` the set
+`tenants: [tenant-a, tenant-b]` is replaced with `tenant: tenant-a` (the former
+way of describing such an account), the platform untouched:
 
 ```
-=== clean === флаги: все выключены
-  опрошено ячеек: 90, канареек: 8, находок: 2 (из них по телу 0) (ожидалось 0)
-  РАСХОЖДЕНИЕ: найдено сверх оракула (2):
+=== clean === flags: all off
+  cells probed: 90, canaries: 8, findings: 2 (of them by body 0) (oracle expects 0)
+  MISMATCH: found beyond the ground truth (2):
     sara-ac × orders.read × order-b-2001 [privilege-escalation]
     sara-ac × orders.read × order-b-2002 [privilege-escalation]
-  РАСХОЖДЕНИЕ: код возврата 1, ожидался 0
-  ... По серьёзности: критических 2, высоких 0, средних 0, низких 0
+  MISMATCH: exit code 1, expected 0
+  ... Rows by severity: critical 2, high 0, medium 0, low 0
 ```
 
-Две критические находки на **корректной** платформе — законное чтение саппортом
-своего же второго бренда. Убрать их можно было единственным способом: открыть
-роли `scope: foreign-tenant`, — и тогда исчезли бы настоящие межтенантные
-находки. Три способа и то, что каждый из них ломает, разобраны в ADR-0017.
+Two critical findings on a **correct** platform — a lawful read by support of its
+own second brand. There was exactly one way to remove them: open
+`scope: foreign-tenant` to the role — and then the real cross-tenant findings
+would disappear. The three ways and what each of them breaks are walked through
+in ADR-0017.
 
-### Регрессия прежних комбинаций
+### Regression of the previous combinations
 
-Прежние шестнадцать комбинаций дали прежние результаты на прежних ячейках —
-не «примерно те же», а **тот же набор ячеек и тот же код возврата**, сверенный
-программно против `git show HEAD:polygon/ground-truth.json`. Сверялись 186 прежних
-ячеек-находок; расхождений 0.
+The previous sixteen combinations gave the previous results on the previous cells
+— not "roughly the same", but **the same set of cells and the same exit code**,
+checked programmatically against `git show HEAD:polygon/ground-truth.json`. 186
+previous finding cells were verified; 0 discrepancies.
 
-«Прежняя ячейка» здесь означает буквально: аккаунт из прежних семи, эндпоинт
-из прежних пяти, объект из прежних пяти. Ячейки, которых до третьего уровня
-не существовало, из сверки исключены — не потому, что их не проверяют, а потому
-что регрессией их появление не является; их проверяет сама сверка с оракулом.
+A "previous cell" here means literally: an account out of the previous seven, an
+endpoint out of the previous five, a resource out of the previous five. Cells
+that did not exist before the third level are excluded from the verification —
+not because nobody tests them, but because their appearance is not a regression;
+the verification against the oracle tests them.
 
-Прежние ячейки уцелели не случайно. Брендовый и холдинговый контуры заказов
-не тронуты вовсе, аффилиату отведены собственные ветки — и в `authorizeOrder`,
-и в списке, — стоящие **до** всех переключателей. Новый документ лежит на прежней
-ручке, но у брендовых аккаунтов он `same-tenant` и положен им политикой, а у чужого
-бренда — `foreign-tenant` и закрыт, поэтому ни в одном режиме находки не даёт.
-Новый флаг не участвует ни в одном прежнем пути кода.
+The previous cells survived for a reason. The brand and holding order surfaces
+are untouched entirely, and the affiliate has been given branches of its own —
+both in `authorizeOrder` and in the list — that stand **before** all the
+switches. The new statement lies on the previous endpoint, but for the brand
+accounts it is `same-tenant` and allowed to them by policy, while for the other
+brand it is `foreign-tenant` and closed, so it produces no finding in any mode.
+The new flag takes part in none of the previous code paths.
 
-Опрошено стало 80 ячеек вместо 56. Добавились 24: десять — строка аффилиата
-на всех адресах, семь — новая ручка `affiliate.stats` у прежних аккаунтов, семь —
-новый документ у них же. В прежних комбинациях эти ячейки дают находки трижды —
-и это стоит назвать прямо, а не спрятать за словом «регрессии нет»:
+The number of probed cells became 80 instead of 56. 24 were added: ten are the
+affiliate's row across all addresses, seven the new `affiliate.stats` endpoint on
+the previous accounts, seven the new statement on the same accounts. In the
+previous combinations these cells produce findings three times — and that is
+worth naming plainly rather than hiding behind the words "there is no regression":
 
-| Комбинация | Что прибавилось |
+| Combination | What was added |
 |---|---|
-| любая с `no-role-check` (7 штук) | `ivan-af1 × admin.accounts` — он такой же не-администратор |
-| `ancestor-leak`, `ancestor-leak+cross-holding` | две ячейки аффилиата на документах |
-| `all-six` | те же две |
+| any with `no-role-check` (7 of them) | `ivan-af1 × admin.accounts` — it is just as much a non-administrator |
+| `ancestor-leak`, `ancestor-leak+cross-holding` | the affiliate's two cells on the statements |
+| `all-six` | the same two |
 
-С приходом `sara-ac` история повторилась в третий раз, и её стоит назвать так же
-прямо. Опрошено стало 90 ячеек вместо 80; добавились десять — строка саппорта
-на всех адресах. Дерево тенантов не изменилось вовсе: аккаунт сидит в **наборе**
-уже существующих узлов, новых узлов набор не заводит. Прежние ячейки — аккаунт
-из прежних восьми, эндпоинт из прежних шести, объект из прежних шести — не сменили
-ни одного исхода: до расширения полигона прежний оракул сошёлся с новым ядром
-без правок, а прежние контуры в `server.mjs` не тронуты, у саппорта свои ветки
-в `authorizeOrder` и в списке.
+With the arrival of `sara-ac` the story repeated for the third time, and it is
+worth naming just as plainly. The number of probed cells became 90 instead of 80;
+ten were added — the support row across all addresses. The tenant tree did not
+change at all: the account sits in a **set** of nodes that already exist, and a
+set creates no new nodes. The previous cells — an account out of the previous
+eight, an endpoint out of the previous six, a resource out of the previous six —
+did not change a single outcome: before the polygon was extended the previous
+oracle agreed with the new core without edits, the previous surfaces in
+`server.mjs` are untouched, and support has branches of its own in
+`authorizeOrder` and in the list.
 
-Новые ячейки дают находки в прежних комбинациях дважды:
+The new cells produce findings in the previous combinations twice:
 
-| Комбинация | Что прибавилось |
+| Combination | What was added |
 |---|---|
-| любая с `no-role-check` (8 штук) | `sara-ac × admin.accounts` — она такой же не-администратор |
-| любая с `ancestor-leak` или `parent-leak` (6 штук) | `sara-ac × statements.read × statement-h1-0001` — документ холдинга стоит на шаг выше её членства в `tenant-a` |
+| any with `no-role-check` (8 of them) | `sara-ac × admin.accounts` — it is just as much a non-administrator |
+| any with `ancestor-leak` or `parent-leak` (6 of them) | `sara-ac × statements.read × statement-h1-0001` — the holding's statement stands one step above its membership in `tenant-a` |
 
-Ветки в `authorizeStatement` у саппорта нет намеренно: доступ к сводным документам
-считается по каждому её членству общим кодом. Своя ветка означала бы, что дефекты
-раскрытия вверх её не задевают, — и это было бы утверждением, которого никто
-не проверял.
+Support deliberately has no branch in `authorizeStatement`: access to the summary
+statements is computed for each of its memberships by the shared code. A branch
+of its own would mean that the upward-disclosure defects do not hit it — and that
+would be a claim nobody has tested.
 
-Это повторение того, что уже случалось с приходом холдингового аккаунта: новый
-аккаунт задевает прежние флаги поперёк матрицы, новый объект или ручка — не задевают
-никого. Разница между «прежние ячейки не изменились» и «числа в прежних комбинациях
-не изменились» здесь и проходит: первое обязано выполняться, второе — нет.
+This repeats what already happened when the holding account arrived: a new
+account hits the previous flags right across the matrix, while a new resource or
+endpoint hits nobody. The difference between "the previous cells did not change"
+and "the numbers in the previous combinations did not change" runs exactly here:
+the first must hold, the second need not.
 
-## Границы
+## Boundaries
 
-Платформа проверяет то, что инструмент умеет видеть, и не притворяется большим.
-Вне её области — весь класс дефектов, требующих чтения тел: избыточное раскрытие
-данных, атрибуция утечки, mass assignment. Небезопасных методов платформа не
-реализует вовсе (405): держать изменяющую состояние ручку на стенде, который
-гоняют в цикле, незачем.
+The platform tests what the tool can see, and does not pretend to be more.
+Outside its area is the whole class of defects that require reading bodies:
+excessive data exposure, attribution of a leak, mass assignment. The platform
+does not implement unsafe methods at all (405): there is no reason to keep a
+state-changing endpoint on a deployment that is run in a loop.
 
-### Оба отношения ADR-0013 закрыты (было: только одно)
+### Both ADR-0013 relations are closed (was: only one)
 
-Здесь стояла запись о долге: `ancestor-tenant` не покрывался ни одной ячейкой,
-потому что для него нужен объект, принадлежащий самому холдингу, а такого на
-платформе не было. Долг закрыт объектом `H1-0001` и флагом `ANCESTOR_LEAK`:
-оба отношения, введённых ADR-0013, теперь проверены сквозным прогоном, а не только
-юнит-тестами.
+There used to be a note about a debt here: `ancestor-tenant` was covered by no
+cell, because it needs a resource belonging to the holding itself, and there was
+no such resource on the platform. The debt is closed by the resource `H1-0001`
+and the flag `ANCESTOR_LEAK`: both relations introduced by ADR-0013 are now
+tested by an end-to-end run, not only by unit tests.
 
-Запись оставлена, а не стёрта, ровно по той причине, по которой заводилась:
-у полигона отличать «проверено» от «не упомянуто» — половина смысла.
+The note is left rather than erased for exactly the reason it was made: for a
+polygon, telling "tested" from "not mentioned" is half the point.
 
-### Аффилиат под брендом смоделирован (было: не смоделирован)
+### An affiliate under a brand is modelled (was: not modelled)
 
-Здесь стояла вторая запись о долге: дерево было двухуровневым, третий случай
-ADR-0013 — аффилиат под брендом — оставался невыразимым на платформе, хотя
-в инструменте выразим (`isAncestor` поднимается по цепочке произвольной длины).
-Формулировалось это так: «разница видна лишь на реализации, которая смотрит
-на прямого родителя вместо всей цепочки, — такой дефект эта платформа не поймала бы».
+There used to be a second note about a debt here: the tree had two levels, and
+the third case of ADR-0013 — an affiliate under a brand — remained inexpressible
+on the platform, although it is expressible in the tool (`isAncestor` walks a
+chain of arbitrary length). It was put like this: "the difference shows only on
+an implementation that looks at the direct parent instead of the whole chain —
+this platform would not catch such a defect".
 
-Долг закрыт тенантом `affiliate-a1`, аккаунтом `ivan-af1`, документом `A-0001`
-и флагом `PARENT_LEAK`. Названный там дефект теперь не только ловится, но и отличим
-от `ANCESTOR_LEAK` — что и проверено абляцией, см. «Дефект, который ловится только
-глубиной».
+The debt is closed by the tenant `affiliate-a1`, the account `ivan-af1`, the
+statement `A-0001` and the flag `PARENT_LEAK`. The defect named there is now not
+only caught but also distinguishable from `ANCESTOR_LEAK` — which is what the
+ablation tested, see "The defect that only depth catches".
 
-Запись оставлена, а не стёрта, по той же причине, что и предыдущая: у полигона
-отличать «проверено» от «не упомянуто» — половина смысла.
+The note is left rather than erased for the same reason as the previous one: for
+a polygon, telling "tested" from "not mentioned" is half the point.
 
-### Набор членств смоделирован, но утечка за его пределы — только вверх
+### The set of memberships is modelled, but a leak outside it only goes upwards
 
-Аккаунт в наборе узлов на платформе есть (`sara-ac`, ADR-0017), и проверено
-на нём главное: на исправной платформе законный доступ к обоим брендам находкой
-не объявляется, а отказ во втором бренде — объявляется.
+An account in a set of nodes exists on the platform (`sara-ac`, ADR-0017), and
+the main thing has been tested on it: on a correct platform lawful access to both
+brands is not declared a finding, while a denial on the second brand is.
 
-Чего платформа **не** показывает: утечки в бренд, которого в наборе нет. Заказы
-здесь лежат ровно в двух брендах, и оба у саппорта в наборе, — «чужого бренда»
-для него среди заказов не существует. Третий бренд дал бы такую ячейку, но
-стоил бы ячеек на всей матрице и задел бы прежние флаги (`cross-tenant`
-и `cross-holding` получили бы новые объекты), а проверяемое утверждение —
-«тенант вне набора остаётся `foreign-tenant`» — уже проверено на сводных
-документах: `holding-1` в набор не входит, и оба дефекта раскрытия вверх дают
-на нём находку.
+What the platform does **not** show: a leak into a brand that is not in the set.
+Orders here lie in exactly two brands, and support has both of them in its set —
+among the orders there is no "other brand" for it. A third brand would give such
+a cell, but it would cost cells across the whole matrix and would hit the
+previous flags (`cross-tenant` and `cross-holding` would get new resources),
+while the claim under test — "a tenant outside the set stays `foreign-tenant`" —
+is already tested on the summary statements: `holding-1` is not in the set, and
+both upward-disclosure defects produce a finding on it.
 
-Ограничение записано, а не обойдено: у полигона отличать «проверено»
-от «не упомянуто» — половина смысла.
+The limitation is written down rather than worked around: for a polygon, telling
+"tested" from "not mentioned" is half the point.
 
-### Глубина проверена на трёх уровнях, не на произвольных
+### Depth is tested on three levels, not on arbitrary ones
 
-Три уровня отличают «шаг» от «цепочки», но не отличают «два шага» от «любого числа
-шагов»: реализация, поднимающаяся ровно на два уровня, на этой платформе неотличима
-от правильной. Четвёртый уровень отличил бы, а пятый — следующий класс, и так далее.
+Three levels tell "a step" from "a chain", but they do not tell "two steps" from
+"any number of steps": an implementation that walks up exactly two levels is
+indistinguishable from a correct one on this platform. A fourth level would tell
+them apart, a fifth the next class, and so on.
 
-Останавливаемся на трёх сознательно. Каждый уровень стоит ячеек на всей матрице,
-а различие «шаг против цепочки» — единственное из этого ряда, которое встречается
-в коде: его порождает денормализованное поле «родитель» в токене. Ошибки «ровно два
-уровня» никто не пишет — её не из чего сделать.
+We stop at three deliberately. Every level costs cells across the whole matrix,
+and the "step versus chain" distinction is the only one of this series that
+occurs in code: it comes from a denormalized "parent" field in the token. Nobody
+writes an "exactly two levels" bug — there is nothing to make it out of.
 
-### Проверка над телом и дерево
+### The check over the body and the tree
 
-Холдинг с **единственным** брендом видит в роллапе ровно те же заказы, что и сам
-бренд. Совпади тела побайтово, `identical-response-across-tenants` объявила бы
-законный роллап утечкой на чистой платформе — то есть дала бы находку там, где
-дефекта нет.
+A holding with a **single** brand sees in its rollup exactly the same orders as
+the brand itself. Should the bodies match byte for byte,
+`identical-response-across-tenants` would declare a lawful rollup a leak on a
+clean platform — that is, it would produce a finding where there is no defect.
 
-Раньше здесь стояло описание этого как ограничения. Оно устарело: проверка
-научена дереву и пары, связанные родством, не сравнивает — см.
-`src/core/checks/tenant-isolation.ts`, коммит `f60bb12`. Ложного срабатывания
-не будет и на платформе, где тела совпадают.
+This used to be described here as a limitation. That is out of date: the check
+has been taught the tree and does not compare pairs related by kinship — see
+`src/core/checks/tenant-isolation.ts`, commit `f60bb12`. There will be no false
+positive even on a platform where the bodies match.
 
-Вторая страховка сохранена и остаётся полезной: строки холдингового роллапа
-несут бренд (`tenant`), а брендовые — нет, поэтому тела различаются во всех
-режимах. Одна защита в инструменте, другая в форме ответа; ни одна не отменяет
-другую.
+The second safeguard is kept and remains useful: the rows of the holding rollup
+carry the brand (`tenant`) and the brand rows do not, so the bodies differ in
+every mode. One protection is in the tool, the other in the shape of the
+response; neither cancels the other.

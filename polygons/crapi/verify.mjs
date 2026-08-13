@@ -110,7 +110,7 @@ function run(command, args, options) {
 function readBaseUrl(configText) {
   const match = /^\s*baseUrl:\s*(\S+)\s*$/m.exec(configText);
   if (match === null) {
-    fail("в конфигурации прогона не найден target.baseUrl");
+    fail("target.baseUrl not found in the run configuration");
   }
   return new URL(match[1]);
 }
@@ -126,17 +126,17 @@ function assertLoginsMatchConfig(configText) {
   const hits = [...configText.matchAll(/^\s*tokenEnv:\s*(\S+)\s*$/gm)];
   const declared = hits.map((hit) => hit[1]);
   if (declared.length === 0) {
-    fail("в конфигурации прогона нет ни одного tokenEnv");
+    fail("no tokenEnv found in the run configuration");
   }
   const provided = new Set(USERS.map((account) => account.tokenEnv));
   for (const name of declared) {
     if (!provided.has(name)) {
-      fail(`конфигурация требует ${name}, но tokens.mjs его не выдаёт`);
+      fail(`the configuration needs ${name}, but tokens.mjs does not provide it`);
     }
   }
   for (const account of USERS) {
     if (!declared.includes(account.tokenEnv)) {
-      fail(`tokens.mjs логинит ${account.id}, но в конфигурации такого аккаунта нет`);
+      fail(`tokens.mjs logs in ${account.id}, but the configuration has no such account`);
     }
   }
 }
@@ -151,16 +151,16 @@ function assertLoginsMatchConfig(configText) {
 function locateCrapi() {
   const deployDir = process.env.CRAPI_DEPLOY_DIR;
   if (deployDir === undefined) {
-    fail("не задана CRAPI_DEPLOY_DIR: каталог deploy/docker дерева crAPI");
+    fail("CRAPI_DEPLOY_DIR is not set: the deploy/docker directory of the crAPI tree");
   }
   const compose = join(deployDir, "docker-compose.yml");
   if (!existsSync(compose)) {
-    fail(`не найден ${compose}`);
+    fail(`${compose} not found`);
   }
   const guess = join(deployDir, "..", "..", "openapi-spec", "crapi-openapi-spec.json");
   const spec = process.env.CRAPI_SPEC ?? guess;
   if (!existsSync(spec)) {
-    fail(`не найдена спецификация ${spec}; задайте CRAPI_SPEC`);
+    fail(`specification ${spec} not found; set CRAPI_SPEC`);
   }
   return { compose, spec };
 }
@@ -186,7 +186,7 @@ async function composeUp(compose, environment) {
   const args = ["compose", "-f", compose, "-f", OVERRIDE, "up", "-d", "crapi-web"];
   const result = await run("docker", args, { env: environment });
   if (result.code !== 0) {
-    fail(`docker compose up завершился с кодом ${result.code}${NL}${result.stderr}`);
+    fail(`docker compose up exited with code ${result.code}${NL}${result.stderr}`);
   }
 }
 
@@ -234,17 +234,17 @@ async function checkVariant(variant, baseUrl, spec, reportDir, compose) {
   // уязвимостей у crAPI нет. Непустой означал бы, что оракул поменялся,
   // а скрипт нет, и передать это стенду нечем.
   if (Object.keys(variant.selector).length > 0) {
-    fail(`вариант ${variant.id} задаёт selector, а crAPI переключать нечем`);
+    fail(`variant ${variant.id} sets a selector, but crAPI has nothing to switch`);
   }
 
   await composeUp(compose, environment);
   const healthy = await waitForHealth(baseUrl, 240);
   if (!healthy) {
     await composeDown(compose, environment);
-    fail(`crAPI не поднялась на ${baseUrl.origin}`);
+    fail(`crAPI did not come up on ${baseUrl.origin}`);
   }
 
-  const note = (message) => say(`  подготовка: ${message}`);
+  const note = (message) => say(`  setup: ${message}`);
   const tokens = await provision({ baseUrl: baseUrl.origin, log: note });
 
   const reportPath = join(reportDir, `${variant.id}.report.json`);
@@ -252,7 +252,7 @@ async function checkVariant(variant, baseUrl, spec, reportDir, compose) {
   const result = await runCli(spec, reportPath, withTokens);
 
   if (!existsSync(reportPath)) {
-    say(`  РАСХОЖДЕНИЕ: отчёт не создан, код ${result.code}`);
+    say(`  MISMATCH: no report was produced, exit code ${result.code}`);
     say(result.stderr);
     return false;
   }
@@ -267,44 +267,46 @@ async function checkVariant(variant, baseUrl, spec, reportDir, compose) {
   // сервис-отчёт, и остаток матрицы проверяется уже по изменённому стенду.
   const writing = report.skipped.find((item) => item.endpointId === WRITING_ENDPOINT);
   if (writing?.reason !== "excluded") {
-    problems.push(`${WRITING_ENDPOINT} не исключён из прогона — стенд мог измениться`);
+    problems.push(
+      `${WRITING_ENDPOINT} was not excluded from the run — the deployment may have changed`,
+    );
   }
   if (report.summary.failures > 0) {
-    problems.push(`сорвавшихся обращений: ${report.summary.failures}`);
+    problems.push(`failed requests: ${report.summary.failures}`);
   }
   if (report.canariesChecked === 0) {
-    problems.push("канарейки не проверялись: аутентификация не подтверждена");
+    problems.push("no canary was checked: authentication is unconfirmed");
   }
 
   const seen = report.summary.findings + report.summary.checkFindings;
-  const counts = `  опрошено ячеек: ${report.summary.observations}`;
-  const detail = `, канареек: ${report.canariesChecked}, находок: ${seen}`;
-  say(`${counts + detail} (ожидалось ${variant.findings.length})`);
+  const counts = `  cells probed: ${report.summary.observations}`;
+  const detail = `, canaries: ${report.canariesChecked}, findings: ${seen}`;
+  say(`${counts + detail} (oracle expects ${variant.findings.length})`);
 
   if (problems.length === 0) {
-    say(`  СОВПАЛО с оракулом, код возврата ${result.code}`);
+    say(`  MATCHES the ground truth, exit code ${result.code}`);
     return true;
   }
   for (const problem of problems) {
-    say(`  РАСХОЖДЕНИЕ: ${problem}`);
+    say(`  MISMATCH: ${problem}`);
   }
-  say("  вывод инструмента:");
+  say("  tool output:");
   say(result.stderr.replace(/^/gm, "    "));
   return false;
 }
 
 async function main() {
   if (!existsSync(CLI)) {
-    fail(`не найден ${CLI}. Соберите инструмент: pnpm run build`);
+    fail(`${CLI} not found. Build the tool: pnpm run build`);
   }
 
   for (const image of IMAGES) {
     const inspected = await run("docker", ["image", "inspect", image]);
     if (inspected.code !== 0) {
       fail(
-        "образ " +
+        "image " +
           image +
-          " не найден локально. Вытяните образы crAPI заранее: тянуть полтора гигабайта посреди сверки незачем.",
+          " is not present locally. Pull the crAPI images beforehand: pulling a gigabyte and a half mid-verification is not something this script does.",
       );
     }
   }
@@ -313,7 +315,7 @@ async function main() {
   const configText = await readFile(CONFIG, "utf8");
   const baseUrl = readBaseUrl(configText);
   if (baseUrl.hostname !== "127.0.0.1") {
-    fail(`baseUrl указывает на ${baseUrl.hostname}; полигон живёт только в петле`);
+    fail(`baseUrl points at ${baseUrl.hostname}; the polygon lives on loopback only`);
   }
   assertLoginsMatchConfig(configText);
 
@@ -322,7 +324,7 @@ async function main() {
   const groundTruth = loadGroundTruth(await readFile(GROUND_TRUTH, "utf8"));
   const gaps = checkCoverage(groundTruth);
   if (gaps.length > 0) {
-    fail(`оракул неполон:${NL}  ${gaps.join(`${NL}  `)}`);
+    fail(`the ground truth is incomplete:${NL}  ${gaps.join(`${NL}  `)}`);
   }
 
   const keep = process.argv.includes("--keep");
@@ -330,7 +332,7 @@ async function main() {
   const chosen = (variant) => named.length === 0 || named.includes(variant.id);
   const variants = groundTruth.variants.filter(chosen);
   if (variants.length === 0) {
-    fail(`не найдено ни одного варианта по фильтру: ${named.join(", ")}`);
+    fail(`no variant matched the filter: ${named.join(", ")}`);
   }
 
   const reportDir = await mkdtemp(join(tmpdir(), "barbican-crapi-"));
@@ -345,7 +347,7 @@ async function main() {
       // Стенд гасится в любом случае: оставить поднятым намеренно уязвимый API,
       // отдающий чужие заказы без токена, — плохой способ закончить сверку.
       await composeDown(located.compose, composeEnvironment());
-      fail(`вариант ${variant.id}: ${error.message}`);
+      fail(`variant ${variant.id}: ${error.message}`);
     }
     if (!matched) {
       mismatched += 1;
@@ -356,10 +358,10 @@ async function main() {
   }
 
   say("");
-  const tail = `Итог: вариантов ${variants.length}, расхождений ${mismatched}`;
-  say(`${tail}. Отчёты: ${reportDir}`);
+  const tail = `Total: ${variants.length} variants, ${mismatched} mismatches`;
+  say(`${tail}. Reports: ${reportDir}`);
   if (keep) {
-    say("Стенд оставлен поднятым. Погасить: docker compose down -v в дереве crAPI.");
+    say("The deployment was left running. To stop it: docker compose down -v in the crAPI tree.");
   }
   return mismatched === 0 ? 0 : 1;
 }

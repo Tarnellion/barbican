@@ -1,281 +1,297 @@
-# crAPI как полигон
+# crAPI as a polygon
 
-Разведка проведена 12 августа 2026 на живом стенде (официальный docker-compose,
-порты только на `127.0.0.1`). Ниже — проверенное `curl`, а не выведенное из документации.
+The reconnaissance was done on 12 August 2026 against a live deployment (the
+official docker-compose, ports on `127.0.0.1` only). Below is what was checked with
+`curl`, not what was inferred from the documentation.
 
-Оракул — этот список, а не переключатель режимов: у crAPI его и нет. Обоснование
-подхода в [ADR-0009](../adr/0009-validation-oracle.md).
+The oracle is this list, not a mode switch: crAPI does not have one. The reasoning
+behind the approach is in [ADR-0009](../adr/0009-validation-oracle.md).
 
-## Аутентификация
+## Authentication
 
-`Authorization: Bearer <JWT>`, RS256, срок жизни 7 суток — одного токена хватает
-на весь прогон. Логин только `POST /identity/api/auth/login`; `GET` и `HEAD` дают 405,
-то есть в безопасном режиме инструмент токен добыть не может. Оператор логинится
-вне инструмента и кладёт токены в переменные окружения — ровно та модель, что
-описана в [ADR-0008](../adr/0008-run-configuration-format.md).
+`Authorization: Bearer <JWT>`, RS256, a lifetime of 7 days — one token is enough
+for a whole run. The login is `POST /identity/api/auth/login` only; `GET` and `HEAD`
+give 405, so in safe mode the tool cannot obtain a token. The operator logs in
+outside the tool and puts the tokens into environment variables — exactly the model
+described in [ADR-0008](../adr/0008-run-configuration-format.md).
 
-Спецификация лежит в репозитории crAPI (`openapi-spec/crapi-openapi-spec.json`,
-OpenAPI 3.0.1, 40 путей) и по HTTP не отдаётся. Берётся из файла.
+The specification sits in the crAPI repository (`openapi-spec/crapi-openapi-spec.json`,
+OpenAPI 3.0.1, 40 paths) and is not served over HTTP. It is taken from the file.
 
-## Отказы неоднородны — это важнее, чем кажется
+## The denials are not uniform — that matters more than it seems
 
-| Сервис | Ответ на обращение без токена |
+| Service | Response to a request without a token |
 |---|---|
 | identity (Java), `…/user/dashboard` | **404** |
 | identity (Java), `…/vehicle/vehicles` | 401 |
-| workshop (Django), большинство | 401 |
-| workshop, `…/mechanic_report` без обязательного параметра | 500 |
+| workshop (Django), most of them | 401 |
+| workshop, `…/mechanic_report` without a required parameter | 500 |
 
-Отказ, замаскированный под 404, инструмент пометит как `not-found`, а не `denied`.
-Расхождение с политикой он всё равно увидит, но ярлык будет неточным.
+A denial disguised as a 404 is marked by the tool as `not-found`, not `denied`. It
+will still see the discrepancy with the policy, but the label will be imprecise.
 
-Опаснее другое: сплошные 404 — типичный признак **неверного `baseUrl` или префикса
-пути**. Дифф прочитает их как отказы, отказы совпадут с политикой, и прогон
-отрапортует «всё чисто», не достучавшись ни до одного эндпоинта. Из-за этой находки
-проверка достоверности в `src/report/authenticity.ts` перестала смотреть только
-на 401 и теперь ловит любой сплошной отказ.
+Something else is more dangerous: solid 404s are a typical sign of **a wrong
+`baseUrl` or path prefix**. The diff will read them as denials, the denials will
+agree with the policy, and the run will report "everything is clean" without having
+reached a single endpoint. Because of this finding, the authenticity check in
+`src/report/authenticity.ts` stopped looking at 401 alone and now catches any
+across-the-board denial.
 
-## Что инструмент находит сейчас
+## What the tool finds today
 
-Одна надёжная находка — **BFLA**: `GET /workshop/api/management/users/all` отдаёт
-роли `user` статус 200 со списком всех пользователей. Ни идентификаторов, ни чтения
-тела не нужно, достаточно объявить в политике `user → denied`.
+One reliable finding — **BFLA**: `GET /workshop/api/management/users/all` gives
+the `user` role a 200 with the list of all users. Neither identifiers nor reading
+the body are needed; declaring `user → denied` in the policy is enough.
 
-Плюс косметика: `GET /workshop/api/shop/return_qr_code` отвечает без токена,
-но чувствительных данных там нет.
+Plus a cosmetic one: `GET /workshop/api/shop/return_qr_code` answers without a
+token, but there is no sensitive data in it.
 
-## Что откроется после подстановки параметров
+## What opens up once parameters are substituted
 
-Три BOLA становятся видимыми **по статусу** — как «200 там, где объявлен отказ»:
+Three BOLAs become visible **in the response status** — as "200 where a denial was
+declared":
 
-| Дефект | Запрос | Чем заполнять |
+| Defect | Request | What to fill it with |
 |---|---|---|
-| Локация чужой машины | `GET /identity/api/v2/vehicle/{vehicleId}/location` | реальный чужой UUID; несуществующий даёт 404 |
-| Чужой сервис-отчёт | `GET /workshop/api/mechanic/mechanic_report?report_id=N` | числовой id **в query** |
-| Чужой заказ | `GET /workshop/api/shop/orders/{order_id}` | числовой id |
+| Someone else's car location | `GET /identity/api/v2/vehicle/{vehicleId}/location` | a real UUID of someone else's; a non-existent one gives 404 |
+| Someone else's service report | `GET /workshop/api/mechanic/mechanic_report?report_id=N` | a numeric id **in the query** |
+| Someone else's order | `GET /workshop/api/shop/orders/{order_id}` | a numeric id |
 
-Последний вдобавок отдаётся **вообще без токена** — сломанная аутентификация,
-тоже видимая по статусу.
+The last one is handed out **without a token at all** on top of that — broken
+authentication, also visible in the response status.
 
-Отсюда следует требование, которого не было в плане: **нужна подстановка не только
-в путь, но и в query**. `mechanic_report` иначе недостижим.
+From this follows a requirement that was not in the plan: **substitution is needed
+not only into the path but into the query as well**. Otherwise `mechanic_report` is
+unreachable.
 
-## Чего инструмент не найдёт без чтения тел
+## What the tool will not find without reading bodies
 
-Раздел написан до ADR-0011. Сигналы над телом закрыли один случай — «одинаковый
-ответ у разных тенантов», — но против crAPI он не даёт ни одной находки, и это
-не пробел инструмента, а свойство стенда: списочные ручки crAPI отфильтрованы по
-владельцу верно, дайджесты у разных пользователей расходятся (перепрогон ниже).
-Недостижимым осталось то, что живёт в полях законного ответа:
+This section was written before ADR-0011. Signals over the body closed one case —
+"the same response for different tenants" — but against crAPI it gives not a single
+finding, and that is not a gap in the tool but a property of the deployment: crAPI's
+list endpoints are filtered by owner correctly, the digests of different users
+diverge (the re-run is below). What stayed unreachable is what lives in the fields
+of a lawful response:
 
-- **Excessive Data Exposure** — лишние поля в законном 200 владельцу. Статус-сигнала
-  нет в принципе.
-- **Атрибуция утечки** — инструмент видит «пришёл 200, где ждали отказ», но не может
-  сказать, чьи именно данные пришли.
-- **Mass Assignment** — подтверждение только в теле.
+- **Excessive Data Exposure** — extra fields in a lawful 200 to the owner. There is
+  no status signal for it at all.
+- **Attribution of a leak** — the tool sees "a 200 arrived where a denial was
+  expected", but cannot say whose data exactly arrived.
+- **Mass Assignment** — confirmation exists in the body only.
 
-Вне области модуля 1 целиком: SSRF, инъекции в купонах, подделка JWT, перебор OTP.
+Entirely outside the scope of module 1: SSRF, injections in coupons, JWT forgery,
+OTP brute-forcing.
 
-## Итог
+## The bottom line
 
-Сейчас — 1 надёжная находка. После подстановки идентификаторов — плюс 3 BOLA
-и 1 сломанная аутентификация. Принципиально недостижим без чтения тел — весь класс
-избыточного раскрытия данных.
+Today — 1 reliable finding. After identifier substitution — plus 3 BOLAs and 1
+broken authentication. Fundamentally unreachable without reading bodies — the whole
+class of excessive data exposure.
 
 
-## Прогон 12 августа 2026: результат
+## Run of 12 August 2026: the result
 
-Выполнен после ADR-0010 (подстановка идентификаторов). Оракул строился независимо:
-матрица статусов снята `curl`-ом по всем ячейкам до прогона, наблюдения инструмента
-совпали с ней ячейка в ячейку.
-
-```
-Опрошено: 72 пар, эндпоинтов 44, аккаунтов 4
-Не опрошено: 30 (небезопасным методом 28, с параметрами в пути 1, исключено 1)
-Эскалация привилегий: 17
-Прочие расхождения: неожиданных отказов 0, не наблюдалось 0, ошибок обращения 0
-```
-
-**Найдено всё, что помечено «виден по статусу» или «требует подстановки id»:**
-BFLA на списке пользователей, три BOLA (локация чужой машины, чужой сервис-отчёт
-через query-параметр, чужой заказ) и сломанная аутентификация — заказ отдаётся
-вообще без токена. Последнее нашлось только благодаря анонимному аккаунту:
-двумерная модель с обязательным токеном такое пропускала.
-
-**Ложных срабатываний нет: 0 из 17.** Каждая находка соответствует проверенному
-вручную ответу 200 там, где политика объявляла отказ. Негативные контроли тоже
-сработали: у видео владение проверяется, чужое даёт 404, находки нет.
-
-Оговорка к числу 17: шесть строк — те же три BOLA, наблюдённые с точки админа.
-В crAPI у этих ручек нет проверки роли вообще, поэтому политика объявляла отказ
-одинаково для всех ролей. Дефектов три, строк шесть — инструмент не умеет
-схлопывать наблюдения одного дефекта с разных точек.
-
-Не найдено, как и предсказано разведкой: Excessive Data Exposure, атрибуция утечки
-и mass assignment — весь класс, требующий чтения тел.
-
-## Перепрогон 12 августа 2026 с сигналами над телом (ADR-0011)
-
-Стенд поднят повторно (тот же официальный docker-compose, порты только на
-`127.0.0.1`; чат-бот исключён — тяжёлый образ и внешний LLM, к области проверки
-отношения не имеет). Конфигурация собрана заново от той же модели: каждый
-пользователь crAPI объявлен собственным тенантом, поэтому чужой заказ или машина —
-`foreign-tenant`. Оракул снова снят `curl`-ом до прогона, наблюдения совпали
-ячейка в ячейку.
+Performed after ADR-0010 (identifier substitution). The oracle was built
+independently: the status matrix was taken with `curl` over all cells before the
+run, and the tool's observations matched it cell for cell.
 
 ```
-Опрошено: 64 пар, эндпоинтов 44, аккаунтов 4
-Не опрошено эндпоинтов: 30 (небезопасным методом 28, с параметрами в пути 2)
-Эскалация привилегий: 16
-Прочие расхождения: неожиданных отказов 0, не наблюдалось 0, ошибок обращения 4
-Находки проверок: 0
+Probed: 72 pairs, endpoints 44, accounts 4
+Not probed: 30 (use an unsafe method 28, have path parameters 1, excluded 1)
+Privilege escalation: 17
+Other discrepancies: unexpected denials 0, not observed 0, probe errors 0
 ```
 
-Воспроизведены все шесть классов, видимых по статусу: BFLA на списке пользователей
-(2 строки), BOLA локации чужой машины (4), BOLA чужого заказа (4) вместе со
-сломанной аутентификацией на нём — заказ отдаётся анониму (2), BOLA сервис-отчёта
-через query (3), ответ QR-кода без токена (1). Каждая из 16 строк — проверенный
-вручную 200 там, где политика объявляла отказ; ложных срабатываний 0. Четыре
-«ошибки обращения» — это `receive_report` без обязательного параметра, 400 у всех
-аккаунтов: не дефект, а `probe-error`.
+**Everything marked "visible in the response status" or "requires id substitution"
+was found:** the BFLA on the list of users, three BOLAs (someone else's car
+location, someone else's service report through a query parameter, someone else's
+order) and broken authentication — the order is handed out without a token at all.
+The last one was found only thanks to the anonymous account: a two-dimensional
+model with a mandatory token missed that.
 
-Шестнадцать против семнадцати в прошлый раз — разница в наборе объектов, а не
-пропущенный дефект: исходной конфигурации в репозитории нет, собранная заново
-даёт с точки админа пять строк вместо шести. Классы те же.
+**There are no false positives: 0 out of 17.** Every finding corresponds to a
+manually verified 200 where the policy declared a denial. The negative controls
+worked too: ownership is checked on videos, someone else's gives 404, and there is
+no finding.
 
-**Главное — про сигналы над телом. Нового класса находок против crAPI не
-прибавилось, и это правильный результат, а не пропуск.** Три списочные ручки,
-обязанные различаться между пользователями, объявлены в
-`responseMustDifferByTenant` (на момент прогона поле называлось `tenantScoped`):
+A caveat about the number 17: six rows are the same three BOLAs, observed from the
+admin's point of view. In crAPI these endpoints have no role check at all, so the
+policy declared a denial the same way for every role. Three defects, six rows — the
+tool cannot collapse observations of one defect made from different points of view.
+
+Not found, exactly as the reconnaissance predicted: Excessive Data Exposure,
+attribution of a leak and mass assignment — the whole class that requires reading
+bodies.
+
+## Re-run of 12 August 2026 with signals over the body (ADR-0011)
+
+The deployment was brought up again (the same official docker-compose, ports on
+`127.0.0.1` only; the chatbot is excluded — a heavy image and an external LLM, of
+no relation to the scope of the check). The configuration was assembled anew from
+the same model: every crAPI user is declared its own tenant, so someone else's order
+or car is `foreign-tenant`. The oracle was again taken with `curl` before the run,
+and the observations matched cell for cell.
+
+```
+Probed: 64 pairs, endpoints 44, accounts 4
+Endpoints not probed: 30 (use an unsafe method 28, have path parameters 2)
+Privilege escalation: 16
+Other discrepancies: unexpected denials 0, not observed 0, probe errors 4
+Check findings: 0
+```
+
+All six classes visible in the response status were reproduced: the BFLA on the
+list of users (2 rows), the BOLA on someone else's car location (4), the BOLA on
+someone else's order (4) together with the broken authentication on it — the order
+is handed out to an anonymous caller (2), the BOLA on the service report through
+the query (3), the QR code answered without a token (1). Each of the 16 rows is a
+manually verified 200 where the policy declared a denial; false positives 0. The
+four "probe errors" are `receive_report` without a required parameter, 400 for every
+account: not a defect but a `probe-error`.
+
+Sixteen against seventeen last time is a difference in the set of resources, not a
+missed defect: the original configuration is not in the repository, and the one
+assembled anew gives five rows from the admin's point of view instead of six. The
+classes are the same.
+
+**The main point is about signals over the body. No new class of findings against
+crAPI was added, and that is the correct result, not a miss.** The three list
+endpoints that must differ between users are declared in
+`responseMustDifferByTenant` (at the time of the run the field was called `tenantScoped`):
 `get_vehicles`,
-`get_orders`, `get_dashboard`. Тело у них прочитано, дайджест посчитан — и у adam,
-pogba, admin он **разный** на каждой из трёх. Проверка совпадения ответов
-`identical-response-across-tenants` сравнила пары из разных тенантов, совпадений
-не нашла и промолчала. Она
-молчит по существу: crAPI фильтрует эти списки по владельцу верно, того дефекта,
-который она ищет, — «одинаковые данные разным принципалам» — здесь просто нет.
+`get_orders`, `get_dashboard`. Their bodies were read and the digest computed — and
+for adam, pogba and admin it is **different** on each of the three. The
+response-match check `identical-response-across-tenants` compared pairs from
+different tenants, found no matches and stayed silent. It is
+silent on the merits: crAPI filters these lists by owner correctly, and the defect
+it looks for — "the same data for different principals" — simply is not here.
 
-Что осталось недостижимым, тем и осталось: **Excessive Data Exposure** (лишние
-поля в законном 200 владельцу), **атрибуция утечки**, **mass assignment**. Дайджест
-и `count` видят, что ответы *различны*, но не *что* в них лишнего. Этот класс живёт
-в crAPI на уровне полей, а не на уровне «чей это список», и остаётся вне досягаемости
-сигналов.
+What stayed unreachable stayed unreachable: **Excessive Data Exposure** (extra
+fields in a lawful 200 to the owner), **attribution of a leak**, **mass assignment**.
+The digest and `count` see that the responses are *different*, but not *what* in
+them is extra. In crAPI this class lives at the level of fields, not at the level of
+"whose list is this", and stays out of the reach of signals.
 
-**Проверка на шум — отдельным прогоном.** Стоит ошибочно объявить
-`responseMustDifferByTenant` для публичной ленты `get_recent_posts` (её тело
-одинаково у всех, это подтверждает
-`curl`), и проверка немедленно даёт три находки: пары adam↔pogba, adam↔admin,
-pogba↔admin с совпавшим дайджестом. Механизм работает и умеет срабатывать —
-значит тишина на правильной конфигурации не следствие поломки. Отсюда же граница:
-объявлять нужно только ручки, которые *обязаны* различаться; объявление публичной —
-операторская ошибка, дающая ложные срабатывания. Поэтому
-`responseMustDifferByTenant` — заявление человека (ADR-0011), а не вывод
-из спецификации.
+**The noise check was a separate run.** Declare `responseMustDifferByTenant` by
+mistake for the public feed `get_recent_posts` (its body is the same for everyone,
+`curl` confirms that),
+and the check immediately gives three findings: the pairs adam↔pogba, adam↔admin,
+pogba↔admin with a matching digest. The mechanism works and is able to fire — so
+the silence on a correct configuration is not the consequence of a breakage. The
+boundary follows from the same place: only the endpoints that *must* differ should
+be declared; declaring a public one is an operator error that produces false
+positives. That is why `responseMustDifferByTenant` is a human's statement
+(ADR-0011), not something derived from the specification.
 
-По итогам первого прогона были исправлены два дефекта самого инструмента (см.
-уточнение в [ADR-0005](../adr/0005-tool-safety-invariants.md)); перепрогон
-с сигналами новых дефектов инструмента не вскрыл.
+After the first run, two defects in the tool itself were fixed (see the
+clarification in [ADR-0005](../adr/0005-tool-safety-invariants.md)); the re-run with
+signals uncovered no new defects in the tool.
 
-## Прогон 13 августа 2026: оракул стал машиночитаемым
+## Run of 13 August 2026: the oracle became machine-readable
 
-До этого дня crAPI была единственным полигоном без машиночитаемого оракула:
-матрица снималась `curl`-ом вручную и сверялась глазами. Теперь у неё есть
-`polygons/crapi/ground-truth.json` в формате [ADR-0012](../adr/0012-ground-truth-format.md)
-и `polygons/crapi/verify.mjs`, который поднимает стенд, логинит пользователей,
-прогоняет инструмент и сверяет находки общим модулем `tools/oracle` — тем же,
-которым сверяются VAmPI и референс-платформа. Своего кода сравнения у полигона нет.
+Until that day crAPI was the only polygon without a machine-readable oracle: the
+matrix was taken with `curl` by hand and verified by eye. Now it has
+`polygons/crapi/ground-truth.json` in the format of [ADR-0012](../adr/0012-ground-truth-format.md)
+and `polygons/crapi/verify.mjs`, which brings the deployment up, logs the users in,
+runs the tool and verifies the findings with the shared `tools/oracle` module — the
+same one VAmPI and the reference platform are verified with. The polygon has no
+comparison code of its own.
 
-Оракул написан вручную от модели доступа: официального перечня задач самого crAPI
-(восемнадцать штук), объявленной политики и матрицы статусов, снятой независимым
-клиентом до прогона. С вывода barbican он не снят — иначе он проверял бы
-инструмент на согласованность с самим собой.
+The oracle is written by hand from the access model: crAPI's own official list of
+challenges (eighteen of them), the declared policy, and the status matrix taken by
+an independent client before the run. It is not taken from barbican's output —
+otherwise it would be testing the tool for consistency with itself.
 
-### Числа прогона
+### The numbers of the run
 
 ```
-Опрошено: 60 пар, эндпоинтов 44, аккаунтов 4
-Не опрошено эндпоинтов: 31 (небезопасным методом 28, с параметрами в пути 2, исключено вручную 1)
-Эскалация привилегий: 16
-Прочие расхождения: неожиданных отказов 0, не наблюдалось 0, ошибок обращения 0
-По серьёзности: критических 13, высоких 3, средних 0, низких 0
-Различных дефектов: не менее 5 (наблюдений 16)
-Находки проверок: 0
+Probed: 60 pairs, endpoints 44, accounts 4
+Endpoints not probed: 31 (use an unsafe method 28, have path parameters 2, excluded by hand 1)
+Privilege escalation: 16
+Other discrepancies: unexpected denials 0, not observed 0, probe errors 0
+By severity: critical 13, high 3, medium 0, low 0
+Distinct defects: at least 5 (observations 16)
+Check findings: 0
 ```
 
-Сверка: `вариантов 1, расхождений 0`, код возврата инструмента 1 — как и объявлено
-в оракуле. Шестнадцать ячеек совпали с ожидаемыми одна в одну; лишних нет.
+Verification: `variants 1, discrepancies 0`, the tool's exit code 1 — exactly as
+declared in the oracle. Sixteen cells matched the expected ones one for one; there
+are no extras.
 
-Ошибок обращения стало 0 вместо прежних 4. Причина не в инструменте: эндпоинт
-`create_service_report` (`GET /workshop/api/mechanic/receive_report`) исключён
-поимённо. По спецификации это создание сервис-отчёта — запись, выполняемая
-методом GET и объявленная без аутентификации; безопасный режим её не остановит,
-потому что метод безопасен по букве. Без обязательных параметров она отвечала 400
-у всех четырёх аккаунтов, то есть давала четыре ячейки, о которых инструменту
-нечего сказать.
+Probe errors became 0 instead of the previous 4. The reason is not in the tool: the
+endpoint `create_service_report` (`GET /workshop/api/mechanic/receive_report`) is
+excluded by name. By the specification this is the creation of a service report — a
+write performed with the GET method and declared without authentication; safe mode
+will not stop it, because the method is safe by the letter. Without the required
+parameters it answered 400 for all four accounts, that is, gave four cells the tool
+has nothing to say about.
 
-### Дефекты: двадцать два объявленных, шесть находимых
+### Defects: twenty-two declared, six findable
 
-Оракул перечисляет двадцать два дефекта — все восемнадцать задач самого crAPI
-плюс три, найденные разведкой (BFLA на списке пользователей, BOLA чужого заказа
-и запись методом GET), причём одна задача crAPI — «эндпоинт без проверки
-аутентификации» — разложена на два разных дефекта.
+The oracle lists twenty-two defects — all eighteen challenges of crAPI itself plus
+three found by the reconnaissance (the BFLA on the list of users, the BOLA on
+someone else's order, and the write performed with GET), and one crAPI challenge —
+"an endpoint with no authentication check" — is split into two different defects.
 
-| Видимость | Сколько | Что это значит |
+| Visibility | How many | What it means |
 |---|---|---|
-| `status` | 6 | инструмент находит по коду ответа |
-| `body-only` | 2 | разница только в полях законного 200 |
-| `unsafe-method` | 5 | живёт на методе записи |
-| `excluded` | 1 | был бы виден, но трогать нельзя |
-| `out-of-scope` | 8 | вопрос не о матрице «роль × эндпоинт» |
+| `status` | 6 | the tool finds it in the response status |
+| `body-only` | 2 | the difference is only in the fields of a lawful 200 |
+| `unsafe-method` | 5 | lives on a write method |
+| `excluded` | 1 | would be visible, but must not be touched |
+| `out-of-scope` | 8 | the question is not about the role × endpoint matrix |
 
-Шесть находимых дают шестнадцать ячеек: BOLA локации чужой машины (4), BOLA
-чужого заказа (6 — из них две анонимные объясняются ещё и сломанной
-аутентификацией), BOLA сервис-отчёта через query (3), BFLA на списке
-пользователей (2), публичный QR-код (1).
+The six findable ones give sixteen cells: the BOLA on someone else's car location
+(4), the BOLA on someone else's order (6 — two of them, the anonymous ones, are
+also explained by broken authentication), the BOLA on the service report through
+the query (3), the BFLA on the list of users (2), the public QR code (1).
 
-Два недостижимых класса теперь названы поимённо, с проверенной причиной, а не
-описаны общими словами:
+The two unreachable classes are now named explicitly, with a verified reason, rather
+than described in general terms:
 
-- **лишние поля в ленте постов.** `GET /community/api/v2/community/posts/recent`
-  отдаёт у каждого поста `author` с полями `nickname`, `email`, `vehicleid`,
-  `profile_pic_url`, `created_at`. Проверено чтением ответа. Статус законный 200,
-  лента и правда положена аутентифицированному — разница только в наборе полей,
-  и скаляр над телом её не берёт: дайджест говорит, что ответы различны, но не
-  что в них лишнего;
-- **внутреннее свойство видео.** `GET /identity/api/v2/user/videos/{video_id}`
-  отдаёт владельцу ключи `id`, `video_name`, `conversion_params`, `profileVideo`.
-  Проверено чтением ответа. Ответ законен — это своё видео.
+- **extra fields in the feed of posts.** `GET /community/api/v2/community/posts/recent`
+  returns an `author` on every post with the fields `nickname`, `email`, `vehicleid`,
+  `profile_pic_url`, `created_at`. Verified by reading the response. The status is a
+  lawful 200, and the feed really is meant for an authenticated caller — the
+  difference is only in the set of fields, and a scalar over the body does not take
+  it: the digest says the responses are different, but not what in them is extra;
+- **an internal property of a video.** `GET /identity/api/v2/user/videos/{video_id}`
+  returns the keys `id`, `video_name`, `conversion_params`, `profileVideo` to the
+  owner. Verified by reading the response. The response is lawful — it is the
+  owner's own video.
 
-Восемь `out-of-scope` — это SSRF, отказ в обслуживании, две инъекции в купонах,
-подделка JWT и три задачи про чат-бота, контейнер которого на полигоне вообще
-не поднимается. Пять `unsafe-method` — сброс чужого пароля, удаление чужого
-видео административной ручкой, mass assignment на видео и два злоупотребления
-бизнес-потоком магазина.
+The eight `out-of-scope` ones are SSRF, denial of service, two injections in
+coupons, JWT forgery and three challenges about the chatbot, whose container is not
+brought up on the polygon at all. The five `unsafe-method` ones are resetting
+someone else's password, deleting someone else's video through an administrative
+endpoint, mass assignment on a video, and two abuses of the shop's business flow.
 
-### Дефектов шесть, сигнатур пять
+### Six defects, five signatures
 
-Инструмент сообщает «различных дефектов: не менее 5» при шести объявленных
-в оракуле. Расхождение не ошибка, а следствие устройства группировки: она
-сводит расхождения к сигнатуре «эндпоинт × вид × отношение», а BOLA чужого
-заказа и сломанная аутентификация на нём живут на одном эндпоинте с одним
-отношением. Снаружи они неразличимы — потому в отчёте и написано «не менее».
-Оракул их различает, потому что различает человек: в первом случае нет проверки
-владения, во втором — самой аутентификации, и чинятся они по-разному.
-Две анонимные ячейки поэтому отнесены сразу к обоим дефектам.
+The tool reports "distinct defects: at least 5" against six declared in the oracle.
+The discrepancy is not an error but a consequence of how grouping is built: it
+reduces discrepancies to the signature "endpoint × kind × relation", while the BOLA
+on someone else's order and the broken authentication on it live on the same
+endpoint with the same relation. From the outside they are indistinguishable — which
+is why the report says "at least". The oracle tells them apart because a human tells
+them apart: in the first case there is no ownership check, in the second there is no
+authentication at all, and they are fixed differently. That is why the two anonymous
+cells are attributed to both defects at once.
 
-### Сверка умеет падать
+### The verification is able to fail
 
-Проверено порчей оракула: из него убрана настоящая находка (`adam` на списке
-пользователей) и вписана несуществующая (`pogba` на `get_mechanics`). Общее
-число находок при этом осталось прежним — шестнадцать против шестнадцати, —
-и сверка на счёте бы промолчала. Сравнение множествами увидело обе стороны:
+Tested by corrupting the oracle: a real finding (`adam` on the list of users) was
+removed from it and a non-existent one (`pogba` on `get_mechanics`) was written in.
+The total number of findings stayed the same — sixteen against sixteen — and a
+verification by count would have stayed silent. The comparison over sets saw both
+sides:
 
 ```
-РАСХОЖДЕНИЕ: не найдено (1):
+DISCREPANCY: not found (1):
   pogba × get_mechanics × — [privilege-escalation]
-РАСХОЖДЕНИЕ: найдено сверх оракула (1):
+DISCREPANCY: found beyond the oracle (1):
   adam × get_workshop_users_all × — [privilege-escalation]
-Итог: вариантов 1, расхождений 1.
+Total: variants 1, discrepancies 1.
 ```
 
-После восстановления оракула сверка снова сошлась без расхождений.
+After the oracle was restored, the verification came out with no discrepancies again.

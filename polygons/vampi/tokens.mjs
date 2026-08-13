@@ -39,7 +39,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
 
 export class ProvisionError extends Error {
   constructor(message) {
-    super(`Подготовка VAmPI не удалась: ${message}`);
+    super(`VAmPI setup failed: ${message}`);
     this.name = "ProvisionError";
   }
 }
@@ -87,7 +87,7 @@ function postJson(baseUrl, path, payload, token) {
 export async function resetDatabase(baseUrl) {
   const { status, body } = await request(baseUrl, "/createdb");
   if (status !== 200) {
-    throw new ProvisionError(`GET /createdb вернул ${status}`);
+    throw new ProvisionError(`GET /createdb returned ${status}`);
   }
   return body;
 }
@@ -101,7 +101,7 @@ export async function resetDatabase(baseUrl) {
 export async function provision({ baseUrl, reset = true, log = () => {} }) {
   if (reset) {
     await resetDatabase(baseUrl);
-    log("база полигона пересоздана");
+    log("the polygon database was recreated");
   }
 
   const tokens = new Map();
@@ -123,10 +123,10 @@ export async function provision({ baseUrl, reset = true, log = () => {} }) {
       // с `--no-reset` на только что поднятом стенде регистрация даёт ровно 500.
       const hint =
         registered.status === 500 && !reset
-          ? ". База ещё не создана — запустите без --no-reset"
+          ? ". The database does not exist yet — run without --no-reset"
           : "";
       throw new ProvisionError(
-        `регистрация "${user.username}" отклонена: ` +
+        `registration of "${user.username}" was rejected: ` +
           `${registered.body?.message ?? registered.status}${hint}`,
       );
     }
@@ -138,7 +138,7 @@ export async function provision({ baseUrl, reset = true, log = () => {} }) {
     const token = loggedIn.body?.auth_token;
     if (typeof token !== "string" || token === "") {
       throw new ProvisionError(
-        `вход "${user.username}" не дал токена: ${loggedIn.body?.message ?? loggedIn.status}`,
+        `login of "${user.username}" produced no token: ${loggedIn.body?.message ?? loggedIn.status}`,
       );
     }
     tokens.set(user.tokenEnv, token);
@@ -151,11 +151,11 @@ export async function provision({ baseUrl, reset = true, log = () => {} }) {
     );
     if (book.body?.status !== "success") {
       throw new ProvisionError(
-        `книга "${user.book}" не создана: ${book.body?.message ?? book.status}`,
+        `book "${user.book}" was not created: ${book.body?.message ?? book.status}`,
       );
     }
 
-    log(`${user.username}: зарегистрирован, вошёл, книга "${user.book}" создана`);
+    log(`${user.username}: registered, logged in, book "${user.book}" created`);
   }
 
   return tokens;
@@ -164,7 +164,7 @@ export async function provision({ baseUrl, reset = true, log = () => {} }) {
 /** Значение для `export`: токен — учётные данные, кавычки обязательны. */
 function shellQuote(value) {
   if (value.includes("'")) {
-    throw new ProvisionError("в токене одинарная кавычка — экранирование для shell ненадёжно");
+    throw new ProvisionError("the token contains a single quote — shell escaping is unreliable");
   }
   return `'${value}'`;
 }
@@ -184,8 +184,8 @@ async function main() {
     process.stdout.write(`export ${name}=${shellQuote(token)}\n`);
   }
   process.stderr.write(
-    `tokens: готово. Токены живут столько, сколько задано tokentimetolive ` +
-      `в docker-compose.yaml, и в файлы не пишутся.\n`,
+    `tokens: done. Tokens live as long as tokentimetolive says ` +
+      `in docker-compose.yaml, and are never written to files.\n`,
   );
 }
 

@@ -120,8 +120,11 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      # `--check-readme` дополнительно сверяет таблицу результатов в README
+      # с этим самым прогоном: числа в документе разъезжались с кодом дважды,
+      # и оба раза этого никто не замечал неделями.
       - name: Verify against the hand-written oracle
-        run: node polygon/verify.mjs
+        run: node polygon/verify.mjs --check-readme
 
   vulnerabilities:
     name: known vulnerabilities (OSV)

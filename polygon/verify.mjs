@@ -71,7 +71,7 @@ function fail(message) {
 function readBaseUrl(configText) {
   const match = /^\s*baseUrl:\s*(\S+)\s*$/m.exec(configText);
   if (match === null) {
-    fail(`в ${CONFIG} не найден target.baseUrl`);
+    fail(`target.baseUrl not found in ${CONFIG}`);
   }
   return new URL(match[1]);
 }
@@ -80,7 +80,7 @@ function readBaseUrl(configText) {
 function readTokenEnvNames(configText) {
   const names = [...configText.matchAll(/^\s*tokenEnv:\s*(\S+)\s*$/gm)].map((match) => match[1]);
   if (names.length === 0) {
-    fail(`в ${CONFIG} нет ни одного tokenEnv`);
+    fail(`no tokenEnv found in ${CONFIG}`);
   }
   return names;
 }
@@ -193,8 +193,8 @@ async function compareReadmeTable(block) {
     return undefined;
   }
   return (
-    `таблица в ${README} не совпадает с этим прогоном. ` +
-    `Обновите её: node polygon/verify.mjs --update-readme`
+    `the table in ${README} does not match this run. ` +
+    `Update it: node polygon/verify.mjs --update-readme`
   );
 }
 
@@ -202,7 +202,7 @@ function extractBlock(text) {
   const from = text.indexOf(TABLE_BEGIN);
   const to = text.indexOf(TABLE_END);
   if (from === -1 || to === -1) {
-    fail(`в ${README} нет меток ${TABLE_BEGIN} и ${TABLE_END} вокруг таблицы сверки`);
+    fail(`${README} has no ${TABLE_BEGIN} / ${TABLE_END} markers around the verification table`);
   }
   return text.slice(from, to + TABLE_END.length);
 }
@@ -214,13 +214,13 @@ function replaceBlock(text, block) {
 
 async function main() {
   if (!existsSync(CLI)) {
-    fail(`не найден ${CLI}. Соберите инструмент: pnpm run build`);
+    fail(`${CLI} not found. Build the tool: pnpm run build`);
   }
 
   const configText = await readFile(CONFIG, "utf8");
   const baseUrl = readBaseUrl(configText);
   if (baseUrl.hostname !== "127.0.0.1") {
-    fail(`baseUrl указывает на ${baseUrl.hostname}; платформа слушает только 127.0.0.1`);
+    fail(`baseUrl points at ${baseUrl.hostname}; the platform listens on 127.0.0.1 only`);
   }
   const tokenEnvNames = readTokenEnvNames(configText);
 
@@ -229,7 +229,7 @@ async function main() {
   // ни в одном варианте, — это забытый вариант либо неверная пометка видимости.
   const gaps = checkCoverage(groundTruth);
   if (gaps.length > 0) {
-    fail(`оракул неполон:\n  ${gaps.join("\n  ")}`);
+    fail(`the ground truth is incomplete:\n  ${gaps.join("\n  ")}`);
   }
   const argv = process.argv.slice(2);
   // Сверка таблицы в README — модификатор обычного прогона, а не отдельный
@@ -238,13 +238,13 @@ async function main() {
   const updateReadme = argv.includes("--update-readme");
   const selected = argv.filter((argument) => !argument.startsWith("--"));
   if ((checkReadme || updateReadme) && selected.length > 0) {
-    fail("сверка таблицы требует полного прогона: уберите фильтр комбинаций");
+    fail("checking the table requires a full run: drop the combination filter");
   }
   const combinations = groundTruth.variants.filter(
     (combination) => selected.length === 0 || selected.includes(combination.id),
   );
   if (combinations.length === 0) {
-    fail(`не найдено ни одной комбинации по фильтру: ${selected.join(", ")}`);
+    fail(`no combination matched the filter: ${selected.join(", ")}`);
   }
 
   // Токены случайны на каждый запуск: в файлах их нет и быть не должно.
@@ -272,14 +272,14 @@ async function main() {
       .filter(([, on]) => on)
       .map(([name]) => name);
     process.stdout.write(
-      `\n=== ${combination.id} === флаги: ${enabled.length === 0 ? "все выключены" : enabled.join(", ")}\n`,
+      `\n=== ${combination.id} === flags: ${enabled.length === 0 ? "all off" : enabled.join(", ")}\n`,
     );
 
     const { child, readStderr } = startServer(environment);
     const health = await waitForHealth(baseUrl, child);
     if (health === undefined) {
       await stopServer(child);
-      fail(`платформа не поднялась на ${baseUrl.origin}:\n${readStderr()}`);
+      fail(`the platform did not come up on ${baseUrl.origin}:\n${readStderr()}`);
     }
 
     // Флаг мог не долететь — например, из-за опечатки в имени переменной.
@@ -288,7 +288,7 @@ async function main() {
       const field = FLAG_FIELDS[name];
       if (health.defects?.[field] !== on) {
         await stopServer(child);
-        fail(`платформа поднялась с ${field}=${health.defects?.[field]}, ожидалось ${on}`);
+        fail(`the platform came up with ${field}=${health.defects?.[field]}, expected ${on}`);
       }
     }
 
@@ -297,7 +297,9 @@ async function main() {
     await stopServer(child);
 
     if (!existsSync(reportPath)) {
-      process.stdout.write(`  РАСХОЖДЕНИЕ: отчёт не создан, код ${result.code}\n${result.stderr}`);
+      process.stdout.write(
+        `  MISMATCH: no report was produced, exit code ${result.code}\n${result.stderr}`,
+      );
       mismatched += 1;
       continue;
     }
@@ -308,22 +310,22 @@ async function main() {
     const problems = [...shared];
     // Свойственное этому стенду: он свой и должен отвечать без сбоев.
     if (report.summary.failures > 0) {
-      problems.push(`сорвавшихся обращений: ${report.summary.failures}`);
+      problems.push(`failed requests: ${report.summary.failures}`);
     }
     if (report.canariesChecked === 0) {
-      problems.push("канарейки не проверялись: аутентификация не подтверждена");
+      problems.push("no canary was checked: authentication is unconfirmed");
     }
 
     process.stdout.write(
-      `  опрошено ячеек: ${report.summary.observations}, ` +
-        `канареек: ${report.canariesChecked}, ` +
+      `  cells probed: ${report.summary.observations}, ` +
+        `canaries: ${report.canariesChecked}, ` +
         // `findings` считает весь список целиком — и матричные расхождения,
         // и находки по телу. Прибавлять к нему `checkFindings` значило считать
         // вторые дважды: 88 на экране при 76 строках в отчёте. Сверка при этом
         // оставалась зелёной, потому что сравнивает множества ключей, а не числа.
-        `находок: ${report.summary.findings} ` +
-        `(из них по телу ${report.summary.checkFindings}) ` +
-        `(ожидалось ${combination.findings.length})\n`,
+        `findings: ${report.summary.findings} ` +
+        `(of them by body ${report.summary.checkFindings}) ` +
+        `(oracle expects ${combination.findings.length})\n`,
     );
 
     rows.push({
@@ -337,31 +339,31 @@ async function main() {
     });
 
     if (problems.length === 0) {
-      process.stdout.write(`  СОВПАЛО с оракулом, код возврата ${result.code}\n`);
+      process.stdout.write(`  MATCHES the ground truth, exit code ${result.code}\n`);
     } else {
       mismatched += 1;
       for (const problem of problems) {
-        process.stdout.write(`  РАСХОЖДЕНИЕ: ${problem}\n`);
+        process.stdout.write(`  MISMATCH: ${problem}\n`);
       }
-      process.stdout.write(`  вывод инструмента:\n${result.stderr.replace(/^/gm, "    ")}`);
+      process.stdout.write(`  tool output:\n${result.stderr.replace(/^/gm, "    ")}`);
     }
   }
 
   process.stdout.write(
-    `\nИтог: комбинаций ${combinations.length}, расхождений ${mismatched}. ` +
-      `Отчёты: ${reportDir}\n`,
+    `\nTotal: ${combinations.length} combinations, ${mismatched} mismatches. ` +
+      `Reports: ${reportDir}\n`,
   );
 
   if (updateReadme) {
     await writeReadmeTable(renderTable(rows));
-    process.stdout.write(`\nТаблица в ${README} обновлена прогоном.\n`);
+    process.stdout.write(`\nThe table in ${README} was updated from this run.\n`);
   } else if (checkReadme) {
     const stale = await compareReadmeTable(renderTable(rows));
     if (stale !== undefined) {
       mismatched += 1;
-      process.stdout.write(`\nРАСХОЖДЕНИЕ: ${stale}\n`);
+      process.stdout.write(`\nMISMATCH: ${stale}\n`);
     } else {
-      process.stdout.write(`\nТаблица в ${README} совпадает с прогоном.\n`);
+      process.stdout.write(`\nThe table in ${README} matches this run.\n`);
     }
   }
 

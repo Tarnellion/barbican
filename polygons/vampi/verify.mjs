@@ -87,7 +87,7 @@ function run(command, args, options = {}) {
 function readBaseUrl(configText) {
   const match = /^\s*baseUrl:\s*(\S+)\s*$/m.exec(configText);
   if (match === null) {
-    fail(`в ${CONFIG} не найден target.baseUrl`);
+    fail(`target.baseUrl not found in ${CONFIG}`);
   }
   return new URL(match[1]);
 }
@@ -95,7 +95,7 @@ function readBaseUrl(configText) {
 function readTokenEnvNames(configText) {
   const names = [...configText.matchAll(/^\s*tokenEnv:\s*(\S+)\s*$/gm)].map((match) => match[1]);
   if (names.length === 0) {
-    fail(`в ${CONFIG} нет ни одного tokenEnv`);
+    fail(`no tokenEnv found in ${CONFIG}`);
   }
   return names;
 }
@@ -112,15 +112,15 @@ function assertProvisioningMatchesConfig(configText) {
   const provided = new Set(USERS.map((user) => user.tokenEnv));
   for (const name of declared) {
     if (!provided.has(name)) {
-      fail(`конфигурация требует ${name}, но tokens.mjs такой переменной не выдаёт`);
+      fail(`the configuration needs ${name}, but tokens.mjs does not provide that variable`);
     }
   }
   for (const user of USERS) {
     if (!configText.includes(`username: ${user.username}`)) {
-      fail(`tokens.mjs заводит пользователя "${user.username}", но в ${CONFIG} такого объекта нет`);
+      fail(`tokens.mjs creates user "${user.username}", but ${CONFIG} has no such resource`);
     }
     if (!configText.includes(`book_title: ${user.book}`)) {
-      fail(`tokens.mjs создаёт книгу "${user.book}", но в ${CONFIG} такого объекта нет`);
+      fail(`tokens.mjs creates book "${user.book}", but ${CONFIG} has no such resource`);
     }
   }
 }
@@ -136,7 +136,7 @@ function assertProvisioningMatchesConfig(configText) {
 function assertOracleIsSound(groundTruth) {
   const gaps = checkCoverage(groundTruth);
   if (gaps.length > 0) {
-    fail(`оракул неполон:\n  ${gaps.join("\n  ")}`);
+    fail(`the ground truth is incomplete:\n  ${gaps.join("\n  ")}`);
   }
 }
 
@@ -149,7 +149,7 @@ async function composeUp(environment) {
     env: environment,
   });
   if (result.code !== 0) {
-    fail(`docker compose up завершился с кодом ${result.code}:\n${result.stderr}`);
+    fail(`docker compose up exited with code ${result.code}:\n${result.stderr}`);
   }
 }
 
@@ -194,23 +194,27 @@ async function checkMode(mode, baseUrl, reportDir) {
   const banner = await waitForBanner(baseUrl);
   if (banner === undefined) {
     await composeDown(environment);
-    fail(`VAmPI не поднялась на ${baseUrl.origin}`);
+    fail(`VAmPI did not come up on ${baseUrl.origin}`);
   }
   if (banner.vulnerable !== mode.selector.vulnerable) {
     await composeDown(environment);
-    fail(`стенд поднялся с vulnerable=${banner.vulnerable}, ожидалось ${mode.selector.vulnerable}`);
+    fail(
+      `the deployment came up with vulnerable=${banner.vulnerable}, expected ${mode.selector.vulnerable}`,
+    );
   }
 
   const tokens = await provision({
     baseUrl: baseUrl.origin,
-    log: (message) => process.stdout.write(`  подготовка: ${message}\n`),
+    log: (message) => process.stdout.write(`  setup: ${message}\n`),
   });
 
   const reportPath = join(reportDir, `${mode.id}.report.json`);
   const result = await runCli(reportPath, { ...environment, ...Object.fromEntries(tokens) });
 
   if (!existsSync(reportPath)) {
-    process.stdout.write(`  РАСХОЖДЕНИЕ: отчёт не создан, код ${result.code}\n${result.stderr}`);
+    process.stdout.write(
+      `  MISMATCH: no report was produced, exit code ${result.code}\n${result.stderr}`,
+    );
     return false;
   }
   const report = JSON.parse(await readFile(reportPath, "utf8"));
@@ -223,57 +227,59 @@ async function checkMode(mode, baseUrl, reportDir) {
   // пользователей и книги, и остаток матрицы проверяется против пустой базы.
   const destructive = report.skipped.find((item) => item.endpointId === DESTRUCTIVE_ENDPOINT);
   if (destructive?.reason !== "excluded") {
-    problems.push(`${DESTRUCTIVE_ENDPOINT} не исключён из прогона — стенд мог быть сброшен`);
+    problems.push(
+      `${DESTRUCTIVE_ENDPOINT} was not excluded from the run — the deployment may have been reset`,
+    );
   }
   // Признаки недостоверного прогона: находок может не быть просто потому,
   // что до них не дошли.
   if (report.truncated) {
-    problems.push("прогон оборван (truncated), хвост матрицы не проверен");
+    problems.push("the run was cut short (truncated), the tail of the matrix was never tested");
   }
   if (report.unauthenticated.length > 0) {
-    problems.push(`аккаунты без доступа нигде: ${report.unauthenticated.join(", ")}`);
+    problems.push(`accounts with no access anywhere: ${report.unauthenticated.join(", ")}`);
   }
   if (report.summary.failures > 0) {
-    problems.push(`сорвавшихся обращений: ${report.summary.failures}`);
+    problems.push(`failed requests: ${report.summary.failures}`);
   }
   if (report.canariesChecked === 0) {
-    problems.push("канарейки не проверялись: аутентификация не подтверждена");
+    problems.push("no canary was checked: authentication is unconfirmed");
   }
 
   process.stdout.write(
-    `  опрошено ячеек: ${report.summary.observations}, ` +
-      `канареек: ${report.canariesChecked}, ` +
-      `находок: ${report.summary.findings} (ожидалось ${mode.findings.length})\n`,
+    `  cells probed: ${report.summary.observations}, ` +
+      `canaries: ${report.canariesChecked}, ` +
+      `findings: ${report.summary.findings} (oracle expects ${mode.findings.length})\n`,
   );
 
   if (problems.length === 0) {
-    process.stdout.write(`  СОВПАЛО с оракулом, код возврата ${result.code}\n`);
+    process.stdout.write(`  MATCHES the ground truth, exit code ${result.code}\n`);
     return true;
   }
   for (const problem of problems) {
-    process.stdout.write(`  РАСХОЖДЕНИЕ: ${problem}\n`);
+    process.stdout.write(`  MISMATCH: ${problem}\n`);
   }
-  process.stdout.write(`  вывод инструмента:\n${result.stderr.replace(/^/gm, "    ")}`);
+  process.stdout.write(`  tool output:\n${result.stderr.replace(/^/gm, "    ")}`);
   return false;
 }
 
 async function main() {
   if (!existsSync(CLI)) {
-    fail(`не найден ${CLI}. Соберите инструмент: pnpm run build`);
+    fail(`${CLI} not found. Build the tool: pnpm run build`);
   }
 
   const docker = await run("docker", ["image", "inspect", IMAGE]);
   if (docker.code !== 0) {
     fail(
-      `образ ${IMAGE} не найден локально (docker image inspect: ${docker.code}). ` +
-        `Выполните docker pull ${IMAGE} — тянуть его молча посреди сверки незачем.`,
+      `image ${IMAGE} is not present locally (docker image inspect: ${docker.code}). ` +
+        `Run docker pull ${IMAGE} — pulling it silently mid-verification is not something this script does.`,
     );
   }
 
   const configText = await readFile(CONFIG, "utf8");
   const baseUrl = readBaseUrl(configText);
   if (baseUrl.hostname !== "127.0.0.1") {
-    fail(`baseUrl указывает на ${baseUrl.hostname}; полигон публикуется только на петле`);
+    fail(`baseUrl points at ${baseUrl.hostname}; the polygon is published on loopback only`);
   }
   assertProvisioningMatchesConfig(configText);
 
@@ -286,7 +292,7 @@ async function main() {
     (mode) => selected.length === 0 || selected.includes(mode.id),
   );
   if (modes.length === 0) {
-    fail(`не найдено ни одного режима по фильтру: ${selected.join(", ")}`);
+    fail(`no mode matched the filter: ${selected.join(", ")}`);
   }
 
   const reportDir = await mkdtemp(join(tmpdir(), "barbican-vampi-"));
@@ -301,7 +307,7 @@ async function main() {
       // Стенд гасится в любом случае: оставить поднятым намеренно уязвимый API,
       // отдающий пароли без токена, — плохой способ закончить сверку.
       await composeDown(composeEnvironment(baseUrl.port, mode.selector.vulnerable));
-      fail(`режим ${mode.id}: ${error.message}`);
+      fail(`mode ${mode.id}: ${error.message}`);
     }
     if (!matched) {
       mismatched += 1;
@@ -312,10 +318,10 @@ async function main() {
   }
 
   process.stdout.write(
-    `\nИтог: режимов ${modes.length}, расхождений ${mismatched}. Отчёты: ${reportDir}\n`,
+    `\nTotal: ${modes.length} modes, ${mismatched} mismatches. Reports: ${reportDir}\n`,
   );
   if (keep) {
-    process.stdout.write(`Стенд оставлен поднятым: docker compose -f ${COMPOSE} down -v\n`);
+    process.stdout.write(`The deployment was left running: docker compose -f ${COMPOSE} down -v\n`);
   }
   return mismatched === 0 ? 0 : 1;
 }

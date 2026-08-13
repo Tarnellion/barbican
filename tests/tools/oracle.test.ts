@@ -89,7 +89,7 @@ describe("loadGroundTruth", () => {
       ),
     }));
 
-    expect(() => loadGroundTruth(source)).toThrow(/опечатка/);
+    expect(() => loadGroundTruth(source)).toThrow(/out of sync with itself/);
   });
 
   /**
@@ -106,7 +106,7 @@ describe("loadGroundTruth", () => {
       ),
     }));
 
-    expect(() => loadGroundTruth(source)).toThrow(/нет ни одного дефекта/);
+    expect(() => loadGroundTruth(source)).toThrow(/has no defect/);
   });
 
   it("отвергает повторяющийся идентификатор варианта", () => {
@@ -115,7 +115,7 @@ describe("loadGroundTruth", () => {
       variants: [value.variants[0], value.variants[0]],
     }));
 
-    expect(() => loadGroundTruth(source)).toThrow(/больше одного раза/);
+    expect(() => loadGroundTruth(source)).toThrow(/more than once/);
   });
 
   it("отвергает пустой перечень вариантов", () => {
@@ -181,7 +181,7 @@ describe("checkCoverage", () => {
       defects: { "missing-filter": { visibility: "unsafe-method" } },
     };
 
-    expect(checkCoverage(contradictory)[0]).toMatch(/недостижим/);
+    expect(checkCoverage(contradictory)[0]).toMatch(/unreachable/);
   });
 });
 
@@ -244,14 +244,14 @@ describe("compareVariant", () => {
     const result = compareVariant(broken, { findings: [], checks: [] }, 1);
 
     expect(result.missing).toHaveLength(1);
-    expect(result.problems[0]).toMatch(/не найдено/);
+    expect(result.problems[0]).toMatch(/not found/);
   });
 
   it("замечает находку сверх оракула", () => {
     const result = compareVariant(MINIMAL.variants[0] as Variant, matching, 0);
 
     expect(result.unexpected).toHaveLength(1);
-    expect(result.problems[0]).toMatch(/сверх оракула/);
+    expect(result.problems[0]).toMatch(/beyond the ground truth/);
   });
 
   /**
@@ -279,7 +279,7 @@ describe("compareVariant", () => {
   });
 
   it("замечает несовпадение кода возврата", () => {
-    expect(compareVariant(broken, matching, 0).problems[0]).toMatch(/код возврата/);
+    expect(compareVariant(broken, matching, 0).problems[0]).toMatch(/exit code/);
   });
 
   /** Находок может не быть просто потому, что до них не дошли. */
@@ -294,7 +294,7 @@ describe("compareVariant", () => {
       0,
     );
 
-    expect(result.problems[0]).toMatch(/оборван/);
+    expect(result.problems[0]).toMatch(/cut short/);
   });
 
   it("не считает совпадением прогон с неаутентифицированными аккаунтами", () => {
@@ -308,6 +308,6 @@ describe("compareVariant", () => {
       0,
     );
 
-    expect(result.problems[0]).toMatch(/без доступа нигде/);
+    expect(result.problems[0]).toMatch(/no access anywhere/);
   });
 });

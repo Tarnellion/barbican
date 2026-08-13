@@ -44,7 +44,7 @@ export class GroundTruthError extends Error {
 
 function requireObject(value, where) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new GroundTruthError(`${where}: ожидался объект`);
+    throw new GroundTruthError(`${where}: expected an object`);
   }
   return value;
 }
@@ -61,9 +61,9 @@ export function loadGroundTruth(source) {
   try {
     parsed = JSON.parse(source);
   } catch (cause) {
-    throw new GroundTruthError(`не разбирается как JSON: ${cause.message}`);
+    throw new GroundTruthError(`does not parse as JSON: ${cause.message}`);
   }
-  requireObject(parsed, "оракул");
+  requireObject(parsed, "ground truth");
 
   const defects = requireObject(parsed.defects, "defects");
   for (const [id, defect] of Object.entries(defects)) {
@@ -71,47 +71,47 @@ export function loadGroundTruth(source) {
     if (!VISIBILITIES.includes(defect.visibility)) {
       throw new GroundTruthError(
         `defects.${id}.visibility = ${JSON.stringify(defect.visibility)}; ` +
-          `допустимы ${VISIBILITIES.join(", ")}. Дефект без объявленной видимости ` +
-          `не отличить от забытого: именно поэтому поле обязательно.`,
+          `allowed: ${VISIBILITIES.join(", ")}. A defect with no declared visibility ` +
+          `cannot be told from a forgotten one: that is why the field is required.`,
       );
     }
   }
 
   if (!Array.isArray(parsed.variants) || parsed.variants.length === 0) {
-    throw new GroundTruthError("variants: ожидался непустой массив");
+    throw new GroundTruthError("variants: expected a non-empty array");
   }
 
   const seen = new Set();
   for (const variant of parsed.variants) {
     requireObject(variant, "variants[]");
     if (typeof variant.id !== "string" || variant.id === "") {
-      throw new GroundTruthError("variants[].id: ожидалась непустая строка");
+      throw new GroundTruthError("variants[].id: expected a non-empty string");
     }
     if (seen.has(variant.id)) {
-      throw new GroundTruthError(`вариант "${variant.id}" объявлен больше одного раза`);
+      throw new GroundTruthError(`variant "${variant.id}" is declared more than once`);
     }
     seen.add(variant.id);
     requireObject(variant.selector, `variants.${variant.id}.selector`);
     if (!Number.isInteger(variant.expectedExitCode)) {
-      throw new GroundTruthError(`variants.${variant.id}.expectedExitCode: ожидалось целое`);
+      throw new GroundTruthError(`variants.${variant.id}.expectedExitCode: expected an integer`);
     }
     if (!Array.isArray(variant.findings)) {
-      throw new GroundTruthError(`variants.${variant.id}.findings: ожидался массив`);
+      throw new GroundTruthError(`variants.${variant.id}.findings: expected an array`);
     }
     for (const finding of variant.findings) {
       requireObject(finding, `variants.${variant.id}.findings[]`);
       if (!Array.isArray(finding.defects) || finding.defects.length === 0) {
         throw new GroundTruthError(
-          `вариант "${variant.id}": у находки нет ни одного дефекта в поле defects. ` +
-            `Находка, которую нечем объяснить, — это либо забытый дефект, ` +
-            `либо ошибка в самом оракуле.`,
+          `variant "${variant.id}": a finding has no defect in its defects field. ` +
+            `A finding nothing explains is either a forgotten defect ` +
+            `or an error in the ground truth itself.`,
         );
       }
       for (const id of finding.defects) {
         if (!Object.hasOwn(defects, id)) {
           throw new GroundTruthError(
-            `вариант "${variant.id}": находка ссылается на дефект "${id}", ` +
-              `которого нет в перечне. Оракул рассинхронизирован сам с собой.`,
+            `variant "${variant.id}": a finding references defect "${id}", ` +
+              `which is not in the list. The ground truth is out of sync with itself.`,
           );
         }
       }
@@ -145,12 +145,12 @@ export function checkCoverage(groundTruth) {
     const detectable = DETECTABLE.includes(defect.visibility);
     if (!detectable && used.has(id)) {
       problems.push(
-        `дефект "${id}" объявлен недостижимым (${defect.visibility}), но ожидается в находках`,
+        `defect "${id}" is declared unreachable (${defect.visibility}) yet expected among findings`,
       );
     }
     if (detectable && !used.has(id)) {
       problems.push(
-        `дефект "${id}" объявлен видимым (${defect.visibility}), но не ожидается ни в одном варианте`,
+        `defect "${id}" is declared visible (${defect.visibility}) yet expected in no variant`,
       );
     }
   }
@@ -195,23 +195,23 @@ export function compareVariant(variant, report, exitCode) {
 
   const problems = [];
   if (missing.length > 0) {
-    problems.push(`не найдено (${missing.length}):\n    ${missing.join("\n    ")}`);
+    problems.push(`not found (${missing.length}):\n    ${missing.join("\n    ")}`);
   }
   if (unexpected.length > 0) {
     problems.push(
-      `найдено сверх оракула (${unexpected.length}):\n    ${unexpected.join("\n    ")}`,
+      `found beyond the ground truth (${unexpected.length}):\n    ${unexpected.join("\n    ")}`,
     );
   }
   if (exitCode !== variant.expectedExitCode) {
-    problems.push(`код возврата ${exitCode}, ожидался ${variant.expectedExitCode}`);
+    problems.push(`exit code ${exitCode}, expected ${variant.expectedExitCode}`);
   }
   // Признаки недостоверности прогона: находок может не быть просто потому,
   // что до них не дошли.
   if (report.truncated === true) {
-    problems.push("прогон оборван, хвост матрицы не проверен");
+    problems.push("the run was cut short, the tail of the matrix was never tested");
   }
   if ((report.unauthenticated ?? []).length > 0) {
-    problems.push(`аккаунты без доступа нигде: ${report.unauthenticated.join(", ")}`);
+    problems.push(`accounts with no access anywhere: ${report.unauthenticated.join(", ")}`);
   }
 
   return { missing, unexpected, problems };
