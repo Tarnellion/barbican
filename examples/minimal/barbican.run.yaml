@@ -84,4 +84,4 @@ tenants: [tenant-a, tenant-b]
 # отсутствующий фильтр. Тело читается только у них, наружу уходит лишь
 # необратимый скаляр, само тело не сохраняется нигде (ADR-0011).
 bodySignals:
-  tenantScoped: [orders.list]
+  responseMustDifferByTenant: [orders.list]

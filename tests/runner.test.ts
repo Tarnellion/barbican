@@ -86,10 +86,15 @@ describe("collectObservations", () => {
       }).then((result) => ({ result, seen }));
     }
 
-    /** Тело читается только там, где человек объявил tenantScoped. */
+    /** Тело читается только там, где человек объявил responseMustDifferByTenant. */
     it("просит сигналы только у помеченных эндпоинтов", async () => {
       const marked: readonly Endpoint[] = [
-        { id: "users.list", method: "GET", path: "/v1/admin/users", tenantScoped: true },
+        {
+          id: "users.list",
+          method: "GET",
+          path: "/v1/admin/users",
+          responseMustDifferByTenant: true,
+        },
         { id: "tickets.list", method: "GET", path: "/v1/support/tickets" },
       ];
 
@@ -101,7 +106,12 @@ describe("collectObservations", () => {
 
     it("переносит вычисленные сигналы в наблюдение", async () => {
       const marked: readonly Endpoint[] = [
-        { id: "users.list", method: "GET", path: "/v1/admin/users", tenantScoped: true },
+        {
+          id: "users.list",
+          method: "GET",
+          path: "/v1/admin/users",
+          responseMustDifferByTenant: true,
+        },
       ];
 
       const { result } = await collect(marked, {
@@ -123,7 +133,7 @@ describe("collectObservations", () => {
           id: "users.list",
           method: "GET",
           path: "/v1/admin/users",
-          tenantScoped: true,
+          responseMustDifferByTenant: true,
           signals: [{ name: "n", kind: "count", path: "items" }],
         },
       ];

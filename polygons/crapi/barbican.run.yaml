@@ -99,7 +99,7 @@ policy:
 # внесены намеренно: они законно одинаковы для всех, и пометка дала бы ложное
 # срабатывание.
 bodySignals:
-  tenantScoped: [get_vehicles, get_orders, get_dashboard]
+  responseMustDifferByTenant: [get_vehicles, get_orders, get_dashboard]
 # Запись, спрятанная за безопасным по букве методом. GET
 # /workshop/api/mechanic/receive_report называется в спецификации
 # create_service_report, описан как «Create and Assign a Service Report» и объявлен

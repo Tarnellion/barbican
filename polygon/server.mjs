@@ -499,8 +499,9 @@ function handle(req, res, context) {
       send(res, status, { error: "forbidden" });
       return;
     }
-    // Тело здесь ничего не решает: ручка не помечена `tenantScoped`, сигналы над
-    // ней не считаются, и дефект — если бы он тут был — был бы виден по статусу.
+    // Тело здесь ничего не решает: для ручки не объявлен
+    // `responseMustDifferByTenant`, сигналы над ней не считаются, и дефект —
+    // если бы он тут был — был бы виден по статусу.
     send(res, 200, { affiliate: account.id, tenant: account.tenant });
     return;
   }
