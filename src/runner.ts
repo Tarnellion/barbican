@@ -386,12 +386,13 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         });
         continue;
       }
-      // Тело читается только у эндпоинтов, помеченных человеком как tenantScoped:
+      // Тело читается только там, где человек объявил `responseMustDifferByTenant`:
       // где не объявлено, там поток отменяется непрочитанным. См. ADR-0011.
-      // Дайджест подразумевается пометкой tenantScoped, остальные скаляры
-      // объявлены человеком явно. Пусто — тело не читается вовсе.
+      // Дайджест подразумевается самим этим объявлением — сравнивать ответы между
+      // тенантами больше нечем, — остальные скаляры объявлены человеком явно.
+      // Пусто — тело не читается вовсе.
       const specs: readonly SignalSpec[] = [
-        ...(endpoint.tenantScoped === true ? DIGEST_SIGNALS : []),
+        ...(endpoint.responseMustDifferByTenant === true ? DIGEST_SIGNALS : []),
         ...(endpoint.signals ?? []),
       ];
       const request = {

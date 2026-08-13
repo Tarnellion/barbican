@@ -20,7 +20,7 @@ const LIST: Endpoint = {
   id: "orders-list",
   method: "GET",
   path: "/v1/orders",
-  tenantScoped: true,
+  responseMustDifferByTenant: true,
 };
 
 function observed(
@@ -65,7 +65,7 @@ describe("маппинг на стандарты", () => {
 });
 
 describe("identical-response-across-tenants", () => {
-  it("находит одинаковый ответ у аккаунтов из разных тенантов", () => {
+  it("находит совпавший дайджест у аккаунтов из разных тенантов", () => {
     const findings = check.run({
       matrix: matrixOf([observed("alice-a", 111), observed("carol-b", 111)]),
     });
@@ -73,6 +73,23 @@ describe("identical-response-across-tenants", () => {
     expect(findings).toHaveLength(1);
     expect(findings[0]?.endpointId).toBe("orders-list");
     expect(findings[0]?.evidence["otherTenant"]).toBe("tenant-b");
+  });
+
+  /**
+   * Обоснование обязано называть то, что проверено. Сравнивались дайджесты —
+   * 48 бит SHA-256 с солью, — а не тела: тела не сохраняются и сравнить их
+   * нечем. Прежнее `identicalBody` утверждало побайтовое совпадение, которого
+   * инструмент не наблюдал; отчёт ложится в основу инцидента, и разница там
+   * принципиальна. Тест держит имя поля, чтобы утверждение не «подросло» снова.
+   */
+  it("называет в обосновании ровно то, что сравнивалось: дайджесты", () => {
+    const findings = check.run({
+      matrix: matrixOf([observed("alice-a", 111), observed("carol-b", 111)]),
+    });
+
+    expect(findings[0]?.evidence["bodyDigestsEqual"]).toBe(true);
+    expect(findings[0]?.evidence).not.toHaveProperty("identicalBody");
+    expect(findings[0]?.title).toContain("Дайджест");
   });
 
   it("молчит, когда ответы различаются", () => {
@@ -93,10 +110,10 @@ describe("identical-response-across-tenants", () => {
   });
 
   /**
-   * Без пометки человеком `GET /v1/health` с одинаковым для всех `{"status":"ok"}`
-   * стал бы находкой, и настоящие утечки утонули бы в шуме.
+   * Без объявления человеком `GET /v1/health` с одинаковым для всех
+   * `{"status":"ok"}` стал бы находкой, и настоящие утечки утонули бы в шуме.
    */
-  it("молчит на эндпоинте без пометки tenantScoped", () => {
+  it("молчит на эндпоинте, для которого различие не объявлено", () => {
     const findings = check.run({
       matrix: matrixOf([observed("alice-a", 111), observed("carol-b", 111)], {
         id: "orders-list",

@@ -126,11 +126,11 @@ conservative and enforced by construction rather than by flags you have to remem
 - Only `GET` and `HEAD` are issued unless `--unsafe-methods` is passed explicitly.
 - A host allowlist is mandatory; without one the tool refuses to run.
 - Response bodies are never stored. By default they are not even read: the stream is
-  cancelled. Where you explicitly declare `bodySignals.tenantScoped`, a body is read in
-  transit to compute an irreversible scalar — a salted 48-bit digest — and discarded. The
-  signal type admits numbers and booleans only, so a body structurally cannot fit in it.
-  This is what makes a missing tenant filter on a list endpoint visible at all: it returns
-  200 either way, so no status code distinguishes it.
+  cancelled. Where you explicitly declare `bodySignals.responseMustDifferByTenant`, a body
+  is read in transit to compute an irreversible scalar — a salted 48-bit digest — and
+  discarded. The signal type admits numbers and booleans only, so a body structurally
+  cannot fit in it. This is what makes a missing tenant filter on a list endpoint visible
+  at all: it returns 200 either way, so no status code distinguishes it.
 - External `$ref`s in OpenAPI documents are never resolved, over HTTP or the filesystem
   (SSRF and path traversal).
 - Throttling is always on: concurrency and rate caps, exponential backoff, a circuit

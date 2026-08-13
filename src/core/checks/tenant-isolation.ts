@@ -25,11 +25,17 @@ function digestOf(observation: AccessObservation, name: string): number | undefi
 }
 
 /**
- * Два аккаунта из разных тенантов получили побайтово одинаковый ответ.
+ * У двух аккаунтов из разных тенантов совпал дайджест ответа.
  *
- * Проверка срабатывает только на эндпоинтах, помеченных человеком как
- * `tenantScoped`. Без пометки `GET /v1/health` с его одинаковым для всех
- * `{"status":"ok"}` стал бы находкой, и настоящие утечки утонули бы в шуме.
+ * Именно дайджест, а не тело: тела не сохраняются и сравнить их нечем
+ * (ADR-0011). Отсюда и имя поля в обосновании — `bodyDigestsEqual`, а не
+ * прежнее `identicalBody`: коллизия 48 бит маловероятна, но утверждение
+ * о побайтовом совпадении инструмент не проверял и делать его не вправе.
+ *
+ * Проверка срабатывает только на эндпоинтах, для которых человек объявил
+ * `responseMustDifferByTenant`. Без объявления `GET /v1/health` с его
+ * одинаковым для всех `{"status":"ok"}` стал бы находкой, и настоящие утечки
+ * утонули бы в шуме.
  *
  * Рассматриваются только обращения **без объекта**. Когда объект задан, оба
  * аккаунта читают одну и ту же запись, и одинаковый ответ — не признак дефекта,
@@ -42,8 +48,9 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
   return {
     id: IDENTICAL_RESPONSE_CHECK_ID,
     description:
-      "Ответ помеченного tenantScoped эндпоинта побайтово совпал у аккаунтов " +
-      "из разных тенантов: признак отсутствующего фильтра по тенанту",
+      "Дайджест ответа совпал у аккаунтов из разных тенантов на эндпоинте, " +
+      "ответ которого объявлен обязанным различаться между ними: признак " +
+      "отсутствующего фильтра по тенанту",
     severity: "high",
     /**
      * API3 (property-level) убран намеренно: проверка ничего не знает о полях,
@@ -62,12 +69,12 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
     run(context: CheckContext): readonly Finding[] {
       const { endpoints, accounts, observations } = context.matrix;
 
-      const tenantScoped = new Set(
+      const mustDiffer = new Set(
         endpoints
-          .filter((endpoint) => endpoint.tenantScoped === true)
+          .filter((endpoint) => endpoint.responseMustDifferByTenant === true)
           .map((endpoint) => endpoint.id),
       );
-      if (tenantScoped.size === 0) {
+      if (mustDiffer.size === 0) {
         return [];
       }
 
@@ -84,7 +91,7 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
           : createTenantHierarchy(context.matrix.tenants);
       const findings: Finding[] = [];
 
-      for (const endpointId of [...tenantScoped].sort()) {
+      for (const endpointId of [...mustDiffer].sort()) {
         const relevant = observations
           .filter(
             (observation) =>
@@ -124,7 +131,9 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
             findings.push({
               checkId: IDENTICAL_RESPONSE_CHECK_ID,
               severity: "high",
-              title: `Ответ ${endpointId} одинаков для тенантов ${leftAccount.tenantId} и ${rightAccount.tenantId}`,
+              // Заголовок говорит о дайджесте, а не об ответе: тела не
+              // сохраняются, и сравнить их было нечем. См. `bodyDigestsEqual`.
+              title: `Дайджест ответа ${endpointId} совпал у тенантов ${leftAccount.tenantId} и ${rightAccount.tenantId}`,
               endpointId,
               accountId: leftAccount.id,
               evidence: {
@@ -132,9 +141,14 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
                 tenant: leftAccount.tenantId,
                 otherTenant: rightAccount.tenantId,
                 status: left.status,
-                // Дайджест не выносится: он осмыслен только внутри прогона
-                // (соль случайна), а читателю отчёта ничего не сообщает.
-                identicalBody: true,
+                // Само значение дайджеста не выносится: оно осмыслено только
+                // внутри прогона (соль случайна), а читателю отчёта ничего
+                // не сообщает. Выносится факт равенства — и назван он тем,
+                // что проверено: совпали 48 бит SHA-256 с солью, а не тела.
+                // Коллизия маловероятна (порядка 10⁻⁹ на тысяче ответов,
+                // ADR-0011), но отчёт ложится в основу инцидента, и разница
+                // между «тела совпали» и «совпали дайджесты» там принципиальна.
+                bodyDigestsEqual: true,
               },
             });
           }

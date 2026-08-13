@@ -173,7 +173,7 @@ const configSchema = z.object({
    */
   bodySignals: z
     .object({
-      tenantScoped: z.array(z.string().min(1)).min(1),
+      responseMustDifferByTenant: z.array(z.string().min(1)).min(1),
       maxBodyBytes: z.number().int().positive().optional(),
       /**
        * Дополнительные скаляры для отчёта.
@@ -182,8 +182,9 @@ const configSchema = z.object({
        * находку дайджеста. «Совпали ответы у alice и carol» — сигнал тревоги,
        * но триаж начинается с вопроса «а сколько записей кто увидел».
        *
-       * `digest` здесь не объявляется: его смысл задаётся пометкой tenantScoped
-       * и проверкой, которая его читает. Дайджест без потребителя бесполезен.
+       * `digest` здесь не объявляется: его смысл задаётся объявлением
+       * `responseMustDifferByTenant` и проверкой, которая его читает.
+       * Дайджест без потребителя бесполезен.
        */
       signals: z
         .array(
@@ -234,8 +235,13 @@ export interface DeclaredSignal {
 }
 
 export interface BodySignalsConfig {
-  /** Эндпоинты, ответ которых обязан различаться между тенантами. */
-  readonly tenantScoped: readonly string[];
+  /**
+   * Эндпоинты, ответ которых обязан различаться между тенантами.
+   *
+   * Это объявление оператора, а не свойство проверяемого API: инструмент
+   * не выводит его ниоткуда и без него тело не читает вовсе.
+   */
+  readonly responseMustDifferByTenant: readonly string[];
   readonly maxBodyBytes?: number | undefined;
   readonly signals?: readonly DeclaredSignal[] | undefined;
 }
@@ -402,9 +408,9 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
   // Опечатка здесь отказывает молча и закрыто: тело не читается, проверка
   // не срабатывает, отчёт выглядит чистым. Тот же класс, что и опечатка
   // в имени тенанта, — молчаливое сужение области проверки.
-  for (const endpointId of config.bodySignals?.tenantScoped ?? []) {
+  for (const endpointId of config.bodySignals?.responseMustDifferByTenant ?? []) {
     if (!known.has(endpointId)) {
-      throw new UnknownEndpointReferenceError("Пометка tenantScoped", endpointId);
+      throw new UnknownEndpointReferenceError("Объявление responseMustDifferByTenant", endpointId);
     }
   }
 
@@ -423,7 +429,7 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
 }
 
 /**
- * Проставляет эндпоинтам пометку `tenantScoped` из конфигурации.
+ * Переносит на эндпоинты объявление `responseMustDifferByTenant` из конфигурации.
  *
  * Источники эндпоинтов (спецификация, список, коллекция Postman) о тенантах
  * ничего не знают и знать не должны: это заявление человека о намерении,
@@ -433,9 +439,9 @@ export function applyBodySignals(
   endpoints: readonly Endpoint[],
   config: RunConfig,
 ): readonly Endpoint[] {
-  const scoped = new Set(config.bodySignals?.tenantScoped ?? []);
+  const mustDiffer = new Set(config.bodySignals?.responseMustDifferByTenant ?? []);
   const declared = config.bodySignals?.signals ?? [];
-  if (scoped.size === 0 && declared.length === 0) {
+  if (mustDiffer.size === 0 && declared.length === 0) {
     return endpoints;
   }
   return endpoints.map((endpoint) => {
@@ -444,7 +450,7 @@ export function applyBodySignals(
       .map(({ name, kind, path }) => ({ name, kind, path }) as const);
     return {
       ...endpoint,
-      ...(scoped.has(endpoint.id) ? { tenantScoped: true } : {}),
+      ...(mustDiffer.has(endpoint.id) ? { responseMustDifferByTenant: true } : {}),
       ...(extra.length === 0 ? {} : { signals: extra }),
     };
   });

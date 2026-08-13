@@ -440,22 +440,26 @@ policy:
    * Опечатка здесь отказывает молча и закрыто: тело не читается, проверка
    * не срабатывает, отчёт выглядит чистым. Тот же класс, что опечатка в тенанте.
    */
-  it("отвергает опечатку в пометке tenantScoped", () => {
-    const config = parseRunConfig(`${base}bodySignals: { tenantScoped: [orders.raed] }\n`);
+  it("отвергает опечатку в объявлении responseMustDifferByTenant", () => {
+    const config = parseRunConfig(
+      `${base}bodySignals: { responseMustDifferByTenant: [orders.raed] }\n`,
+    );
 
     expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnknownEndpointReferenceError);
   });
 
-  it("пропускает корректную пометку tenantScoped", () => {
-    const config = parseRunConfig(`${base}bodySignals: { tenantScoped: [orders.read] }\n`);
+  it("пропускает корректное объявление responseMustDifferByTenant", () => {
+    const config = parseRunConfig(
+      `${base}bodySignals: { responseMustDifferByTenant: [orders.read] }\n`,
+    );
 
-    expect(config.bodySignals?.tenantScoped).toEqual(["orders.read"]);
+    expect(config.bodySignals?.responseMustDifferByTenant).toEqual(["orders.read"]);
     expect(() => assertReferencesResolve(config, endpoints)).not.toThrow();
   });
 
   describe("объявленные скаляры", () => {
     const withSignals = `${base}bodySignals:
-  tenantScoped: [orders.read]
+  responseMustDifferByTenant: [orders.read]
   signals:
     - { name: orderCount, kind: count, path: orders, endpoints: [orders.read] }
 `;
@@ -468,13 +472,13 @@ policy:
       ]);
     });
 
-    it("проставляет их эндпоинту вместе с пометкой", () => {
+    it("проставляет их эндпоинту вместе с объявлением", () => {
       const config = parseRunConfig(withSignals);
 
       const marked = applyBodySignals(endpoints, config);
       const target = marked.find((endpoint) => endpoint.id === "orders.read");
 
-      expect(target?.tenantScoped).toBe(true);
+      expect(target?.responseMustDifferByTenant).toBe(true);
       expect(target?.signals).toEqual([{ name: "orderCount", kind: "count", path: "orders" }]);
     });
 
@@ -499,13 +503,19 @@ policy:
   });
 
   describe("applyBodySignals", () => {
-    it("проставляет пометку только перечисленным эндпоинтам", () => {
-      const config = parseRunConfig(`${base}bodySignals: { tenantScoped: [orders.read] }\n`);
+    it("проставляет объявление только перечисленным эндпоинтам", () => {
+      const config = parseRunConfig(
+        `${base}bodySignals: { responseMustDifferByTenant: [orders.read] }\n`,
+      );
 
       const marked = applyBodySignals(endpoints, config);
 
-      expect(marked.find((endpoint) => endpoint.id === "orders.read")?.tenantScoped).toBe(true);
-      expect(marked.filter((endpoint) => endpoint.tenantScoped === true)).toHaveLength(1);
+      expect(
+        marked.find((endpoint) => endpoint.id === "orders.read")?.responseMustDifferByTenant,
+      ).toBe(true);
+      expect(
+        marked.filter((endpoint) => endpoint.responseMustDifferByTenant === true),
+      ).toHaveLength(1);
     });
 
     /** Без секции тела не читаются нигде — это и есть «выключено по умолчанию». */
@@ -513,7 +523,7 @@ policy:
       const marked = applyBodySignals(endpoints, parseRunConfig(base));
 
       expect(marked).toBe(endpoints);
-      expect(marked.some((endpoint) => endpoint.tenantScoped === true)).toBe(false);
+      expect(marked.some((endpoint) => endpoint.responseMustDifferByTenant === true)).toBe(false);
     });
   });
 
