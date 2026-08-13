@@ -55,6 +55,15 @@ const VALUE_PRESERVED_HEADERS: ReadonlySet<string> = new Set([
   "connection",
   "keep-alive",
   "transfer-encoding",
+  // Корреляция с логами платформы. Идентификаторы обращения — не учётные
+  // данные: по ним ничего нельзя предъявить, зато без них находку нечем
+  // сопоставить с записью на стороне платформы, а это первое, что спросит
+  // команда, получившая тикет. Найдено третьим холодным чтением.
+  "x-request-id",
+  "x-correlation-id",
+  "x-trace-id",
+  "x-amzn-trace-id",
+  "traceparent",
 ]);
 
 /**

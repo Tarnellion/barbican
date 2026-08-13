@@ -510,6 +510,9 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         headers,
         outcome: status === 0 ? "error" : classifyStatus(status),
         durationMs: Date.now() - startedAt,
+        // Момент обращения, а не только длительность: иначе находку нечем
+        // сопоставить с логом платформы.
+        at: new Date(startedAt).toISOString(),
         ...(signals === undefined ? {} : { signals }),
       });
     }

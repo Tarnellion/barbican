@@ -107,4 +107,16 @@ export interface SignedRequest {
 export interface Throttle {
   /** Пропускает задачу через лимиты конкурентности и частоты. */
   run<T>(task: () => Promise<T>): Promise<T>;
+  /**
+   * Лимиты, которые реализация объявляет действующими.
+   *
+   * Нужны отчёту: инвариант «троттлинг всегда включён» иначе приходится
+   * принимать на слово. Необязательны, потому что чужая реализация может
+   * считать иначе, — и тогда отсутствие честнее выдуманных чисел.
+   */
+  readonly limits?: {
+    readonly concurrency: number;
+    readonly requestsPerSecond: number;
+    readonly maxRequests: number;
+  };
 }

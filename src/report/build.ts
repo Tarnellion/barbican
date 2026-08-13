@@ -11,6 +11,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import type { AuthScheme } from "../adapters/credentials.js";
+import type { ThrottleLimits } from "../adapters/throttle.js";
 import type { BodyComparisonCoverage } from "../core/checks/tenant-isolation.js";
 import type {
   AccessDiff,
@@ -136,6 +137,14 @@ export interface ReportFinding {
    * приходилось искать в наблюдениях и соединять вручную по тройке.
    */
   readonly request?: RequestRecord;
+  /**
+   * Второе обращение парной находки.
+   *
+   * У утечки по телу запросов было два, а печатался один: на платформе
+   * с адресами по тенантам читатель собирал второй сам — и собирал неверно,
+   * потому что хост у другого бренда другой. Найдено третьим холодным чтением.
+   */
+  readonly relatedRequest?: RequestRecord;
   readonly status?: number;
 }
 
@@ -179,6 +188,20 @@ export interface RunInputs {
    * человек, и секретам там не место — ровно как в остальной конфигурации.
    */
   readonly contexts: readonly ReportedContext[];
+  /**
+   * Эндпоинты, исключённые оператором вручную.
+   *
+   * Молчание здесь читалось как «исключений не было»: оператор мог убрать
+   * ручку из прогона, и отчёт об этом не говорил ничего.
+   */
+  readonly exclude: readonly string[];
+  /**
+   * Действовавшие лимиты обращений.
+   *
+   * Инвариант «троттлинг всегда включён» по отчёту иначе не проверить —
+   * приходится верить на слово.
+   */
+  readonly throttle?: ThrottleLimits;
 }
 
 export interface ReportedContext {
@@ -295,6 +318,13 @@ export interface RunReport {
     /** Объявлен без учётных данных: обращается анонимно. */
     readonly anonymous?: boolean;
     /**
+     * Имя переменной окружения с токеном — **имя, а не значение**.
+     *
+     * Без него находку нечем воспроизвести: «добавьте заголовок аутентификации
+     * аккаунта alice-a» не говорит, где этот токен взять.
+     */
+    readonly tokenEnv?: string;
+    /**
      * Исходный аккаунт, если строка — он же в условиях обращения.
      *
      * Без него суффикс `@` остаётся единственным носителем структуры, а
@@ -394,6 +424,8 @@ export interface BuildReportOptions {
   readonly checks?: readonly Finding[];
   /** Идентификаторы выполненных проверок, включая ничего не нашедшие. */
   readonly checksRun?: readonly string[];
+  /** Действовавшие лимиты обращений — как их разрешил троттлинг, а не флаги. */
+  readonly throttle?: ThrottleLimits;
   /** Что сравнивалось по телу: пары сравнённые и пропущенные по родству. */
   readonly bodyComparison?: readonly BodyComparisonCoverage[];
   readonly startedAt: Date;
@@ -483,6 +515,27 @@ function mergeFindings(
     };
   }
 
+  /** Обращение второй стороны парной находки, если оно было. */
+  function relatedRequestOf(check: Finding): { relatedRequest?: RequestRecord } {
+    const other = check.evidence.otherAccountId;
+    if (typeof other !== "string" || check.endpointId === undefined) {
+      return {};
+    }
+    const observation = byCell.get(`${other}\u0000${check.endpointId}\u0000`);
+    if (observation?.url === undefined || observation.method === undefined) {
+      return {};
+    }
+    const contextHeaders =
+      check.contextId === undefined ? undefined : headersOf.get(check.contextId);
+    return {
+      relatedRequest: {
+        method: observation.method,
+        url: observation.url,
+        ...(contextHeaders === undefined ? {} : { contextHeaders }),
+      },
+    };
+  }
+
   const fromMatrix: readonly ReportFinding[] = diffs.map((diff) =>
     withRequest({ ...diff, source: "matrix" as const }),
   );
@@ -509,6 +562,9 @@ function mergeFindings(
         ...(check.contextId === undefined ? {} : { contextId: check.contextId }),
         title: check.title,
         evidence: check.evidence,
+        // Второе обращение пары. Берётся из наблюдений по имени второй стороны:
+        // проверка о транспорте не знает и адреса не хранит.
+        ...relatedRequestOf(check),
       }),
     );
 
@@ -622,8 +678,6 @@ export function buildReport(options: BuildReportOptions): RunReport {
       allowedHosts: options.config.target.allowedHosts,
       ...(options.config.target.label === undefined ? {} : { label: options.config.target.label }),
     },
-    // tokenEnv намеренно не переносится: имя переменной не секрет, но и смысла
-    // в отчёте не несёт, а соблазн положить рядом значение убирает.
     accounts: withContextAccounts(options).map((account) => ({
       id: account.id,
       role: account.role,
@@ -636,6 +690,10 @@ export function buildReport(options: BuildReportOptions): RunReport {
       // единственный положительный вывод отчёта — «аноним всюду получил 401» —
       // недоказуем: аккаунт с ошибочно поданным токеном выглядел бы так же.
       anonymous: account.tokenEnv === undefined,
+      // Имя переменной, а не значение. Оно и так лежит в конфигурации, которую
+      // положено коммитить, зато без него читатель отчёта не знает, каким
+      // токеном воспроизводить находку. Найдено третьим холодным чтением.
+      ...(account.tokenEnv === undefined ? {} : { tokenEnv: account.tokenEnv }),
       // Условия, в которых существует эта строка. Отсутствие — базовые.
       ...(account.contextId === undefined
         ? {}
@@ -689,6 +747,8 @@ export function buildReport(options: BuildReportOptions): RunReport {
       policy: options.policy,
       tenants: options.config.tenants ?? [],
       auth: options.config.auth,
+      exclude: options.config.exclude,
+      ...(options.throttle === undefined ? {} : { throttle: options.throttle }),
       contexts: options.config.contexts.map((context) => ({
         id: context.id,
         ...(context.description === undefined ? {} : { description: context.description }),

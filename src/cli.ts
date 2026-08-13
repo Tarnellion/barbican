@@ -274,6 +274,9 @@ async function run(flags: RunFlags): Promise<number> {
     checks,
     checksRun,
     bodyComparison,
+    // Как их разрешил сам троттлинг, а не как их написали флагами: умолчания
+    // живут в адаптере, и второй их источник в отчёте разошёлся бы молча.
+    ...(throttle.limits === undefined ? {} : { throttle: throttle.limits }),
     startedAt,
     finishedAt,
   });

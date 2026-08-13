@@ -62,6 +62,7 @@ function report(overrides: {
       tenants: [],
       auth: { kind: "bearer" },
       contexts: [],
+      exclude: [],
     },
     truncated: overrides.truncated ?? false,
     observations: [],
@@ -258,6 +259,68 @@ describe("покрытие и опознание прогона", () => {
     });
 
     expect(built.defects[0]?.accountIds).toEqual(["alice", "carol-b"]);
+  });
+
+  /**
+   * У утечки по телу обращений два, а печаталось одно. На платформе
+   * с адресами по тенантам второе собиралось читателем вручную — и неверно:
+   * хост другого бренда другой. Найдено третьим холодным чтением.
+   */
+  it("печатает оба обращения парной находки", () => {
+    const built = build({
+      observations: [
+        {
+          accountId: "alice",
+          endpointId: "a",
+          method: "GET",
+          url: "https://brand-a.test/a",
+          status: 200,
+          outcome: "allowed",
+          headers: {},
+          durationMs: 1,
+        },
+        {
+          accountId: "carol",
+          endpointId: "a",
+          method: "GET",
+          url: "https://brand-b.test/a",
+          status: 200,
+          outcome: "allowed",
+          headers: {},
+          durationMs: 1,
+        },
+      ],
+      checks: [
+        {
+          checkId: "identical-response-across-tenants",
+          severity: "high",
+          title: "совпал дайджест",
+          accountId: "alice",
+          endpointId: "a",
+          evidence: { otherAccountId: "carol", bodyDigestsEqual: true },
+        },
+      ],
+    });
+
+    const finding = built.findings.find((f) => f.source === "check");
+    expect(finding?.request?.url).toBe("https://brand-a.test/a");
+    expect(finding?.relatedRequest?.url).toBe("https://brand-b.test/a");
+  });
+
+  /** Имя переменной не секрет, а без него неизвестно, чем воспроизводить. */
+  it("называет переменную окружения с токеном, но не её значение", () => {
+    const account = build().accounts[0];
+
+    expect(account?.tokenEnv).toBe("T");
+    expect(JSON.stringify(build())).not.toContain("секретное-значение");
+  });
+
+  /** Инвариант «троттлинг всегда включён» иначе приходится принимать на слово. */
+  it("печатает действовавшие лимиты обращений", () => {
+    expect(
+      build({ throttle: { concurrency: 2, requestsPerSecond: 5, maxRequests: 2000 } }).inputs
+        .throttle,
+    ).toEqual({ concurrency: 2, requestsPerSecond: 5, maxRequests: 2000 });
   });
 
   /**
