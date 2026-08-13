@@ -8,7 +8,13 @@
 
 import { describe, expect, it } from "vitest";
 import type { AccessMatrix } from "../../src/core/index.js";
-import { diffAccess, groupDefects, principalOf, relationOf } from "../../src/core/index.js";
+import {
+  describeCells,
+  diffAccess,
+  groupDefects,
+  principalOf,
+  relationOf,
+} from "../../src/core/index.js";
 
 const ENDPOINTS = [
   { id: "orders.list", method: "GET", path: "/v1/orders" },
@@ -181,6 +187,117 @@ describe("тождество аккаунта в условиях", () => {
     expect(relationOf({ id: "alice@geo-blocked", roleId: "user", tenantId: "tenant-a" }, own)).toBe(
       "same-tenant",
     );
+  });
+});
+
+describe("вердикты по ячейкам", () => {
+  const observations = [
+    {
+      accountId: "alice",
+      endpointId: "orders.list",
+      status: 200,
+      outcome: "allowed",
+      headers: {},
+      durationMs: 1,
+    },
+    {
+      accountId: "alice@geo-blocked",
+      endpointId: "orders.list",
+      status: 200,
+      outcome: "allowed",
+      headers: {},
+      durationMs: 1,
+    },
+  ] as const;
+
+  /**
+   * С объектом — отдельная ветка обхода, и без неё тест был бы пустым:
+   * мутация «расхождение с объектом объявлено совпавшим» проходила зелёной,
+   * потому что в фикстуре не было ни одного объекта.
+   */
+  const WITH_RESOURCE: AccessMatrix = {
+    endpoints: [{ id: "orders.read", method: "GET", path: "/v1/orders/{orderId}" }],
+    accounts: [{ id: "alice", roleId: "user", tenantId: "tenant-a" }],
+    resources: [
+      { id: "own", tenantId: "tenant-a", ownerAccountId: "alice", params: { orderId: "1" } },
+      { id: "neighbour", tenantId: "tenant-a", ownerAccountId: "bob", params: { orderId: "2" } },
+    ],
+    observations: [
+      {
+        accountId: "alice",
+        endpointId: "orders.read",
+        resourceId: "own",
+        status: 200,
+        outcome: "allowed",
+        headers: {},
+        durationMs: 1,
+      },
+      {
+        accountId: "alice",
+        endpointId: "orders.read",
+        resourceId: "neighbour",
+        status: 200,
+        outcome: "allowed",
+        headers: {},
+        durationMs: 1,
+      },
+    ],
+  };
+
+  const RESOURCE_POLICY = {
+    fallback: "denied",
+    rules: [{ roles: ["user"], endpoints: ["orders.read"], scope: "own", outcome: "allowed" }],
+  } as const;
+
+  /**
+   * Главный инвариант: расхождения — это ровно те же ячейки с `match: false`.
+   * Два независимых прохода разошлись бы, и отчёт утверждал бы «проверено
+   * и совпало» о ячейке, попавшей в находки. См. ADR-0020.
+   */
+  it("даёт те же расхождения, что и дифф, на ячейках с объектом", () => {
+    const cells = describeCells(WITH_RESOURCE, RESOURCE_POLICY);
+    const findings = diffAccess(WITH_RESOURCE, RESOURCE_POLICY);
+
+    expect(cells.map((cell) => [cell.resourceId, cell.match])).toEqual([
+      ["own", true],
+      ["neighbour", false],
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.resourceId).toBe("neighbour");
+  });
+
+  it("даёт те же расхождения, что и дифф, ячейка в ячейку", () => {
+    const built = matrix([...observations]);
+    const cells = describeCells(built, POLICY);
+    const findings = diffAccess(built, POLICY);
+
+    const key = (c: { accountId: string; endpointId: string; resourceId?: string }) =>
+      `${c.accountId} ${c.endpointId} ${c.resourceId ?? ""}`;
+    expect(
+      cells
+        .filter((cell) => !cell.match)
+        .map(key)
+        .sort(),
+    ).toEqual(findings.map(key).sort());
+  });
+
+  it("описывает и совпавшие ячейки, а не только расхождения", () => {
+    const cells = describeCells(matrix([...observations]), POLICY);
+
+    const matched = cells.find((cell) => cell.match);
+    expect(matched?.accountId).toBe("alice");
+    expect(matched?.expected).toBe("allowed");
+    // Правило, объявившее ожидание, названо и у совпавшей ячейки: иначе
+    // «проверено» нельзя оспорить, не перечитывая политику целиком.
+    expect(matched?.ruleIndex).toBe(0);
+  });
+
+  it("не пропускает ни одной ячейки матрицы", () => {
+    const cells = describeCells(matrix([...observations]), POLICY);
+
+    // Две строки аккаунтов × одна ручка: аккаунт в условиях существует только
+    // на объявленных, поэтому ячеек ровно две.
+    expect(cells).toHaveLength(2);
   });
 });
 

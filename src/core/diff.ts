@@ -44,6 +44,41 @@ function classify(expected: ExpectedOutcome, actual: AccessOutcome | undefined):
 }
 
 /**
+ * Вердикт по одной ячейке — включая совпавшие.
+ *
+ * Заведён затем, что «здесь чисто» иначе нельзя ни показать, ни процитировать:
+ * в отчёте была только сумма, и читатель, чтобы проверить одну ячейку,
+ * переписывал этот файл на своём языке. См. ADR-0020.
+ */
+export interface CellVerdict {
+  readonly accountId: string;
+  readonly endpointId: string;
+  readonly resourceId?: string;
+  readonly contextId?: string;
+  readonly relation?: ResourceRelation;
+  readonly expected: ExpectedOutcome;
+  readonly actual?: AccessOutcome;
+  /** Правило, объявившее ожидание. Отсутствие означает `fallback`. */
+  readonly ruleIndex?: number;
+  /** Совпало ли наблюдаемое с объявленным. */
+  readonly match: boolean;
+}
+
+/**
+ * Вердикты по всем ячейкам матрицы, совпавшим и нет.
+ *
+ * Один обход на оба ответа: расхождения — это те же ячейки, у которых
+ * `match: false`. Два независимых прохода разошлись бы, и отчёт утверждал бы
+ * «проверено и совпало» о ячейке, попавшей в находки.
+ */
+export function describeCells(
+  matrix: AccessMatrix,
+  policy: ResolvedAccessPolicy,
+): readonly CellVerdict[] {
+  return walk(matrix, policy).cells;
+}
+
+/**
  * Возвращает расхождения между политикой и наблюдениями.
  *
  * Совпадения не возвращаются: результат — список того, что требует внимания.
@@ -54,12 +89,45 @@ export function diffAccess(
   matrix: AccessMatrix,
   policy: ResolvedAccessPolicy,
 ): readonly AccessDiff[] {
+  return walk(matrix, policy).diffs;
+}
+
+function walk(
+  matrix: AccessMatrix,
+  policy: ResolvedAccessPolicy,
+): { readonly diffs: readonly AccessDiff[]; readonly cells: readonly CellVerdict[] } {
   const index = indexObservations(matrix);
   // Дерево строится один раз на дифф: проверки целостности (неизвестный
   // родитель, цикл) должны сработать до обхода, а не посреди него.
   const hierarchy =
     matrix.tenants === undefined ? FLAT_HIERARCHY : createTenantHierarchy(matrix.tenants);
   const diffs: AccessDiff[] = [];
+  const cells: CellVerdict[] = [];
+
+  /** Вердикт по ячейке пишется всегда, расхождение — только когда оно есть. */
+  function verdictOf(
+    accountId: string,
+    endpointId: string,
+    expected: ExpectedOutcome,
+    actual: AccessOutcome | undefined,
+    match: boolean,
+    ruleIndex?: number,
+    resourceId?: string,
+    relation?: ResourceRelation,
+    contextId?: string,
+  ): void {
+    cells.push({
+      accountId,
+      endpointId,
+      expected,
+      match,
+      ...(actual === undefined ? {} : { actual }),
+      ...(ruleIndex === undefined ? {} : { ruleIndex }),
+      ...(resourceId === undefined ? {} : { resourceId }),
+      ...(relation === undefined ? {} : { relation }),
+      ...(contextId === undefined ? {} : { contextId }),
+    });
+  }
 
   function record(
     accountId: string,
@@ -113,6 +181,17 @@ export function diffAccess(
           const expected = verdict.outcome;
           const actual = byEndpoint?.get(endpoint.id)?.get(resource.id)?.outcome;
           const kind = classify(expected, actual);
+          verdictOf(
+            account.id,
+            endpoint.id,
+            expected,
+            actual,
+            kind === null,
+            verdict.ruleIndex,
+            resource.id,
+            relation,
+            account.contextId,
+          );
           if (kind !== null) {
             record(
               account.id,
@@ -140,6 +219,17 @@ export function diffAccess(
       const expected = verdict.outcome;
       const actual = byEndpoint?.get(endpoint.id)?.get(undefined)?.outcome;
       const kind = classify(expected, actual);
+      verdictOf(
+        account.id,
+        endpoint.id,
+        expected,
+        actual,
+        kind === null,
+        verdict.ruleIndex,
+        undefined,
+        undefined,
+        account.contextId,
+      );
       if (kind !== null) {
         record(
           account.id,
@@ -156,5 +246,5 @@ export function diffAccess(
     }
   }
 
-  return diffs;
+  return { diffs, cells };
 }

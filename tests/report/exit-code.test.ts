@@ -307,6 +307,106 @@ describe("покрытие и опознание прогона", () => {
     expect(finding?.relatedRequest?.url).toBe("https://brand-b.test/a");
   });
 
+  /**
+   * «Здесь чисто» существовало только вычитанием: чтобы проверить одну ячейку,
+   * читатель отчёта переписывал ядро на своём языке. ADR-0020.
+   */
+  it("ставит вердикт рядом с наблюдением", () => {
+    const built = build({
+      observations: [
+        {
+          accountId: "alice",
+          endpointId: "a",
+          method: "GET",
+          url: "https://api.test/a",
+          status: 403,
+          outcome: "denied",
+          headers: {},
+          durationMs: 1,
+        },
+      ],
+      cells: [
+        {
+          accountId: "alice",
+          endpointId: "a",
+          expected: "denied",
+          match: true,
+          actual: "denied",
+          ruleIndex: 3,
+          relation: "foreign-tenant",
+        },
+      ],
+    });
+
+    expect(built.observations[0]).toMatchObject({
+      expected: "denied",
+      match: true,
+      ruleIndex: 3,
+      relation: "foreign-tenant",
+    });
+  });
+
+  /** Число совпавших ячеек обязано сходиться со сводкой — проверяемо на месте. */
+  it("оставляет наблюдение без вердикта, если ячейки для него нет", () => {
+    const built = build({
+      observations: [
+        {
+          accountId: "alice",
+          endpointId: "a",
+          method: "GET",
+          url: "https://api.test/a",
+          status: 200,
+          outcome: "allowed",
+          headers: {},
+          durationMs: 1,
+        },
+      ],
+      cells: [{ accountId: "кто-то другой", endpointId: "a", expected: "denied", match: false }],
+    });
+
+    expect(built.observations[0]).not.toHaveProperty("match");
+  });
+
+  /**
+   * Строка в условиях без исходного аккаунта в конфигурации — состояние,
+   * которого не должно быть. Печатать её как аккаунт значило бы выдумать
+   * роль и тенант, поэтому строка просто не попадает в список.
+   */
+  it("не печатает строку в условиях, чей исходный аккаунт неизвестен", () => {
+    const built = build({
+      accounts: [
+        { id: "u", roleId: "r", tenantId: "t" },
+        {
+          id: "призрак@geo",
+          roleId: "r",
+          tenantId: "t",
+          contextId: "geo",
+          baseAccountId: "призрак",
+        },
+      ],
+    });
+
+    expect(built.accounts.map((account) => account.id)).toEqual(["u"]);
+  });
+
+  /** У непарной находки второго обращения нет, и выдумывать его нечем. */
+  it("не выдумывает второе обращение там, где пары не было", () => {
+    const built = build({
+      checks: [
+        {
+          checkId: "какая-то-проверка",
+          severity: "low",
+          title: "без пары",
+          accountId: "alice",
+          endpointId: "a",
+          evidence: { что: "нибудь" },
+        },
+      ],
+    });
+
+    expect(built.findings.find((f) => f.source === "check")).not.toHaveProperty("relatedRequest");
+  });
+
   /** Имя переменной не секрет, а без него неизвестно, чем воспроизводить. */
   it("называет переменную окружения с токеном, но не её значение", () => {
     const account = build().accounts[0];

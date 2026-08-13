@@ -25,6 +25,7 @@ import {
   CheckRegistry,
   createIdenticalResponseCheck,
   describeBodyComparison,
+  describeCells,
   diffAccess,
   expandPolicy,
 } from "./core/index.js";
@@ -232,6 +233,10 @@ async function run(flags: RunFlags): Promise<number> {
     observations,
     ...(config.tenants === undefined ? {} : { tenants: config.tenants }),
   });
+  // Один обход на оба ответа: находки и вердикты по всем ячейкам, включая
+  // совпавшие. Второй проход разошёлся бы, и отчёт утверждал бы «проверено
+  // и совпало» о ячейке, попавшей в находки. См. ADR-0020.
+  const cells = describeCells(matrix, policy);
   const findings = diffAccess(matrix, policy);
 
   // Реестр создаётся явно и локально: глобального состояния в ядре нет (ADR-0003).
@@ -272,6 +277,7 @@ async function run(flags: RunFlags): Promise<number> {
     findings,
     policy,
     checks,
+    cells,
     checksRun,
     bodyComparison,
     // Как их разрешил сам троттлинг, а не как их написали флагами: умолчания

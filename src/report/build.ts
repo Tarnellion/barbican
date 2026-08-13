@@ -18,6 +18,7 @@ import type {
   AccessObservation,
   AccessOutcome,
   Account,
+  CellVerdict,
   DefectGroup,
   DiffKind,
   Endpoint,
@@ -168,6 +169,20 @@ export interface RequestRecord {
   readonly method: HttpMethod;
   readonly url: string;
   readonly contextHeaders?: Readonly<Record<string, string>>;
+}
+
+/**
+ * Наблюдение вместе с вердиктом по его ячейке.
+ *
+ * `match: true` — «проверено и совпало с объявленным»; это единственное место
+ * отчёта, где положительный результат виден поячеечно, а не суммой.
+ * Вердикт приходит из того же обхода, что и расхождения (ADR-0020).
+ */
+export interface ReportedObservation extends AccessObservation {
+  readonly expected?: ExpectedOutcome;
+  readonly match?: boolean;
+  readonly relation?: ResourceRelation;
+  readonly ruleIndex?: number;
 }
 
 export interface RunInputs {
@@ -378,7 +393,7 @@ export interface RunReport {
   readonly canaries: readonly CanaryOutcome[];
   /** Прогон оборвался, не дойдя до конца матрицы. */
   readonly truncated: boolean;
-  readonly observations: readonly AccessObservation[];
+  readonly observations: readonly ReportedObservation[];
   readonly findings: readonly ReportFinding[];
 
   /** Вводные, на которых стоят выводы. */
@@ -424,6 +439,13 @@ export interface BuildReportOptions {
   readonly checks?: readonly Finding[];
   /** Идентификаторы выполненных проверок, включая ничего не нашедшие. */
   readonly checksRun?: readonly string[];
+  /**
+   * Вердикты по ячейкам — от того же обхода, что дал расхождения.
+   *
+   * Второй источник вердикта здесь был бы худшим из возможных: отчёт
+   * утверждал бы «проверено и совпало» о ячейке, попавшей в находки.
+   */
+  readonly cells?: readonly CellVerdict[];
   /** Действовавшие лимиты обращений — как их разрешил троттлинг, а не флаги. */
   readonly throttle?: ThrottleLimits;
   /** Что сравнивалось по телу: пары сравнённые и пропущенные по родству. */
@@ -627,6 +649,41 @@ function withContextAccounts(
   return [...base, ...derived];
 }
 
+/**
+ * Ставит вердикт рядом с наблюдением.
+ *
+ * Прежде наблюдение вердиктов не выносило принципиально, и «здесь чисто»
+ * существовало только суммой: чтобы проверить одну ячейку, читатель отчёта
+ * переписывал ядро на своём языке. См. ADR-0020.
+ */
+function withVerdicts(options: BuildReportOptions): readonly ReportedObservation[] {
+  const cells = options.cells ?? [];
+  if (cells.length === 0) {
+    return options.observations;
+  }
+  const byCell = new Map(
+    cells.map((cell) => [
+      `${cell.accountId}\u0000${cell.endpointId}\u0000${cell.resourceId ?? ""}`,
+      cell,
+    ]),
+  );
+  return options.observations.map((observation) => {
+    const cell = byCell.get(
+      `${observation.accountId}\u0000${observation.endpointId}\u0000${observation.resourceId ?? ""}`,
+    );
+    if (cell === undefined) {
+      return observation;
+    }
+    return {
+      ...observation,
+      expected: cell.expected,
+      match: cell.match,
+      ...(cell.relation === undefined ? {} : { relation: cell.relation }),
+      ...(cell.ruleIndex === undefined ? {} : { ruleIndex: cell.ruleIndex }),
+    };
+  });
+}
+
 /** Сколько ячеек пронаблюдено в каждых условиях, включая непроверенные. */
 function countByContext(options: BuildReportOptions): Readonly<Record<string, number>> {
   const counts: Record<string, number> = {};
@@ -723,7 +780,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     canariesChecked: options.canariesChecked,
     canaries: options.canaries ?? [],
     truncated: options.truncated,
-    observations: options.observations,
+    observations: withVerdicts(options),
     findings: merged,
     coverage: {
       endpointsTotal: options.endpoints.length,
