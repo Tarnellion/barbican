@@ -113,7 +113,8 @@ policy:
 
       const matrix = buildAccessMatrix({ endpoints, accounts, observations });
       // Тот же путь, что в CLI: политика раскрывается до диффа.
-      const findings = diffAccess(matrix, expandPolicy(config.policy, endpoints));
+      const policy = expandPolicy(config.policy, endpoints);
+      const findings = diffAccess(matrix, policy);
       const report = buildReport({
         version: "0.0.0-test",
         config,
@@ -125,6 +126,7 @@ policy:
         canariesChecked: 0,
         truncated: false,
         findings,
+        policy,
         startedAt,
         finishedAt: new Date(),
       });
@@ -142,6 +144,9 @@ policy:
           actual: "allowed",
           kind: "privilege-escalation",
           severity: "high",
+          // Воспроизведение приложено к находке: читателю не нужно склеивать
+          // адрес из эндпоинта, объекта и базового URL вручную.
+          request: { method: "GET", url: `${config.target.baseUrl}/v1/admin/users` },
         },
       ]);
       expect(report.summary.byKind["privilege-escalation"]).toBe(1);
@@ -204,10 +209,8 @@ policy:
         }),
       });
 
-      const findings = diffAccess(
-        buildAccessMatrix({ endpoints, accounts, observations }),
-        expandPolicy(config.policy, endpoints),
-      );
+      const policy = expandPolicy(config.policy, endpoints);
+      const findings = diffAccess(buildAccessMatrix({ endpoints, accounts, observations }), policy);
       const report = buildReport({
         version: "0.0.0-test",
         config,
@@ -219,6 +222,7 @@ policy:
         canariesChecked: 0,
         truncated: false,
         findings,
+        policy,
         startedAt: new Date(),
         finishedAt: new Date(),
       });

@@ -238,6 +238,7 @@ async function run(flags: RunFlags): Promise<number> {
     canaries: canaryOutcomes,
     truncated,
     findings,
+    policy,
     checks,
     startedAt,
     finishedAt,

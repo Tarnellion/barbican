@@ -9,6 +9,7 @@
  * ответа приходят уже отредактированными из HTTP-клиента.
  */
 
+import type { AuthScheme } from "../adapters/credentials.js";
 import type {
   AccessDiff,
   AccessObservation,
@@ -16,8 +17,11 @@ import type {
   DiffKind,
   Endpoint,
   Finding,
+  HttpMethod,
+  ResolvedAccessPolicy,
   Resource,
   Severity,
+  TenantNode,
 } from "../core/index.js";
 import { groupDefects } from "../core/index.js";
 import type { RunConfig } from "../io/config.js";
@@ -50,6 +54,36 @@ export interface CanaryOutcome {
   readonly endpointId: string;
   readonly status: number;
   readonly authenticated: boolean;
+}
+
+/**
+ * Находка с приложенным запросом.
+ *
+ * Ядро о адресах не знает и знать не должно — соединение делается здесь,
+ * при сборке отчёта, по тройке «аккаунт × эндпоинт × объект».
+ */
+export interface ReportedFinding extends AccessDiff {
+  readonly request?: { readonly method: HttpMethod; readonly url: string };
+}
+
+/**
+ * Вводные, на которых стоят выводы.
+ *
+ * Без них находку нельзя ни завести в тикет, ни оспорить: каждое `expected`
+ * держится на политике, которой в отчёте не было, а `foreign-tenant` и
+ * `ancestor-tenant` — на дереве тенантов, которое читателю приходилось
+ * восстанавливать по узору отказов.
+ */
+export interface RunInputs {
+  /** Политика с раскрытыми шаблонами — ровно та, что выносила вердикты. */
+  readonly policy: ResolvedAccessPolicy;
+  /** Дерево тенантов. Пусто, если иерархия не объявлена. */
+  readonly tenants: readonly TenantNode[];
+  /**
+   * Чем инструмент представлялся: вид схемы и имя заголовка или куки.
+   * Значений здесь нет и быть не может — они живут только в окружении.
+   */
+  readonly auth: AuthScheme;
 }
 
 export interface RunReport {
@@ -98,7 +132,7 @@ export interface RunReport {
   /** Прогон оборвался, не дойдя до конца матрицы. */
   readonly truncated: boolean;
   readonly observations: readonly AccessObservation[];
-  readonly findings: readonly AccessDiff[];
+  readonly findings: readonly ReportedFinding[];
   /**
    * Находки проверок из реестра.
    *
@@ -108,6 +142,8 @@ export interface RunReport {
    * так, будто фильтра нет».
    */
   readonly checks: readonly Finding[];
+  /** Вводные, на которых стоят выводы. */
+  readonly inputs: RunInputs;
   /**
    * Расхождения, сведённые к сигнатурам «эндпоинт × вид × отношение».
    *
@@ -130,6 +166,8 @@ export interface BuildReportOptions {
   readonly canaries?: readonly CanaryOutcome[];
   readonly truncated: boolean;
   readonly findings: readonly AccessDiff[];
+  /** Политика с раскрытыми шаблонами — та, что выносила вердикты. */
+  readonly policy: ResolvedAccessPolicy;
   /** Находки проверок из реестра. Отсутствие означает «проверки не запускались». */
   readonly checks?: readonly Finding[];
   readonly startedAt: Date;
@@ -173,6 +211,33 @@ function countBySeverity(
   return counts;
 }
 
+/**
+ * Приклеивает к каждой находке запрос, которым она получена.
+ *
+ * Соединение по тройке «аккаунт × эндпоинт × объект» — тому же ключу, которым
+ * ячейка определяется везде в проекте.
+ */
+function withRequests(
+  findings: readonly AccessDiff[],
+  observations: readonly AccessObservation[],
+): readonly ReportedFinding[] {
+  const byCell = new Map(
+    observations.map((observation) => [
+      `${observation.accountId}\u0000${observation.endpointId}\u0000${observation.resourceId ?? ""}`,
+      observation,
+    ]),
+  );
+  return findings.map((finding) => {
+    const observation = byCell.get(
+      `${finding.accountId}\u0000${finding.endpointId}\u0000${finding.resourceId ?? ""}`,
+    );
+    if (observation?.url === undefined || observation.method === undefined) {
+      return finding;
+    }
+    return { ...finding, request: { method: observation.method, url: observation.url } };
+  });
+}
+
 function countByKind(findings: readonly AccessDiff[]): Readonly<Record<DiffKind, number>> {
   const counts = { ...EMPTY_BY_KIND };
   for (const finding of findings) {
@@ -206,8 +271,13 @@ export function buildReport(options: BuildReportOptions): RunReport {
     canaries: options.canaries ?? [],
     truncated: options.truncated,
     observations: options.observations,
-    findings: options.findings,
+    findings: withRequests(options.findings, options.observations),
     checks: options.checks ?? [],
+    inputs: {
+      policy: options.policy,
+      tenants: options.config.tenants ?? [],
+      auth: options.config.auth,
+    },
     defects: groupDefects(options.findings),
     summary: {
       endpoints: options.endpoints.length,

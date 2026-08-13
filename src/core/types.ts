@@ -177,6 +177,16 @@ export interface AccessObservation {
   readonly outcome: AccessOutcome;
   readonly durationMs: number;
   /**
+   * Что именно было отправлено: метод и адрес с подставленными значениями.
+   *
+   * Без этого находку нельзя воспроизвести: читателю приходится склеивать путь
+   * из эндпоинта, параметры из объекта и догадываться про базовый адрес.
+   * Учётных данных здесь нет — они запрещены в `baseUrl`, — а значения
+   * параметров объявлены человеком, а не взяты из ответа.
+   */
+  readonly method?: HttpMethod;
+  readonly url?: string;
+  /**
    * Скаляры, вычисленные над телом. Само тело не сохраняется нигде — ADR-0011.
    */
   readonly signals?: Readonly<Record<string, SignalValue>>;

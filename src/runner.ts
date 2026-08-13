@@ -428,6 +428,8 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       observations.push({
         accountId: account.id,
         endpointId: endpoint.id,
+        method: endpoint.method,
+        url,
         ...(resource === undefined ? {} : { resourceId: resource.id }),
         status,
         headers,
