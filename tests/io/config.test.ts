@@ -7,7 +7,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  DuplicateMembershipError,
   RESOURCE_RELATIONS,
+  SubsumedMembershipError,
   TenantCycleError,
   UnknownParentTenantError,
 } from "../../src/core/index.js";
@@ -607,6 +609,78 @@ policy: { fallback: denied, rules: [] }
     expect(() =>
       parseRunConfig(withoutList.replace("mine, tenant: tenant-a", "mine, tenant: tenant-z")),
     ).not.toThrow();
+  });
+});
+
+describe("набор тенантов у аккаунта", () => {
+  /** Саппорт на брендах двух разных холдингов — случай из ADR-0016. */
+  const WITH_SET = `
+tenants:
+  - { id: holding-1 }
+  - { id: holding-2 }
+  - { id: brand-a, parent: holding-1 }
+  - { id: brand-c, parent: holding-2 }
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts:
+  - { id: sam, role: support, tenants: [brand-a, brand-c], tokenEnv: TOK }
+resources:
+  - { id: r-a, tenant: brand-a, params: { id: "1" } }
+policy: { fallback: denied, rules: [] }
+`;
+
+  it("доводит набор до доменного типа ядра набором", () => {
+    expect(toAccounts(parseRunConfig(WITH_SET))).toEqual([
+      { id: "sam", roleId: "support", tenantIds: ["brand-a", "brand-c"] },
+    ]);
+  });
+
+  it("срезает пробелы в именах набора", () => {
+    const config = parseRunConfig(WITH_SET.replace("[brand-a, brand-c]", '["brand-a ", brand-c]'));
+
+    expect(toAccounts(config)[0]?.tenantIds).toEqual(["brand-a", "brand-c"]);
+  });
+
+  // Тот же класс, что опечатка в одиночном тенанте: она не ломает прогон,
+  // а прячет находку — членство уезжает в никуда, объект становится чужим.
+  it("отвергает опечатку внутри набора", () => {
+    expect(() => parseRunConfig(WITH_SET.replace("brand-c]", "brand-x]"))).toThrow(
+      UnknownTenantError,
+    );
+  });
+
+  // Вложенное членство переводит объекты бренда из descendant-tenant
+  // в same-tenant, и правило для взгляда сверху вниз молча перестаёт
+  // применяться. Смысл поменялся, отчёт на вид прежний.
+  it("отвергает набор, где одно членство лежит в поддереве другого", () => {
+    expect(() =>
+      parseRunConfig(WITH_SET.replace("[brand-a, brand-c]", "[holding-1, brand-a]")),
+    ).toThrow(SubsumedMembershipError);
+  });
+
+  it("отвергает повтор внутри набора", () => {
+    expect(() =>
+      parseRunConfig(WITH_SET.replace("[brand-a, brand-c]", "[brand-a, brand-a]")),
+    ).toThrow(DuplicateMembershipError);
+  });
+
+  // Оба поля сразу — противоречие: непонятно, что считать членством.
+  it("отвергает tenant и tenants одновременно", () => {
+    expect(() =>
+      parseRunConfig(
+        WITH_SET.replace(
+          "tenants: [brand-a, brand-c]",
+          "tenant: brand-a, tenants: [brand-a, brand-c]",
+        ),
+      ),
+    ).toThrow(ConfigValidationError);
+  });
+
+  // Набор из одного — это `tenant`. Две записи одного смысла разошлись бы
+  // в чтении конфигурации и в отчёте.
+  it("отвергает набор из одного тенанта", () => {
+    expect(() => parseRunConfig(WITH_SET.replace("[brand-a, brand-c]", "[brand-a]"))).toThrow(
+      ConfigValidationError,
+    );
   });
 });
 

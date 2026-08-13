@@ -111,7 +111,37 @@ const ACCOUNTS = [
   { id: "admin-a", role: "admin", tenant: "tenant-a", tokenEnv: "POLYGON_TOKEN_ADMIN_A" },
   { id: "helen-h1", role: "holding", tenant: "holding-1", tokenEnv: "POLYGON_TOKEN_HELEN_H1" },
   { id: "ivan-af1", role: "affiliate", tenant: "affiliate-a1", tokenEnv: "POLYGON_TOKEN_IVAN_AF1" },
+  /**
+   * Саппорт на двух брендах **разных холдингов** — аккаунт, который деревом
+   * не выражается (ADR-0016).
+   *
+   * Общего предка у `tenant-a` и `tenant-b` нет вовсе: холдинги разные, корня
+   * над ними на этой платформе не существует. Посадить такой аккаунт в один
+   * узел нельзя ни одним способом — второй бренд станет чужим, — а завести над
+   * холдингами общий корень значило бы отдать ему и всё остальное поддерево.
+   *
+   * Поле `tenants` вместо `tenant`, а не в дополнение к нему: один узел и набор
+   * узлов — взаимоисключающие утверждения.
+   */
+  {
+    id: "sara-ac",
+    role: "support",
+    tenants: ["tenant-a", "tenant-b"],
+    tokenEnv: "POLYGON_TOKEN_SARA_AC",
+  },
 ];
+
+/**
+ * Тенанты аккаунта одним списком.
+ *
+ * У всех, кроме саппорта, он из одного элемента. Ветвление «есть набор или
+ * нет» стоит здесь ровно один раз: дальше по коду разница между одним тенантом
+ * и набором не должна быть видна вовсе — иначе каждое место авторизации
+ * пришлось бы чинить отдельно, а забытое молча вело бы себя по-старому.
+ */
+function tenantsOf(account) {
+  return account.tenants ?? [account.tenant];
+}
 
 /**
  * Заказы — объекты обращения.
@@ -216,6 +246,21 @@ const DEFECT_FLAGS = {
    * глубиной».
    */
   parentLeak: "POLYGON_DEFECT_PARENT_LEAK",
+  /**
+   * Платформа помнит у аккаунта только **первое** членство: набор тенантов
+   * схлопнут до «основного тенанта».
+   *
+   * Правдоподобие здесь такое же, как у `parentLeak`: в токене лежит одно поле
+   * `tenant_id`, потому что когда-то у всех аккаунтов тенант был один, — и набор
+   * членств до авторизации не доезжает. Саппорту двух брендов отдаётся первый
+   * и отказывается во втором.
+   *
+   * Единственный дефект платформы, который проявляется **отказом**, а не лишним
+   * доступом: 403 там, где человек объявил доступ положенным. До ADR-0016 такое
+   * утверждение было невыразимо — второй бренд объявить своим было нечем, —
+   * поэтому и дефект был бы неотличим от исправной работы.
+   */
+  primaryTenantOnly: "POLYGON_DEFECT_PRIMARY_TENANT_ONLY",
 };
 
 class ConfigurationError extends Error {
@@ -258,7 +303,20 @@ function readDefects() {
     crossHolding: readFlag(DEFECT_FLAGS.crossHolding),
     ancestorLeak: readFlag(DEFECT_FLAGS.ancestorLeak),
     parentLeak: readFlag(DEFECT_FLAGS.parentLeak),
+    primaryTenantOnly: readFlag(DEFECT_FLAGS.primaryTenantOnly),
   };
+}
+
+/**
+ * Тенанты, которые платформа на самом деле учитывает для аккаунта.
+ *
+ * Отдельно от `tenantsOf`: там объявленная принадлежность, здесь — то, что
+ * от неё осталось после дефекта. Разделение не косметическое, оно и есть
+ * содержание флага `primaryTenantOnly`.
+ */
+function visibleTenants(account, defects) {
+  const declared = tenantsOf(account);
+  return defects.primaryTenantOnly ? declared.slice(0, 1) : declared;
 }
 
 /**
@@ -319,6 +377,15 @@ function authorizeOrder(account, order, defects) {
     return 403;
   }
 
+  if (account.role === "support") {
+    // Саппорт видит заказы тех брендов, в которых состоит, — и только их.
+    // Ветка своя по той же причине, по какой она своя у аффилиата: брендовая
+    // ветка ниже спрашивает «тенант заказа равен тенанту аккаунта?», а у этого
+    // аккаунта тенант не один, и общая ветка либо отдала бы ему лишнее, либо
+    // отказала бы во втором бренде — то есть встроила бы дефект в исправный режим.
+    return visibleTenants(account, defects).includes(order.tenant) ? 200 : 403;
+  }
+
   if (account.role === "holding") {
     // Холдинговый контур — отдельная ветка целиком, и брендовая ниже остаётся
     // нетронутой. Это не стилистика: так набор ячеек `crossHolding` не может
@@ -363,27 +430,33 @@ function authorizeOrder(account, order, defects) {
  * насколько далеко вверх поднимаются.
  */
 function authorizeStatement(account, statement, defects) {
-  if (statement.tenant === account.tenant) {
+  // Здесь и ниже — обход по всем тенантам аккаунта. Отдельной ветки для
+  // саппорта нет намеренно: правило видимости документов у него то же самое,
+  // и своя ветка означала бы, что дефекты раскрытия вверх его не задевают, —
+  // утверждение, которого никто не проверял. Пусть задевают: тогда прогон
+  // проверяет и то, что предки считаются по каждому членству.
+  const tenants = visibleTenants(account, defects);
+  if (tenants.includes(statement.tenant)) {
     return 200;
   }
   // Вниз по дереву — положено: холдинг обязан видеть расчётный документ своего
   // бренда, иначе сводного взгляда у лицензиата не существует. Это исправное
   // поведение, а не поблажка, и ни один флаг его не трогает.
-  if (isBelow(statement.tenant, account.tenant)) {
+  if (tenants.some((tenant) => isBelow(statement.tenant, tenant))) {
     return 200;
   }
   // Дефект №6: фильтр раскрывается вверх по дереву вместо вниз. Реализация
   // спрашивает «документ моего тенанта или любого его предка?» вместо «моего
   // тенанта?» — и бренд получает документ уровня своей группы, а аффилиат —
   // и документ бренда, и документ холдинга.
-  if (defects.ancestorLeak && isBelow(account.tenant, statement.tenant)) {
+  if (defects.ancestorLeak && tenants.some((tenant) => isBelow(tenant, statement.tenant))) {
     return 200;
   }
   // Дефект №7: то же раскрытие вверх, но ровно на один шаг — «документ моего
   // тенанта или моего родителя?». Аффилиат получает документ бренда и не получает
   // документ холдинга; брендовые аккаунты не отличают этот дефект от предыдущего
   // вовсе, потому что у них предок ровно один.
-  if (defects.parentLeak && parentOf(account.tenant) === statement.tenant) {
+  if (defects.parentLeak && tenants.some((tenant) => parentOf(tenant) === statement.tenant)) {
     return 200;
   }
   return 403;
@@ -463,6 +536,24 @@ function handle(req, res, context) {
       return;
     }
 
+    if (account.role === "support") {
+      // Список по своим брендам. Строки несут бренд по той же причине, что
+      // и у холдингового роллапа: список из двух брендов без атрибуции
+      // не читается. Побочный эффект тот же и такой же полезный — тело
+      // не совпадает с брендовым ни в одном режиме.
+      const visible = ORDERS.filter((order) =>
+        visibleTenants(account, context.defects).includes(order.tenant),
+      );
+      send(res, 200, {
+        orders: visible.map((order) => ({
+          id: order.id,
+          owner: order.owner,
+          tenant: order.tenant,
+        })),
+      });
+      return;
+    }
+
     if (account.role === "holding") {
       // Роллап по собственному поддереву. Каждая строка несёт бренд: роллап без
       // атрибуции бесполезен — по нему нельзя понять, чей это заказ.
@@ -512,7 +603,10 @@ function handle(req, res, context) {
       send(res, status, { error: "forbidden" });
       return;
     }
-    const own = ACCOUNTS.filter((entry) => entry.tenant === account.tenant);
+    const visible = tenantsOf(account);
+    const own = ACCOUNTS.filter((entry) =>
+      tenantsOf(entry).some((tenant) => visible.includes(tenant)),
+    );
     send(res, 200, { accounts: own.map((entry) => ({ id: entry.id, role: entry.role })) });
     return;
   }

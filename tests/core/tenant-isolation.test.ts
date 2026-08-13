@@ -244,6 +244,72 @@ describe("identical-response-across-tenants", () => {
     expect(check.run({ matrix })).toEqual([]);
   });
 
+  /**
+   * Аккаунт с набором членств (ADR-0016) законно видит строки каждого своего
+   * тенанта. Пара «саппорт брендов A и C против пользователя бренда A» имеет
+   * общий тенант, и совпадение ответов о нарушении изоляции не говорит — так же,
+   * как оно ничего не говорило про двух соседей по тенанту.
+   */
+  it("молчит на пересекающихся наборах тенантов", () => {
+    const matrix: AccessMatrix = {
+      endpoints: [LIST],
+      accounts: [
+        { id: "sam", roleId: "support", tenantIds: ["brand-a", "brand-c"] },
+        { id: "op-a", roleId: "operator", tenantId: "brand-a" },
+      ],
+      resources: [],
+      observations: [observed("sam", 111), observed("op-a", 111)],
+      tenants: [{ id: "brand-a" }, { id: "brand-c" }],
+    };
+
+    expect(check.run({ matrix })).toEqual([]);
+  });
+
+  /** Родство хоть одним членством — тот же законный случай, что и у холдинга. */
+  it("молчит, когда одно из членств связано родством со вторым аккаунтом", () => {
+    const matrix: AccessMatrix = {
+      endpoints: [LIST],
+      accounts: [
+        { id: "sam", roleId: "support", tenantIds: ["brand-a", "brand-c"] },
+        { id: "holding", roleId: "holding", tenantId: "holding-1" },
+      ],
+      resources: [],
+      observations: [observed("sam", 111), observed("holding", 111)],
+      tenants: [
+        { id: "holding-1" },
+        { id: "brand-a", parentId: "holding-1" },
+        { id: "holding-2" },
+        { id: "brand-c", parentId: "holding-2" },
+      ],
+    };
+
+    expect(check.run({ matrix })).toEqual([]);
+  });
+
+  /** Ни общего тенанта, ни родства — совпадение остаётся находкой. */
+  it("не молчит на непересекающихся наборах", () => {
+    const matrix: AccessMatrix = {
+      endpoints: [LIST],
+      accounts: [
+        { id: "sam", roleId: "support", tenantIds: ["brand-a", "brand-c"] },
+        { id: "op-b", roleId: "operator", tenantId: "brand-b" },
+      ],
+      resources: [],
+      observations: [observed("sam", 111), observed("op-b", 111)],
+      tenants: [{ id: "brand-a" }, { id: "brand-b" }, { id: "brand-c" }],
+    };
+
+    const findings = check.run({ matrix });
+
+    expect(findings).toHaveLength(1);
+    // Имена набора называет заголовок; в обосновании их нет, потому что
+    // склейка через запятую встала бы в поле настоящих идентификаторов.
+    // Пары упорядочены по идентификатору аккаунта, поэтому набор здесь — второй.
+    expect(findings[0]?.title).toContain("тенантов brand-a, brand-c");
+    expect(findings[0]?.evidence["tenant"]).toBe("brand-b");
+    expect(findings[0]?.evidence).not.toHaveProperty("otherTenant");
+  });
+
   it("выдаёт находки в устойчивом порядке", () => {
     const first = check.run({
       matrix: matrixOf([observed("carol-b", 111), observed("alice-a", 111)]),
