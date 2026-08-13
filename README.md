@@ -10,6 +10,7 @@ BOLA/IDOR, and cross-tenant leaks.
 ## Status
 
 Early development, but end-to-end: `barbican run` walks a live API and writes a report.
+(Build from source for now — see Install: the published CLI is a stub.)
 Validated against three targets — [crAPI](docs/polygons/crapi.md), VAmPI, and a
 [reference platform](polygon/) with switchable defects and a hand-written oracle.
 
@@ -61,6 +62,23 @@ behind each design decision.
 
 ## Install
 
+**The CLI published to npm as `barbican@0.1.0` is a stub: it registers no commands.**
+The repository carries the same version number with a working `run`, so the version
+alone does not tell the two apart. This is a packaging mistake on my side, not a
+missing feature, and it is being fixed by publishing through the release workflow
+(provenance via OIDC) rather than by hand. Until that lands, build from source:
+
+```bash
+git clone https://github.com/Tarnellion/barbican.git
+cd barbican
+pnpm install --frozen-lockfile
+pnpm run build
+node dist/cli.js run --help
+```
+
+The **library** half of the published package works and is what the TypeScript example
+below uses:
+
 ```bash
 npm install barbican
 ```
@@ -69,13 +87,23 @@ npm install barbican
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config
 and [`polygon/`](polygon/) for a working target with deliberate defects and a hand-written
-oracle:
+oracle. The starter config points at a host that does not exist and expects a token in
+the environment, so it is a template to edit, not a demo to run:
 
 ```bash
-barbican run --config examples/minimal/barbican.run.yaml --endpoints examples/minimal/endpoints.yaml
+node dist/cli.js run --config examples/minimal/barbican.run.yaml --endpoints examples/minimal/endpoints.yaml
 ```
 
-The library is the same machinery without the transport. Feed in observations from your
+For something that actually answers, run against the bundled polygon — it needs no
+Docker, only Node:
+
+```bash
+node polygon/verify.mjs
+```
+
+The library is the same machinery without the transport. Note the naming: YAML
+configuration says `role` and `tenant`, the TypeScript types say `roleId` and
+`tenantId` — same fields, different surfaces. Feed in observations from your
 own harness, declare what access you intended, and get back only what disagrees:
 
 ```ts
