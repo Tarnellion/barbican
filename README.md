@@ -10,7 +10,6 @@ BOLA/IDOR, and cross-tenant leaks.
 ## Status
 
 Early development, but end-to-end: `barbican run` walks a live API and writes a report.
-(Build from source until `0.2.0` is published — see Install: the CLI in `0.1.0` is a stub.)
 Validated against three targets — [crAPI](docs/polygons/crapi.md), VAmPI, and a
 [reference platform](polygon/) with switchable defects and a hand-written oracle.
 
@@ -62,26 +61,15 @@ behind each design decision.
 
 ## Install
 
-**`barbican@0.1.0` on npm is a stub: it registers no commands.** The repository
-carried the same version number with a working `run`, so the version alone does not
-tell the two apart — a packaging mistake on my side, not a missing feature. The fix
-is `0.2.0`, published through the release workflow with provenance via OIDC instead
-of by hand. Until that release is out, build from source:
-
-```bash
-git clone https://github.com/Tarnellion/barbican.git
-cd barbican
-pnpm install --frozen-lockfile
-pnpm run build
-node dist/cli.js run --help
-```
-
-The **library** half of the published package works and is what the TypeScript example
-below uses:
-
 ```bash
 npm install barbican
+barbican run --help
 ```
+
+`0.2.0` is the first release published from CI with provenance: `npm audit signatures`
+verifies it against this repository and the workflow that built it. Install `0.2.0`
+or newer — **`0.1.0` is a stub whose CLI registers no commands**, published by hand
+before the release pipeline existed.
 
 ## Example
 
@@ -91,7 +79,7 @@ oracle. The starter config points at a host that does not exist and expects a to
 the environment, so it is a template to edit, not a demo to run:
 
 ```bash
-node dist/cli.js run --config examples/minimal/barbican.run.yaml --endpoints examples/minimal/endpoints.yaml
+barbican run --config examples/minimal/barbican.run.yaml --endpoints examples/minimal/endpoints.yaml
 ```
 
 For something that actually answers, run against the bundled polygon — it needs no
