@@ -9,8 +9,15 @@
 
 import { describe, expect, it } from "vitest";
 import type { Finding } from "../../src/core/index.js";
+import { parseRunConfig } from "../../src/io/config.js";
 import type { RunReport } from "../../src/report/build.js";
-import { exitCodeFor } from "../../src/report/build.js";
+import { buildReport, exitCodeFor } from "../../src/report/build.js";
+
+const CONFIG = parseRunConfig(`
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
+policy: { fallback: denied, rules: [] }
+`);
 
 function report(overrides: {
   observations?: number;
@@ -34,6 +41,7 @@ function report(overrides: {
     failures: [],
     unauthenticated: overrides.unauthenticated ?? [],
     canariesChecked: 0,
+    canaries: [],
     truncated: overrides.truncated ?? false,
     observations: [],
     findings: [],
@@ -59,6 +67,41 @@ function report(overrides: {
     },
   };
 }
+
+describe("сводка по серьёзности", () => {
+  /**
+   * Считались только расхождения матрицы, и сводка показывала high: 5 там, где
+   * их 11. Дашборд по `bySeverity` терял шесть находок — и в их числе самую
+   * эксплуатируемую: списочную утечку, видимую только по телу.
+   * Найдено холодным чтением отчёта человеком, не знающим проекта.
+   */
+  it("считает и находки проверок, а не только расхождения матрицы", () => {
+    const leak: Finding = {
+      checkId: "identical-response-across-tenants",
+      severity: "high",
+      title: "одинаковый ответ у разных тенантов",
+      evidence: {},
+    };
+
+    const built = buildReport({
+      version: "test",
+      config: CONFIG,
+      endpoints: [],
+      observations: [],
+      skipped: [],
+      failures: [],
+      unauthenticated: [],
+      canariesChecked: 0,
+      truncated: false,
+      findings: [],
+      checks: [leak, leak],
+      startedAt: new Date(0),
+      finishedAt: new Date(1),
+    });
+
+    expect(built.summary.bySeverity.high).toBe(2);
+  });
+});
 
 describe("exitCodeFor", () => {
   /**

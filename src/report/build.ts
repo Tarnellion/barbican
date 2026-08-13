@@ -44,6 +44,14 @@ export interface ReportSummary {
   readonly checkFindings: number;
 }
 
+/** Итог одной канарейки: кто, где и подтвердилась ли аутентификация. */
+export interface CanaryOutcome {
+  readonly accountId: string;
+  readonly endpointId: string;
+  readonly status: number;
+  readonly authenticated: boolean;
+}
+
 export interface RunReport {
   readonly tool: { readonly name: string; readonly version: string };
   readonly startedAt: string;
@@ -80,6 +88,13 @@ export interface RunReport {
    * успешного, и разница остаётся только в предупреждении на stderr.
    */
   readonly canariesChecked: number;
+  /**
+   * Результат каждой канарейки поимённо.
+   *
+   * Счётчик без вердикта бесполезен: отчёт с «проверено 7» и нулём находок
+   * неотличим от отчёта, где канарейки молча провалились.
+   */
+  readonly canaries: readonly CanaryOutcome[];
   /** Прогон оборвался, не дойдя до конца матрицы. */
   readonly truncated: boolean;
   readonly observations: readonly AccessObservation[];
@@ -112,6 +127,7 @@ export interface BuildReportOptions {
   readonly failures: readonly ProbeFailure[];
   readonly unauthenticated: readonly string[];
   readonly canariesChecked: number;
+  readonly canaries?: readonly CanaryOutcome[];
   readonly truncated: boolean;
   readonly findings: readonly AccessDiff[];
   /** Находки проверок из реестра. Отсутствие означает «проверки не запускались». */
@@ -135,10 +151,24 @@ const EMPTY_BY_SEVERITY: Readonly<Record<Severity, number>> = {
   critical: 0,
 };
 
-function countBySeverity(findings: readonly AccessDiff[]): Readonly<Record<Severity, number>> {
+/**
+ * Считает по **всем** находкам, включая находки проверок.
+ *
+ * Раньше считались только расхождения матрицы, и сводка показывала high: 5
+ * там, где их 11. Дашборд, построенный на `bySeverity`, терял шесть находок —
+ * и в их числе самую эксплуатируемую: списочную утечку, видимую только по телу.
+ * Найдено холодным чтением отчёта человеком, не знающим проекта.
+ */
+function countBySeverity(
+  findings: readonly AccessDiff[],
+  checks: readonly Finding[],
+): Readonly<Record<Severity, number>> {
   const counts = { ...EMPTY_BY_SEVERITY };
   for (const finding of findings) {
     counts[finding.severity] += 1;
+  }
+  for (const check of checks) {
+    counts[check.severity] += 1;
   }
   return counts;
 }
@@ -173,6 +203,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     failures: options.failures,
     unauthenticated: options.unauthenticated,
     canariesChecked: options.canariesChecked,
+    canaries: options.canaries ?? [],
     truncated: options.truncated,
     observations: options.observations,
     findings: options.findings,
@@ -187,7 +218,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
       failures: options.failures.length,
       findings: options.findings.length,
       byKind: countByKind(options.findings),
-      bySeverity: countBySeverity(options.findings),
+      bySeverity: countBySeverity(options.findings, options.checks ?? []),
       defectGroups: groupDefects(options.findings).length,
       checkFindings: (options.checks ?? []).length,
     },

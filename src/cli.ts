@@ -149,6 +149,12 @@ async function run(flags: RunFlags): Promise<number> {
     .map((account) => ({ accountId: account.id, endpointId: account.canary ?? "" }));
 
   let canariesChecked = 0;
+  let canaryOutcomes: readonly {
+    readonly accountId: string;
+    readonly endpointId: string;
+    readonly status: number;
+    readonly authenticated: boolean;
+  }[] = [];
   if (canaries.length === 0) {
     process.stderr.write(
       `${paint("Аутентификация не проверена:", "yellow")} ни у одного аккаунта нет канарейки. ` +
@@ -166,6 +172,7 @@ async function run(flags: RunFlags): Promise<number> {
       tenantBaseUrls,
     });
     canariesChecked = results.length;
+    canaryOutcomes = results;
     const broken = results.filter((result) => !result.authenticated);
     if (broken.length > 0) {
       const details = broken
@@ -228,6 +235,7 @@ async function run(flags: RunFlags): Promise<number> {
     failures,
     unauthenticated,
     canariesChecked,
+    canaries: canaryOutcomes,
     truncated,
     findings,
     checks,
@@ -263,7 +271,10 @@ async function run(flags: RunFlags): Promise<number> {
     );
   }
   const lines = [
-    `Опрошено: ${summary.observations} пар, эндпоинтов ${summary.endpoints}, аккаунтов ${summary.accounts}`,
+    // Не «пар»: ячейка — это тройка «аккаунт × эндпоинт × объект», и 6×8 ≠ 80.
+    // Читатель, проверяющий арифметику, решал, что отчёт врёт.
+    `Опрошено ячеек: ${summary.observations} (аккаунтов ${summary.accounts}, ` +
+      `эндпоинтов ${summary.endpoints}, объектов ${summary.resources})`,
     summary.skipped > 0
       ? `Не опрошено эндпоинтов: ${summary.skipped}${skipBreakdown(report)}`
       : undefined,

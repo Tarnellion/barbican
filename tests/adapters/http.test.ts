@@ -67,6 +67,44 @@ function clientFor(overrides: Record<string, unknown> = {}) {
 const GET = (port: number, path = "/") =>
   ({ method: "GET", url: `http://127.0.0.1:${port}${path}`, headers: {} }) as const;
 
+describe("заголовки, добавленные по итогам холодного чтения", () => {
+  /**
+   * Оба редактировались зря, и оба нужны для разбора находки.
+   *
+   * `cache-control` меняет оценку ущерба: межтенантная утечка с `public`
+   * размножается через CDN, и радиус поражения совсем иной. `date` —
+   * единственная зацепка, чтобы сопоставить находку с логом сервера.
+   * Учётных данных не несёт ни тот, ни другой.
+   */
+  it("сохраняет cache-control и date, но по-прежнему режет set-cookie", async () => {
+    const server = await startServer((_request, response) => {
+      response.setHeader("cache-control", "public, max-age=60");
+      // Только ASCII: Node отвергает кириллицу в значении заголовка.
+      response.setHeader("set-cookie", "session=platform-secret");
+      response.setHeader("x-internal", "also-secret");
+      response.writeHead(200);
+      response.end();
+    });
+
+    try {
+      const { client } = clientFor();
+      const result = await client.send({
+        method: "GET",
+        url: `http://127.0.0.1:${server.port}/x`,
+        headers: {},
+      });
+
+      expect(result.headers["cache-control"]).toBe("public, max-age=60");
+      expect(result.headers["date"]).toMatch(/GMT/);
+      expect(result.headers["set-cookie"]).toBe("[REDACTED]");
+      expect(result.headers["x-internal"]).toBe("[REDACTED]");
+      expect(JSON.stringify(result)).not.toContain("secret");
+    } finally {
+      await server.close();
+    }
+  });
+});
+
 describe("область проверки", () => {
   it("отказывается работать без allowlist", () => {
     const throttle = createThrottle();
