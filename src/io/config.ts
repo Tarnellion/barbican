@@ -9,7 +9,7 @@
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import type { AuthScheme } from "../adapters/credentials.js";
-import { DEFAULT_AUTH_SCHEME } from "../adapters/credentials.js";
+import { assertAuthSchemeIsSound, DEFAULT_AUTH_SCHEME } from "../adapters/credentials.js";
 import type {
   Account,
   Endpoint,
@@ -65,11 +65,20 @@ const ruleSchema = z.object({
   outcome: outcomeSchema,
 });
 
+/**
+ * Схема аутентификации.
+ *
+ * Объекты строгие намеренно: лишний ключ — ошибка, а не молча отброшенное поле.
+ * Так `{ kind: bearer, token: "…" }` отвергается вместо того, чтобы притвориться
+ * работающим, оставив секрет в файле, который положено коммитить. Значений
+ * в схеме нет ни в каком виде: единственный источник — переменная окружения,
+ * названная аккаунтом (ADR-0008).
+ */
 const authSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("bearer") }),
-  z.object({ kind: z.literal("header"), header: z.string().min(1) }),
-  z.object({ kind: z.literal("cookie"), name: z.string().min(1) }),
-  z.object({ kind: z.literal("basic") }),
+  z.strictObject({ kind: z.literal("bearer") }),
+  z.strictObject({ kind: z.literal("header"), header: z.string().min(1) }),
+  z.strictObject({ kind: z.literal("cookie"), name: z.string().min(1) }),
+  z.strictObject({ kind: z.literal("basic") }),
 ]);
 
 const configSchema = z.object({
@@ -107,6 +116,15 @@ const configSchema = z.object({
          * и прогон отрапортует «эскалаций не найдено», ничего не проверив.
          */
         canary: z.string().min(1).optional(),
+        /**
+         * Имя схемы аутентификации из `authSchemes`.
+         *
+         * Необязательно: без него аккаунт идёт по корневой `auth`. Здесь
+         * **ссылка**, а не схема целиком, — параметры схемы (имя заголовка,
+         * имя куки) принадлежат контуру, а не аккаунту, и повторённые у каждого
+         * аккаунта они рано или поздно разойдутся опечаткой. См. ADR-0016.
+         */
+        authScheme: z.string().min(1).optional(),
       }),
     )
     .min(1),
@@ -168,8 +186,22 @@ const configSchema = z.object({
         .min(1),
     ])
     .optional(),
-  /** Схема аутентификации. По умолчанию Bearer — самый частый случай. */
+  /**
+   * Схема аутентификации по умолчанию. Bearer, если не задана, — самый частый случай.
+   *
+   * Именно **по умолчанию**: аккаунт, не назвавший схему, идёт по ней. Прогон
+   * против одного контура этим и ограничивается.
+   */
   auth: authSchema.optional(),
+  /**
+   * Именованные схемы контуров.
+   *
+   * Контуров у мультибрендовой платформы несколько, и аутентифицируются они
+   * по-разному: клиентское API по Bearer, операторская админка по сессионной
+   * куке, кабинет аффилиата по ключу в своём заголовке. Имя объявляется один
+   * раз здесь, аккаунт на него ссылается. См. ADR-0016.
+   */
+  authSchemes: z.record(z.string().min(1), authSchema).optional(),
   /**
    * Чтение тел ответов ради скалярных сигналов. Выключено, если секции нет.
    *
@@ -223,6 +255,8 @@ export interface AccountConfig {
    * такой тип для необязательного поля.
    */
   readonly canary?: string | undefined;
+  /** Имя схемы из `authSchemes`. Отсутствует у аккаунта, идущего по умолчанию. */
+  readonly authScheme?: string | undefined;
 }
 
 export interface RunTarget {
@@ -266,7 +300,16 @@ export class DuplicateSignalNameError extends Error {
 }
 
 export interface RunConfig {
+  /** Схема по умолчанию: по ней идёт аккаунт, не назвавший свою. */
   readonly auth: AuthScheme;
+  /**
+   * Схема на аккаунт: id аккаунта → разрешённая схема. Пусто, если
+   * переопределений нет.
+   *
+   * Готовая карта, а не имена ссылок: ссылки разрешаются при разборе, чтобы
+   * опечатка падала на старте, а не превращалась в прогон без аутентификации.
+   */
+  readonly accountAuth: ReadonlyMap<string, AuthScheme>;
   readonly target: RunTarget;
   readonly accounts: readonly AccountConfig[];
   readonly policy: ExpectedAccessPolicy;
@@ -322,6 +365,68 @@ export class DuplicateAccountIdError extends Error {
   constructor(id: string) {
     super(`Аккаунт с id "${id}" объявлен больше одного раза`);
     this.name = "DuplicateAccountIdError";
+  }
+}
+
+/**
+ * Ссылка на схему, которой не объявлено.
+ *
+ * Падает на старте намеренно. Аккаунт с неразрешённой ссылкой пошёл бы по схеме
+ * по умолчанию, платформа ответила бы 401 — а сплошной отказ совпадает с
+ * политикой везде, где доступ не положен. Отчёт вышел бы чистым, и чистота
+ * означала бы «мы не представились», а не «дыр нет». Канарейка это поймала бы,
+ * но она необязательна, а опечатка — нет.
+ */
+export class UnknownAuthSchemeError extends Error {
+  constructor(accountId: string, name: string, known: readonly string[]) {
+    super(
+      `Аккаунт "${accountId}" ссылается на схему аутентификации "${name}", которой нет ` +
+        `среди объявленных в authSchemes ` +
+        `(${known.length === 0 ? "не объявлено ни одной" : known.join(", ")}). ` +
+        `Опечатка здесь прячет результат: аккаунт ушёл бы на прогон с чужой схемой, ` +
+        `получил бы сплошной 401, а сплошной отказ совпадает с политикой там, где ` +
+        `доступ не положен, — и отчёт выглядел бы чистым.`,
+    );
+    this.name = "UnknownAuthSchemeError";
+  }
+}
+
+/**
+ * Объявленная схема, на которую никто не ссылается.
+ *
+ * Тот же класс, что шаблон эндпоинтов, не совпавший ни с чем: объявление,
+ * которое ни разу не применилось, выглядит проверенным утверждением, не будучи
+ * им. Практически это забытый `authScheme` у аккаунта — то есть ровно тот
+ * случай, когда прогон идёт не тем контуром и молчит об этом.
+ */
+export class UnusedAuthSchemeError extends Error {
+  constructor(name: string) {
+    super(
+      `Схема аутентификации "${name}" объявлена, но ни один аккаунт на неё не ссылается. ` +
+        `Скорее всего у аккаунта забыт authScheme: он пойдёт по схеме по умолчанию, ` +
+        `получит 401 — и прогон промолчит. Мёртвое объявление выглядит проверенным ` +
+        `утверждением, не будучи им.`,
+    );
+    this.name = "UnusedAuthSchemeError";
+  }
+}
+
+/**
+ * Схема у аккаунта, которому нечего предъявлять.
+ *
+ * Аккаунт без `tokenEnv` обращается анонимно, и схема к нему неприменима: класть
+ * в заголовок нечего. Само по себе это безобидно, но ссылка «использует» схему,
+ * и настоящий аккаунт того же контура, у которого `authScheme` забыт, перестаёт
+ * быть виден проверкой на неиспользуемую схему.
+ */
+export class AuthSchemeWithoutTokenError extends Error {
+  constructor(accountId: string, name: string) {
+    super(
+      `Аккаунт "${accountId}" ссылается на схему "${name}", но не называет tokenEnv. ` +
+        `Аккаунт без токена обращается анонимно, предъявлять по схеме нечего: ` +
+        `либо у аккаунта забыт tokenEnv, либо ссылка на схему лишняя.`,
+    );
+    this.name = "AuthSchemeWithoutTokenError";
   }
 }
 
@@ -481,6 +586,59 @@ export class MissingCredentialError extends Error {
 }
 
 /**
+ * Разрешает ссылки аккаунтов на именованные схемы аутентификации.
+ *
+ * Все три ошибки — про одно и то же: прогон, идущий не тем контуром, выглядит
+ * не как сбой, а как чистый отчёт. Поэтому они падают здесь, до первого запроса.
+ *
+ * @throws {InvalidAuthSchemeError} схему нельзя отправить
+ * @throws {UnknownAuthSchemeError} ссылка не разрешается
+ * @throws {UnusedAuthSchemeError} схема объявлена, но не используется
+ * @throws {AuthSchemeWithoutTokenError} схема у аккаунта без токена
+ */
+function resolveAccountAuth(
+  declared: Readonly<Record<string, AuthScheme>> | undefined,
+  accounts: readonly {
+    readonly id: string;
+    readonly tokenEnv?: string | undefined;
+    readonly authScheme?: string | undefined;
+  }[],
+): ReadonlyMap<string, AuthScheme> {
+  // Карта, а не индексация по объекту: `authScheme: constructor` на обычном
+  // объекте вернул бы унаследованное свойство вместо `undefined`, и ссылка
+  // «разрешилась» бы во что попало.
+  const schemes = new Map<string, AuthScheme>(Object.entries(declared ?? {}));
+  for (const [name, scheme] of schemes) {
+    assertAuthSchemeIsSound(scheme, `схема "${name}"`);
+  }
+
+  const resolved = new Map<string, AuthScheme>();
+  const used = new Set<string>();
+  for (const account of accounts) {
+    if (account.authScheme === undefined) {
+      continue;
+    }
+    const scheme = schemes.get(account.authScheme);
+    if (scheme === undefined) {
+      throw new UnknownAuthSchemeError(account.id, account.authScheme, [...schemes.keys()]);
+    }
+    if (account.tokenEnv === undefined) {
+      throw new AuthSchemeWithoutTokenError(account.id, account.authScheme);
+    }
+    used.add(account.authScheme);
+    resolved.set(account.id, scheme);
+  }
+
+  for (const name of schemes.keys()) {
+    if (!used.has(name)) {
+      throw new UnusedAuthSchemeError(name);
+    }
+  }
+
+  return resolved;
+}
+
+/**
  * Разбирает и проверяет конфигурацию.
  *
  * @param source текст файла в YAML или JSON
@@ -488,6 +646,9 @@ export class MissingCredentialError extends Error {
  * @throws {ConfigValidationError} документ не соответствует схеме
  * @throws {HostOutsideScopeError} хост из baseUrl вне allowedHosts
  * @throws {DuplicateAccountIdError} повторяющийся id аккаунта
+ * @throws {UnknownAuthSchemeError} аккаунт ссылается на необъявленную схему
+ * @throws {UnusedAuthSchemeError} объявленная схема никем не используется
+ * @throws {AuthSchemeWithoutTokenError} схема у аккаунта без tokenEnv
  */
 export function parseRunConfig(source: string): RunConfig {
   let document: unknown;
@@ -510,6 +671,8 @@ export function parseRunConfig(source: string): RunConfig {
     }
     seen.add(account.id);
   }
+
+  const accountAuth = resolveAccountAuth(config.authSchemes, config.accounts);
 
   // Пробелы по краям имени тенанта — всегда опечатка, и опечатка опасная:
   // «tenant-a » и «tenant-a» дают разные отношения и разный вердикт.
@@ -604,6 +767,7 @@ export function parseRunConfig(source: string): RunConfig {
 
   return {
     auth: config.auth ?? DEFAULT_AUTH_SCHEME,
+    accountAuth,
     target: config.target,
     accounts: config.accounts,
     policy,
