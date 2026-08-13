@@ -82,7 +82,15 @@ const configSchema = z.object({
       z.object({
         id: z.string().min(1),
         role: z.string().min(1),
-        tenant: z.string().min(1),
+        /**
+         * Тенант аккаунта.
+         *
+         * Необязательно: аккаунт без него объявлен **вне тенантов**, и это
+         * аноним. Служебного имени вроде `none` здесь быть не должно — оно
+         * лежало бы в одном пространстве значений с настоящими именами, и
+         * платформа с таким тенантом сломала бы классификацию молча.
+         */
+        tenant: z.string().min(1).optional(),
         /**
          * Имя переменной окружения с токеном.
          *
@@ -203,7 +211,8 @@ const configSchema = z.object({
 export interface AccountConfig {
   readonly id: string;
   readonly role: string;
-  readonly tenant: string;
+  /** Тенант. Отсутствует у аккаунта вне тенантов, то есть у анонимного. */
+  readonly tenant?: string | undefined;
   /** Имя переменной окружения с токеном. Не сам токен. Отсутствует у анонимных. */
   readonly tokenEnv?: string | undefined;
   /**
@@ -529,15 +538,17 @@ export function parseRunConfig(source: string): RunConfig {
     }
   }
   const declaredTenants = tenantNodes?.map((node) => node.id);
-  const accountTenants = config.accounts.map((account) => account.tenant.trim());
+  // Аккаунт без тенанта в сверку не входит и записи в перечне не требует:
+  // он объявлен вне тенантов, а не отнесён к какому-то из них. Требовать для
+  // него строки в `tenants` значило бы вернуть сентинел через чёрный ход.
+  const accountTenants = config.accounts
+    .map((account) => account.tenant?.trim())
+    .filter((tenant) => tenant !== undefined);
   if (declaredTenants !== undefined) {
-    for (const [index, tenant] of accountTenants.entries()) {
-      if (!declaredTenants.includes(tenant)) {
-        throw new UnknownTenantError(
-          `Аккаунт "${config.accounts[index]?.id ?? index}"`,
-          tenant,
-          declaredTenants,
-        );
+    for (const account of config.accounts) {
+      const tenant = account.tenant?.trim();
+      if (tenant !== undefined && !declaredTenants.includes(tenant)) {
+        throw new UnknownTenantError(`Аккаунт "${account.id}"`, tenant, declaredTenants);
       }
     }
   }
@@ -602,7 +613,10 @@ export function toAccounts(config: RunConfig): readonly Account[] {
   return config.accounts.map((account) => ({
     id: account.id,
     roleId: account.role,
-    tenantId: account.tenant.trim(),
+    // Поле не проставляется вовсе, а не заполняется заглушкой: отсутствие
+    // тенанта — это утверждение «аккаунт вне тенантов», и оно должно доехать
+    // до `relationOf` как отсутствие.
+    ...(account.tenant === undefined ? {} : { tenantId: account.tenant.trim() }),
   }));
 }
 

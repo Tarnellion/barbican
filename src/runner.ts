@@ -172,6 +172,25 @@ function joinUrl(baseUrl: string, path: string): string {
   return resolved.toString();
 }
 
+/**
+ * Базовый адрес для обращения: свой адрес тенанта, если объявлен, иначе общий.
+ *
+ * Отдельной функцией, потому что случай «тенанта нет вовсе» — аккаунт вне
+ * тенантов, то есть аноним, — должен решаться одинаково и в канарейке,
+ * и в основном прогоне. Заглушки вроде `?? ""` здесь недопустимы: пустая
+ * строка снова стала бы именем тенанта, пусть и не совпадающим ни с чем.
+ */
+function baseUrlForTenant(
+  tenantId: TenantId | undefined,
+  tenantBaseUrls: ReadonlyMap<TenantId, string> | undefined,
+  fallback: string,
+): string {
+  if (tenantId === undefined) {
+    return fallback;
+  }
+  return tenantBaseUrls?.get(tenantId) ?? fallback;
+}
+
 const PARAMETER_NAME = /\{([^}]+)\}/g;
 
 /** Подставляет значения объекта в шаблон пути. */
@@ -260,8 +279,12 @@ export async function probeCanaries(options: {
   // Канарейка обязана стучаться на хост своего же бренда: на платформе,
   // разнесённой по поддоменам, обращение к чужому даст отказ, и прогон
   // остановится ложной тревогой «токен не работает».
+  // Аккаунты вне тенантов (анонимные) в карту не попадают: своего адреса
+  // у них нет, обращение идёт на базовый.
   const tenantOf = new Map(
-    (options.accounts ?? []).map((account) => [account.id, account.tenantId]),
+    (options.accounts ?? []).flatMap((account) =>
+      account.tenantId === undefined ? [] : [[account.id, account.tenantId] as const],
+    ),
   );
   const results: CanaryResult[] = [];
 
@@ -282,7 +305,7 @@ export async function probeCanaries(options: {
       const response = await options.client.send({
         method: endpoint.method,
         url: joinUrl(
-          options.tenantBaseUrls?.get(tenantOf.get(canary.accountId) ?? "") ?? options.baseUrl,
+          baseUrlForTenant(tenantOf.get(canary.accountId), options.tenantBaseUrls, options.baseUrl),
           endpoint.path,
         ),
         headers: options.credentials.headersFor(canary.accountId),
@@ -370,7 +393,7 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       const startedAt = Date.now();
       const path = resource === undefined ? endpoint.path : substitute(endpoint.path, resource);
       const tenantId = resource?.tenantId ?? account.tenantId;
-      const baseUrl = options.tenantBaseUrls?.get(tenantId) ?? options.baseUrl;
+      const baseUrl = baseUrlForTenant(tenantId, options.tenantBaseUrls, options.baseUrl);
       // Проверка области — над готовым путём, а не над шаблоном: значение объекта
       // с `..` уводило обращение выше объявленного базового пути, потому что
       // шаблон проверялся до подстановки.

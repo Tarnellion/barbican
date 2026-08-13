@@ -368,7 +368,7 @@ describe("анонимный аккаунт", () => {
   const ANON = `
 target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
 accounts:
-  - { id: anon,     role: guest,  tenant: public }
+  - { id: anon,     role: guest }
   - { id: player-a, role: player, tenant: tenant-a, tokenEnv: TOK_A }
 policy: { fallback: denied, rules: [] }
 `;
@@ -385,6 +385,30 @@ policy: { fallback: denied, rules: [] }
 
     expect(tokens.has("anon")).toBe(false);
     expect(tokens.get("player-a")).toBe("value");
+  });
+
+  /**
+   * Тенанта у анонима нет, и поле не подставляется заглушкой: служебное имя
+   * вроде `none` лежало бы в одном пространстве значений с настоящими именами,
+   * и платформа с тенантом `none` получила бы аноним в соседи — молча.
+   */
+  it("оставляет аккаунт без тенанта без поля tenantId", () => {
+    expect(toAccounts(parseRunConfig(ANON))).toEqual([
+      { id: "anon", roleId: "guest" },
+      { id: "player-a", roleId: "player", tenantId: "tenant-a" },
+    ]);
+    expect(toAccounts(parseRunConfig(ANON))[0]).not.toHaveProperty("tenantId");
+  });
+
+  // Он объявлен вне тенантов, а не отнесён к какому-то из них: требовать для
+  // него строки в перечне значило бы вернуть сентинел через чёрный ход.
+  it("не требует записи в перечне tenants, оставляя сверку строгой для прочих", () => {
+    const strict = `${ANON}tenants: [tenant-a]\n`;
+
+    expect(() => parseRunConfig(strict)).not.toThrow();
+    expect(() => parseRunConfig(strict.replace("tenant: tenant-a", "tenant: tenant-b"))).toThrow(
+      UnknownTenantError,
+    );
   });
 });
 

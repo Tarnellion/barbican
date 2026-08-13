@@ -25,6 +25,19 @@ function digestOf(observation: AccessObservation, name: string): number | undefi
 }
 
 /**
+ * Как назвать принадлежность аккаунта в тексте находки.
+ *
+ * У аккаунта вне тенантов (анонимного) тенанта нет, и подставлять сюда
+ * служебное имя нельзя: в отчёт вернулась бы строка-сентинел, неотличимая
+ * от настоящего тенанта с таким же именем.
+ */
+function tenantLabel(account: Account): string {
+  return account.tenantId === undefined
+    ? `аккаунта вне тенантов (${account.id})`
+    : `тенанта ${account.tenantId}`;
+}
+
+/**
  * Два аккаунта из разных тенантов получили побайтово одинаковый ответ.
  *
  * Проверка срабатывает только на эндпоинтах, помеченных человеком как
@@ -108,12 +121,23 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
             if (leftAccount === undefined || rightAccount === undefined) {
               continue;
             }
-            if (leftAccount.tenantId === rightAccount.tenantId) {
+            const leftTenant = leftAccount.tenantId;
+            const rightTenant = rightAccount.tenantId;
+            // Сюда попадают и два аккаунта вне тенантов: тенанта нет ни у того,
+            // ни у другого, разным он у них быть не может, и совпадение ответов
+            // об изоляции ничего не говорит.
+            if (leftTenant === rightTenant) {
               continue;
             }
+            // Родство считается только между объявленными тенантами: у аккаунта
+            // вне тенантов узла в дереве нет, а значит нет и родни. Пара «тенант
+            // против аккаунта вне тенантов» сравнивается — и должна: совпадение
+            // ответов означает, что данные тенанта видны тому, кто в нём не состоит.
             if (
-              hierarchy.isAncestor(leftAccount.tenantId, rightAccount.tenantId) ||
-              hierarchy.isAncestor(rightAccount.tenantId, leftAccount.tenantId)
+              leftTenant !== undefined &&
+              rightTenant !== undefined &&
+              (hierarchy.isAncestor(leftTenant, rightTenant) ||
+                hierarchy.isAncestor(rightTenant, leftTenant))
             ) {
               continue;
             }
@@ -124,13 +148,15 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
             findings.push({
               checkId: IDENTICAL_RESPONSE_CHECK_ID,
               severity: "high",
-              title: `Ответ ${endpointId} одинаков для тенантов ${leftAccount.tenantId} и ${rightAccount.tenantId}`,
+              title: `Ответ ${endpointId} одинаков для ${tenantLabel(leftAccount)} и ${tenantLabel(rightAccount)}`,
               endpointId,
               accountId: leftAccount.id,
               evidence: {
                 otherAccountId: rightAccount.id,
-                tenant: leftAccount.tenantId,
-                otherTenant: rightAccount.tenantId,
+                // Ключ отсутствует, если тенанта нет: пустое место читается
+                // как «вне тенантов», а заглушка читалась бы как имя.
+                ...(leftTenant === undefined ? {} : { tenant: leftTenant }),
+                ...(rightTenant === undefined ? {} : { otherTenant: rightTenant }),
                 status: left.status,
                 // Дайджест не выносится: он осмыслен только внутри прогона
                 // (соль случайна), а читателю отчёта ничего не сообщает.

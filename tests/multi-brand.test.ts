@@ -87,6 +87,49 @@ describe("адрес выбирается по тенанту объекта", (
     expect(seen[0]?.url).toBe("https://a.example.test/v1/orders");
   });
 
+  /**
+   * У аккаунта вне тенантов (анонимного) своего адреса нет и быть не может:
+   * выбирать его не по чему. Заглушка вместо тенанта здесь означала бы поиск
+   * по несуществующему имени — то же самое, но неявно.
+   */
+  it("аккаунт вне тенантов опрашивает общий адрес, а объект — адрес своего тенанта", async () => {
+    const { client, seen } = recordingClient();
+    const anonymous: readonly Account[] = [{ id: "anon", roleId: "anonymous" }];
+
+    await collectObservations({
+      baseUrl: "https://api.example.test",
+      endpoints: ENDPOINTS,
+      accounts: anonymous,
+      resources: RESOURCES,
+      credentials,
+      client,
+      tenantBaseUrls: TENANT_URLS,
+    });
+
+    const byUrl = seen.map((request) => request.url);
+    // Ручка без объекта: тенанта у аккаунта нет — остаётся общий адрес.
+    expect(byUrl).toContain("https://api.example.test/v1/orders");
+    // Ручка с объектом: адрес по-прежнему выбирается по тенанту объекта.
+    expect(byUrl).toContain("https://a.example.test/v1/orders/1");
+    expect(byUrl).toContain("https://b.example.test/v1/orders/2");
+  });
+
+  it("канарейка аккаунта вне тенантов идёт на общий адрес", async () => {
+    const { client, seen } = recordingClient();
+
+    await probeCanaries({
+      baseUrl: "https://api.example.test",
+      endpoints: ENDPOINTS,
+      canaries: [{ accountId: "anon", endpointId: "orders.list" }],
+      credentials,
+      client,
+      accounts: [{ id: "anon", roleId: "anonymous" }],
+      tenantBaseUrls: TENANT_URLS,
+    });
+
+    expect(seen[0]?.url).toBe("https://api.example.test/v1/orders");
+  });
+
   it("без объявленных адресов всё уходит на общий, как раньше", async () => {
     const { client, seen } = recordingClient();
 
