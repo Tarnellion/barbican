@@ -87,3 +87,37 @@ jobs:
       # Дублирует pre-commit-хук: локальный хук обходится через --no-verify.
       - name: Scan full history
         run: ./gitleaks git --redact --no-banner .
+
+  vulnerabilities:
+    name: known vulnerabilities (OSV)
+    runs-on: ubuntu-latest
+    # Второй слой поверх `pnpm audit`: OSV агрегирует источники, которых нет
+    # в реестре npm, — GHSA, CVE, базы дистрибутивов. Совпадение вердиктов
+    # ничего не стоит, расхождение стоит того, чтобы о нём узнать.
+    #
+    # Бинарь ставится напрямую и сверяется по закреплённой сумме — та же
+    # причина, что у gitleaks: action тянет свою версию, и вердикты CI
+    # разъезжаются с локальными молча.
+    #
+    # Версия на шаг позади свежей намеренно: v2.5.0 вышла неделю назад,
+    # а `minimumReleaseAge` в этом проекте — 7 суток не случайно.
+    env:
+      OSV_VERSION: "2.4.0"
+      OSV_SHA256: "15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install osv-scanner
+        run: |
+          set -euo pipefail
+          url="https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_amd64"
+          curl -sSfL "$url" -o osv-scanner
+          echo "${OSV_SHA256}  osv-scanner" | sha256sum -c -
+          chmod +x osv-scanner
+          ./osv-scanner --version
+
+      # Сканируется lockfile, а не установленное дерево: так вердикт зависит
+      # от того, что объявлено, и воспроизводится без установки.
+      - name: Scan lockfile
+        run: ./osv-scanner scan source --lockfile=pnpm-lock.yaml

@@ -1,0 +1,74 @@
+name: Release
+
+# Публикация по тегу, а не по пушу в main: тег ставит человек, и это
+# единственное действие, которого достаточно для выпуска. Автопубликация
+# на каждый коммит превратила бы обычную опечатку в версию в реестре.
+on:
+  push:
+    tags: ["v*"]
+
+# По умолчанию — только чтение. `id-token` нужен ровно одной работе и ровно
+# затем, чтобы npm выдал короткоживущие учётные данные через OIDC: долгоживущий
+# токен в секретах репозитория — то самое, от чего уходим.
+permissions:
+  contents: read
+
+env:
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+
+jobs:
+  publish:
+    name: publish to npm with provenance
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # Actions запинены по SHA: тег можно передвинуть на другой коммит.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # 24 — верхняя граница заявленной поддержки. Собирать выпуск на ней,
+          # а не на нижней, значит проверять пакет там, где он новее всего.
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing требует npm >= 11.5.1. Версия закреплена, а не
+      # `@latest`: выпуск не должен зависеть от того, что вышло сегодня утром.
+      - name: Pin npm
+        run: |
+          set -euo pipefail
+          npm install -g npm@11.19.0
+          npm --version
+
+      - name: Enable pnpm via corepack
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Тот же гейт, что в CI. Тег может быть поставлен на коммит, который
+      # CI не проходил, — а выпуск обязан проходить.
+      - name: Check
+        run: pnpm run check
+
+      # Версия пакета обязана совпадать с тегом. Иначе в реестр уедет не то,
+      # что помечено в истории, и сопоставить выпуск с коммитом станет нечем.
+      - name: Verify tag matches package version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "Тег v$tag не совпадает с версией пакета $pkg" >&2
+            exit 1
+          fi
+
+      # Ни NODE_AUTH_TOKEN, ни NPM_TOKEN: учётные данные выдаёт OIDC, и живут
+      # они минуты. Provenance подписывается автоматически — она включена
+      # в publishConfig и здесь не дублируется флагом.
+      - name: Publish
+        run: npm publish
