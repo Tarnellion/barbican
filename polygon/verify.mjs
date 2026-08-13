@@ -21,7 +21,7 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { checkCoverage, compareVariant, loadGroundTruth } from "../tools/oracle/index.mjs";
@@ -145,6 +145,73 @@ function runCli(reportPath, environment) {
   });
 }
 
+const README = "polygon/README.md";
+const TABLE_BEGIN = "<!-- verify:begin -->";
+const TABLE_END = "<!-- verify:end -->";
+
+/**
+ * Собирает блок с результатом сверки.
+ *
+ * Печатает прогон, а не человек: числа в этом документе разъезжались с кодом
+ * дважды, причём во второй раз соседний абзац сам объяснял, почему они другие,
+ * — обновили объяснение, а не число.
+ */
+function renderTable(rows) {
+  const width = Math.max(...rows.map((row) => row.id.length));
+  const lines = rows.map((row) => {
+    const name = `\`${row.id}\``.padEnd(width + 2);
+    const body = row.byBody > 0 ? `, of them by body ${row.byBody}` : "";
+    return `| ${name} | ${row.findings}${body} | ${row.expected} | ${row.matched ? "match" : "MISMATCH"} | ${row.code} |`;
+  });
+  return [
+    TABLE_BEGIN,
+    "",
+    `Cells probed per combination: ${rows[0]?.cells ?? 0}. Combinations: ${rows.length}.`,
+    "",
+    "| Combination | Findings | Oracle expects | Verdict | Exit code |",
+    "|---|---|---|---|---|",
+    ...lines,
+    "",
+    TABLE_END,
+  ].join("\n");
+}
+
+/** Заменяет блок между метками. @throws если меток нет */
+async function writeReadmeTable(block) {
+  const path = new URL(`../${README}`, import.meta.url);
+  const text = await readFile(path, "utf8");
+  const replaced = replaceBlock(text, block);
+  await writeFile(path, replaced, "utf8");
+}
+
+/** Возвращает описание расхождения либо undefined, если всё совпало. */
+async function compareReadmeTable(block) {
+  const path = new URL(`../${README}`, import.meta.url);
+  const text = await readFile(path, "utf8");
+  const current = extractBlock(text);
+  if (current === block) {
+    return undefined;
+  }
+  return (
+    `таблица в ${README} не совпадает с этим прогоном. ` +
+    `Обновите её: node polygon/verify.mjs --update-readme`
+  );
+}
+
+function extractBlock(text) {
+  const from = text.indexOf(TABLE_BEGIN);
+  const to = text.indexOf(TABLE_END);
+  if (from === -1 || to === -1) {
+    fail(`в ${README} нет меток ${TABLE_BEGIN} и ${TABLE_END} вокруг таблицы сверки`);
+  }
+  return text.slice(from, to + TABLE_END.length);
+}
+
+function replaceBlock(text, block) {
+  const current = extractBlock(text);
+  return text.replace(current, block);
+}
+
 async function main() {
   if (!existsSync(CLI)) {
     fail(`не найден ${CLI}. Соберите инструмент: pnpm run build`);
@@ -164,7 +231,15 @@ async function main() {
   if (gaps.length > 0) {
     fail(`оракул неполон:\n  ${gaps.join("\n  ")}`);
   }
-  const selected = process.argv.slice(2);
+  const argv = process.argv.slice(2);
+  // Сверка таблицы в README — модификатор обычного прогона, а не отдельный
+  // режим: числа в документе обязаны быть с того же прогона, что и вердикт.
+  const checkReadme = argv.includes("--check-readme");
+  const updateReadme = argv.includes("--update-readme");
+  const selected = argv.filter((argument) => !argument.startsWith("--"));
+  if ((checkReadme || updateReadme) && selected.length > 0) {
+    fail("сверка таблицы требует полного прогона: уберите фильтр комбинаций");
+  }
   const combinations = groundTruth.variants.filter(
     (combination) => selected.length === 0 || selected.includes(combination.id),
   );
@@ -179,6 +254,8 @@ async function main() {
   const reportDir = await mkdtemp(join(tmpdir(), "barbican-polygon-"));
 
   let mismatched = 0;
+  /** Строки для таблицы в README: печатает их прогон, а не человек. */
+  const rows = [];
 
   for (const combination of combinations) {
     const flags = Object.fromEntries(
@@ -249,6 +326,16 @@ async function main() {
         `(ожидалось ${combination.findings.length})\n`,
     );
 
+    rows.push({
+      id: combination.id,
+      cells: report.summary.observations,
+      findings: report.summary.findings,
+      byBody: report.summary.checkFindings,
+      expected: combination.findings.length,
+      code: result.code,
+      matched: problems.length === 0,
+    });
+
     if (problems.length === 0) {
       process.stdout.write(`  СОВПАЛО с оракулом, код возврата ${result.code}\n`);
     } else {
@@ -264,6 +351,20 @@ async function main() {
     `\nИтог: комбинаций ${combinations.length}, расхождений ${mismatched}. ` +
       `Отчёты: ${reportDir}\n`,
   );
+
+  if (updateReadme) {
+    await writeReadmeTable(renderTable(rows));
+    process.stdout.write(`\nТаблица в ${README} обновлена прогоном.\n`);
+  } else if (checkReadme) {
+    const stale = await compareReadmeTable(renderTable(rows));
+    if (stale !== undefined) {
+      mismatched += 1;
+      process.stdout.write(`\nРАСХОЖДЕНИЕ: ${stale}\n`);
+    } else {
+      process.stdout.write(`\nТаблица в ${README} совпадает с прогоном.\n`);
+    }
+  }
+
   process.exitCode = mismatched === 0 ? 0 : 1;
 }
 
