@@ -7,7 +7,7 @@ see [report.md](report.md).
 
 You declare **who is meant to get what**. The tool walks the API as each account
 and records what came back. A finding is a discrepancy between your declaration
-and the observed behavior.
+and the observed behaviour.
 
 The main consequence: **an empty policy produces a run without a single finding**,
 and that will mean "nothing was declared", not "everything is clean". Expected
@@ -208,15 +208,15 @@ would produce an unexpected denial on every cell. An expectation under condition
 is declared explicitly — or `fallback` applies.
 
 **`endpoints` is required.** Conditions without bounds multiply the matrix by the
-entire API surface; on someone else's deployment that is not a small matter. A side
-effect, and a useful one: on endpoints outside the list the cell under these
+entire API surface; on someone else's deployment that is not a small matter. A
+side effect, and a useful one: on endpoints outside the list the cell under these
 conditions **does not exist**, so it will not turn up in the report as unchecked.
 
 The run stops at startup if conditions are declared but no rule refers to them:
 with no rule, all of their cells fall through to `fallback`, and the report fills
 up with discrepancies nobody claimed.
 
-Attributes cannot substitute the foundation of the request: `authorization`,
+Attributes cannot replace the basis of the request: `authorization`,
 `cookie`, `host`, transport headers and the name of any header that presents
 credentials are rejected at startup. Conditions that quietly rewrote
 `Authorization` would give a run where some cells go out as a different account —
@@ -253,8 +253,8 @@ group of three, a partner in two programs. A tree cannot express such an account
 its tenants have no common ancestor other than the platform root — and by seating
 it at the root you hand it the whole remaining subtree as well, and the run goes
 silent on a real leak
-([ADR-0017](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0017-account-tenant-set.md), which also walks all three
-workarounds and what each of them breaks).
+([ADR-0017](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0017-account-tenant-set.md), which also walks through all
+three workarounds and what each of them breaks).
 
 The relation is computed for every membership, and the nearest one wins: for such
 an account a resource of brand A is `same-tenant`, a resource of the holding
@@ -293,7 +293,7 @@ tenants:
   - { id: brand-c, parent: holding-2 }
 ```
 
-The tree is mandatory once there is more than one surface. Without it the holding
+The tree is mandatory once tenancy has more than one tier. Without it the holding
 has to be attributed to one of its own brands, and the tool is **wrong twice at
 once**: it declares a lawful read of its own brand an escalation, and it does not
 notice a leak into a brand of a different holding. The second is the heavier one —
@@ -372,7 +372,8 @@ clean.
 A missing `scope` means "under any relation", including requests without a resource.
 
 For an account with a set of tenants the relation is computed for every
-membership, and the nearest one lands in the table — top to bottom down this same list.
+membership, and the nearest one lands in the table — top to bottom down this
+same list.
 
 ### Signals over the body
 
@@ -383,7 +384,8 @@ bodySignals:
     - { name: orderCount, kind: count, path: orders, endpoints: [orders.list] }
 ```
 
-Off when the section is absent: the body is not read at all, the stream is cancelled.
+Off when the section is absent: the body is not read at all, the stream is
+cancelled.
 
 `responseMustDifferByTenant` lists the endpoints whose response **must differ
 between tenants**. A match means a missing filter — a defect that does not change
@@ -399,9 +401,9 @@ from the status and lands in `findings`. The list answers exactly one question:
 where to compare bodies.
 
 `signals` are extra scalars (`count`, `present`). They produce no findings; they
-are there for the follow-up. "The responses matched for alice and carol" is the
-alarm, and the follow-up starts with the question of how many records each of
-them saw.
+are there when you dig in. "The responses matched for alice and carol" is the
+alarm, and digging in starts with the question of how many records each account
+saw.
 
 ### Scope
 
@@ -444,7 +446,7 @@ The `--endpoints` format is the same YAML, with one top-level key:
 
 ```yaml
 endpoints:
-  - id: orders.list          # the name the policy and resources use for this endpoint
+  - id: orders.list          # the name policy and resources refer to it by
     method: GET
     path: /v1/orders
   - id: orders.read

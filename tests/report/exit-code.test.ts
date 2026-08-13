@@ -690,6 +690,18 @@ describe("exitCodeFor", () => {
   });
 
   it("частичные сбои не делают прогон недостоверным", () => {
-    expect(exitCodeFor(report({ observations: 4, probeErrors: 3 }))).toBe(0);
+    // Одна сорвавшаяся ячейка из четырёх: выводы по остальным трём в силе,
+    // а сама ошибка видна в failures и byKind.
+    expect(exitCodeFor(report({ observations: 4, probeErrors: 1 }))).toBe(0);
+  });
+
+  /**
+   * Прежнее правило требовало, чтобы сорвались **все** ячейки до единой:
+   * три ошибки из четырёх давали код 0, то есть «проверено, расхождений нет»
+   * о матрице, от которой уцелела одна ячейка. Найдено ревью.
+   */
+  it("2 — сорвалась половина матрицы и больше", () => {
+    expect(exitCodeFor(report({ observations: 4, probeErrors: 2 }))).toBe(2);
+    expect(exitCodeFor(report({ observations: 4, probeErrors: 3 }))).toBe(2);
   });
 });

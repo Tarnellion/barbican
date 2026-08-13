@@ -48,8 +48,10 @@ workarounds and what each of them gets wrong. See
 
 ## Documentation
 
-The guides are written in Russian, matching the rest of `docs/`; this README is
-the package front page and stays in English.
+Everything the tool says and everything you read to use it is in English:
+this README, both guides, and every message the CLI prints. Design records
+in `docs/adr/` are still Russian — they explain decisions to whoever maintains
+the code, and translating them is in progress.
 
 - **[docs/guide.md](docs/guide.md)** — declaring accounts, tenants, resources and
   the access policy; running a scan; what the tool deliberately does not do.

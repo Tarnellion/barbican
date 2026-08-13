@@ -878,6 +878,15 @@ export function buildReport(options: BuildReportOptions): RunReport {
  * обращений. Во всех трёх случаях находок нет ровно потому, что не было
  * и проверки, — и код 0 читался бы как подтверждение защищённости.
  */
+/**
+ * Доля сорвавшихся обращений, после которой результату верить нельзя.
+ *
+ * Половина. Меньшая доля — обычные частичные сбои: они видны в `failures`
+ * и в `byKind`, но не отменяют выводов по уцелевшей части матрицы. Большая
+ * означает, что отчёт описывает не платформу, а состояние сети или стенда.
+ */
+const UNTRUSTWORTHY_ERROR_SHARE = 0.5;
+
 export function exitCodeFor(report: RunReport): number {
   if (report.summary.observations === 0) {
     return 2;
@@ -907,7 +916,15 @@ export function exitCodeFor(report: RunReport): number {
   if (report.canariesChecked === 0 && report.accounts.some((account) => !account.anonymous)) {
     return 2;
   }
-  if (report.summary.byKind["probe-error"] === report.summary.observations) {
+  // Порог, а не «все до единой». Прежнее условие требовало, чтобы сорвались
+  // **все** ячейки: 99 ошибок из ста давали код 0, то есть «проверено, чисто»
+  // о матрице, от которой уцелел один процент. Половина — граница, за которой
+  // отчёт перестаёт что-либо утверждать; она объявлена здесь константой,
+  // потому что число, спрятанное в выражении, никто не оспорит.
+  if (
+    report.summary.byKind["probe-error"] >=
+    report.summary.observations * UNTRUSTWORTHY_ERROR_SHARE
+  ) {
     return 2;
   }
   // Расхождение есть расхождение, куда бы оно ни было направлено. Инструмент
