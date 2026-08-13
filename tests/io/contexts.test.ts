@@ -15,6 +15,7 @@ import {
   MethodOverrideInContextError,
   parseRunConfig,
   toAccounts,
+  UncarriableKeyError,
   UnknownContextReferenceError,
   UnusedContextError,
 } from "../../src/io/config.js";
@@ -211,6 +212,17 @@ contexts:
   ])("отвергает заголовок %s (%s)", (header) => {
     expect(() => parseRunConfig(withContext("bad", `headers: { "${header}": something }`))).toThrow(
       ForbiddenContextHeaderError,
+    );
+  });
+
+  /**
+   * `__proto__` в обычном объектном литерале ключом не становится: заголовок
+   * молча исчезал бы, а объявление, которое ничего не делает и не жалуется, —
+   * ровно то, против чего написан весь инструмент.
+   */
+  it("отвергает ключ __proto__, а не теряет его молча", () => {
+    expect(() => parseRunConfig(withContext("weird", 'headers: { __proto__: "value" }'))).toThrow(
+      UncarriableKeyError,
     );
   });
 

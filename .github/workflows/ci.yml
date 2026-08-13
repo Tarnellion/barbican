@@ -88,6 +88,41 @@ jobs:
       - name: Scan full history
         run: ./gitleaks git --redact --no-banner .
 
+  polygon:
+    name: oracle (reference polygon, 25 combinations)
+    runs-on: ubuntu-latest
+    # Самая сильная проверка правильности в проекте гонялась только на моей
+    # машине и только когда я о ней вспоминал. Стенд — чистый Node, без Docker:
+    # поднимается и гасится самим verify.mjs, около полутора минут на все
+    # двадцать пять комбинаций флагов.
+    #
+    # Сверяются не числа в README, а находки ячейка в ячейку с рукописным
+    # оракулом. Расхождение означает либо регрессию инструмента, либо ошибку
+    # в оракуле — и то и другое надо знать до слияния, а не через неделю.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Enable pnpm via corepack
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Полигон гоняет собранный CLI, а не исходники: так проверяется ровно то,
+      # что уедет в пакет. Разошедшись, dist и src дали бы зелёную сверку
+      # на коде, которого пользователь не увидит.
+      - name: Build
+        run: pnpm run build
+
+      - name: Verify against the hand-written oracle
+        run: node polygon/verify.mjs
+
   vulnerabilities:
     name: known vulnerabilities (OSV)
     runs-on: ubuntu-latest

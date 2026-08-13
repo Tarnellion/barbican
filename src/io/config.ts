@@ -870,6 +870,49 @@ function resolveAccountAuth(
  * @throws {UnusedAuthSchemeError} объявленная схема никем не используется
  * @throws {AuthSchemeWithoutTokenError} схема у аккаунта без tokenEnv
  */
+export class UncarriableKeyError extends Error {
+  constructor(path: string) {
+    super(
+      `The configuration contains a key "${path}" that JavaScript cannot carry as ` +
+        `data: assigning it sets an object's prototype instead of adding a key, so ` +
+        `the entry silently disappears. A declaration that does nothing and says ` +
+        `nothing is worse than an error — rename the key.`,
+    );
+    this.name = "UncarriableKeyError";
+  }
+}
+
+/**
+ * Отвергает ключи, которые молча пропадают при разборе.
+ *
+ * `__proto__` в объектном литерале ключом не становится, и объявленный
+ * заголовок условий исчезал бы, не уйдя по проводу и не пожаловавшись.
+ * Загрязнения прототипа при этом не происходит — проверено, — но молчаливое
+ * исчезновение объявления и есть тот класс ошибок, против которого написан
+ * весь инструмент. Проверяется на **сыром** документе: к моменту валидации
+ * ключа уже нет.
+ *
+ * @throws {UncarriableKeyError}
+ */
+function assertNoUncarriableKeys(node: unknown, path = ""): void {
+  if (typeof node !== "object" || node === null) {
+    return;
+  }
+  if (Array.isArray(node)) {
+    node.forEach((item, index) => {
+      assertNoUncarriableKeys(item, `${path}[${index}]`);
+    });
+    return;
+  }
+  for (const key of Object.getOwnPropertyNames(node)) {
+    const where = path === "" ? key : `${path}.${key}`;
+    if (key === "__proto__") {
+      throw new UncarriableKeyError(where);
+    }
+    assertNoUncarriableKeys((node as Record<string, unknown>)[key], where);
+  }
+}
+
 export function parseRunConfig(source: string): RunConfig {
   let document: unknown;
   try {
@@ -877,6 +920,8 @@ export function parseRunConfig(source: string): RunConfig {
   } catch (cause) {
     throw new ConfigParseError(cause instanceof Error ? cause.message : String(cause), { cause });
   }
+
+  assertNoUncarriableKeys(document);
 
   const parsed = configSchema.safeParse(document);
   if (!parsed.success) {
@@ -1210,7 +1255,10 @@ function normalizeContexts(
     }
     seenIds.add(context.id);
 
-    const headers: Record<string, string> = {};
+    // Без прототипа: имя `__proto__` в обычном объектном литерале не становится
+    // ключом, а молча исчезает — объявленный заголовок не ушёл бы по проводу,
+    // и никто бы об этом не узнал. Найдено ревью после состязательной проверки.
+    const headers: Record<string, string> = Object.create(null);
     for (const [name, value] of Object.entries(context.headers ?? {})) {
       const lower = name.toLowerCase();
       if (!CONTEXT_HEADER_NAME.test(name)) {
