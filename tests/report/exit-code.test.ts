@@ -41,6 +41,7 @@ function report(overrides: {
       bodiesComparedOn: [],
       writeMethodsProbed: false,
       checksRun: [],
+      bodyComparison: [],
     },
     tool: { name: "barbican", version: "test" },
     startedAt: "2026-08-12T00:00:00.000Z",

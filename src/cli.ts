@@ -24,6 +24,7 @@ import {
   buildAccessMatrix,
   CheckRegistry,
   createIdenticalResponseCheck,
+  describeBodyComparison,
   diffAccess,
   expandPolicy,
 } from "./core/index.js";
@@ -233,6 +234,9 @@ async function run(flags: RunFlags): Promise<number> {
   const registry = new CheckRegistry();
   registry.register(createIdenticalResponseCheck());
   const checksRun = registry.list().map((check) => check.id);
+  // Что проверка сравнивала, а что пропустила по родству. Пересчитывается
+  // рядом с ней самой: правило пропуска описано там, и дубль тут разошёлся бы.
+  const bodyComparison = describeBodyComparison({ matrix });
   const checks = registry.list().flatMap((check) => check.run({ matrix }));
   const suspicions = findUnauthenticated(
     accounts,
@@ -260,6 +264,7 @@ async function run(flags: RunFlags): Promise<number> {
     policy,
     checks,
     checksRun,
+    bodyComparison,
     startedAt,
     finishedAt,
   });

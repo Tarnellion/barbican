@@ -7,7 +7,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { createIdenticalResponseCheck } from "../../src/core/checks/tenant-isolation.js";
+import {
+  createIdenticalResponseCheck,
+  describeBodyComparison,
+} from "../../src/core/checks/tenant-isolation.js";
 import type { AccessMatrix, AccessObservation, Account, Endpoint } from "../../src/core/types.js";
 
 const ACCOUNTS: readonly Account[] = [
@@ -48,6 +51,49 @@ function matrixOf(
 }
 
 const check = createIdenticalResponseCheck();
+
+describe("покрытие сравнения тел", () => {
+  /**
+   * Молчание отчёта про конкретную пару читается как «совпадений нет».
+   * На референс-платформе холдинг и саппорт с набором членств совпали
+   * дайджестом законно — они в родстве, — и отличить «пропустили» от «сравнили
+   * и разошлись» было нечем. Найдено вторым холодным чтением.
+   */
+  it("считает сравнённые пары отдельно от пропущенных по родству", () => {
+    const matrix: AccessMatrix = {
+      endpoints: [LIST],
+      accounts: [
+        { id: "holding", roleId: "holding", tenantId: "holding-1" },
+        { id: "op-a", roleId: "operator", tenantId: "brand-a" },
+        { id: "op-c", roleId: "operator", tenantId: "brand-c" },
+      ],
+      resources: [],
+      observations: [observed("holding", 1), observed("op-a", 1), observed("op-c", 2)],
+      tenants: [
+        { id: "holding-1" },
+        { id: "brand-a", parentId: "holding-1" },
+        { id: "holding-2" },
+        { id: "brand-c", parentId: "holding-2" },
+      ],
+    };
+
+    // holding × op-a — родня, пропущена. Остальные две пары сравнивались.
+    expect(describeBodyComparison({ matrix })).toEqual([
+      { endpointId: "orders-list", comparedPairs: 2, skippedRelatedPairs: 1 },
+    ]);
+  });
+
+  it("не считает ручки, для которых различие не объявлено", () => {
+    const matrix: AccessMatrix = {
+      endpoints: [{ id: "orders-list", method: "GET", path: "/v1/orders" }],
+      accounts: ACCOUNTS,
+      resources: [],
+      observations: [observed("alice-a", 1), observed("carol-b", 1)],
+    };
+
+    expect(describeBodyComparison({ matrix })).toEqual([]);
+  });
+});
 
 describe("маппинг на стандарты", () => {
   /**

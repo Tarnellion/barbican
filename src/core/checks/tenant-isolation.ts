@@ -21,6 +21,26 @@ export interface IdenticalResponseCheckOptions {
   readonly digestSignal?: string;
 }
 
+/**
+ * Прочие скаляры наблюдения — те, что человек объявил ради разбора.
+ *
+ * Попадают в доказательство под префиксом стороны: «alice видит 4 записи,
+ * carol видит 4, а всего их 4» убеждает сильнее, чем «дайджесты совпали».
+ */
+function scalarsOf(
+  observation: AccessObservation,
+  digestSignal: string,
+  side: "own" | "other",
+): Record<string, number | boolean> {
+  const out: Record<string, number | boolean> = {};
+  for (const [name, value] of Object.entries(observation.signals ?? {})) {
+    if (name !== digestSignal) {
+      out[`${side}.${name}`] = value;
+    }
+  }
+  return out;
+}
+
 function digestOf(observation: AccessObservation, name: string): number | undefined {
   const value = observation.signals?.[name];
   return typeof value === "number" ? value : undefined;
@@ -67,6 +87,24 @@ function related(
   return left.some((outer) =>
     right.some((inner) => hierarchy.isAncestor(outer, inner) || hierarchy.isAncestor(inner, outer)),
   );
+}
+
+/**
+ * Сравнима ли пара аккаунтов.
+ *
+ * Одно место на всю проверку: и сам обход, и пересчёт покрытия спрашивают
+ * отсюда. Разведи их — и покрытие начнёт описывать не то, что происходит.
+ */
+function comparable(left: Account, right: Account, hierarchy: TenantHierarchy): boolean {
+  const leftTenants = tenantIdsOf(left);
+  const rightTenants = tenantIdsOf(right);
+  if (leftTenants.length === 0 && rightTenants.length === 0) {
+    return false;
+  }
+  if (shareTenant(leftTenants, rightTenants)) {
+    return false;
+  }
+  return !related(leftTenants, rightTenants, hierarchy);
 }
 
 /**
@@ -160,29 +198,17 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
             if (leftAccount === undefined || rightAccount === undefined) {
               continue;
             }
-            const leftTenants = tenantIdsOf(leftAccount);
-            const rightTenants = tenantIdsOf(rightAccount);
-            // Два аккаунта вне тенантов: тенанта нет ни у того, ни у другого,
-            // разным он у них быть не может, и совпадение ответов об изоляции
-            // ничего не говорит.
-            if (leftTenants.length === 0 && rightTenants.length === 0) {
+            // Пропуски: оба вне тенантов (разного тенанта у них нет);
+            // общий тенант (законная одинаковость, как у соседей, и у частично
+            // пересекающихся наборов тоже); родство по дереву (роллап холдинга
+            // законно совпадает с ответом его бренда). Пара «тенант против
+            // аккаунта вне тенантов» сравнивается — и должна: совпадение
+            // означает, что данные тенанта видны тому, кто в нём не состоит.
+            if (!comparable(leftAccount, rightAccount, hierarchy)) {
               continue;
             }
-            // Общий тенант — та же законная одинаковость, что и прежде у пары
-            // соседей. С наборами она возникает и у частично пересекающихся
-            // аккаунтов: саппорт на брендах A и B против пользователя бренда A
-            // законно видит его строки, и утверждать по совпадению нечего.
-            if (shareTenant(leftTenants, rightTenants)) {
-              continue;
-            }
-            // Родство считается только между объявленными тенантами: у аккаунта
-            // вне тенантов узла в дереве нет, а значит нет и родни. Пара «тенант
-            // против аккаунта вне тенантов» сравнивается — и должна: совпадение
-            // ответов означает, что данные тенанта видны тому, кто в нём не состоит.
-            if (related(leftTenants, rightTenants, hierarchy)) {
-              continue;
-            }
-            if (digestOf(left, digestSignal) !== digestOf(right, digestSignal)) {
+            const leftDigest = digestOf(left, digestSignal);
+            if (leftDigest !== digestOf(right, digestSignal) || leftDigest === undefined) {
               continue;
             }
 
@@ -195,6 +221,13 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
               endpointId,
               accountId: leftAccount.id,
               evidence: {
+                // Значения, а не только вердикт. «Дайджесты совпали» без самих
+                // дайджестов заставляет читателя идти в наблюдения и соединять
+                // вручную; самое убедительное число прогона — «сколько записей
+                // увидел каждый» — так и оставалось в стороне.
+                digest: leftDigest,
+                ...scalarsOf(left, digestSignal, "own"),
+                ...scalarsOf(right, digestSignal, "other"),
                 otherAccountId: rightAccount.id,
                 // Ключ отсутствует, если тенанта нет: пустое место читается
                 // как «вне тенантов», а заглушка читалась бы как имя.
@@ -226,4 +259,67 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
       return findings;
     },
   };
+}
+
+/** Что проверка сравнивала на одном эндпоинте. */
+export interface BodyComparisonCoverage {
+  readonly endpointId: string;
+  /** Пар аккаунтов, чьи ответы действительно сравнивались. */
+  readonly comparedPairs: number;
+  /**
+   * Пар, пропущенных из-за родства тенантов.
+   *
+   * Названо отдельно, потому что молчание отчёта об этих парах читается как
+   * «совпадений нет». На прогоне референс-платформы холдинг и саппорт с набором
+   * членств совпали дайджестом — законно, они в родстве, — и без этого числа
+   * отличить «пропустили» от «сравнили и разошлись» было нечем.
+   */
+  readonly skippedRelatedPairs: number;
+}
+
+/**
+ * Пересчитывает, что проверка сравнивала, не выполняя саму проверку.
+ *
+ * Живёт рядом с ней намеренно: правило пропуска пар описано здесь, и повторять
+ * его в сборке отчёта значило бы завести дубль, который разойдётся.
+ */
+export function describeBodyComparison(
+  context: CheckContext,
+  options: IdenticalResponseCheckOptions = {},
+): readonly BodyComparisonCoverage[] {
+  const digestSignal = options.digestSignal ?? DEFAULT_DIGEST_SIGNAL;
+  const hierarchy =
+    context.matrix.tenants === undefined
+      ? FLAT_HIERARCHY
+      : createTenantHierarchy(context.matrix.tenants);
+  const accountById = new Map(context.matrix.accounts.map((account) => [account.id, account]));
+
+  return context.matrix.endpoints
+    .filter((endpoint) => endpoint.responseMustDifferByTenant === true)
+    .map((endpoint) => {
+      const relevant = context.matrix.observations.filter(
+        (observation) =>
+          observation.endpointId === endpoint.id &&
+          observation.resourceId === undefined &&
+          observation.outcome === "allowed" &&
+          digestOf(observation, digestSignal) !== undefined,
+      );
+      let compared = 0;
+      let skipped = 0;
+      for (let i = 0; i < relevant.length; i += 1) {
+        for (let j = i + 1; j < relevant.length; j += 1) {
+          const left = accountById.get(relevant[i]?.accountId ?? "");
+          const right = accountById.get(relevant[j]?.accountId ?? "");
+          if (left === undefined || right === undefined) {
+            continue;
+          }
+          if (comparable(left, right, hierarchy)) {
+            compared += 1;
+          } else {
+            skipped += 1;
+          }
+        }
+      }
+      return { endpointId: endpoint.id, comparedPairs: compared, skippedRelatedPairs: skipped };
+    });
 }

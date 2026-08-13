@@ -11,6 +11,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import type { AuthScheme } from "../adapters/credentials.js";
+import type { BodyComparisonCoverage } from "../core/checks/tenant-isolation.js";
 import type {
   AccessDiff,
   AccessObservation,
@@ -177,6 +178,15 @@ export interface Coverage {
    * от чистого: в `byKind` её ключ появляется только при находке.
    */
   readonly checksRun: readonly string[];
+  /**
+   * Что именно сравнивалось по телу на каждой объявленной ручке.
+   *
+   * `bodiesComparedOn` называет ручки, но молчание про конкретную пару читается
+   * как «совпадений нет». На прогоне референс-платформы холдинг и саппорт
+   * с набором членств совпали дайджестом законно — они в родстве, — и отличить
+   * «пропустили» от «сравнили и разошлись» без этого числа было нечем.
+   */
+  readonly bodyComparison: readonly BodyComparisonCoverage[];
 }
 
 export interface RunReport {
@@ -298,6 +308,8 @@ export interface BuildReportOptions {
   readonly checks?: readonly Finding[];
   /** Идентификаторы выполненных проверок, включая ничего не нашедшие. */
   readonly checksRun?: readonly string[];
+  /** Что сравнивалось по телу: пары сравнённые и пропущенные по родству. */
+  readonly bodyComparison?: readonly BodyComparisonCoverage[];
   readonly startedAt: Date;
   readonly finishedAt: Date;
 }
@@ -479,6 +491,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
         .map((endpoint) => endpoint.id),
       writeMethodsProbed: options.unsafeMethods ?? false,
       checksRun: options.checksRun ?? [],
+      bodyComparison: options.bodyComparison ?? [],
     },
     inputs: {
       policy: options.policy,
