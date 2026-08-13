@@ -143,6 +143,7 @@ policy:
           expected: "denied",
           actual: "allowed",
           kind: "privilege-escalation",
+          source: "matrix",
           severity: "high",
           // Воспроизведение приложено к находке: читателю не нужно склеивать
           // адрес из эндпоинта, объекта и базового URL вручную.

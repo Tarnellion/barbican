@@ -13,13 +13,16 @@ import type { AuthScheme } from "../adapters/credentials.js";
 import type {
   AccessDiff,
   AccessObservation,
+  AccessOutcome,
   DefectGroup,
   DiffKind,
   Endpoint,
+  ExpectedOutcome,
   Finding,
   HttpMethod,
   ResolvedAccessPolicy,
   Resource,
+  ResourceRelation,
   Severity,
   TenantNode,
 } from "../core/index.js";
@@ -35,7 +38,11 @@ export interface ReportSummary {
   readonly skipped: number;
   readonly failures: number;
   readonly findings: number;
-  readonly byKind: Readonly<Record<DiffKind, number>>;
+  /**
+   * По виду. Ключи — виды расхождений матрицы и идентификаторы проверок:
+   * после слияния списков сюда попадает всё, и дашборд по нему полон.
+   */
+  readonly byKind: Readonly<Record<string, number>>;
   /** Расхождения по серьёзности — с чего читателю начинать. См. ADR-0014. */
   readonly bySeverity: Readonly<Record<Severity, number>>;
   /**
@@ -62,7 +69,37 @@ export interface CanaryOutcome {
  * Ядро о адресах не знает и знать не должно — соединение делается здесь,
  * при сборке отчёта, по тройке «аккаунт × эндпоинт × объект».
  */
-export interface ReportedFinding extends AccessDiff {
+/**
+ * Находка отчёта — одна на оба способа обнаружения.
+ *
+ * Раньше списков было два: расхождения матрицы в осях `kind`/`expected`/
+ * `actual`/`relation` и находки проверок в осях `checkId`/`title`/`evidence`.
+ * Одна и та же межтенантная утечка попадала в разный список в зависимости
+ * от того, видна она по статусу или по телу, — то есть различие **способа
+ * обнаружения** выдавалось за различие природы находки.
+ *
+ * Цена этого разделения была не эстетической. `bySeverity` считала только
+ * первый список и показывала вдвое меньше; `byKind` не считал второй вовсе;
+ * группировка по сигнатуре на проверки не распространялась, и шесть клонов
+ * одной находки завышали картину вшестеро. Три симптома, одна причина.
+ */
+export interface ReportFinding {
+  /** Вид расхождения либо идентификатор проверки. */
+  readonly kind: string;
+  /** Чем найдено: сравнением матрицы или проверкой из реестра. */
+  readonly source: "matrix" | "check";
+  readonly severity: Severity;
+  readonly accountId: string;
+  readonly endpointId: string;
+  readonly resourceId?: string;
+  readonly relation?: ResourceRelation;
+  /** Только у расхождений матрицы. */
+  readonly expected?: ExpectedOutcome;
+  readonly actual?: AccessOutcome;
+  /** Только у находок проверок: человекочитаемое описание и обоснование. */
+  readonly title?: string;
+  readonly evidence?: Readonly<Record<string, string | number | boolean>>;
+  /** Чем воспроизвести. Отсутствует, если наблюдение не сохранило адрес. */
   readonly request?: { readonly method: HttpMethod; readonly url: string };
 }
 
@@ -132,16 +169,8 @@ export interface RunReport {
   /** Прогон оборвался, не дойдя до конца матрицы. */
   readonly truncated: boolean;
   readonly observations: readonly AccessObservation[];
-  readonly findings: readonly ReportedFinding[];
-  /**
-   * Находки проверок из реестра.
-   *
-   * Отдельно от `findings`: те — расхождения матрицы с объявленной политикой,
-   * эти — выводы проверок, которым матрицы недостаточно. Смешать их значило бы
-   * потерять различие между «доступ не совпал с намерением» и «ответ выглядит
-   * так, будто фильтра нет».
-   */
-  readonly checks: readonly Finding[];
+  readonly findings: readonly ReportFinding[];
+
   /** Вводные, на которых стоят выводы. */
   readonly inputs: RunInputs;
   /**
@@ -197,16 +226,10 @@ const EMPTY_BY_SEVERITY: Readonly<Record<Severity, number>> = {
  * и в их числе самую эксплуатируемую: списочную утечку, видимую только по телу.
  * Найдено холодным чтением отчёта человеком, не знающим проекта.
  */
-function countBySeverity(
-  findings: readonly AccessDiff[],
-  checks: readonly Finding[],
-): Readonly<Record<Severity, number>> {
+function countBySeverity(findings: readonly ReportFinding[]): Readonly<Record<Severity, number>> {
   const counts = { ...EMPTY_BY_SEVERITY };
   for (const finding of findings) {
     counts[finding.severity] += 1;
-  }
-  for (const check of checks) {
-    counts[check.severity] += 1;
   }
   return counts;
 }
@@ -217,17 +240,20 @@ function countBySeverity(
  * Соединение по тройке «аккаунт × эндпоинт × объект» — тому же ключу, которым
  * ячейка определяется везде в проекте.
  */
-function withRequests(
-  findings: readonly AccessDiff[],
+function mergeFindings(
+  diffs: readonly AccessDiff[],
+  checks: readonly Finding[],
   observations: readonly AccessObservation[],
-): readonly ReportedFinding[] {
+): readonly ReportFinding[] {
   const byCell = new Map(
     observations.map((observation) => [
       `${observation.accountId}\u0000${observation.endpointId}\u0000${observation.resourceId ?? ""}`,
       observation,
     ]),
   );
-  return findings.map((finding) => {
+  function withRequest<T extends { accountId: string; endpointId: string; resourceId?: string }>(
+    finding: T,
+  ): T & { request?: { method: HttpMethod; url: string } } {
     const observation = byCell.get(
       `${finding.accountId}\u0000${finding.endpointId}\u0000${finding.resourceId ?? ""}`,
     );
@@ -235,18 +261,45 @@ function withRequests(
       return finding;
     }
     return { ...finding, request: { method: observation.method, url: observation.url } };
-  });
+  }
+
+  const fromMatrix: readonly ReportFinding[] = diffs.map((diff) =>
+    withRequest({ ...diff, source: "matrix" as const }),
+  );
+
+  // У находки проверки аккаунт и эндпоинт необязательны по типу `Finding`,
+  // но проверка, не назвавшая ни того ни другого, бесполезна для разбора:
+  // такие в общий список не попадают и остаются видны только счётчиком.
+  const fromChecks: readonly ReportFinding[] = checks
+    .filter(
+      (check): check is Finding & { accountId: string; endpointId: string } =>
+        check.accountId !== undefined && check.endpointId !== undefined,
+    )
+    .map((check) =>
+      withRequest({
+        kind: check.checkId,
+        source: "check" as const,
+        severity: check.severity,
+        accountId: check.accountId,
+        endpointId: check.endpointId,
+        title: check.title,
+        evidence: check.evidence,
+      }),
+    );
+
+  return [...fromMatrix, ...fromChecks];
 }
 
-function countByKind(findings: readonly AccessDiff[]): Readonly<Record<DiffKind, number>> {
-  const counts = { ...EMPTY_BY_KIND };
+function countByKind(findings: readonly ReportFinding[]): Readonly<Record<string, number>> {
+  const counts: Record<string, number> = { ...EMPTY_BY_KIND };
   for (const finding of findings) {
-    counts[finding.kind] += 1;
+    counts[finding.kind] = (counts[finding.kind] ?? 0) + 1;
   }
   return counts;
 }
 
 export function buildReport(options: BuildReportOptions): RunReport {
+  const merged = mergeFindings(options.findings, options.checks ?? [], options.observations);
   return {
     tool: { name: "barbican", version: options.version },
     startedAt: options.startedAt.toISOString(),
@@ -271,14 +324,13 @@ export function buildReport(options: BuildReportOptions): RunReport {
     canaries: options.canaries ?? [],
     truncated: options.truncated,
     observations: options.observations,
-    findings: withRequests(options.findings, options.observations),
-    checks: options.checks ?? [],
+    findings: merged,
     inputs: {
       policy: options.policy,
       tenants: options.config.tenants ?? [],
       auth: options.config.auth,
     },
-    defects: groupDefects(options.findings),
+    defects: groupDefects(merged),
     summary: {
       endpoints: options.endpoints.length,
       accounts: options.config.accounts.length,
@@ -287,10 +339,10 @@ export function buildReport(options: BuildReportOptions): RunReport {
       skipped: options.skipped.length,
       failures: options.failures.length,
       findings: options.findings.length,
-      byKind: countByKind(options.findings),
-      bySeverity: countBySeverity(options.findings, options.checks ?? []),
-      defectGroups: groupDefects(options.findings).length,
-      checkFindings: (options.checks ?? []).length,
+      byKind: countByKind(merged),
+      bySeverity: countBySeverity(merged),
+      defectGroups: groupDefects(merged).length,
+      checkFindings: merged.filter((finding) => finding.source === "check").length,
     },
   };
 }
@@ -333,16 +385,18 @@ export function exitCodeFor(report: RunReport): number {
   // не может, то и молчать не вправе. Найдено проверкой оракула платформы:
   // холдингу закрыли его собственный бренд, и прогон вернул 0. См. ADR-0014.
   if (
-    report.summary.byKind["privilege-escalation"] > 0 ||
-    report.summary.byKind["unexpected-denial"] > 0
+    (report.summary.byKind["privilege-escalation"] ?? 0) > 0 ||
+    (report.summary.byKind["unexpected-denial"] ?? 0) > 0
   ) {
     return 1;
   }
   // Находка проверки — такое же расхождение, как эскалация, просто увиденное
   // не по статусу. Молчать о ней кодом возврата значило бы, что прогон
   // с найденной межтенантной утечкой выглядит успешным в CI.
-  return report.checks.some(
-    (finding) => finding.severity === "high" || finding.severity === "critical",
+  return report.findings.some(
+    (finding) =>
+      finding.source === "check" &&
+      (finding.severity === "high" || finding.severity === "critical"),
   )
     ? 1
     : 0;

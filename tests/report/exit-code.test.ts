@@ -8,9 +8,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { Finding } from "../../src/core/index.js";
 import { parseRunConfig } from "../../src/io/config.js";
-import type { RunReport } from "../../src/report/build.js";
+import type { ReportFinding, RunReport } from "../../src/report/build.js";
 import { buildReport, exitCodeFor } from "../../src/report/build.js";
 
 const CONFIG = parseRunConfig(`
@@ -25,7 +24,7 @@ function report(overrides: {
   probeErrors?: number;
   unauthenticated?: readonly string[];
   truncated?: boolean;
-  checks?: readonly Finding[];
+  checks?: readonly ReportFinding[];
   denials?: number;
 }): RunReport {
   const observations = overrides.observations ?? 4;
@@ -45,8 +44,7 @@ function report(overrides: {
     inputs: { policy: { fallback: "denied", rules: [] }, tenants: [], auth: { kind: "bearer" } },
     truncated: overrides.truncated ?? false,
     observations: [],
-    findings: [],
-    checks: overrides.checks ?? [],
+    findings: overrides.checks ?? [],
     defects: [],
     summary: {
       endpoints: 0,
@@ -77,13 +75,6 @@ describe("сводка по серьёзности", () => {
    * Найдено холодным чтением отчёта человеком, не знающим проекта.
    */
   it("считает и находки проверок, а не только расхождения матрицы", () => {
-    const leak: Finding = {
-      checkId: "identical-response-across-tenants",
-      severity: "high",
-      title: "одинаковый ответ у разных тенантов",
-      evidence: {},
-    };
-
     const built = buildReport({
       version: "test",
       config: CONFIG,
@@ -96,7 +87,24 @@ describe("сводка по серьёзности", () => {
       truncated: false,
       findings: [],
       policy: { fallback: "denied", rules: [] },
-      checks: [leak, leak],
+      checks: [
+        {
+          checkId: "identical-response-across-tenants",
+          severity: "high",
+          title: "одинаковый ответ у разных тенантов",
+          accountId: "alice",
+          endpointId: "orders.list",
+          evidence: {},
+        },
+        {
+          checkId: "identical-response-across-tenants",
+          severity: "high",
+          title: "одинаковый ответ у разных тенантов",
+          accountId: "bob",
+          endpointId: "orders.list",
+          evidence: {},
+        },
+      ],
       startedAt: new Date(0),
       finishedAt: new Date(1),
     });
@@ -121,22 +129,26 @@ describe("exitCodeFor", () => {
    * Без этого прогон с найденной межтенантной утечкой выглядел бы в CI успешным.
    */
   it("1 — находка проверки высокой серьёзности", () => {
-    const leak: Finding = {
-      checkId: "identical-response-across-tenants",
+    const leak: ReportFinding = {
+      kind: "identical-response-across-tenants",
+      source: "check",
       severity: "high",
+      accountId: "alice",
+      endpointId: "orders.list",
       title: "одинаковый ответ у разных тенантов",
-      evidence: {},
     };
 
     expect(exitCodeFor(report({ checks: [leak] }))).toBe(1);
   });
 
   it("0 — находка проверки только информационная", () => {
-    const note: Finding = {
-      checkId: "whatever",
+    const note: ReportFinding = {
+      kind: "whatever",
+      source: "check",
       severity: "info",
+      accountId: "alice",
+      endpointId: "ping",
       title: "к сведению",
-      evidence: {},
     };
 
     expect(exitCodeFor(report({ checks: [note] }))).toBe(0);

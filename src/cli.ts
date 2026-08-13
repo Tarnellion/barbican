@@ -252,7 +252,7 @@ async function run(flags: RunFlags): Promise<number> {
   }
 
   const { summary } = report;
-  const escalations = summary.byKind["privilege-escalation"];
+  const escalations = summary.byKind["privilege-escalation"] ?? 0;
   if (truncated) {
     process.stderr.write(
       `${paint("Прогон оборван:", "red")} исчерпан потолок обращений или сработал ` +
@@ -285,8 +285,8 @@ async function run(flags: RunFlags): Promise<number> {
     escalations > 0
       ? paint(`Эскалация привилегий: ${escalations}`, "red")
       : paint("Эскалации привилегий не найдено", "green"),
-    `Прочие расхождения: неожиданных отказов ${summary.byKind["unexpected-denial"]}, ` +
-      `не наблюдалось ${summary.byKind["not-observed"]}, ошибок обращения ${summary.byKind["probe-error"]}`,
+    `Прочие расхождения: неожиданных отказов ${summary.byKind["unexpected-denial"] ?? 0}, ` +
+      `не наблюдалось ${summary.byKind["not-observed"] ?? 0}, ошибок обращения ${summary.byKind["probe-error"] ?? 0}`,
     // С чего начинать читателю: 17 находок в одном списке — это не отчёт.
     summary.findings === 0
       ? undefined
@@ -302,7 +302,7 @@ async function run(flags: RunFlags): Promise<number> {
     // Находки проверок называются отдельной строкой: они увидены не по статусу,
     // и смешивать их с эскалацией значило бы стереть это различие.
     summary.checkFindings > 0
-      ? paint(`Находки проверок: ${summary.checkFindings} (см. checks в отчёте)`, "red")
+      ? paint(`Из них найдено по телу, а не по статусу: ${summary.checkFindings}`, "red")
       : undefined,
     flags.report === undefined ? undefined : `Отчёт: ${flags.report}`,
   ].filter((line): line is string => line !== undefined);
