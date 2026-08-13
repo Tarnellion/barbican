@@ -74,7 +74,7 @@ describe("разбор корректной конфигурации", () => {
   });
 
   it("приводит аккаунты к доменному типу ядра", () => {
-    expect(toAccounts(parseRunConfig(VALID))).toEqual([
+    expect(toAccounts(parseRunConfig(VALID)).accounts).toEqual([
       { id: "player-a", roleId: "player", tenantId: "tenant-a" },
       { id: "admin-a", roleId: "admin", tenantId: "tenant-a" },
     ]);
@@ -398,11 +398,11 @@ policy: { fallback: denied, rules: [] }
    * и платформа с тенантом `none` получила бы аноним в соседи — молча.
    */
   it("оставляет аккаунт без тенанта без поля tenantId", () => {
-    expect(toAccounts(parseRunConfig(ANON))).toEqual([
+    expect(toAccounts(parseRunConfig(ANON)).accounts).toEqual([
       { id: "anon", roleId: "guest" },
       { id: "player-a", roleId: "player", tenantId: "tenant-a" },
     ]);
-    expect(toAccounts(parseRunConfig(ANON))[0]).not.toHaveProperty("tenantId");
+    expect(toAccounts(parseRunConfig(ANON)).accounts[0]).not.toHaveProperty("tenantId");
   });
 
   // Он объявлен вне тенантов, а не отнесён к какому-то из них: требовать для
@@ -603,7 +603,7 @@ policy: { fallback: denied, rules: [] }
     );
 
     expect(config.resources[0]?.tenantId).toBe("tenant-a");
-    expect(toAccounts(config)[0]?.tenantId).toBe("tenant-a");
+    expect(toAccounts(config).accounts[0]?.tenantId).toBe("tenant-a");
   });
 
   it("без объявленного перечня не придирается: объект чужого тенанта законен", () => {
@@ -730,7 +730,7 @@ policy: { fallback: denied, rules: [] }
 `;
 
   it("доводит набор до доменного типа ядра набором", () => {
-    expect(toAccounts(parseRunConfig(WITH_SET))).toEqual([
+    expect(toAccounts(parseRunConfig(WITH_SET)).accounts).toEqual([
       { id: "sam", roleId: "support", tenantIds: ["brand-a", "brand-c"] },
     ]);
   });
@@ -738,7 +738,7 @@ policy: { fallback: denied, rules: [] }
   it("срезает пробелы в именах набора", () => {
     const config = parseRunConfig(WITH_SET.replace("[brand-a, brand-c]", '["brand-a ", brand-c]'));
 
-    expect(toAccounts(config)[0]?.tenantIds).toEqual(["brand-a", "brand-c"]);
+    expect(toAccounts(config).accounts[0]?.tenantIds).toEqual(["brand-a", "brand-c"]);
   });
 
   // Тот же класс, что опечатка в одиночном тенанте: она не ломает прогон,

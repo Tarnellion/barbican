@@ -185,7 +185,10 @@ export function cellKey(finding) {
  */
 export function compareVariant(variant, report, exitCode) {
   const expected = new Set(variant.findings.map(cellKey));
-  const actual = new Set([...report.findings, ...(report.checks ?? [])].map(cellKey));
+  // Список находок один: способ обнаружения — поле `source`, а не отдельный
+  // массив. Прежний запасной `report.checks` держался на форме отчёта,
+  // которой больше нет, и молча ничего не добавлял.
+  const actual = new Set(report.findings.map(cellKey));
 
   const missing = [...expected].filter((key) => !actual.has(key)).sort();
   const unexpected = [...actual].filter((key) => !expected.has(key)).sort();

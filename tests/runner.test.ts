@@ -53,9 +53,13 @@ describe("classifyStatus", () => {
     expect(classifyStatus(299)).toBe("allowed");
   });
 
-  it("считает отказом только 401 и 403", () => {
+  it("считает отказом 401, 403 и 451", () => {
     expect(classifyStatus(401)).toBe("denied");
     expect(classifyStatus(403)).toBe("denied");
+    // «Недоступно по юридическим причинам» — решение не обслуживать, а не сбой.
+    // Так отвечают на гео- и юрисдикционные ограничения; без этой строки
+    // исправная платформа давала бы стену probe-error именно там, где работает.
+    expect(classifyStatus(451)).toBe("denied");
   });
 
   it("выделяет 404 отдельно", () => {

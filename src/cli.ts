@@ -150,7 +150,9 @@ async function run(flags: RunFlags): Promise<number> {
         }),
   });
 
-  const accounts = toAccounts(config);
+  // Аккаунты в объявленных условиях — отдельные строки матрицы. Атрибуты
+  // (заголовки, параметры запроса) в ядро не идут: там достаточно метки.
+  const { accounts, attributes: contextAttributes } = toAccounts(config);
 
   // Бренды часто разнесены по поддоменам; адрес выбирается по тенанту объекта,
   // потому что спрашиваем мы именно за чужие данные, а лежат они на чужом хосте.
@@ -184,7 +186,10 @@ async function run(flags: RunFlags): Promise<number> {
       credentials,
       client,
       exclude: config.exclude,
-      accounts,
+      // Канарейки проверяют аутентификацию, а не условия: аккаунт в условиях
+      // предъявляет те же учётные данные, и второй прогон по нему ничего
+      // нового не подтвердил бы, зато удвоил бы обращения.
+      accounts: accounts.filter((account) => account.contextId === undefined),
       tenantBaseUrls,
     });
     canariesChecked = results.length;
@@ -214,6 +219,7 @@ async function run(flags: RunFlags): Promise<number> {
     exclude: config.exclude,
     resources: config.resources,
     tenantBaseUrls,
+    contextAttributes,
   });
   const finishedAt = new Date();
 
@@ -248,6 +254,9 @@ async function run(flags: RunFlags): Promise<number> {
   const unauthenticated = suspicions.map((s) => s.accountId);
 
   const report = buildReport({
+    // Та же карта, что у прогона: находка ссылается на аккаунт в условиях,
+    // и он обязан быть в списке аккаунтов, иначе ссылка повисает.
+    contextAccounts: contextAttributes,
     version,
     config,
     endpoints,

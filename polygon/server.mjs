@@ -328,6 +328,21 @@ const DEFECT_FLAGS = {
    * поэтому и дефект был бы неотличим от исправной работы.
    */
   primaryTenantOnly: "POLYGON_DEFECT_PRIMARY_TENANT_ONLY",
+  /**
+   * Не проверяется юрисдикция обращения: заказы отдаются и из запрещённой
+   * страны — 200 вместо 451.
+   *
+   * Единственный дефект полигона, который **не виден по одним лишь правам**:
+   * ячейка «alice-a × orders.read × собственный заказ» законно даёт 200 в
+   * базовых условиях и обязана дать отказ, когда обращение помечено страной
+   * из запрета. Различить их можно, только объявив условия отдельным
+   * измерением (ADR-0019): роль, тенант и объект здесь одни и те же.
+   *
+   * Правдоподобие: гео-ограничение живёт в CDN или на входном шлюзе, а не в
+   * основной авторизации, и «просочиться» мимо него — самый частый способ
+   * такое сломать.
+   */
+  geoBypass: "POLYGON_DEFECT_GEO_BYPASS",
 };
 
 class ConfigurationError extends Error {
@@ -371,6 +386,7 @@ function readDefects() {
     ancestorLeak: readFlag(DEFECT_FLAGS.ancestorLeak),
     parentLeak: readFlag(DEFECT_FLAGS.parentLeak),
     primaryTenantOnly: readFlag(DEFECT_FLAGS.primaryTenantOnly),
+    geoBypass: readFlag(DEFECT_FLAGS.geoBypass),
   };
 }
 
@@ -630,6 +646,29 @@ const ORDER_PATH = /^\/v1\/orders\/([^/]+)$/;
 const STATEMENT_PATH = /^\/v1\/statements\/([^/]+)$/;
 
 /** Список ручек. Дублируется в `endpoints.yaml` — там это объявление человека. */
+/**
+ * Запрещённая юрисдикция.
+ *
+ * `AQ` — Антарктида: настоящий код ISO, но заведомо не рынок. Ставить сюда
+ * реальную страну в публичном репозитории незачем, а выдуманный код
+ * не прошёл бы проверку у читателя, знающего стандарт.
+ */
+const BLOCKED_COUNTRY = "AQ";
+
+/**
+ * Гео-ограничение: заказы не отдаются из запрещённой юрисдикции.
+ *
+ * Возвращается 451, а не 403: отказ здесь юридический, а не по правам, и
+ * платформы так и отвечают. Для инструмента это тоже отказ — см. ADR-0019.
+ */
+function geoBlocked(headers, defects) {
+  if (defects.geoBypass) {
+    return false;
+  }
+  const country = headers["cf-ipcountry"];
+  return typeof country === "string" && country.toUpperCase() === BLOCKED_COUNTRY;
+}
+
 function handle(req, res, context) {
   if (req.method !== "GET" && req.method !== "HEAD") {
     // Небезопасные методы платформа не реализует: инструмент их и не шлёт
@@ -658,6 +697,10 @@ function handle(req, res, context) {
   }
 
   if (pathname === "/v1/orders") {
+    if (geoBlocked(req.headers, context.defects)) {
+      send(res, 451, { error: "unavailable_for_legal_reasons" });
+      return;
+    }
     if (account.role === "affiliate") {
       // Список заказов бренда аффилиату не положен. Ветка стоит до брендовой
       // и до `listNoFilter`: иначе с этим дефектом аффилиат получил бы общий
@@ -744,6 +787,10 @@ function handle(req, res, context) {
 
   const orderMatch = ORDER_PATH.exec(pathname);
   if (orderMatch !== null) {
+    if (geoBlocked(req.headers, context.defects)) {
+      send(res, 451, { error: "unavailable_for_legal_reasons" });
+      return;
+    }
     const orderId = decodeURIComponent(orderMatch[1]);
     const order = ORDERS.find((entry) => entry.id === orderId);
     if (order === undefined) {

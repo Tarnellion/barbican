@@ -44,6 +44,7 @@ const FLAG_FIELDS = {
   POLYGON_DEFECT_ANCESTOR_LEAK: "ancestorLeak",
   POLYGON_DEFECT_PARENT_LEAK: "parentLeak",
   POLYGON_DEFECT_PRIMARY_TENANT_ONLY: "primaryTenantOnly",
+  POLYGON_DEFECT_GEO_BYPASS: "geoBypass",
 };
 
 /**
@@ -238,7 +239,11 @@ async function main() {
     process.stdout.write(
       `  опрошено ячеек: ${report.summary.observations}, ` +
         `канареек: ${report.canariesChecked}, ` +
-        `находок: ${report.summary.findings + report.summary.checkFindings} ` +
+        // `findings` считает весь список целиком — и матричные расхождения,
+        // и находки по телу. Прибавлять к нему `checkFindings` значило считать
+        // вторые дважды: 88 на экране при 76 строках в отчёте. Сверка при этом
+        // оставалась зелёной, потому что сравнивает множества ключей, а не числа.
+        `находок: ${report.summary.findings} ` +
         `(из них по телу ${report.summary.checkFindings}) ` +
         `(ожидалось ${combination.findings.length})\n`,
     );

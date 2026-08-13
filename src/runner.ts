@@ -5,7 +5,7 @@
  * знания о конкретном транспорте. Это связывающий слой между ними.
  */
 
-import type { CredentialProvider, HttpClient } from "./adapters/ports.js";
+import type { ContextAttributes, CredentialProvider, HttpClient } from "./adapters/ports.js";
 import type {
   AccessObservation,
   AccessOutcome,
@@ -82,6 +82,14 @@ export interface CollectOptions {
    * берётся тенант аккаунта — вопрос тогда о его собственной области.
    */
   readonly tenantBaseUrls?: ReadonlyMap<TenantId, string>;
+  /**
+   * Атрибуты аккаунтов в объявленных условиях: id аккаунта в условиях → что
+   * добавить к обращению и чьи учётные данные предъявить.
+   *
+   * Ядро об этом не знает: ему хватает метки `contextId` на аккаунте. Здесь же
+   * условия становятся заголовками и параметрами запроса. См. ADR-0019.
+   */
+  readonly contextAttributes?: ReadonlyMap<string, ContextAttributes>;
 }
 
 export interface CollectResult {
@@ -116,12 +124,18 @@ const TEMPLATE_PARAMETER = /\{[^}]+\}/;
  * 4xx кроме перечисленных и 5xx — это `error`: «судить нельзя». Натянуть на них
  * `denied` означало бы записать отсутствие вывода как успешный отказ, а такие
  * записи потом читают как доказательство защищённости.
+ *
+ * 451 — отказ наравне с 401 и 403. Он неоднозначным не бывает: «недоступно
+ * по юридическим причинам» есть решение не обслуживать, а не сбой и не
+ * отсутствие объекта. Добавлен вместе с условиями обращения (ADR-0019): гео-
+ * и юрисдикционные ограничения отвечают именно им, и без этой строки исправная
+ * платформа давала бы стену `probe-error` там, где она как раз работает верно.
  */
 export function classifyStatus(status: number): AccessOutcome {
   if (status >= 200 && status < 300) {
     return "allowed";
   }
-  if (status === 401 || status === 403) {
+  if (status === 401 || status === 403 || status === 451) {
     return "denied";
   }
   if (status === 404) {
@@ -205,9 +219,13 @@ function substitute(path: string, resource: Resource): string {
   );
 }
 
-function withQuery(url: string, resource: Resource | undefined): string {
-  const query = resource?.query;
-  if (query === undefined || Object.keys(query).length === 0) {
+function withQuery(
+  url: string,
+  resource: Resource | undefined,
+  extra: Readonly<Record<string, string>> = {},
+): string {
+  const query = { ...resource?.query, ...extra };
+  if (Object.keys(query).length === 0) {
     return url;
   }
   const parsed = new URL(url);
@@ -400,7 +418,14 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
   }
 
   for (const account of options.accounts) {
+    const attributes = options.contextAttributes?.get(account.id);
+    // Условия аккаунта не меняют: предъявляется он сам, а меняется обращение.
+    const credentialAccountId = attributes?.credentialAccountId ?? account.id;
     for (const { endpoint, resource } of cells) {
+      // Аккаунт в условиях существует только на объявленных ручках.
+      if (account.endpointIds !== undefined && !account.endpointIds.includes(endpoint.id)) {
+        continue;
+      }
       const startedAt = Date.now();
       const path = resource === undefined ? endpoint.path : substitute(endpoint.path, resource);
       const tenantId = resource?.tenantId ?? account.tenantId;
@@ -410,7 +435,7 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       // шаблон проверялся до подстановки.
       let url: string;
       try {
-        url = withQuery(joinUrl(baseUrl, path), resource);
+        url = withQuery(joinUrl(baseUrl, path), resource, attributes?.query);
       } catch (cause) {
         failures.push({
           accountId: account.id,
@@ -432,10 +457,20 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       // Заголовки берутся на каждое обращение, а не один раз на аккаунт:
       // подпись зависит от метода и адреса, и вынесенное из цикла значение
       // молча подписывало бы все ячейки первым запросом. См. ADR-0018.
+      //
+      // Атрибуты условий добавляются **после** учётных: подменить учётный
+      // заголовок они не могут — это проверено при разборе конфигурации, —
+      // и порядок здесь второй рубеж той же защиты, а не стилистика.
       const request = {
         method: endpoint.method,
         url,
-        headers: options.credentials.headersFor(account.id, { method: endpoint.method, url }),
+        headers: {
+          ...options.credentials.headersFor(credentialAccountId, {
+            method: endpoint.method,
+            url,
+          }),
+          ...attributes?.headers,
+        },
         ...(specs.length === 0 ? {} : { signals: specs }),
       };
 

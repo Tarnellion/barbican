@@ -32,6 +32,16 @@ export interface ExpectedAccessRule {
    * сохраняет смысл политик, написанных до появления ресурсов (ADR-0010).
    */
   readonly scope?: ResourceRelation | undefined;
+  /**
+   * Условия обращения, при которых правило действует.
+   *
+   * Совпадение **точное**, и отсутствие здесь означает «базовые условия»,
+   * а не «любые». Иначе объявление новых условий молча распространило бы
+   * на них все прежние ожидания: платформа, законно закрывающая ставку
+   * из запрещённой страны, дала бы «неожиданный отказ» на каждой ручке.
+   * Ожидание в условиях объявляется явно — либо срабатывает `fallback`.
+   */
+  readonly context?: string | undefined;
   readonly outcome: ExpectedOutcome;
 }
 
@@ -122,12 +132,17 @@ export function resolveExpectedVerdict(
   roleId: RoleId,
   endpointId: string,
   relation?: ResourceRelation,
+  contextId?: string,
 ): ExpectedVerdict {
   let verdict: ExpectedVerdict = { outcome: policy.fallback };
   // Побеждает последнее подошедшее, поэтому перебор идёт до конца, а не до
   // первого совпадения: номер должен указывать на то же правило, что и исход.
   for (const [index, rule] of policy.rules.entries()) {
     if (rule.scope !== undefined && rule.scope !== relation) {
+      continue;
+    }
+    // Условия сравниваются точно, включая «оба отсутствуют».
+    if (rule.context !== contextId) {
       continue;
     }
     if (matches(rule.roles, roleId) && matches(rule.endpoints, endpointId)) {
@@ -142,8 +157,9 @@ export function resolveExpected(
   roleId: RoleId,
   endpointId: string,
   relation?: ResourceRelation,
+  contextId?: string,
 ): ExpectedOutcome {
-  return resolveExpectedVerdict(policy, roleId, endpointId, relation).outcome;
+  return resolveExpectedVerdict(policy, roleId, endpointId, relation, contextId).outcome;
 }
 
 /**

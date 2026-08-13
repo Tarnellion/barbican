@@ -97,7 +97,7 @@ policy:
           E2E_ADMIN: ADMIN_TOKEN,
         }),
       );
-      const accounts = toAccounts(config);
+      const accounts = toAccounts(config).accounts;
 
       const startedAt = new Date();
       const { observations, skipped, failures } = await collectObservations({
@@ -198,7 +198,7 @@ policy:
     - { roles: [admin], endpoints: "*", outcome: allowed }
 `);
       const endpoints = await createOpenApiParser().parse(SPEC);
-      const accounts = toAccounts(config);
+      const accounts = toAccounts(config).accounts;
       const { observations, skipped, failures } = await collectObservations({
         baseUrl: config.target.baseUrl,
         endpoints,

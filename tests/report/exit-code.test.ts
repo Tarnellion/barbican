@@ -42,6 +42,7 @@ function report(overrides: {
       writeMethodsProbed: false,
       checksRun: [],
       bodyComparison: [],
+      contextsProbed: {},
     },
     tool: { name: "barbican", version: "test" },
     startedAt: "2026-08-12T00:00:00.000Z",
@@ -55,7 +56,12 @@ function report(overrides: {
     unauthenticated: overrides.unauthenticated ?? [],
     canariesChecked: 0,
     canaries: [],
-    inputs: { policy: { fallback: "denied", rules: [] }, tenants: [], auth: { kind: "bearer" } },
+    inputs: {
+      policy: { fallback: "denied", rules: [] },
+      tenants: [],
+      auth: { kind: "bearer" },
+      contexts: [],
+    },
     truncated: overrides.truncated ?? false,
     observations: [],
     findings: overrides.checks ?? [],
@@ -248,6 +254,80 @@ policy: { fallback: denied, rules: [] }
 
     expect(accounts.find((a) => a.id === "u")?.anonymous).toBe(false);
     expect(accounts.find((a) => a.id === "anon")?.anonymous).toBe(true);
+  });
+});
+
+describe("аккаунты в условиях", () => {
+  const WITH_CONTEXT = parseRunConfig(`
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [a], context: geo, outcome: denied }
+contexts:
+  - { id: geo, headers: { cf-ipcountry: AQ }, endpoints: [a] }
+`);
+
+  function build() {
+    return buildReport({
+      version: "test",
+      config: WITH_CONTEXT,
+      endpoints: [{ id: "a", method: "GET", path: "/a" }],
+      observations: [
+        {
+          accountId: "u@geo",
+          endpointId: "a",
+          status: 451,
+          outcome: "denied",
+          headers: {},
+          durationMs: 1,
+        },
+      ],
+      skipped: [],
+      failures: [],
+      unauthenticated: [],
+      canariesChecked: 0,
+      truncated: false,
+      findings: [],
+      policy: { fallback: "denied", rules: [] },
+      contextAccounts: new Map([["u@geo", { contextId: "geo", credentialAccountId: "u" }]]),
+      startedAt: new Date(0),
+      finishedAt: new Date(1),
+    });
+  }
+
+  /**
+   * Находка ссылается на аккаунт в условиях. Без строки в списке аккаунтов
+   * ссылка повисает: читатель видит `u@geo`, ищет его и не находит.
+   */
+  it("перечисляет аккаунт в условиях наравне с базовым", () => {
+    const accounts = build().accounts;
+
+    expect(accounts.map((account) => account.id)).toEqual(["u", "u@geo"]);
+    expect(accounts[1]).toMatchObject({ contextId: "geo", role: "r", tenant: "t" });
+  });
+
+  /** Атрибуты печатаются: иначе находку в условиях нечем воспроизвести. */
+  it("печатает объявленные условия вместе с атрибутами", () => {
+    expect(build().inputs.contexts).toEqual([
+      {
+        id: "geo",
+        headers: { "cf-ipcountry": "AQ" },
+        query: {},
+        endpointIds: ["a"],
+        accountIds: [],
+      },
+    ]);
+  });
+
+  /**
+   * Ноль здесь означает «условия объявлены, но не проверены»: их ручки могли
+   * уйти в skipped, а отсутствие находок читалось бы как «под этими условиями
+   * всё в порядке».
+   */
+  it("считает пронаблюдённые ячейки по каждым условиям", () => {
+    expect(build().coverage.contextsProbed).toEqual({ geo: 1 });
   });
 });
 

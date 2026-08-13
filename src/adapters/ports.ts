@@ -86,6 +86,20 @@ export interface CredentialProvider {
  * Тела здесь нет: инструмент их не отправляет. Появится отправка — тело сюда
  * добавится, и это будет отдельное решение, а не молчаливое расширение.
  */
+/**
+ * Что адаптерам нужно знать об аккаунте в объявленных условиях обращения.
+ *
+ * Ядру достаточно метки `contextId`; заголовки и параметры запроса живут
+ * здесь, потому что ядро об HTTP не знает. См. ADR-0019.
+ */
+export interface ContextAttributes {
+  /** Чьи учётные данные предъявлять: условия аккаунта не меняют. */
+  readonly credentialAccountId: string;
+  readonly contextId: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly query: Readonly<Record<string, string>>;
+}
+
 export interface SignedRequest {
   readonly method: string;
   /** Полный адрес обращения, уже с подставленными параметрами пути. */

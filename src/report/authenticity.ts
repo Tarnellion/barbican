@@ -82,7 +82,20 @@ export function findUnauthenticated(
         observation.resourceId === undefined ? undefined : byId.get(observation.resourceId);
       const relation =
         resource === undefined ? undefined : relationOf(account, resource, hierarchy);
-      if (resolveExpected(policy, account.roleId, observation.endpointId, relation) !== "allowed") {
+      // Условия обязательны ровно по той же причине, что и отношение строкой
+      // выше: без них аккаунт в условиях сверялся бы с базовыми ожиданиями.
+      // Там, где условия объявлены запрещающими, «доступа нет нигде» — это
+      // объявленный результат, а не признак неработающих учётных данных,
+      // и предохранитель объявлял бы недостоверным исправный прогон.
+      if (
+        resolveExpected(
+          policy,
+          account.roleId,
+          observation.endpointId,
+          relation,
+          account.contextId,
+        ) !== "allowed"
+      ) {
         continue;
       }
       expectedAllowed += 1;

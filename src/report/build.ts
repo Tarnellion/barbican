@@ -29,7 +29,7 @@ import type {
   TenantNode,
 } from "../core/index.js";
 import { groupDefects } from "../core/index.js";
-import type { RunConfig } from "../io/config.js";
+import type { AccountConfig, RunConfig } from "../io/config.js";
 import type { ProbeFailure, SkippedEndpoint } from "../runner.js";
 
 /**
@@ -107,7 +107,14 @@ export interface ReportFinding {
   readonly endpointId: string;
   readonly resourceId?: string;
   readonly relation?: ResourceRelation;
-  /** Только у расхождений матрицы. */
+  /**
+   * Условия обращения. Отсутствие — базовые, без добавленных атрибутов.
+   *
+   * Без этого поля находка «доступ есть там, где не положен» не отличалась бы
+   * от находки «доступ есть при подменённой стране»: аккаунт в отчёте разный,
+   * но чем он отличается, читателю взять негде.
+   */
+  readonly contextId?: string;
   readonly expected?: ExpectedOutcome;
   readonly actual?: AccessOutcome;
   /** Только у находок проверок: человекочитаемое описание и обоснование. */
@@ -141,6 +148,24 @@ export interface RunInputs {
    * Значений здесь нет и быть не может — они живут только в окружении.
    */
   readonly auth: AuthScheme;
+  /**
+   * Объявленные условия обращения вместе с атрибутами.
+   *
+   * Атрибуты печатаются: без них «доступ при context: geo-blocked» —
+   * утверждение, которое нечем ни воспроизвести, ни оспорить. Значения задаёт
+   * человек, и секретам там не место — ровно как в остальной конфигурации.
+   */
+  readonly contexts: readonly ReportedContext[];
+}
+
+export interface ReportedContext {
+  readonly id: string;
+  readonly description?: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly query: Readonly<Record<string, string>>;
+  readonly endpointIds: readonly string[];
+  /** Аккаунты, к которым применялись. Пусто — ко всем. */
+  readonly accountIds: readonly string[];
 }
 
 /**
@@ -187,6 +212,15 @@ export interface Coverage {
    * «пропустили» от «сравнили и разошлись» без этого числа было нечем.
    */
   readonly bodyComparison: readonly BodyComparisonCoverage[];
+  /**
+   * Сколько ячеек пронаблюдено в каждых объявленных условиях.
+   *
+   * Ноль здесь означает «условия объявлены, но не проверены»: их ручки могли
+   * попасть в `skipped`, а отсутствие находок читалось бы как «под этими
+   * условиями всё в порядке». Ключ есть у каждых объявленных условий,
+   * в том числе с нулём, — молчания об условиях быть не должно.
+   */
+  readonly contextsProbed: Readonly<Record<string, number>>;
 }
 
 export interface RunReport {
@@ -229,6 +263,13 @@ export interface RunReport {
     readonly tenants?: readonly string[] | undefined;
     /** Объявлен без учётных данных: обращается анонимно. */
     readonly anonymous?: boolean;
+    /**
+     * Условия обращения, в которых существует эта строка.
+     *
+     * Тот же аккаунт с теми же учётными данными: меняется не он, а обращение.
+     * Отсутствие означает базовые условия.
+     */
+    readonly contextId?: string;
     /**
      * Схема, которой аккаунт представлялся. Только вид и имена, без значений.
      * У анонимного аккаунта не значит ничего — предъявлять нечего.
@@ -289,6 +330,17 @@ export interface RunReport {
 export interface BuildReportOptions {
   readonly version: string;
   readonly config: RunConfig;
+  /**
+   * Аккаунты в условиях: id → чьи данные предъявлялись и в каких условиях.
+   *
+   * Берётся готовой картой от деривации, а не выводится здесь заново: второй
+   * обход тех же правил разошёлся бы с первым, и находка ссылалась бы
+   * на аккаунт, которого в отчёте нет.
+   */
+  readonly contextAccounts?: ReadonlyMap<
+    string,
+    { readonly contextId: string; readonly credentialAccountId: string }
+  >;
   readonly endpoints: readonly Endpoint[];
   /** Эндпоинты, которые действительно опрашивались. */
   readonly probed?: readonly Endpoint[];
@@ -429,6 +481,47 @@ function countByReason(skipped: readonly SkippedEndpoint[]): Readonly<Record<str
   return counts;
 }
 
+/**
+ * Строки аккаунтов, включая аккаунты в условиях.
+ *
+ * Аккаунт в условиях — отдельная строка матрицы, и находка ссылается именно
+ * на неё. Без такой строки в отчёте ссылка повисает: читатель видит
+ * `alice-a@geo-blocked`, ищет его в списке аккаунтов и не находит.
+ */
+function withContextAccounts(
+  options: BuildReportOptions,
+): readonly (AccountConfig & { readonly contextId?: string })[] {
+  const base = options.config.accounts;
+  if (options.contextAccounts === undefined || options.contextAccounts.size === 0) {
+    return base;
+  }
+  const byId = new Map(base.map((account) => [account.id, account]));
+  const derived: (AccountConfig & { readonly contextId: string })[] = [];
+  for (const [id, { contextId, credentialAccountId }] of options.contextAccounts) {
+    const source = byId.get(credentialAccountId);
+    if (source === undefined) {
+      continue;
+    }
+    derived.push({ ...source, id, contextId });
+  }
+  return [...base, ...derived];
+}
+
+/** Сколько ячеек пронаблюдено в каждых условиях, включая непроверенные. */
+function countByContext(options: BuildReportOptions): Readonly<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const context of options.config.contexts) {
+    counts[context.id] = 0;
+  }
+  for (const observation of options.observations) {
+    const contextId = options.contextAccounts?.get(observation.accountId)?.contextId;
+    if (contextId !== undefined) {
+      counts[contextId] = (counts[contextId] ?? 0) + 1;
+    }
+  }
+  return counts;
+}
+
 export function buildReport(options: BuildReportOptions): RunReport {
   const merged = mergeFindings(options.findings, options.checks ?? [], options.observations);
   const notObserved = options.findings.filter((finding) => finding.kind === "not-observed").length;
@@ -450,7 +543,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     },
     // tokenEnv намеренно не переносится: имя переменной не секрет, но и смысла
     // в отчёте не несёт, а соблазн положить рядом значение убирает.
-    accounts: options.config.accounts.map((account) => ({
+    accounts: withContextAccounts(options).map((account) => ({
       id: account.id,
       role: account.role,
       tenant: account.tenant,
@@ -462,6 +555,8 @@ export function buildReport(options: BuildReportOptions): RunReport {
       // единственный положительный вывод отчёта — «аноним всюду получил 401» —
       // недоказуем: аккаунт с ошибочно поданным токеном выглядел бы так же.
       anonymous: account.tokenEnv === undefined,
+      // Условия, в которых существует эта строка. Отсутствие — базовые.
+      ...(account.contextId === undefined ? {} : { contextId: account.contextId }),
       // Каким контуром ходил аккаунт. У анонимного не пишется вовсе:
       // предъявлять ему нечего, и запись схемы там только путала. Без этого читатель не отличит «ручка
       // закрыта» от «мы стучались не тем транспортом»: и то и другое даёт 401.
@@ -492,11 +587,20 @@ export function buildReport(options: BuildReportOptions): RunReport {
       writeMethodsProbed: options.unsafeMethods ?? false,
       checksRun: options.checksRun ?? [],
       bodyComparison: options.bodyComparison ?? [],
+      contextsProbed: countByContext(options),
     },
     inputs: {
       policy: options.policy,
       tenants: options.config.tenants ?? [],
       auth: options.config.auth,
+      contexts: options.config.contexts.map((context) => ({
+        id: context.id,
+        ...(context.description === undefined ? {} : { description: context.description }),
+        headers: context.headers,
+        query: context.query,
+        endpointIds: context.endpointIds,
+        accountIds: context.accountIds,
+      })),
     },
     defects: groups,
     summary: {

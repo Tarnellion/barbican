@@ -10,6 +10,7 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import type { AuthScheme } from "../adapters/credentials.js";
 import { assertAuthSchemeIsSound, DEFAULT_AUTH_SCHEME } from "../adapters/credentials.js";
+import type { ContextAttributes } from "../adapters/ports.js";
 import type {
   Account,
   Endpoint,
@@ -59,11 +60,29 @@ const endpointSelectorSchema = z.union([
 // разошёлся с типом и сделал иерархию тенантов недостижимой через CLI.
 const relationSchema = z.enum(RESOURCE_RELATIONS);
 
-const ruleSchema = z.object({
+/**
+ * Правило политики. Объект строгий: лишний ключ — ошибка, а не отброшенное поле.
+ *
+ * Найдено прогоном полигона против старой сборки: нераспознанный `context`
+ * молча отбрасывался, и правило «запретить в этих условиях» превращалось
+ * в «запретить всегда» — 19 находок на исправной платформе. Та же опечатка
+ * в `scope` расширяет правило на все отношения и, наоборот, **прячет**
+ * находку. Молча в обе стороны.
+ */
+const ruleSchema = z.strictObject({
   roles: selectorSchema,
   endpoints: endpointSelectorSchema,
   /** Отсутствие означает «при любом отношении», включая обращения без объекта. */
   scope: relationSchema.optional(),
+  /**
+   * Имя условий обращения из `contexts`.
+   *
+   * Отсутствие означает **базовые** условия, а не «любые»: иначе объявление
+   * новых условий молча распространило бы на них все прежние ожидания,
+   * и платформа, законно закрывающая ставку из запрещённой страны, дала бы
+   * «неожиданный отказ» на каждой ручке. См. ADR-0019.
+   */
+  context: z.string().min(1).optional(),
   outcome: outcomeSchema,
 });
 
@@ -242,6 +261,32 @@ const configSchema = z.object({
    */
   authSchemes: z.record(z.string().min(1), authSchema).optional(),
   /**
+   * Условия обращения — минимальный полезный кусок ABAC.
+   *
+   * Тот же аккаунт с той же ролью, но обращение помечено атрибутами: адрес
+   * другой страны, устройство, непройденный KYC. Инструмент не моделирует
+   * логику решения платформы — он сравнивает **исходы** двух объявленных
+   * наборов условий. См. ADR-0019.
+   *
+   * `endpoints` обязателен: условия без границ умножили бы матрицу на всю
+   * поверхность API, а стоимость прогона на чужом стенде — не мелочь.
+   */
+  contexts: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1),
+        /** Человеческое описание: что именно объявлено этими атрибутами. */
+        description: z.string().min(1).optional(),
+        headers: z.record(z.string().min(1), z.string()).optional(),
+        query: z.record(z.string().min(1), z.string()).optional(),
+        endpoints: z.array(z.string().min(1)).min(1),
+        /** Аккаунты, к которым условия применяются. Отсутствие — ко всем. */
+        accounts: z.array(z.string().min(1)).min(1).optional(),
+      }),
+    )
+    .min(1)
+    .optional(),
+  /**
    * Чтение тел ответов ради скалярных сигналов. Выключено, если секции нет.
    *
    * Тело читается **только** у перечисленных здесь эндпоинтов: там, где ответ
@@ -366,6 +411,25 @@ export interface RunConfig {
   readonly bodySignals?: BodySignalsConfig | undefined;
   /** Дерево тенантов. Отсутствие означает лес из корней без связей. */
   readonly tenants?: readonly TenantConfig[] | undefined;
+  /** Условия обращения. Пусто, если не объявлены. */
+  readonly contexts: readonly RequestContextConfig[];
+}
+
+/**
+ * Объявленные условия обращения.
+ *
+ * Атрибуты — заголовки и параметры запроса — живут здесь, а не в ядре: ядро
+ * об HTTP не знает и знать не должно, ему достаточно метки `contextId`.
+ */
+export interface RequestContextConfig {
+  readonly id: string;
+  readonly description?: string | undefined;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly query: Readonly<Record<string, string>>;
+  /** Ручки, на которых условия применяются. Не бывает пустым. */
+  readonly endpointIds: readonly string[];
+  /** Аккаунты, к которым применяются. Пусто — ко всем. */
+  readonly accountIds: readonly string[];
 }
 
 export class ConfigParseError extends Error {
@@ -507,6 +571,67 @@ export class UnknownTenantError extends Error {
   }
 }
 
+/**
+ * Атрибуты условий не могут подменять учётные и управляющие заголовки.
+ *
+ * Список хардкодный и из пользовательского ввода не берётся. Условия, тихо
+ * переписавшие `Authorization`, дали бы прогон, где половина ячеек ходит
+ * не тем аккаунтом, — а выглядело бы это как находки платформы.
+ */
+export class ForbiddenContextHeaderError extends Error {
+  constructor(contextId: string, header: string, reason: string) {
+    super(
+      `Условия "${contextId}" задают заголовок "${header}": ${reason}. ` +
+        `Атрибуты условий добавляются к обращению, а не подменяют его основу.`,
+    );
+    this.name = "ForbiddenContextHeaderError";
+  }
+}
+
+export class DuplicateContextIdError extends Error {
+  constructor(contextId: string) {
+    super(
+      `Условия "${contextId}" объявлены дважды. Какие из них применялись бы — ` +
+        `определить нельзя, а исход зависит от ответа.`,
+    );
+    this.name = "DuplicateContextIdError";
+  }
+}
+
+export class UnusedContextError extends Error {
+  constructor(contextId: string) {
+    super(
+      `Условия "${contextId}" объявлены, но ни одно правило политики на них ` +
+        `не ссылается. Ожидание в условиях объявляется явно: без правила все ` +
+        `их ячейки уйдут в fallback, и отчёт наполнится расхождениями, ` +
+        `которых никто не заявлял. Напишите правило с "context: ${contextId}" ` +
+        `— хотя бы одно, объявляющее общий исход.`,
+    );
+    this.name = "UnusedContextError";
+  }
+}
+
+export class UnknownContextReferenceError extends Error {
+  constructor(index: number, contextId: string, declared: readonly string[]) {
+    super(
+      `Правило политики #${index} ссылается на условия "${contextId}", которых нет. ` +
+        `Объявлены: ${declared.length === 0 ? "нет ни одних" : declared.join(", ")}. ` +
+        `Опечатка здесь молча меняет вердикт: правило не применяется ни к одной ячейке.`,
+    );
+    this.name = "UnknownContextReferenceError";
+  }
+}
+
+export class UnknownContextAccountError extends Error {
+  constructor(contextId: string, accountId: string) {
+    super(
+      `Условия "${contextId}" ссылаются на аккаунт "${accountId}", которого нет ` +
+        `среди объявленных. Условия просто не применились бы ни к кому.`,
+    );
+    this.name = "UnknownContextAccountError";
+  }
+}
+
 export class UnknownEndpointReferenceError extends Error {
   constructor(where: string, endpointId: string) {
     super(
@@ -557,6 +682,14 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
     for (const endpointId of resource.endpointIds ?? []) {
       if (!known.has(endpointId)) {
         throw new UnknownEndpointReferenceError(`Объект "${resource.id}"`, endpointId);
+      }
+    }
+  }
+
+  for (const context of config.contexts) {
+    for (const endpointId of context.endpointIds) {
+      if (!known.has(endpointId)) {
+        throw new UnknownEndpointReferenceError(`Условия "${context.id}"`, endpointId);
       }
     }
   }
@@ -823,6 +956,13 @@ export function parseRunConfig(source: string): RunConfig {
     });
   }
 
+  const contexts = normalizeContexts(config.contexts ?? [], {
+    accountIds: seen,
+    policy,
+    auth: config.auth ?? DEFAULT_AUTH_SCHEME,
+    accountAuth,
+  });
+
   return {
     auth: config.auth ?? DEFAULT_AUTH_SCHEME,
     accountAuth,
@@ -833,11 +973,174 @@ export function parseRunConfig(source: string): RunConfig {
     ...(config.bodySignals === undefined ? {} : { bodySignals: config.bodySignals }),
     ...(tenantNodes === undefined ? {} : { tenants: tenantNodes }),
     resources,
+    contexts,
   };
 }
 
-/** Приводит аккаунты конфигурации к доменному типу ядра. */
-export function toAccounts(config: RunConfig): readonly Account[] {
+/**
+ * Заголовки, которых условия задавать не могут.
+ *
+ * Хардкод, а не настройка: список охраняет основу обращения, и брать его
+ * из того же файла, что и сами условия, значило бы охранять дверь ключом,
+ * висящим на ней снаружи. `authorization` и `cookie` — учётные данные;
+ * `host` уводит запрос за пределы области проверки при неизменном адресе;
+ * остальные ломают сам обмен.
+ */
+const FORBIDDEN_CONTEXT_HEADERS: Readonly<Record<string, string>> = {
+  authorization: "это учётные данные аккаунта",
+  cookie: "это учётные данные аккаунта",
+  host: "подмена хоста уводит обращение за пределы области проверки",
+  "content-length": "заголовок обмена, а не атрибут обращения",
+  "transfer-encoding": "заголовок обмена, а не атрибут обращения",
+  connection: "заголовок обмена, а не атрибут обращения",
+};
+
+/**
+ * Приводит объявленные условия к рабочему виду и отвергает негодные.
+ *
+ * Все проверки здесь — про молчаливую подмену: условия, переписавшие учётный
+ * заголовок, дают прогон не тем аккаунтом; условия без правила дают ворох
+ * расхождений, которых никто не заявлял; опечатка в имени — правило,
+ * не применяющееся ни к чему.
+ */
+function normalizeContexts(
+  declared: readonly {
+    readonly id: string;
+    readonly description?: string | undefined;
+    readonly headers?: Readonly<Record<string, string>> | undefined;
+    readonly query?: Readonly<Record<string, string>> | undefined;
+    readonly endpoints: readonly string[];
+    readonly accounts?: readonly string[] | undefined;
+  }[],
+  options: {
+    readonly accountIds: ReadonlySet<string>;
+    readonly policy: ExpectedAccessPolicy;
+    readonly auth: AuthScheme;
+    readonly accountAuth: ReadonlyMap<string, AuthScheme>;
+  },
+): readonly RequestContextConfig[] {
+  // Имя заголовка и куки объявлено человеком, поэтому в запретный список
+  // они попадают из разобранных схем, а не из строки конфигурации.
+  const inUse = new Set<string>();
+  for (const scheme of [options.auth, ...options.accountAuth.values()]) {
+    if (scheme.kind === "header") {
+      inUse.add(scheme.header.toLowerCase());
+    }
+  }
+
+  const referenced = new Set(
+    options.policy.rules
+      .map((rule) => rule.context)
+      .filter((context): context is string => context !== undefined),
+  );
+  const ids = new Set(declared.map((context) => context.id));
+  // Ссылки правил сверяются раньше проверки на неиспользуемые условия:
+  // опечатка в ссылке даёт оба симптома сразу, но сказать «условия объявлены,
+  // но никем не используются» человеку, который их как раз использовал,
+  // значит увести его не туда. Первым сообщается то, что он и правил.
+  options.policy.rules.forEach((rule, index) => {
+    if (rule.context !== undefined && !ids.has(rule.context)) {
+      throw new UnknownContextReferenceError(index, rule.context, [...ids]);
+    }
+  });
+
+  const contexts: RequestContextConfig[] = [];
+  const seenIds = new Set<string>();
+
+  for (const context of declared) {
+    if (seenIds.has(context.id)) {
+      throw new DuplicateContextIdError(context.id);
+    }
+    seenIds.add(context.id);
+
+    const headers: Record<string, string> = {};
+    for (const [name, value] of Object.entries(context.headers ?? {})) {
+      const lower = name.toLowerCase();
+      const forbidden = FORBIDDEN_CONTEXT_HEADERS[lower];
+      if (forbidden !== undefined) {
+        throw new ForbiddenContextHeaderError(context.id, name, forbidden);
+      }
+      if (inUse.has(lower)) {
+        throw new ForbiddenContextHeaderError(
+          context.id,
+          name,
+          "по этому заголовку предъявляются учётные данные",
+        );
+      }
+      headers[lower] = value;
+    }
+
+    for (const accountId of context.accounts ?? []) {
+      if (!options.accountIds.has(accountId)) {
+        throw new UnknownContextAccountError(context.id, accountId);
+      }
+    }
+
+    if (!referenced.has(context.id)) {
+      throw new UnusedContextError(context.id);
+    }
+
+    contexts.push({
+      id: context.id,
+      ...(context.description === undefined ? {} : { description: context.description }),
+      headers,
+      query: context.query ?? {},
+      endpointIds: context.endpoints,
+      accountIds: context.accounts ?? [],
+    });
+  }
+
+  return contexts;
+}
+
+/**
+ * Разделитель идентификатора аккаунта в условиях.
+ *
+ * Аккаунт в условиях — отдельная строка матрицы, и ей нужен свой
+ * идентификатор. Совпадение с реально объявленным аккаунтом (например, если
+ * аккаунты названы адресами почты) не пройдёт молча: построение матрицы
+ * отвергает дубликаты идентификаторов.
+ */
+const CONTEXT_SEPARATOR = "@";
+
+/**
+ * Приводит аккаунты конфигурации к доменному типу ядра, добавляя аккаунты
+ * в условиях.
+ *
+ * Возвращает и карту атрибутов: заголовки и параметры запроса ядру не нужны
+ * и в него не попадают, а прогону нужны. Одна функция, а не две, потому что
+ * два обхода одной и той же деривации разошлись бы — и разошлись бы молча:
+ * аккаунт без атрибутов ходил бы в базовых условиях, отвечая за находки
+ * в условиях объявленных.
+ */
+export function toAccounts(config: RunConfig): {
+  readonly accounts: readonly Account[];
+  readonly attributes: ReadonlyMap<string, ContextAttributes>;
+} {
+  const base = baseAccounts(config);
+  const attributes = new Map<string, ContextAttributes>();
+  const derived: Account[] = [];
+
+  for (const context of config.contexts) {
+    for (const account of base) {
+      if (context.accountIds.length > 0 && !context.accountIds.includes(account.id)) {
+        continue;
+      }
+      const id = `${account.id}${CONTEXT_SEPARATOR}${context.id}`;
+      derived.push({ ...account, id, contextId: context.id, endpointIds: context.endpointIds });
+      attributes.set(id, {
+        credentialAccountId: account.id,
+        contextId: context.id,
+        headers: context.headers,
+        query: context.query,
+      });
+    }
+  }
+
+  return { accounts: [...base, ...derived], attributes };
+}
+
+function baseAccounts(config: RunConfig): readonly Account[] {
   return config.accounts.map((account) => {
     if (account.tenants !== undefined) {
       // Набор доезжает до ядра набором. Свести его к «первому тенанту»

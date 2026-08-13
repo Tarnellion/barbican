@@ -96,6 +96,13 @@ function related(
  * отсюда. Разведи их — и покрытие начнёт описывать не то, что происходит.
  */
 function comparable(left: Account, right: Account, hierarchy: TenantHierarchy): boolean {
+  // Разные условия обращения сравнивать нельзя: у пары менялись бы сразу две
+  // переменные — тенант и атрибуты, — и совпадение дайджестов не говорило бы
+  // ни о том, ни о другом. Утверждение проверки — «разным тенантам приходит
+  // разное при **прочих равных**». См. ADR-0019.
+  if (left.contextId !== right.contextId) {
+    return false;
+  }
   const leftTenants = tenantIdsOf(left);
   const rightTenants = tenantIdsOf(right);
   if (leftTenants.length === 0 && rightTenants.length === 0) {
@@ -275,6 +282,13 @@ export interface BodyComparisonCoverage {
    * отличить «пропустили» от «сравнили и разошлись» было нечем.
    */
   readonly skippedRelatedPairs: number;
+  /**
+   * Пары, пропущенные из-за разных условий обращения.
+   *
+   * Отдельно от родства: причины разные, и одно число на обе скрывало бы обе.
+   * Отсутствует, когда условия не объявлены вовсе.
+   */
+  readonly skippedDifferentContextPairs?: number;
 }
 
 /**
@@ -306,6 +320,7 @@ export function describeBodyComparison(
       );
       let compared = 0;
       let skipped = 0;
+      let skippedByContext = 0;
       for (let i = 0; i < relevant.length; i += 1) {
         for (let j = i + 1; j < relevant.length; j += 1) {
           const left = accountById.get(relevant[i]?.accountId ?? "");
@@ -315,11 +330,20 @@ export function describeBodyComparison(
           }
           if (comparable(left, right, hierarchy)) {
             compared += 1;
+          } else if (left.contextId !== right.contextId) {
+            // Считается отдельно: «пропущено по родству» про эту пару неправда,
+            // а одно число на две разные причины скрывало бы обе.
+            skippedByContext += 1;
           } else {
             skipped += 1;
           }
         }
       }
-      return { endpointId: endpoint.id, comparedPairs: compared, skippedRelatedPairs: skipped };
+      return {
+        endpointId: endpoint.id,
+        comparedPairs: compared,
+        skippedRelatedPairs: skipped,
+        ...(skippedByContext === 0 ? {} : { skippedDifferentContextPairs: skippedByContext }),
+      };
     });
 }

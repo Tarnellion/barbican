@@ -70,6 +70,7 @@ export function diffAccess(
     ruleIndex?: number,
     resourceId?: string,
     relation?: ResourceRelation,
+    contextId?: string,
   ): void {
     const base = {
       accountId,
@@ -79,6 +80,8 @@ export function diffAccess(
       severity: severityOf(kind, relation),
       // Отсутствие означает `fallback`: ни одно правило не подошло.
       ...(ruleIndex === undefined ? {} : { ruleIndex }),
+      // Отсутствие означает базовые условия обращения.
+      ...(contextId === undefined ? {} : { contextId }),
     };
     const withResource =
       resourceId === undefined ? base : { ...base, resourceId, ...(relation && { relation }) };
@@ -88,13 +91,25 @@ export function diffAccess(
   for (const account of matrix.accounts) {
     const byEndpoint = index.get(account.id);
     for (const endpoint of matrix.endpoints) {
+      // Аккаунт в условиях существует не на всей поверхности: там, где условия
+      // не объявлены, ячейки нет вовсе — и «не пронаблюдено» о ней сказать
+      // нельзя, это была бы выдуманная дыра в покрытии.
+      if (account.endpointIds !== undefined && !account.endpointIds.includes(endpoint.id)) {
+        continue;
+      }
       // Эндпоинт с параметрами существует только вместе с объектом: без него
       // подставлять нечего, и такая ячейка не координата, а пустое место.
       const applicable = matrix.resources.filter((resource) => resourceApplies(endpoint, resource));
       if (applicable.length > 0) {
         for (const resource of applicable) {
           const relation = relationOf(account, resource, hierarchy);
-          const verdict = resolveExpectedVerdict(policy, account.roleId, endpoint.id, relation);
+          const verdict = resolveExpectedVerdict(
+            policy,
+            account.roleId,
+            endpoint.id,
+            relation,
+            account.contextId,
+          );
           const expected = verdict.outcome;
           const actual = byEndpoint?.get(endpoint.id)?.get(resource.id)?.outcome;
           const kind = classify(expected, actual);
@@ -108,18 +123,35 @@ export function diffAccess(
               verdict.ruleIndex,
               resource.id,
               relation,
+              account.contextId,
             );
           }
         }
         continue;
       }
 
-      const verdict = resolveExpectedVerdict(policy, account.roleId, endpoint.id);
+      const verdict = resolveExpectedVerdict(
+        policy,
+        account.roleId,
+        endpoint.id,
+        undefined,
+        account.contextId,
+      );
       const expected = verdict.outcome;
       const actual = byEndpoint?.get(endpoint.id)?.get(undefined)?.outcome;
       const kind = classify(expected, actual);
       if (kind !== null) {
-        record(account.id, endpoint.id, expected, actual, kind, verdict.ruleIndex);
+        record(
+          account.id,
+          endpoint.id,
+          expected,
+          actual,
+          kind,
+          verdict.ruleIndex,
+          undefined,
+          undefined,
+          account.contextId,
+        );
       }
     }
   }
