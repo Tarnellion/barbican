@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { AccessMatrix } from "../../src/core/index.js";
-import { diffAccess, groupDefects } from "../../src/core/index.js";
+import { diffAccess, groupDefects, principalOf, relationOf } from "../../src/core/index.js";
 
 const ENDPOINTS = [
   { id: "orders.list", method: "GET", path: "/v1/orders" },
@@ -153,6 +153,34 @@ describe("условия как измерение ячейки", () => {
     );
 
     expect(findings.filter((finding) => finding.kind === "not-observed")).toEqual([]);
+  });
+});
+
+describe("тождество аккаунта в условиях", () => {
+  /**
+   * Найдено холодным чтением отчёта. Владельцем объекта записан `alice`,
+   * а строка матрицы называется `alice@geo-blocked`, и сверка по строке
+   * давала `same-tenant` вместо `own`: серьёзность поднималась с medium
+   * до high, а группа дефектов `own` пропадала из отчёта целиком.
+   *
+   * Условия меняют обращение, а не того, кто его делает.
+   */
+  it("не отменяет владение объектом", () => {
+    const own = { id: "order-1", tenantId: "tenant-a", ownerAccountId: "alice", params: {} };
+    const inContext = {
+      id: "alice@geo-blocked",
+      roleId: "user",
+      tenantId: "tenant-a",
+      contextId: "geo-blocked",
+      baseAccountId: "alice",
+    } as const;
+
+    expect(relationOf(inContext, own)).toBe("own");
+    expect(principalOf(inContext)).toBe("alice");
+    // Без ссылки на исходный аккаунт — прежнее неверное поведение.
+    expect(relationOf({ id: "alice@geo-blocked", roleId: "user", tenantId: "tenant-a" }, own)).toBe(
+      "same-tenant",
+    );
   });
 });
 

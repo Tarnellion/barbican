@@ -93,8 +93,6 @@ export interface CredentialProvider {
  * здесь, потому что ядро об HTTP не знает. См. ADR-0019.
  */
 export interface ContextAttributes {
-  /** Чьи учётные данные предъявлять: условия аккаунта не меняют. */
-  readonly credentialAccountId: string;
   readonly contextId: string;
   readonly headers: Readonly<Record<string, string>>;
   readonly query: Readonly<Record<string, string>>;

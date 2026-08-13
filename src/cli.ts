@@ -254,9 +254,9 @@ async function run(flags: RunFlags): Promise<number> {
   const unauthenticated = suspicions.map((s) => s.accountId);
 
   const report = buildReport({
-    // Та же карта, что у прогона: находка ссылается на аккаунт в условиях,
+    // Те же строки, что у матрицы: находка ссылается на аккаунт в условиях,
     // и он обязан быть в списке аккаунтов, иначе ссылка повисает.
-    contextAccounts: contextAttributes,
+    accounts,
     version,
     config,
     endpoints,
@@ -308,8 +308,11 @@ async function run(flags: RunFlags): Promise<number> {
   const lines = [
     // Не «пар»: ячейка — это тройка «аккаунт × эндпоинт × объект», и 6×8 ≠ 80.
     // Читатель, проверяющий арифметику, решал, что отчёт врёт.
-    `Опрошено ячеек: ${summary.observations} (аккаунтов ${summary.accounts}, ` +
-      `эндпоинтов ${summary.endpoints}, объектов ${summary.resources})`,
+    `Опрошено ячеек: ${summary.observations} (строк матрицы ${summary.accountRows}` +
+      (summary.accountRows === summary.accounts
+        ? ""
+        : `, из них аккаунтов ${summary.accounts} и они же в условиях`) +
+      `, эндпоинтов ${summary.endpoints}, объектов ${summary.resources})`,
     summary.skipped > 0
       ? `Не опрошено эндпоинтов: ${summary.skipped}${skipBreakdown(report)}`
       : undefined,

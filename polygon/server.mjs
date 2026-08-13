@@ -343,6 +343,20 @@ const DEFECT_FLAGS = {
    * такое сломать.
    */
   geoBypass: "POLYGON_DEFECT_GEO_BYPASS",
+  /**
+   * Скрытый параметр запроса расширяет область выдачи: `?scope=all` снимает
+   * фильтр по тенанту в брендовом списке.
+   *
+   * Статус не меняется, как и у `listNoFilter`, но ломается тут другое: там
+   * фильтра нет вовсе, здесь он есть и снимается **атрибутом обращения**.
+   * Отсюда и разные наборы ячеек: этот флаг виден только в условиях, где
+   * параметр объявлен, и на базовых обращениях не проявляется никак.
+   *
+   * Правдоподобие: такие параметры заводят для внутренней админки или отладки,
+   * а проверку прав на них забывают — она осталась на роли, которой в запросе
+   * уже нет.
+   */
+  scopeAllHonored: "POLYGON_DEFECT_SCOPE_ALL_HONORED",
 };
 
 class ConfigurationError extends Error {
@@ -387,6 +401,7 @@ function readDefects() {
     parentLeak: readFlag(DEFECT_FLAGS.parentLeak),
     primaryTenantOnly: readFlag(DEFECT_FLAGS.primaryTenantOnly),
     geoBypass: readFlag(DEFECT_FLAGS.geoBypass),
+    scopeAllHonored: readFlag(DEFECT_FLAGS.scopeAllHonored),
   };
 }
 
@@ -678,7 +693,7 @@ function handle(req, res, context) {
     return;
   }
 
-  const { pathname } = new URL(req.url ?? "/", `http://${HOST}`);
+  const { pathname, searchParams: query } = new URL(req.url ?? "/", `http://${HOST}`);
 
   // Публичная ручка: отвечает всем, включая аноним. Нужна и как проба
   // готовности для verify.mjs, и как контроль — она не меняется ни от одного
@@ -751,9 +766,14 @@ function handle(req, res, context) {
     // Брендовый список. С дефектом отдаются заказы всех тенантов — и статус при
     // этом остаётся 200, как у корректной реализации. Различить их можно только
     // по телу: у корректной оно разное у разных тенантов, у дефектной одинаковое.
-    const visible = context.defects.listNoFilter
-      ? ORDERS
-      : ORDERS.filter((order) => order.tenant === account.tenant);
+    // Корректная реализация неизвестный параметр игнорирует. Дефектная —
+    // выполняет: `?scope=all` снимает фильтр по тенанту. Проверка прав на этот
+    // параметр не сделана вовсе, потому его и нет в условии.
+    const wideScope = context.defects.scopeAllHonored && query.get("scope") === "all";
+    const visible =
+      context.defects.listNoFilter || wideScope
+        ? ORDERS
+        : ORDERS.filter((order) => order.tenant === account.tenant);
     send(res, 200, { orders: visible.map((order) => ({ id: order.id, owner: order.owner })) });
     return;
   }

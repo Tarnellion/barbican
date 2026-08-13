@@ -16,6 +16,7 @@ import type {
   AccessDiff,
   AccessObservation,
   AccessOutcome,
+  Account,
   DefectGroup,
   DiffKind,
   Endpoint,
@@ -28,8 +29,8 @@ import type {
   Severity,
   TenantNode,
 } from "../core/index.js";
-import { groupDefects } from "../core/index.js";
-import type { AccountConfig, RunConfig } from "../io/config.js";
+import { groupDefects, principalOf } from "../core/index.js";
+import type { AccountConfig, RequestContextConfig, RunConfig } from "../io/config.js";
 import type { ProbeFailure, SkippedEndpoint } from "../runner.js";
 
 /**
@@ -40,6 +41,14 @@ export const REPORT_SCHEMA_VERSION = "1";
 export interface ReportSummary {
   readonly endpoints: number;
   readonly accounts: number;
+  /**
+   * Строк матрицы: объявленные аккаунты плюс они же в объявленных условиях.
+   *
+   * Отдельное число, потому что `accounts` — про объявление, а ячейки считаются
+   * по строкам. Читатель, проверявший арифметику по `accounts`, получал 9 × 6,
+   * что с 135 ячейками не сходится никак. Найдено холодным чтением.
+   */
+  readonly accountRows: number;
   readonly resources: number;
   readonly observations: number;
   readonly skipped: number;
@@ -126,7 +135,7 @@ export interface ReportFinding {
    * Код нужен прямо здесь: `actual: "allowed"` означает «2xx», а какой именно —
    * приходилось искать в наблюдениях и соединять вручную по тройке.
    */
-  readonly request?: { readonly method: HttpMethod; readonly url: string };
+  readonly request?: RequestRecord;
   readonly status?: number;
 }
 
@@ -138,6 +147,20 @@ export interface ReportFinding {
  * `ancestor-tenant` — на дереве тенантов, которое читателю приходилось
  * восстанавливать по узору отказов.
  */
+/**
+ * Чем воспроизвести находку.
+ *
+ * Учётных заголовков здесь нет и быть не может: они приходят из окружения,
+ * и место им только там. `contextHeaders` — объявленные человеком атрибуты
+ * условий обращения, без которых строка воспроизводит базовый случай вместо
+ * найденного.
+ */
+export interface RequestRecord {
+  readonly method: HttpMethod;
+  readonly url: string;
+  readonly contextHeaders?: Readonly<Record<string, string>>;
+}
+
 export interface RunInputs {
   /** Политика с раскрытыми шаблонами — ровно та, что выносила вердикты. */
   readonly policy: ResolvedAccessPolicy;
@@ -221,6 +244,14 @@ export interface Coverage {
    * в том числе с нулём, — молчания об условиях быть не должно.
    */
   readonly contextsProbed: Readonly<Record<string, number>>;
+  /**
+   * Ячеек пронаблюдено и совпало с ожиданием.
+   *
+   * `cellsObserved − findings` читатель считал сам, и «проверено и чисто»
+   * существовало в отчёте только как вычитание. Числом оно проверяемо:
+   * сумма с расхождениями обязана дать `cellsObserved`.
+   */
+  readonly cellsMatched: number;
 }
 
 export interface RunReport {
@@ -263,6 +294,13 @@ export interface RunReport {
     readonly tenants?: readonly string[] | undefined;
     /** Объявлен без учётных данных: обращается анонимно. */
     readonly anonymous?: boolean;
+    /**
+     * Исходный аккаунт, если строка — он же в условиях обращения.
+     *
+     * Без него суффикс `@` остаётся единственным носителем структуры, а
+     * читается он как «пользователь в области» — то есть как другой аккаунт.
+     */
+    readonly baseAccountId?: string;
     /**
      * Условия обращения, в которых существует эта строка.
      *
@@ -331,16 +369,12 @@ export interface BuildReportOptions {
   readonly version: string;
   readonly config: RunConfig;
   /**
-   * Аккаунты в условиях: id → чьи данные предъявлялись и в каких условиях.
+   * Строки матрицы, включая аккаунты в объявленных условиях.
    *
-   * Берётся готовой картой от деривации, а не выводится здесь заново: второй
-   * обход тех же правил разошёлся бы с первым, и находка ссылалась бы
-   * на аккаунт, которого в отчёте нет.
+   * Готовый список от деривации, а не второй обход тех же правил: разойдясь,
+   * они дали бы находку со ссылкой на аккаунт, которого в отчёте нет.
    */
-  readonly contextAccounts?: ReadonlyMap<
-    string,
-    { readonly contextId: string; readonly credentialAccountId: string }
-  >;
+  readonly accounts?: readonly Account[];
   readonly endpoints: readonly Endpoint[];
   /** Эндпоинты, которые действительно опрашивались. */
   readonly probed?: readonly Endpoint[];
@@ -407,25 +441,44 @@ function mergeFindings(
   diffs: readonly AccessDiff[],
   checks: readonly Finding[],
   observations: readonly AccessObservation[],
+  contexts: readonly RequestContextConfig[] = [],
 ): readonly ReportFinding[] {
+  // Заголовки объявленных условий — по имени условий. Значения объявил человек
+  // в конфигурации, секретов там нет и быть не может: учётные данные приходят
+  // только из окружения и в отчёт не попадают ни при каких обстоятельствах.
+  const headersOf = new Map(
+    contexts
+      .filter((context) => Object.keys(context.headers).length > 0)
+      .map((c) => [c.id, c.headers]),
+  );
   const byCell = new Map(
     observations.map((observation) => [
       `${observation.accountId}\u0000${observation.endpointId}\u0000${observation.resourceId ?? ""}`,
       observation,
     ]),
   );
-  function withRequest<T extends { accountId: string; endpointId: string; resourceId?: string }>(
-    finding: T,
-  ): T & { request?: { method: HttpMethod; url: string } } {
+  function withRequest<
+    T extends { accountId: string; endpointId: string; resourceId?: string; contextId?: string },
+  >(finding: T): T & { request?: RequestRecord } {
     const observation = byCell.get(
       `${finding.accountId}\u0000${finding.endpointId}\u0000${finding.resourceId ?? ""}`,
     );
     if (observation?.url === undefined || observation.method === undefined) {
       return finding;
     }
+    // Атрибуты условий печатаются рядом с адресом, иначе воспроизведение
+    // находки в условиях даёт **базовый** случай: параметры запроса видны
+    // в адресе, а заголовки не видны нигде, и строка молча воспроизводит
+    // не то. Найдено холодным чтением: так воспроизводились 43% находок.
+    const contextHeaders =
+      finding.contextId === undefined ? undefined : headersOf.get(finding.contextId);
     return {
       ...finding,
-      request: { method: observation.method, url: observation.url },
+      request: {
+        method: observation.method,
+        url: observation.url,
+        ...(contextHeaders === undefined ? {} : { contextHeaders }),
+      },
       status: observation.status,
     };
   }
@@ -449,6 +502,11 @@ function mergeFindings(
         severity: check.severity,
         accountId: check.accountId,
         endpointId: check.endpointId,
+        // Условия переносятся наравне с прочим. Поле перечислялось поимённо,
+        // и новое молча терялось: находка проверки в условиях выглядела
+        // базовой, группировка сливала её с базовой, а `request` печатался
+        // без атрибутов. Найдено холодным чтением.
+        ...(check.contextId === undefined ? {} : { contextId: check.contextId }),
         title: check.title,
         evidence: check.evidence,
       }),
@@ -490,19 +548,25 @@ function countByReason(skipped: readonly SkippedEndpoint[]): Readonly<Record<str
  */
 function withContextAccounts(
   options: BuildReportOptions,
-): readonly (AccountConfig & { readonly contextId?: string })[] {
+): readonly (AccountConfig & { readonly contextId?: string; readonly baseAccountId?: string })[] {
   const base = options.config.accounts;
-  if (options.contextAccounts === undefined || options.contextAccounts.size === 0) {
-    return base;
-  }
   const byId = new Map(base.map((account) => [account.id, account]));
-  const derived: (AccountConfig & { readonly contextId: string })[] = [];
-  for (const [id, { contextId, credentialAccountId }] of options.contextAccounts) {
-    const source = byId.get(credentialAccountId);
+  const derived: (AccountConfig & {
+    readonly contextId: string;
+    readonly baseAccountId: string;
+  })[] = [];
+  for (const account of options.accounts ?? []) {
+    if (account.contextId === undefined) {
+      continue;
+    }
+    const baseAccountId = principalOf(account);
+    const source = byId.get(baseAccountId);
     if (source === undefined) {
       continue;
     }
-    derived.push({ ...source, id, contextId });
+    // Всё от исходного аккаунта — включая `tokenEnv`, от которого зависят
+    // и признак анонимности, и то, какая схема будет напечатана.
+    derived.push({ ...source, id: account.id, contextId: account.contextId, baseAccountId });
   }
   return [...base, ...derived];
 }
@@ -513,8 +577,13 @@ function countByContext(options: BuildReportOptions): Readonly<Record<string, nu
   for (const context of options.config.contexts) {
     counts[context.id] = 0;
   }
+  const contextOf = new Map(
+    (options.accounts ?? [])
+      .filter((account) => account.contextId !== undefined)
+      .map((account) => [account.id, account.contextId]),
+  );
   for (const observation of options.observations) {
-    const contextId = options.contextAccounts?.get(observation.accountId)?.contextId;
+    const contextId = contextOf.get(observation.accountId);
     if (contextId !== undefined) {
       counts[contextId] = (counts[contextId] ?? 0) + 1;
     }
@@ -523,9 +592,21 @@ function countByContext(options: BuildReportOptions): Readonly<Record<string, nu
 }
 
 export function buildReport(options: BuildReportOptions): RunReport {
-  const merged = mergeFindings(options.findings, options.checks ?? [], options.observations);
+  const merged = mergeFindings(
+    options.findings,
+    options.checks ?? [],
+    options.observations,
+    options.config.contexts,
+  );
   const notObserved = options.findings.filter((finding) => finding.kind === "not-observed").length;
-  const groups = groupDefects(merged);
+  // Вторая сторона парной находки лежит в `evidence`: группировка её не видит,
+  // а без неё группа называет одну сторону утечки из двух.
+  const groups = groupDefects(
+    merged.map((finding) => {
+      const other = finding.evidence?.otherAccountId;
+      return typeof other === "string" ? { ...finding, counterpartAccountId: other } : finding;
+    }),
+  );
   return {
     schemaVersion: REPORT_SCHEMA_VERSION,
     runId: randomUUID(),
@@ -556,14 +637,25 @@ export function buildReport(options: BuildReportOptions): RunReport {
       // недоказуем: аккаунт с ошибочно поданным токеном выглядел бы так же.
       anonymous: account.tokenEnv === undefined,
       // Условия, в которых существует эта строка. Отсутствие — базовые.
-      ...(account.contextId === undefined ? {} : { contextId: account.contextId }),
+      ...(account.contextId === undefined
+        ? {}
+        : { contextId: account.contextId, baseAccountId: account.baseAccountId }),
       // Каким контуром ходил аккаунт. У анонимного не пишется вовсе:
       // предъявлять ему нечего, и запись схемы там только путала. Без этого читатель не отличит «ручка
       // закрыта» от «мы стучались не тем транспортом»: и то и другое даёт 401.
       // Здесь только вид схемы и имя заголовка или куки — значений нет нигде.
       ...(account.tokenEnv === undefined
         ? {}
-        : { auth: options.config.accountAuth.get(account.id) ?? options.config.auth }),
+        : {
+            // По исходному аккаунту: схема — свойство контура, а не строки
+            // матрицы. Раньше строка в условиях искала схему по своему id,
+            // не находила и печатала корневую — то есть поле врало ровно там,
+            // где оно единственно и нужно: «ручка закрыта» против «стучались
+            // не тем транспортом». Найдено холодным чтением.
+            auth:
+              options.config.accountAuth.get(account.baseAccountId ?? account.id) ??
+              options.config.auth,
+          }),
     })),
     endpoints: options.endpoints,
     resources: options.config.resources,
@@ -588,6 +680,10 @@ export function buildReport(options: BuildReportOptions): RunReport {
       checksRun: options.checksRun ?? [],
       bodyComparison: options.bodyComparison ?? [],
       contextsProbed: countByContext(options),
+      // Расхождения матрицы и есть «не совпало»: находки проверок живут поверх
+      // тех же ячеек и вычитать их второй раз нельзя — сумма перестала бы
+      // сходиться с числом наблюдений.
+      cellsMatched: options.observations.length - options.findings.length,
     },
     inputs: {
       policy: options.policy,
@@ -606,6 +702,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     summary: {
       endpoints: options.endpoints.length,
       accounts: options.config.accounts.length,
+      accountRows: (options.accounts ?? options.config.accounts).length,
       resources: options.config.resources.length,
       observations: options.observations.length,
       skipped: options.skipped.length,

@@ -44,6 +44,16 @@ interface AccountIdentity {
    */
   readonly contextId?: string;
   /**
+   * Исходный аккаунт, если эта строка — он же в объявленных условиях.
+   *
+   * Не украшение отчёта, а тождество: владение объектом сверяется по нему.
+   * Пока его не было, `order-a-1001` переставал быть **своим** для
+   * `alice-a@geo-blocked` — владельцем записан `alice-a`, — отношение уезжало
+   * в `same-tenant`, серьёзность поднималась с medium до high, а группа
+   * дефектов `own` пропадала целиком. Найдено холодным чтением отчёта.
+   */
+  readonly baseAccountId?: string;
+  /**
    * Ручки, на которых аккаунт вообще существует. Отсутствие — все.
    *
    * Нужно аккаунту в условиях: условия объявляются на конкретных ручках,
@@ -228,6 +238,16 @@ export type ResourceRelation = (typeof RESOURCE_RELATIONS)[number];
  * существующие правила (см. комментарий про аккаунт вне тенантов).
  * На наборе из одного элемента результат совпадает с прежним побайтово.
  */
+/**
+ * Кто на самом деле обращается: строка матрицы может быть аккаунтом в условиях.
+ *
+ * Отдельная функция, потому что спрашивают об этом из трёх мест — отношение,
+ * учётные данные, отчёт, — и три `?? account.id` вразнобой разошлись бы.
+ */
+export function principalOf(account: Account): string {
+  return account.baseAccountId ?? account.id;
+}
+
 export function relationOf(
   account: Account,
   resource: Resource,
@@ -257,7 +277,9 @@ export function relationOf(
     return "foreign-tenant";
   }
   if (memberships.includes(resource.tenantId)) {
-    return resource.ownerAccountId === account.id ? "own" : "same-tenant";
+    // По исходному аккаунту, а не по строке матрицы: условия обращения
+    // владения не отменяют — меняется запрос, а не тот, кто его делает.
+    return resource.ownerAccountId === principalOf(account) ? "own" : "same-tenant";
   }
   if (memberships.some((membership) => hierarchy.isAncestor(membership, resource.tenantId))) {
     return "descendant-tenant";

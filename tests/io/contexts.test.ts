@@ -55,8 +55,9 @@ contexts:
       contextId: "geo-blocked",
       endpointIds: ["orders.list"],
     });
-    // Условия аккаунта не меняют: предъявляется он сам.
-    expect(attributes.get("alice@geo-blocked")?.credentialAccountId).toBe("alice");
+    // Условия аккаунта не меняют: предъявляется он сам, и владение объектом
+    // сверяется по нему же. Без ссылки свой объект переставал быть своим.
+    expect(accounts[2]?.baseAccountId).toBe("alice");
     expect(attributes.get("alice@geo-blocked")?.headers).toEqual({ "cf-ipcountry": "AQ" });
   });
 

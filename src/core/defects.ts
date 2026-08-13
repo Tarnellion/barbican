@@ -20,6 +20,14 @@ import type { ResourceRelation, Severity } from "./types.js";
  */
 export interface GroupableFinding {
   readonly accountId: string;
+  /**
+   * Вторая сторона находки, если она парная.
+   *
+   * У утечки по телу сторон две, а `accountId` называет одну. Группа
+   * без второй читалась как «данные тенанта-a видны кому-то» — кому именно,
+   * приходилось искать в `evidence` каждой строки. Найдено холодным чтением.
+   */
+  readonly counterpartAccountId?: string | undefined;
   readonly endpointId: string;
   readonly contextId?: string | undefined;
   readonly resourceId?: string | undefined;
@@ -48,7 +56,7 @@ export interface DefectGroup {
   readonly relation?: ResourceRelation;
   /** Наибольшая серьёзность среди наблюдений группы. */
   readonly severity: Severity;
-  /** Аккаунты, с точки которых дефект наблюдался. */
+  /** Аккаунты, которых дефект касается — у парных находок обе стороны. */
   readonly accountIds: readonly string[];
   /** Объекты, на которых он наблюдался. Пусто у расхождений без объекта. */
   readonly resourceIds: readonly string[];
@@ -120,13 +128,20 @@ export function groupDefects(diffs: readonly GroupableFinding[]): readonly Defec
         ...(diff.relation === undefined ? {} : { relation: diff.relation }),
         ...(diff.contextId === undefined ? {} : { contextId: diff.contextId }),
         severity: diff.severity,
-        accounts: new Set([diff.accountId]),
+        accounts: new Set(
+          diff.counterpartAccountId === undefined
+            ? [diff.accountId]
+            : [diff.accountId, diff.counterpartAccountId],
+        ),
         resources: new Set(diff.resourceId === undefined ? [] : [diff.resourceId]),
         violations: 1,
       });
       continue;
     }
     existing.accounts.add(diff.accountId);
+    if (diff.counterpartAccountId !== undefined) {
+      existing.accounts.add(diff.counterpartAccountId);
+    }
     if (diff.resourceId !== undefined) {
       existing.resources.add(diff.resourceId);
     }

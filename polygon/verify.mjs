@@ -45,6 +45,7 @@ const FLAG_FIELDS = {
   POLYGON_DEFECT_PARENT_LEAK: "parentLeak",
   POLYGON_DEFECT_PRIMARY_TENANT_ONLY: "primaryTenantOnly",
   POLYGON_DEFECT_GEO_BYPASS: "geoBypass",
+  POLYGON_DEFECT_SCOPE_ALL_HONORED: "scopeAllHonored",
 };
 
 /**

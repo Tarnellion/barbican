@@ -1127,9 +1127,17 @@ export function toAccounts(config: RunConfig): {
         continue;
       }
       const id = `${account.id}${CONTEXT_SEPARATOR}${context.id}`;
-      derived.push({ ...account, id, contextId: context.id, endpointIds: context.endpointIds });
+      derived.push({
+        ...account,
+        id,
+        contextId: context.id,
+        // Владение объектом сверяется по исходному аккаунту: условия его
+        // не отменяют. Без этой ссылки свой заказ переставал быть своим,
+        // отношение уезжало в `same-tenant`, а серьёзность — вверх.
+        baseAccountId: account.id,
+        endpointIds: context.endpointIds,
+      });
       attributes.set(id, {
-        credentialAccountId: account.id,
         contextId: context.id,
         headers: context.headers,
         query: context.query,

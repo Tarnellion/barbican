@@ -16,7 +16,7 @@ import type {
   SignalValue,
   TenantId,
 } from "./core/index.js";
-import { resourceApplies, SAFE_METHODS } from "./core/index.js";
+import { principalOf, resourceApplies, SAFE_METHODS } from "./core/index.js";
 
 /**
  * Что вычисляется над телом помеченного эндпоинта.
@@ -420,7 +420,9 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
   for (const account of options.accounts) {
     const attributes = options.contextAttributes?.get(account.id);
     // Условия аккаунта не меняют: предъявляется он сам, а меняется обращение.
-    const credentialAccountId = attributes?.credentialAccountId ?? account.id;
+    // Источник один — `principalOf`: то же самое нужно отношению к объекту
+    // и отчёту, а три разных «взять исходный аккаунт» разошлись бы молча.
+    const credentialAccountId = principalOf(account);
     for (const { endpoint, resource } of cells) {
       // Аккаунт в условиях существует только на объявленных ручках.
       if (account.endpointIds !== undefined && !account.endpointIds.includes(endpoint.id)) {

@@ -227,6 +227,11 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
               title: `Дайджест ответа ${endpointId} совпал у ${tenantLabel(leftAccount)} и ${tenantLabel(rightAccount)}`,
               endpointId,
               accountId: leftAccount.id,
+              // Пара всегда в одних условиях — разные не сравниваются, — поэтому
+              // условия у находки одни, а не два поля. Без них находка в условиях
+              // и такая же в базовых сливались в одну группу дефектов, и отчёт
+              // объявлял две поломки одной. Найдено холодным чтением.
+              ...(leftAccount.contextId === undefined ? {} : { contextId: leftAccount.contextId }),
               evidence: {
                 // Значения, а не только вердикт. «Дайджесты совпали» без самих
                 // дайджестов заставляет читателя идти в наблюдения и соединять

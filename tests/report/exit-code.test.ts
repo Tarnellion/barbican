@@ -43,6 +43,7 @@ function report(overrides: {
       checksRun: [],
       bodyComparison: [],
       contextsProbed: {},
+      cellsMatched: 0,
     },
     tool: { name: "barbican", version: "test" },
     startedAt: "2026-08-12T00:00:00.000Z",
@@ -69,6 +70,7 @@ function report(overrides: {
     summary: {
       endpoints: 0,
       accounts: 0,
+      accountRows: 0,
       resources: 0,
       observations,
       skipped: 0,
@@ -237,6 +239,28 @@ describe("покрытие и опознание прогона", () => {
   });
 
   /**
+   * Вторая сторона утечки лежала только в `evidence` каждой строки, и группа
+   * дефекта называла одну сторону из двух: «данные тенанта-a видны кому-то».
+   * Найдено холодным чтением.
+   */
+  it("называет в группе дефекта обе стороны парной находки", () => {
+    const built = build({
+      checks: [
+        {
+          checkId: "identical-response-across-tenants",
+          severity: "high",
+          title: "совпал дайджест",
+          accountId: "alice",
+          endpointId: "a",
+          evidence: { otherAccountId: "carol-b", bodyDigestsEqual: true },
+        },
+      ],
+    });
+
+    expect(built.defects[0]?.accountIds).toEqual(["alice", "carol-b"]);
+  });
+
+  /**
    * Без явной пометки единственный положительный вывод отчёта — «аноним всюду
    * получил отказ» — недоказуем: аккаунт с ошибочно поданным токеном выглядел
    * бы точно так же.
@@ -291,7 +315,10 @@ contexts:
       truncated: false,
       findings: [],
       policy: { fallback: "denied", rules: [] },
-      contextAccounts: new Map([["u@geo", { contextId: "geo", credentialAccountId: "u" }]]),
+      accounts: [
+        { id: "u", roleId: "r", tenantId: "t" },
+        { id: "u@geo", roleId: "r", tenantId: "t", contextId: "geo", baseAccountId: "u" },
+      ],
       startedAt: new Date(0),
       finishedAt: new Date(1),
     });
@@ -305,7 +332,12 @@ contexts:
     const accounts = build().accounts;
 
     expect(accounts.map((account) => account.id)).toEqual(["u", "u@geo"]);
-    expect(accounts[1]).toMatchObject({ contextId: "geo", role: "r", tenant: "t" });
+    expect(accounts[1]).toMatchObject({
+      contextId: "geo",
+      baseAccountId: "u",
+      role: "r",
+      tenant: "t",
+    });
   });
 
   /** Атрибуты печатаются: иначе находку в условиях нечем воспроизвести. */
@@ -328,6 +360,26 @@ contexts:
    */
   it("считает пронаблюдённые ячейки по каждым условиям", () => {
     expect(build().coverage.contextsProbed).toEqual({ geo: 1 });
+  });
+
+  /**
+   * «Проверено и совпало» существовало только как вычитание, которое читатель
+   * делал сам. Числом оно проверяемо: сумма с расхождениями даёт наблюдения.
+   */
+  it("называет число совпавших ячеек, а не оставляет его вычитанием", () => {
+    const built = build();
+
+    expect(built.coverage.cellsMatched).toBe(1);
+    const discrepancies = Object.values(built.summary.byKind).reduce((a, b) => a + b, 0);
+    expect(built.coverage.cellsMatched + discrepancies).toBe(built.coverage.cellsObserved);
+  });
+
+  /** 9 аккаунтов × 6 ручек не давало 135 ячеек, и арифметика не сходилась. */
+  it("различает объявленные аккаунты и строки матрицы", () => {
+    const built = build();
+
+    expect(built.summary.accounts).toBe(1);
+    expect(built.summary.accountRows).toBe(2);
   });
 });
 
