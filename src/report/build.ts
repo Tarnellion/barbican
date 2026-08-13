@@ -186,6 +186,8 @@ export interface RunReport {
   readonly accounts: readonly {
     readonly id: string;
     readonly role: string;
+    /** Схема, которой аккаунт представлялся. Только вид и имена, без значений. */
+    readonly auth?: AuthScheme;
     /** Отсутствует у аккаунта вне тенантов: в JSON ключа просто нет. */
     readonly tenant?: string | undefined;
   }[];
@@ -388,6 +390,10 @@ export function buildReport(options: BuildReportOptions): RunReport {
       id: account.id,
       role: account.role,
       tenant: account.tenant,
+      // Каким контуром ходил аккаунт. Без этого читатель не отличит «ручка
+      // закрыта» от «мы стучались не тем транспортом»: и то и другое даёт 401.
+      // Здесь только вид схемы и имя заголовка или куки — значений нет нигде.
+      auth: options.config.accountAuth.get(account.id) ?? options.config.auth,
     })),
     endpoints: options.endpoints,
     resources: options.config.resources,
