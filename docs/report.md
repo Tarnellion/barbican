@@ -1,435 +1,460 @@
-# Как читать отчёт
+# How to read the report
 
-Документ написан не от структуры JSON, а от вопросов, которые возникли
-у человека, впервые увидевшего отчёт без единого объяснения. Он поставил
-отчёту 2 из 5 и отказался заводить тикеты, пока не выяснит три вещи. Здесь
-отвечено на всё, что он спрашивал, — и честно названо то, чего в отчёте пока
-действительно нет.
+This document is written from the questions of a person who saw the report for
+the first time with no explanation at all, not from the structure of the JSON.
+He gave the report 2 out of 5 and refused to file tickets until he had settled
+three things. Everything he asked is answered here — and what the report really
+does not have yet is named honestly.
 
-Ссылки на ADR ведут на GitHub, а не в соседний файл: этот документ обычно
-получают приложением к отчёту, без остального репозитория. ADR — короткая
-записка о нетривиальном решении: контекст, решение, отброшенные альтернативы.
-Ни один вывод здесь не требует перехода по ссылке — она для тех, кто хочет
-оспорить решение, а не понять отчёт.
+The ADR links point to GitHub rather than to a neighbouring file: this document
+usually arrives attached to a report, without the rest of the repository. An ADR
+is a short note about a non-obvious decision: context, decision, rejected
+alternatives. No conclusion here requires following a link — the links are for
+people who want to dispute a decision, not to understand the report.
 
-## Что вообще произошло
+## What actually happened
 
-Инструмент опросил **ячейки** и сравнил наблюдаемое с тем, что вы объявили.
+The tool probed **cells** and compared what it observed against what you declared.
 
-Ячейка — это **аккаунт × эндпоинт × объект × условия обращения**. У эндпоинтов
-без параметров пути объекта нет, и координата отпадает; условий обычно нет
-вовсе, и тогда ячейка — знакомая тройка. Поэтому число опрошенных ячеек
-не равно «аккаунты × эндпоинты»: оно больше.
+A cell is **account × endpoint × resource × request conditions**. Endpoints
+without path parameters have no resource, and that coordinate drops out;
+conditions are usually absent entirely, and then a cell is the familiar triple.
+So the number of probed cells is not "accounts × endpoints": it is larger.
 
 ```
-Опрошено ячеек: 144 (строк матрицы 27, из них аккаунтов 9 и они же
-в условиях, эндпоинтов 6, объектов 6)
+Cells probed: 144 (matrix rows 27, of them accounts 9 and the same accounts
+under contexts, endpoints 6, resources 6)
 ```
 
-**Строк матрицы больше, чем аккаунтов**, если объявлены условия обращения:
-один аккаунт даёт строку на каждые условия. Считайте ячейки по `accountRows`,
-а не по `accounts` — иначе арифметика не сойдётся. Про условия — отдельный
-раздел ниже.
+**There are more matrix rows than accounts** when request conditions are
+declared: one account gives a row per set of conditions. Count cells from
+`accountRows`, not from `accounts` — otherwise the arithmetic will not add up.
+Conditions have a section of their own below.
 
-Ответ каждой ячейки сводится к одному из четырёх исходов:
+Every cell's response reduces to one of four outcomes:
 
-| Код ответа | Исход | Смысл |
+| Response code | Outcome | Meaning |
 |---|---|---|
-| 2xx | `allowed` | доступ получен |
-| 401, 403, 451 | `denied` | в доступе отказано |
-| 404 | `not-found` | **не** отказ: ресурса нет либо его прячут |
-| всё прочее | `error` | вывода сделать нельзя |
+| 2xx | `allowed` | access granted |
+| 401, 403, 451 | `denied` | access refused |
+| 404 | `not-found` | **not** a denial: the resource is absent, or it is being hidden |
+| everything else | `error` | no conclusion can be drawn |
 
-451 стоит рядом с 401 и 403 не для полноты: «недоступно по юридическим
-причинам» есть решение не обслуживать, а не сбой и не отсутствие объекта.
-Так отвечают на гео- и юрисдикционные ограничения, и без этой строки исправная
-платформа давала бы стену `probe-error` именно там, где она работает верно.
+451 stands next to 401 and 403 not for the sake of completeness: "unavailable
+for legal reasons" is a decision not to serve, not a failure and not a missing
+resource. That is how geo and jurisdiction restrictions answer, and without this
+row a healthy platform would give a wall of `probe-error` exactly where it
+behaves correctly.
 
-404 выделен намеренно. Отдавать 404 вместо 403 — законный приём защиты, но он
-неотличим от «объекта не существует», и записывать его как успешный отказ
-значило бы выдавать незнание за доказательство защищённости. По той же причине
-3xx, 5xx и 400 попадают в `error`, а не в `denied`.
+404 is set apart deliberately. Returning 404 instead of 403 is a legitimate
+defensive move, but it is indistinguishable from "the resource does not exist",
+and recording it as a successful denial would pass ignorance off as proof of
+protection. For the same reason 3xx, 5xx and 400 land in `error`, not in `denied`.
 
-## Один список находок
+## One list of findings
 
-`findings` содержит всё найденное, независимо от способа обнаружения. Поле
-`source` говорит, чем именно:
+`findings` holds everything that was found, whatever the means of detection. The
+`source` field says which one:
 
-| `source` | Чем найдено | Что несёт |
+| `source` | Found by | What it carries |
 |---|---|---|
-| `matrix` | сравнением с объявленной политикой | `expected`, `actual`, `relation` |
-| `check` | проверкой из реестра | `title`, `evidence` |
+| `matrix` | comparison against the declared policy | `expected`, `actual`, `relation` |
+| `check` | a check from the registry | `title`, `evidence` |
 
-Общее у обоих — `kind`, `severity`, `accountId`, `endpointId` и `request`.
-У расхождений матрицы `kind` — вид расхождения (`privilege-escalation`
-и другие), у находок проверок — идентификатор проверки.
+Both share `kind`, `severity`, `accountId`, `endpointId` and `request`. For
+matrix discrepancies `kind` is the kind of discrepancy (`privilege-escalation`
+and others); for check findings it is the check's identifier.
 
-**Списков было два, и это оказалось дорогой ошибкой.** Одна и та же
-межтенантная утечка попадала в разный список в зависимости от того, видна она
-по статусу или по телу, — то есть различие **способа обнаружения** выдавалось
-за различие природы находки. Цена: `bySeverity` считала только первый список
-и показывала вдвое меньше, `byKind` не считал второй вовсе, а группировка
-по сигнатуре на проверки не распространялась — шесть клонов одной находки
-завышали картину вшестеро. Три симптома, одна причина.
+**There used to be two lists, and that turned out to be an expensive mistake.**
+The same cross-tenant leak landed in a different list depending on whether it
+was visible by status or by body — that is, a difference in the **means of
+detection** was passed off as a difference in the nature of the finding. The
+cost: `bySeverity` counted only the first list and showed half the real number,
+`byKind` did not count the second at all, and grouping by signature did not
+extend to checks — six clones of one finding inflated the picture sixfold. Three
+symptoms, one cause.
 
-Практическое следствие для читателя: **самый эксплуатируемый дефект вполне
-может иметь `source: "check"`**. Списочная ручка без фильтра по тенанту
-отвечает 200 и в исправной, и в дырявой реализации; чтобы ею воспользоваться,
-не нужно угадывать идентификаторы — достаточно залогиниться.
+The practical consequence for the reader: **the most exploitable defect may well
+carry `source: "check"`**. A list endpoint with no tenant filter answers 200 both
+in a correct and in a leaky implementation; to make use of it you do not need to
+guess identifiers — logging in is enough.
 
-## Поля сводки
+## Summary fields
 
-| Поле | Что означает |
+| Field | What it means |
 |---|---|
-| `observations` | сколько ячеек опрошено |
-| `findings` | строк находок — **не** число дефектов; совпадает с длиной массива |
-| `checkFindings` | сколько находок найдено по телу, а не по статусу |
-| `byKind` | по виду; ключи — виды расхождений и идентификаторы проверок |
-| `bySeverity` | по серьёзности |
-| `defectGroups` | различных сигнатур дефекта — **нижняя граница** |
-| `defectsBySeverity` | то же по серьёзности, но считая **дефекты**, а не строки |
-| `defects[].violations` | сколько строк дал этот дефект — **не** «выполненных проб». У находок по телу строка — это **пара аккаунтов**, а не ячейка |
-| `skipped` / `failures` | не опрошено и сорвалось, с причинами |
+| `observations` | how many cells were probed |
+| `findings` | finding rows — **not** the number of defects; equals the length of the array |
+| `checkFindings` | how many findings were found by body rather than by status |
+| `byKind` | by kind; the keys are kinds of discrepancy and check identifiers |
+| `bySeverity` | by severity |
+| `defectGroups` | distinct defect signatures — a **lower bound** |
+| `defectsBySeverity` | the same by severity, but counting **defects**, not rows |
+| `defects[].violations` | how many rows this defect produced — **not** "probes performed". For findings by body a row is a **pair of accounts**, not a cell |
+| `skipped` / `failures` | what was not probed and what failed, with reasons |
 
-### Почему «дефектов не менее N»
+### Why "at least N defects"
 
-Один дефект платформы задевает столько ячеек, сколько их есть. Один
-отсутствующий фильтр по тенанту даёт десять строк; три BOLA, увиденные
-пользователем и администратором, — шесть.
+One defect in the platform touches as many cells as there are. One missing
+tenant filter gives ten rows; three BOLAs, seen by a user and by an
+administrator, give six.
 
-Строки сводятся к сигнатуре «эндпоинт × вид × отношение». Роль в сигнатуру
-не входит: ручка, открытая и пользователю, и админу, — один дефект, а не два.
-Отношение входит: BOLA внутри тенанта и межтенантная утечка живут на одной
-ручке и ломаются независимо.
+Rows collapse to the signature "endpoint × kind × relation". Role is not part of
+the signature: an endpoint open to a user and to an admin alike is one defect,
+not two. Relation is part of it: BOLA inside a tenant and a cross-tenant leak
+live on the same endpoint and break independently.
 
-Точного числа дефектов инструмент **не знает и знать не может**: две разные
-ошибки с одинаковой сигнатурой снаружи неразличимы. Число сигнатур — нижняя
-граница, число строк — верхняя. Подробности и пример — [ADR-0015](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0015-defect-grouping.md).
+The tool **does not know the exact number of defects and cannot know it**: two
+different bugs with the same signature are indistinguishable from the outside.
+The number of signatures is the lower bound, the number of rows the upper one.
+Details and an example — [ADR-0015](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0015-defect-grouping.md).
 
-### Серьёзность
+### Severity
 
-Вычисляется из вида расхождения и отношения к объекту, а не объявляется:
+It is computed from the kind of discrepancy and the relation to the resource,
+not declared:
 
-| Расхождение | Отношение | Серьёзность |
+| Discrepancy | Relation | Severity |
 |---|---|---|
 | `privilege-escalation` | `foreign-tenant` | critical |
-| `privilege-escalation` | `ancestor-tenant`, `same-tenant`, `descendant-tenant`, без объекта | high |
+| `privilege-escalation` | `ancestor-tenant`, `same-tenant`, `descendant-tenant`, no resource | high |
 | `privilege-escalation` | `own` | medium |
-| `unexpected-denial` | любое | medium |
+| `unexpected-denial` | any | medium |
 | `not-observed`, `probe-error` | — | low |
 
-**Читайте `defectsBySeverity`, а не `bySeverity`, когда отвечаете на вопрос
-«сколько у нас проблем».** `bySeverity.critical: 10` — это один отсутствующий
-фильтр, задевший десять ячеек. Тот же счёт по дефектам даст 1. Строки нужны
-для разбора, дефекты — для решения.
+**Read `defectsBySeverity`, not `bySeverity`, when you answer the question "how
+many problems do we have".** `bySeverity.critical: 10` is one missing filter that
+touched ten cells. The same count over defects gives 1. Rows are for working
+through, defects are for deciding.
 
-У находок по телу (`source: "check"`) поля `relation` нет, и в таблицу выше они
-не попадают: серьёзность им назначает сама проверка. У единственной сегодняшней
-проверки это `high`.
+Findings by body (`source: "check"`) have no `relation` field and do not fall
+under the table above: the check itself assigns their severity. For the single
+check that exists today it is `high`.
 
-**Набор тенантов у аккаунта понижает серьёзность, и это не ошибка.** Саппорт,
-объявленный сразу в `tenant-a` и `tenant-b`, обращаясь к объекту второго
-тенанта, получает отношение `same-tenant`, а не `foreign-tenant`, — и находка
-на той же ручке выходит `high` там, где у односеместного аккаунта была бы
-`critical`. Членство объявили вы; инструмент сравнивает поведение с этим
-объявлением, а не с догадкой о том, каким членство должно быть. Если набор
-объявлен шире фактического, отчёт молча ослабнет — проверять состав наборов
-некому, кроме вас.
+**A set of tenants on an account lowers the severity, and that is not a bug.** A
+support account declared in `tenant-a` and `tenant-b` at once, reaching for a
+resource of the second tenant, gets the relation `same-tenant`, not
+`foreign-tenant` — and a finding on the same endpoint comes out `high` where a
+single-tenant account would have made it `critical`. You declared the
+membership; the tool compares behaviour against that declaration, not against a
+guess about what the membership ought to be. If a set is declared wider than it
+really is, the report weakens silently — there is nobody but you to check what
+the sets contain.
 
-`own` понижен намеренно: доступ аккаунта к собственному объекту, объявленный
-запрещённым, — почти всегда ошибка в политике, а не дыра в платформе.
-Обоснование — [ADR-0014](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0014-severity-and-exit-codes.md).
+`own` is lowered deliberately: an account's access to its own resource, declared
+forbidden, is almost always a mistake in the policy, not a hole in the platform.
+The reasoning — [ADR-0014](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0014-severity-and-exit-codes.md).
 
-## Коды возврата
+## Exit codes
 
-| Код | Значение |
+| Code | Meaning |
 |---|---|
-| 0 | проверено, расхождений нет |
-| 1 | проверено, расхождения есть |
-| 2 | **результату верить нельзя** |
+| 0 | tested, no discrepancies |
+| 1 | tested, there are discrepancies |
+| 2 | **the result cannot be trusted** |
 
-Двойка приоритетнее единицы: непроверенное не бывает чистым. Она означает, что
-наблюдений не было вовсе, прогон оборвался, или аккаунты не аутентифицировались.
+A 2 outranks a 1: what was not tested is never clean. It means there were no
+observations at all, the run was cut short, or the accounts did not authenticate.
 
-Неожиданный отказ тоже даёт **1**. Инструмент сравнивает объявленное намерение
-с наблюдаемым поведением, и расхождение есть расхождение, куда бы оно ни было
-направлено. Он не может определить, что именно неверно — платформа или ваше
-объявление, — а раз не может, то и молчать не вправе.
+An unexpected denial also gives **1**. The tool compares the declared intent
+against observed behaviour, and a discrepancy is a discrepancy whichever way it
+points. It cannot tell which side is wrong — the platform or your declaration —
+and since it cannot, it has no right to stay silent.
 
-## Как отличить «чисто» от «ничего не проверено»
+## How to tell "clean" from "nothing was tested"
 
-Это главный вопрос к любому такому отчёту, и в нём есть на что опереться.
+This is the main question to ask of any report like this, and there is something
+in it to stand on.
 
-**Канарейки.** `canaries` перечисляет поимённо, какой аккаунт на какой ручке
-подтвердил аутентификацию. Если `authenticated: false` — прогон останавливается
-до сбора наблюдений: 401 читается как отказ, отказ совпадает с ожиданием там,
-где доступ не положен, и отчёт вышел бы безупречным, не проверив ничего.
-Пустой список означает, что канареек не объявили; тогда «чисто» ничем не
-подкреплено.
+**Canaries.** `canaries` lists by name which account confirmed authentication on
+which endpoint. If `authenticated: false`, the run stops before any observations
+are collected: a 401 reads as a denial, a denial agrees with the expectation
+wherever access is not meant to be granted, and the report would come out
+spotless having tested nothing. An empty list means no canaries were declared;
+then "clean" rests on nothing.
 
-**`byKind["not-observed"]`.** Ячейка, которую политика объявила, но которую
-не удалось пронаблюдать. Ненулевое значение — дыра в покрытии.
+**`byKind["not-observed"]`.** A cell the policy declared but which could not be
+observed. A non-zero value is a hole in coverage.
 
-**`byKind["unexpected-denial"]` при непустых наблюдениях.** Косвенное, но
-сильное свидетельство: если бы токены протухли, ожидаемо разрешённые ячейки
-дали бы неожиданные отказы, и ноль здесь был бы невозможен.
+**`byKind["unexpected-denial"]` with observations that are not empty.** Indirect
+but strong evidence: if the tokens had gone stale, cells expected to be allowed
+would have given unexpected denials, and a zero here would be impossible.
 
-**`truncated`.** Прогон оборвался: потолок обращений исчерпан либо сработал
-circuit breaker. Хвост матрицы не проверен, и находок там нет ровно потому,
-что до них не дошли.
+**`truncated`.** The run was cut short: the ceiling on requests was used up, or
+the circuit breaker tripped. The tail of the matrix was not tested, and there are
+no findings there precisely because it was never reached.
 
-## Что проверено, а что нет
+## What was tested and what was not
 
-Секция `coverage` отвечает на вопрос, без которого числа выше не значат ничего:
+The `coverage` section answers the question without which the numbers above mean
+nothing:
 
 ```jsonc
 "coverage": {
-  "endpointsTotal": 6,          // сколько дал источник
-  "endpointsProbed": 6,         // сколько реально опрашивалось
+  "endpointsTotal": 6,          // how many the source gave
+  "endpointsProbed": 6,         // how many were actually probed
   "cellsObserved": 144,
-  "cellsMatched": 80,           // пронаблюдено и совпало с ожиданием
-  "cellsNotObserved": 0,        // объявлено политикой, но не пронаблюдено
-  "notProbed": {},              // почему эндпоинт не опрашивался, по причинам
-  "bodiesComparedOn": ["orders.list"],    // где сравнивались тела
+  "cellsMatched": 80,           // observed and agreed with the expectation
+  "cellsNotObserved": 0,        // declared by the policy, but not observed
+  "notProbed": {},              // why an endpoint was not probed, by reason
+  "bodiesComparedOn": ["orders.list"],    // where bodies were compared
   "writeMethodsProbed": false,
   "checksRun": ["identical-response-across-tenants"],
   "bodyComparison": [
     {
       "endpointId": "orders.list",
       "comparedPairs": 24,
-      "skippedRelatedPairs": 39,          // общий тенант или родство по дереву
-      "skippedDifferentContextPairs": 147 // разные условия — сравнивать нельзя
+      "skippedRelatedPairs": 39,          // shared tenant or kinship in the tree
+      "skippedDifferentContextPairs": 147 // different conditions — cannot compare
     }
   ],
   "contextsProbed": { "geo-blocked": 45, "wide-scope": 9 }
 }
 ```
 
-**`cellsMatched` — это «проверено и совпало».** Раньше его приходилось получать
-вычитанием, и «здесь чисто» существовало в отчёте только как арифметика
-читателя. Сумма с расхождениями обязана дать `cellsObserved`; не сошлась —
-отчёт врёт, и это проверяемо на месте.
+**`cellsMatched` is "tested and agreed".** It used to be something you had to get
+by subtraction, and "it is clean here" existed in the report only as the reader's
+own arithmetic. Its sum with the discrepancies must give `cellsObserved`; if it
+does not, the report is lying, and that is checkable on the spot.
 
-**`bodiesComparedOn` важнее, чем кажется.** На всех остальных ручках отсутствие
-находки означает «не сравнивали», а не «совпадений нет». Без этого списка
-разницу не увидеть.
+**`bodiesComparedOn` matters more than it looks.** On every other endpoint the
+absence of a finding means "no comparison was made", not "nothing matched".
+Without this list you cannot see the difference.
 
-**`checksRun` перечисляет выполненные проверки, включая ничего не нашедшие.**
-Без него проверка, которую забыли зарегистрировать или которая упала, давала
-бы отчёт, неотличимый от чистого: её ключ появляется в `byKind` только тогда,
-когда она что-то нашла.
+**`checksRun` lists the checks that ran, including the ones that found nothing.**
+Without it, a check that someone forgot to register, or that crashed, would give
+a report indistinguishable from a clean one: its key shows up in `byKind` only
+once it has found something.
 
-**`skippedDifferentContextPairs` — пары в разных условиях.** Они не
-сравниваются намеренно: у такой пары различаются сразу и тенант, и атрибуты
-обращения, и совпадение дайджестов не говорило бы ни о том, ни о другом.
-Утверждение проверки — «разным тенантам приходит разное **при прочих равных**».
+**`skippedDifferentContextPairs` — pairs under different conditions.** They are
+not compared on purpose: in such a pair the tenant and the context attributes
+differ at once, and equal digests would say nothing about either. What the check
+asserts is "different tenants get different responses **all else being equal**".
 
-**`bodyComparison` отвечает на вопрос «а эту пару вообще сравнивали».**
-`bodiesComparedOn` называет ручку, но про конкретную пару аккаунтов молчит,
-и молчание читается как «совпадений нет». Между тем сравниваются не все пары:
-аккаунты одного тенанта пропускаются (совпадение у них законно), и точно так же
-пропускаются аккаунты в родстве — родитель и потомок, — потому что видеть
-данные потомка холдингу положено. На прогоне полигона из 21 пары сравнивались
-8, а 13 пропущены по родству; без этих чисел «находок на паре нет» и «пару
-не сравнивали» неразличимы.
+**`bodyComparison` answers the question "was this pair compared at all".**
+`bodiesComparedOn` names the endpoint but stays silent about a particular pair of
+accounts, and that silence reads as "nothing matched". Yet not every pair is
+compared: accounts of the same tenant are skipped (a match between them is
+legitimate), and accounts related in the tree — parent and descendant — are
+skipped in the same way, because a holding is supposed to see its descendant's
+data. On the reference-platform run 8 pairs out of 21 were compared and 13 were
+skipped as related; without these numbers "there are no findings on the pair" and
+"the pair was not compared" are indistinguishable.
 
-**`contextsProbed` отвечает на вопрос «а в этих условиях вообще ходили».**
-Ключ есть у каждых объявленных условий, в том числе с нулём: их ручки могли
-уйти в `skipped`, и тогда отсутствие находок означает «не проверяли», а не «под
-этими условиями всё в порядке».
+**`contextsProbed` answers the question "did anything go out under these
+conditions at all".** Every declared set of conditions has a key, including with
+a zero: its endpoints may have gone into `skipped`, and then the absence of
+findings means "it was not tested", not "everything is in order under these
+conditions".
 
-**`endpointsTotal` — это знаменатель источника, а не всего API.** Если вы дали
-инструменту список из шести ручек, а в платформе их сотня, отчёт про это
-не знает и знать не может.
+**`endpointsTotal` is the denominator of the source, not of the whole API.** If
+you gave the tool a list of six endpoints while the platform has a hundred, the
+report does not know that and cannot know it.
 
-## Чего инструмент не проверял
+## What the tool did not test
 
-- **Методы записи.** Без `--unsafe-methods` выполняются только GET и HEAD;
-  `coverage.writeMethodsProbed` говорит, было ли иначе. «Чисто» относится
-  к чтению.
-- **Эндпоинты вне списка.** Проверено ровно то, что вы объявили.
-- **Тела ответов.** Не сохраняются. Читаются транзитно только там, где вы
-  объявили `bodySignals`, и только ради необратимых скаляров ([ADR-0011](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0011-response-body-signals.md)).
-  Значит целый класс — лишние поля в законном ответе — недостижим.
-- **Дошли ли атрибуты условий до приложения.** Инструмент отправляет
-  объявленные заголовки и параметры, но не может убедиться, что их не срезал
-  прокси или балансировщик по дороге. Если срезал, обращения в условиях
-  повторяют базовые, и отчёт скажет «ограничение не работает» там, где
-  оно просто не было проверено. Это единственное место, где «не проверяли»
-  надёжно не отличается от «не работает», и на чужом периметре о нём стоит
-  помнить: подтверждать доставку атрибутов приходится вне инструмента.
-- **Проверки по телу — только на объявленных ручках.** Если ручка не названа
-  в `bodySignals.responseMustDifferByTenant`, отсутствие находки означает
-  «не сравнивали», а не «чисто».
+- **Write methods.** Without `--unsafe-methods` only GET and HEAD are performed;
+  `coverage.writeMethodsProbed` says whether it was otherwise. "Clean" applies
+  to reading.
+- **Endpoints outside the list.** Exactly what you declared was tested.
+- **Response bodies.** They are not stored. They are read in transit only where
+  you declared `bodySignals`, and only for the sake of irreversible scalars ([ADR-0011](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0011-response-body-signals.md)).
+  Which means a whole class — extra fields in an otherwise legitimate response —
+  is out of reach.
+- **Whether the context attributes reached the application.** The tool sends the
+  declared headers and parameters, but cannot make sure a proxy or a load
+  balancer did not strip them on the way. If they were stripped, requests under
+  conditions repeat the base ones, and the report will say "the restriction does
+  not work" where it simply was not tested. This is the one place where "was not
+  tested" is not reliably distinguishable from "does not work", and on someone
+  else's perimeter it is worth keeping in mind: confirming that the attributes
+  were delivered has to happen outside the tool.
+- **Checks by body run only on the declared endpoints.** If an endpoint is not
+  named in `bodySignals.responseMustDifferByTenant`, the absence of a finding
+  means "no comparison was made", not "clean".
 
-## Что в отчёте есть про сигналы
+## What the report has about signals
 
-`signals` в наблюдении — скаляры, вычисленные над телом. `digest` — первые
-48 бит SHA-256 от тела с **солью, случайной на каждый прогон**. Сравнивать
-дайджесты между прогонами бессмысленно, внутри прогона — осмысленно.
+`signals` in an observation are scalars computed over the body. `digest` is the
+first 48 bits of SHA-256 over the body with a **salt that is random for every
+run**. Comparing digests across runs is meaningless; within a run it is
+meaningful.
 
-Наблюдение опознаётся тройкой **`accountId` + `endpointId` + `resourceId`**;
-у ручек без параметров пути `resourceId` отсутствует, и ключ вырождается в пару.
-Той же тройкой находка связывается с наблюдением, из которого получена, —
-отдельного идентификатора у наблюдений нет. Само наблюдение несёт `method`,
-`url`, `status`, `at` (момент обращения), отредактированные заголовки,
-`outcome`, `durationMs` и, там где объявлены `bodySignals`, — `signals`.
+An observation is identified by the triple **`accountId` + `endpointId` +
+`resourceId`**; on endpoints without path parameters `resourceId` is absent, and
+the key degenerates into a pair. The same triple links a finding to the
+observation it came from — observations have no identifier of their own. The
+observation itself carries `method`, `url`, `status`, `at` (the moment of the
+request), the redacted headers, `outcome`, `durationMs` and, where `bodySignals`
+are declared, `signals`.
 
-**И вердикт по своей ячейке:**
+**And the verdict on its own cell:**
 
 ```jsonc
 {
   "accountId": "alice-a", "endpointId": "orders.read", "resourceId": "order-b-2001",
   "status": 403, "outcome": "denied",
-  "expected": "denied",       // что объявил человек
+  "expected": "denied",       // what the human declared
   "relation": "foreign-tenant",
-  "match": true,              // проверено и совпало
-  "ruleIndex": 11             // какое правило дало ожидание; нет — сработал fallback
+  "match": true,              // tested and agreed
+  "ruleIndex": 11             // which rule gave the expectation; absent — the fallback fired
 }
 ```
 
-`match: true` — **единственное место отчёта, где положительный результат виден
-поячеечно, а не суммой**. Раньше его не было принципиально, и «здесь чисто»
-приходилось получать вычитанием: читатель, проверявший одну ячейку, переписывал
-ядро инструмента на своём языке. Вердикт приходит из того же обхода, что
-и находки: ячейка не может одновременно значиться совпавшей и попасть
-в `findings` ([ADR-0020](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0020-verdict-next-to-observation.md)).
+`match: true` is **the only place in the report where a positive result is
+visible cell by cell and not as a total**. It was absent on principle before, and
+"it is clean here" had to be obtained by subtraction: a reader checking a single
+cell was rewriting the tool's core in his own language. The verdict comes from
+the same walk as the findings: a cell cannot be listed as agreed and land in
+`findings` at the same time ([ADR-0020](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0020-verdict-next-to-observation.md)).
 
-Проверяется на месте: число наблюдений с `match: true` обязано равняться
+Checkable on the spot: the number of observations with `match: true` must equal
 `coverage.cellsMatched`.
 
-Этим же полем видна ошибка в **вашей** политике, а не в платформе: правило,
-случайно объявившее доступ разрешённым, раньше давало отсутствие находки —
-неотличимое от отсутствия проблемы. Теперь видно, что именно было объявлено
-и каким правилом.
+The same field makes a mistake in **your** policy visible, as opposed to one in
+the platform: a rule that accidentally declared access allowed used to give the
+absence of a finding — indistinguishable from the absence of a problem. Now you
+can see what exactly was declared, and by which rule.
 
-**Находка проверки несёт значения, а не только их сравнение.** Самое
-убедительное число в отчёте — не `bodyDigestsEqual: true`, а то, что за ним
-стоит:
+**A check finding carries the values, not only their comparison.** The most
+convincing number in the report is not `bodyDigestsEqual: true` but what stands
+behind it:
 
 ```jsonc
 "evidence": {
   "digest": 166203521785331,
-  "own.orderCount": 4,        // сколько заказов увидел admin-a
-  "other.orderCount": 4,      // сколько увидел carol-b из другого тенанта
+  "own.orderCount": 4,        // how many orders admin-a saw
+  "other.orderCount": 4,      // how many carol-b from another tenant saw
   "otherAccountId": "carol-b",
   "tenant": "tenant-a", "otherTenant": "tenant-b",
   "status": 200, "bodyDigestsEqual": true
 }
 ```
 
-Скаляры обеих сторон разведены префиксами `own.` и `other.`; их набор задаёте
-вы в `bodySignals.signals`, поэтому имена в `evidence` — ваши, а не наши.
+The scalars of both sides are held apart by the prefixes `own.` and `other.`; you
+define which ones there are in `bodySignals.signals`, so the names in `evidence`
+are yours, not ours.
 
-`bodyDigestsEqual: true` означает строго «совпали дайджесты тел». Вероятность коллизии на прогоне в тысячу ответов порядка 10⁻⁹, но
-утверждение о побайтовой идентичности тел инструмент не делал — потому поле
-и названо так, а не `identicalBody`, как раньше. По той же причине заголовок
-находки говорит «дайджест ответа совпал», а не «ответ одинаков».
+`bodyDigestsEqual: true` means strictly "the body digests matched". The
+probability of a collision over a run of a thousand responses is on the order of
+10⁻⁹, but the tool never made a claim about the bodies being identical byte for
+byte — which is why the field is named this way and not `identicalBody`, as it
+was before. For the same reason the finding's title says "the response digest
+matched", not "the responses are identical".
 
-## Аккаунты с решёткой в имени
+## Accounts with an at-sign in the name
 
-`alice-a@geo-blocked` — не отдельный аккаунт платформы, а **тот же аккаунт
-в объявленных условиях обращения**: те же учётные данные, та же роль, тот же
-тенант, но запрос помечен атрибутами — страной от CDN, признаком устройства,
-статусом KYC. Меняется обращение, а не тот, кто его делает.
+`alice-a@geo-blocked` is not a separate platform account but **the same account
+under declared request conditions**: the same credentials, the same role, the
+same tenant, but the request is marked with attributes — a country from the CDN,
+a device flag, a KYC status. What changes is the request, not who makes it.
 
-Условия — четвёртая координата ячейки, и заведены они ради ограничений, которые
-правами не выражаются вовсе: ставка из запрещённой юрисдикции, вывод до
-прохождения KYC. Роль, тенант и объект там те же самые, и без отдельной
-координаты «alice видит свой заказ» и «alice видит свой заказ из запрещённой
-страны» — одна и та же ячейка.
+Conditions are the fourth coordinate of a cell, and they exist for restrictions
+that permissions cannot express at all: a bet from a forbidden jurisdiction, a
+withdrawal before KYC is passed. The role, the tenant and the resource there are
+the very same ones, and without a separate coordinate "alice sees her own order"
+and "alice sees her own order from a forbidden country" are one and the same cell.
 
-Что искать в отчёте:
+What to look for in the report:
 
-| Где | Что говорит |
+| Where | What it says |
 |---|---|
-| `inputs.contexts` | какие условия объявлены и какими атрибутами — без них находку нечем воспроизвести |
-| `accounts[].contextId` | что эта строка — аккаунт в условиях, а не отдельный аккаунт |
-| `accounts[].baseAccountId` | кто это на самом деле: тот же аккаунт, те же учётные данные, та же схема |
-| `findings[].request.contextHeaders` | атрибуты, без которых строка воспроизведёт **базовый** случай, а не найденный |
-| `findings[].contextId` | что расхождение найдено в условиях, а не в базовых |
-| `coverage.contextsProbed` | сколько ячеек пронаблюдено в каждых условиях; **ноль означает «не проверено»** |
+| `inputs.contexts` | which conditions are declared and with which attributes — without them there is nothing to reproduce a finding with |
+| `accounts[].contextId` | that this row is an account under conditions, not a separate account |
+| `accounts[].baseAccountId` | who this really is: the same account, the same credentials, the same scheme |
+| `findings[].request.contextHeaders` | the attributes without which the row reproduces the **base** case, not the one that was found |
+| `findings[].contextId` | that the discrepancy was found under conditions, not in the base ones |
+| `coverage.contextsProbed` | how many cells were observed under each set of conditions; **zero means "not tested"** |
 
-Правило политики без поля `context` действует **только в базовых условиях**.
-Поэтому расхождение в условиях всегда опирается на явно написанное правило либо
-на `fallback` — и никогда на ожидание, объявленное для базовых обращений.
+A policy rule without a `context` field applies **only in the base conditions**.
+So a discrepancy under conditions always rests on an explicitly written rule or
+on the `fallback` — and never on an expectation declared for base requests.
 
-Дефект в условиях и такой же дефект в базовых — **два разных дефекта** в
-`defects`, а не один. Проверка страны и проверка прав живут в разных местах
-платформы, ломаются независимо и чинятся порознь.
+A defect under conditions and the same defect in the base ones are **two
+different defects** in `defects`, not one. The country check and the permission
+check live in different places in the platform, break independently and are
+fixed separately.
 
-**Обратная сторона этого решения — двойной счёт, и её стоит знать.** Дефект,
-видный в базовых условиях, обычно виден и в каждых объявленных: список без
-фильтра по тенанту течёт и с добавленным атрибутом, и без него. В `defects`
-это две группы, а в платформе — одна поломка. **Две группы, отличающиеся
-только `contextId`, — почти наверняка один дефект.** Инструмент не сводит их
-сам намеренно: снаружи «течёт с атрибутом» и «течёт без» могут быть разными
-путями в коде, и как раз ради такого случая условия и заведены. Подробности —
-[ADR-0019](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0019-request-contexts.md).
+**The flip side of this decision is double counting, and it is worth knowing
+about.** A defect visible in the base conditions is usually visible under every
+declared set as well: a list with no tenant filter leaks both with the added
+attribute and without it. In `defects` that is two groups, while in the platform
+it is one breakage. **Two groups that differ only by `contextId` are almost
+certainly one defect.** The tool does not merge them itself, and that is
+deliberate: from the outside "leaks with the attribute" and "leaks without it"
+may be different paths in the code, and conditions exist for exactly that case.
+Details — [ADR-0019](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0019-request-contexts.md).
 
-## Опознание прогона и цели
+## Identifying the run and the target
 
-`target.label` называет проверяемую систему — окружение, версию, что угодно
-опознающее. Объявляется человеком, потому что инструмент этого знать не может:
-`baseUrl` вида `http://127.0.0.1:8787` не отличает прод-подобный стенд
-от демонстрационного полигона.
+`target.label` names the system under test — the environment, the version,
+anything that identifies it. A human declares it, because the tool cannot know
+it: a `baseUrl` like `http://127.0.0.1:8787` does not tell a production-like
+stand from the demo reference platform.
 
-**Отсутствие `label` значимо.** Отчёт без него не называет платформу, и заводить
-по нему тикет на платформу нельзя — сначала выясните у того, кто прогонял, что
-за система была проверена. CLI об этом предупреждает на старте.
+**A missing `label` is meaningful.** A report without one does not name the
+platform, and you cannot file a ticket against the platform from it — first find
+out from whoever ran it which system was tested. The CLI warns about this at
+startup.
 
-| Поле | Зачем |
+| Field | What for |
 |---|---|
-| `schemaVersion` | форма отчёта менялась и будет меняться; без версии парсер сломается молча |
-| `runId` | два отчёта иначе не отличить друг от друга |
-| `configDigest` | отличить «платформа изменилась» от «мы поменяли объявление» |
+| `schemaVersion` | the shape of the report has changed and will change again; without a version a parser breaks silently |
+| `runId` | otherwise two reports cannot be told apart |
+| `configDigest` | to tell "the platform changed" from "we changed the declaration" |
 
-Отпечаток считается по **разобранной** конфигурации, а не по тексту файла:
-комментарии и отступы на результат прогона не влияют, а на хеш текста влияли бы.
+The fingerprint is computed over the **parsed** configuration, not over the text
+of the file: comments and indentation do not affect the result of a run, while
+they would affect a hash of the text.
 
-## Вводные: на чём стоят выводы
+## Inputs: what the conclusions rest on
 
-Секция `inputs` содержит всё, без чего находку нельзя ни завести в тикет,
-ни оспорить:
+The `inputs` section holds everything without which a finding can neither be
+filed as a ticket nor disputed:
 
 ```jsonc
 "inputs": {
-  "policy":  { "fallback": "denied", "rules": [ /* с раскрытыми шаблонами */ ] },
+  "policy":  { "fallback": "denied", "rules": [ /* with patterns expanded */ ] },
   "tenants": [ { "id": "tenant-a", "parentId": "holding-1" } ],
   "auth":    { "kind": "bearer" }
 }
 ```
 
-**`policy`** — уже раскрытая: шаблоны вида `/v1/admin/**` заменены конкретными
-идентификаторами. Это ровно та политика, которая выносила вердикты, а не та,
-что написана в файле, — разница видна, когда шаблон захватил не то, что думали.
+**`policy`** — already expanded: patterns like `/v1/admin/**` are replaced with
+concrete identifiers. This is exactly the policy that produced the verdicts, not
+the one written in the file — the difference shows when a pattern captured
+something other than what you thought.
 
-**`tenants`** — дерево, на котором считаются `foreign-tenant`, `ancestor-tenant`
-и `descendant-tenant`. Без него отношение в находке нечем объяснить.
+**`tenants`** — the tree on which `foreign-tenant`, `ancestor-tenant` and
+`descendant-tenant` are computed. Without it there is nothing to explain the
+relation in a finding with.
 
-У аккаунта, объявленного без учётных данных, стоит `anonymous: true`, а поле
-`auth` не пишется вовсе: предъявлять ему нечего. Без этой пометки единственный
-положительный вывод отчёта — «аноним всюду получил отказ» — недоказуем, потому
-что аккаунт с ошибочно поданным токеном выглядел бы так же.
+An account declared without credentials carries `anonymous: true`, and the `auth`
+field is not written at all: it has nothing to present. Without that mark the
+report's only positive conclusion — "the anonymous account was denied everywhere"
+— is unprovable, because an account whose token was passed wrongly would look
+the same.
 
-**`exclude`** — ручки, исключённые оператором вручную. Пустой список значит
-«не исключали»; молчание об этом читалось бы так же, а означало другое.
+**`exclude`** — endpoints the operator excluded by hand. An empty list means
+"nothing was excluded"; saying nothing about it would read the same way, but mean
+something else.
 
-**`throttle`** — лимиты, которые действительно действовали: конкурентность,
-частота, потолок обращений на прогон. Инвариант «троттлинг всегда включён»
-иначе приходится принимать на слово.
+**`throttle`** — the limits that were actually in force: concurrency, rate, the
+ceiling on requests per run. Otherwise the invariant "throttling is always on"
+has to be taken on trust.
 
-**`auth`** — схема **по умолчанию**: вид и, для `header`/`cookie`, имя заголовка
-или куки. Значений здесь нет и быть не может: они живут только в переменных
-окружения.
+**`auth`** — the **default** scheme: the kind and, for `header`/`cookie`, the
+name of the header or the cookie. There are no values here and there cannot be:
+they live only in environment variables.
 
-Схема конкретного аккаунта — рядом с ним в `accounts[].auth`. На платформе
-с несколькими контурами они разные, и без этого поля читатель не отличит
-«ручка закрыта» от «мы стучались не тем транспортом»: и то и другое даёт 401.
+The scheme of a particular account sits next to it in `accounts[].auth`. On a
+platform with several authentication surfaces they differ, and without this field
+the reader cannot tell "the endpoint is closed" from "we knocked with the wrong
+transport": both give 401.
 
-## Как воспроизвести находку
+## How to reproduce a finding
 
-Каждая находка несёт запрос, которым получена:
+Every finding carries the request that produced it:
 
 ```jsonc
 {
@@ -440,13 +465,14 @@ circuit breaker. Хвост матрицы не проверен, и наход�
 }
 ```
 
-Значения параметров подставлены. Учётные данные в адресе запрещены
-конфигурацией, поэтому строку можно вставлять в тикет как есть — добавив
-заголовок аутентификации того аккаунта, что назван в `accountId`.
+Parameter values are substituted. Credentials in the URL are forbidden by
+configuration, so the line can be pasted into a ticket as is — adding the
+authentication header of the account named in `accountId`.
 
-**У находки в условиях обращения одного адреса мало.** Атрибуты-параметры
-видны прямо в адресе, а атрибуты-заголовки — нет, и запрос без них
-воспроизводит базовый случай вместо найденного. Поэтому они печатаются рядом:
+**For a finding under request conditions the URL alone is not enough.**
+Attributes that are parameters are visible right in the URL, attributes that are
+headers are not, and a request without them reproduces the base case instead of
+the one that was found. That is why they are printed next to it:
 
 ```jsonc
 "request": {
@@ -456,28 +482,31 @@ circuit breaker. Хвост матрицы не проверен, и наход�
 }
 ```
 
-Учётных заголовков здесь нет и не будет: они приходят из окружения, и место
-им только там. `contextHeaders` — то, что объявил человек в `contexts`.
+There are no credential headers here and there never will be: they come from the
+environment, and that is the only place for them. `contextHeaders` is what the
+human declared in `contexts`.
 
-**У находки по телу обращений два.** Второе — в `relatedRequest`: на платформе,
-где бренды разнесены по поддоменам, у второй стороны другой хост, и собранный
-на глаз запрос ушёл бы не туда.
+**A finding by body has two requests.** The second one is in `relatedRequest`: on
+a platform where brands are spread across subdomains the other side has a
+different host, and a request put together by eye would have gone to the wrong
+place.
 
-**Каким токеном.** `accounts[].tokenEnv` называет переменную окружения — имя,
-не значение. Оно и так лежит в конфигурации, которую положено коммитить,
-а без него «добавьте заголовок аутентификации аккаунта alice-a» не говорит,
-где этот токен взять.
+**With which token.** `accounts[].tokenEnv` names the environment variable — the
+name, not the value. It is in the configuration anyway, the one you are supposed
+to commit, and without it "add the authentication header of account alice-a" does
+not say where to get that token.
 
-**Когда это было.** У каждого наблюдения есть `at` — момент обращения
-по ISO-8601. Без него находку нечем сопоставить с логом платформы, а это
-первое, что спросит команда, получившая тикет. Заголовки корреляции
-(`x-request-id`, `traceparent` и подобные) сохраняются нередактированными
-по той же причине: они не учётные данные, а зацепка для сопоставления.
+**When it happened.** Every observation has `at` — the moment of the request in
+ISO-8601. Without it there is nothing to match the finding against the platform's
+log, and that is the first thing the team that receives the ticket will ask for.
+Correlation headers (`x-request-id`, `traceparent` and the like) are kept
+unredacted for the same reason: they are not credentials but a handle for
+matching.
 
-## Какое правило дало вердикт
+## Which rule gave the verdict
 
-У находки из матрицы есть `ruleIndex` — номер правила в `inputs.policy.rules`,
-объявившего ожидание:
+A finding from the matrix has `ruleIndex` — the number of the rule in
+`inputs.policy.rules` that declared the expectation:
 
 ```jsonc
 { "kind": "privilege-escalation", "ruleIndex": 11 }
@@ -487,16 +516,16 @@ circuit breaker. Хвост матрицы не проверен, и наход�
 //   "outcome": "denied" }
 ```
 
-**Отсутствие поля — содержательный ответ, а не пропуск:** ни одно правило
-не подошло, сработал `fallback`. Для межтенантной утечки это норма — она
-запрещена умолчанием, а не отдельным правилом.
+**A missing field is a meaningful answer, not an omission:** no rule matched, and
+the `fallback` fired. For a cross-tenant leak that is normal — it is forbidden by
+the default, not by a rule of its own.
 
-Номер указывает на **последнее подошедшее** правило: побеждает оно, и ссылаться
-на первое совпадение значило бы называть не тот источник вердикта.
+The number points at the **last rule that matched**: that is the one that wins,
+and pointing at the first match would name the wrong source of the verdict.
 
-## Чего в отчёте всё ещё нет
+## What the report still does not have
 
-- **знаменателя покрытия** — сколько ячеек объявила политика и сколько
-  эндпоинтов у API всего;
+- **a coverage denominator** — how many cells the policy declared, and how many
+  endpoints the API has in total;
 
-Записано в [tasks.md](https://github.com/Tarnellion/barbican/blob/main/tasks.md) как открытое.
+Recorded in [tasks.md](https://github.com/Tarnellion/barbican/blob/main/tasks.md) as open.
