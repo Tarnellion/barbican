@@ -156,6 +156,14 @@ export interface Coverage {
   readonly bodiesComparedOn: readonly string[];
   /** Выполнялись ли методы, изменяющие состояние. */
   readonly writeMethodsProbed: boolean;
+  /**
+   * Проверки, которые действительно выполнялись.
+   *
+   * Перечисляются все, включая ничего не нашедшие. Иначе проверка, которую
+   * забыли зарегистрировать или которая упала, даёт отчёт, неотличимый
+   * от чистого: в `byKind` её ключ появляется только при находке.
+   */
+  readonly checksRun: readonly string[];
 }
 
 export interface RunReport {
@@ -188,7 +196,12 @@ export interface RunReport {
     readonly role: string;
     /** Набор членств, если аккаунт состоит сразу в нескольких тенантах. */
     readonly tenants?: readonly string[] | undefined;
-    /** Схема, которой аккаунт представлялся. Только вид и имена, без значений. */
+    /** Объявлен без учётных данных: обращается анонимно. */
+    readonly anonymous?: boolean;
+    /**
+     * Схема, которой аккаунт представлялся. Только вид и имена, без значений.
+     * У анонимного аккаунта не значит ничего — предъявлять нечего.
+     */
     readonly auth?: AuthScheme;
     /** Отсутствует у аккаунта вне тенантов: в JSON ключа просто нет. */
     readonly tenant?: string | undefined;
@@ -262,6 +275,8 @@ export interface BuildReportOptions {
   readonly policy: ResolvedAccessPolicy;
   /** Находки проверок из реестра. Отсутствие означает «проверки не запускались». */
   readonly checks?: readonly Finding[];
+  /** Идентификаторы выполненных проверок, включая ничего не нашедшие. */
+  readonly checksRun?: readonly string[];
   readonly startedAt: Date;
   readonly finishedAt: Date;
 }
@@ -396,6 +411,10 @@ export function buildReport(options: BuildReportOptions): RunReport {
       // аккаунт с набором выглядел в отчёте как аккаунт вовсе без тенанта,
       // то есть неотличимо от анонима — при том что вердикты по нему верны.
       tenants: account.tenants,
+      // Аккаунт без учётных данных объявлен анонимным. Без явной пометки
+      // единственный положительный вывод отчёта — «аноним всюду получил 401» —
+      // недоказуем: аккаунт с ошибочно поданным токеном выглядел бы так же.
+      anonymous: account.tokenEnv === undefined,
       // Каким контуром ходил аккаунт. Без этого читатель не отличит «ручка
       // закрыта» от «мы стучались не тем транспортом»: и то и другое даёт 401.
       // Здесь только вид схемы и имя заголовка или куки — значений нет нигде.
@@ -421,6 +440,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
         .filter((endpoint) => endpoint.responseMustDifferByTenant === true)
         .map((endpoint) => endpoint.id),
       writeMethodsProbed: options.unsafeMethods ?? false,
+      checksRun: options.checksRun ?? [],
     },
     inputs: {
       policy: options.policy,
@@ -435,7 +455,11 @@ export function buildReport(options: BuildReportOptions): RunReport {
       observations: options.observations.length,
       skipped: options.skipped.length,
       failures: options.failures.length,
-      findings: options.findings.length,
+      // Длина общего списка, а не число матричных расхождений. Соседние
+      // счётчики уже считали всё, и одно число из пяти расходилось с остальными
+      // ровно на находки по телу. Тот же класс, что прежняя ошибка bySeverity,
+      // в том же объекте — найдено вторым холодным чтением.
+      findings: merged.length,
       byKind: countByKind(merged),
       bySeverity: countBySeverity(merged),
       defectGroups: groupDefects(merged).length,

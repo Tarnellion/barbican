@@ -40,6 +40,7 @@ function report(overrides: {
       notProbed: {},
       bodiesComparedOn: [],
       writeMethodsProbed: false,
+      checksRun: [],
     },
     tool: { name: "barbican", version: "test" },
     startedAt: "2026-08-12T00:00:00.000Z",
@@ -189,6 +190,62 @@ describe("покрытие и опознание прогона", () => {
 
   it("объявляет версию формы отчёта", () => {
     expect(build().schemaVersion).toBe(REPORT_SCHEMA_VERSION);
+  });
+
+  /**
+   * Проверка, которую забыли зарегистрировать или которая упала, давала отчёт,
+   * неотличимый от чистого: её ключ появляется в `byKind` только при находке.
+   * Найдено вторым холодным чтением.
+   */
+  it("перечисляет выполненные проверки, включая ничего не нашедшие", () => {
+    expect(build({ checksRun: ["identical-response-across-tenants"] }).coverage.checksRun).toEqual([
+      "identical-response-across-tenants",
+    ]);
+  });
+
+  /**
+   * Счётчик считал только матричные расхождения и расходился с соседними
+   * ровно на находки по телу. Тот же класс, что прежняя ошибка `bySeverity`,
+   * в том же объекте — и я её не заметил, чиня соседнюю.
+   */
+  it("считает в findings весь список, а не только матричные расхождения", () => {
+    const built = build({
+      checks: [
+        {
+          checkId: "identical-response-across-tenants",
+          severity: "high",
+          title: "x",
+          accountId: "alice",
+          endpointId: "a",
+          evidence: {},
+        },
+      ],
+    });
+
+    expect(built.summary.findings).toBe(built.findings.length);
+    expect(built.summary.findings).toBe(
+      Object.values(built.summary.bySeverity).reduce((a, b) => a + b, 0),
+    );
+  });
+
+  /**
+   * Без явной пометки единственный положительный вывод отчёта — «аноним всюду
+   * получил отказ» — недоказуем: аккаунт с ошибочно поданным токеном выглядел
+   * бы точно так же.
+   */
+  it("помечает аккаунт без учётных данных как анонимный", () => {
+    const withAnon = parseRunConfig(`
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts:
+  - { id: u, role: r, tenant: t, tokenEnv: T }
+  - { id: anon, role: anonymous }
+policy: { fallback: denied, rules: [] }
+`);
+
+    const accounts = build({ config: withAnon }).accounts;
+
+    expect(accounts.find((a) => a.id === "u")?.anonymous).toBe(false);
+    expect(accounts.find((a) => a.id === "anon")?.anonymous).toBe(true);
   });
 });
 

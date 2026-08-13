@@ -222,6 +222,7 @@ async function run(flags: RunFlags): Promise<number> {
   // responseMustDifferByTenant.
   const registry = new CheckRegistry();
   registry.register(createIdenticalResponseCheck());
+  const checksRun = registry.list().map((check) => check.id);
   const checks = registry.list().flatMap((check) => check.run({ matrix }));
   const suspicions = findUnauthenticated(
     accounts,
@@ -248,6 +249,7 @@ async function run(flags: RunFlags): Promise<number> {
     findings,
     policy,
     checks,
+    checksRun,
     startedAt,
     finishedAt,
   });
