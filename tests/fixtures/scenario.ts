@@ -11,7 +11,7 @@ import type {
   AccessOutcome,
   Account,
   Endpoint,
-  ExpectedAccessPolicy,
+  ResolvedAccessPolicy,
 } from "../../src/core/index.js";
 import { ANY } from "../../src/core/index.js";
 
@@ -35,7 +35,7 @@ export const accounts: readonly Account[] = [
  * Порядок правил значим: последнее подходящее выигрывает, поэтому широкое
  * правило для admin стоит после узких.
  */
-export const policy: ExpectedAccessPolicy = {
+export const policy: ResolvedAccessPolicy = {
   fallback: "denied",
   rules: [
     { roles: ANY, endpoints: ["ep.profile.read"], outcome: "allowed" },

@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { ExpectedAccessPolicy, TenantNode } from "../../src/core/index.js";
+import type { ResolvedAccessPolicy, TenantNode } from "../../src/core/index.js";
 import {
   buildAccessMatrix,
   createTenantHierarchy,
@@ -52,7 +52,7 @@ describe("без объявленного дерева поведение пре
   /** Холдинг приписан к одному из своих брендов: других вариантов модель не даёт. */
   const holding: Account = { id: "holding-1", roleId: "holding", tenantId: "brand-a" };
 
-  const policy: ExpectedAccessPolicy = {
+  const policy: ResolvedAccessPolicy = {
     fallback: "denied",
     rules: [
       { roles: ["holding"], endpoints: ["report"], scope: "foreign-tenant", outcome: "allowed" },
@@ -102,7 +102,7 @@ describe("с объявленным деревом", () => {
    * «холдингу положены его собственные бренды, и только они».
    */
   it("находит утечку в чужой холдинг и не придирается к своему бренду", () => {
-    const policy: ExpectedAccessPolicy = {
+    const policy: ResolvedAccessPolicy = {
       fallback: "denied",
       rules: [
         {

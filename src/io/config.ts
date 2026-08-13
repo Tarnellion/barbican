@@ -31,13 +31,35 @@ const outcomeSchema = z.enum(["allowed", "denied"]);
 
 const selectorSchema = z.union([z.literal(ANY), z.array(z.string().min(1)).min(1)]);
 
+/**
+ * Отбор эндпоинтов: идентификаторы вперемешку с шаблонами.
+ *
+ * Перечисление по `id` не масштабируется: на сотне ручек правило
+ * «администратору положено всё под /v1/admin» становится списком, который
+ * расходится с реальностью при первой же новой ручке — и молча.
+ */
+const endpointSelectorSchema = z.union([
+  z.literal(ANY),
+  z
+    .array(
+      z.union([
+        z.string().min(1),
+        z.object({
+          method: z.enum(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]).optional(),
+          path: z.string().min(1),
+        }),
+      ]),
+    )
+    .min(1),
+]);
+
 // Перечень берётся из ядра, а не переписывается здесь: рукописный дубль уже
 // разошёлся с типом и сделал иерархию тенантов недостижимой через CLI.
 const relationSchema = z.enum(RESOURCE_RELATIONS);
 
 const ruleSchema = z.object({
   roles: selectorSchema,
-  endpoints: selectorSchema,
+  endpoints: endpointSelectorSchema,
   /** Отсутствие означает «при любом отношении», включая обращения без объекта. */
   scope: relationSchema.optional(),
   outcome: outcomeSchema,
@@ -352,9 +374,13 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
     if (rule.endpoints === ANY) {
       return;
     }
-    for (const endpointId of rule.endpoints) {
-      if (!known.has(endpointId)) {
-        throw new UnknownEndpointReferenceError(`Правило политики #${index}`, endpointId);
+    for (const entry of rule.endpoints) {
+      // Шаблоны проверяет expandPolicy: там видно, совпал ли он хоть с чем-то.
+      if (typeof entry !== "string") {
+        continue;
+      }
+      if (!known.has(entry)) {
+        throw new UnknownEndpointReferenceError(`Правило политики #${index}`, entry);
       }
     }
   });

@@ -25,6 +25,7 @@ import {
   CheckRegistry,
   createIdenticalResponseCheck,
   diffAccess,
+  expandPolicy,
 } from "./core/index.js";
 import {
   applyBodySignals,
@@ -110,6 +111,9 @@ async function run(flags: RunFlags): Promise<number> {
   assertReferencesResolve(config, parsed);
   // Пометка tenantScoped — заявление человека, источники эндпоинтов о ней не знают.
   const endpoints = applyBodySignals(parsed, config);
+  // Шаблоны раскрываются здесь, до построения матрицы: шаблон, не совпавший
+  // ни с одним эндпоинтом, обязан упасть на старте, а не увести пары в fallback.
+  const policy = expandPolicy(config.policy, endpoints);
 
   const credentials = createCredentialProvider(config.auth, resolveTokens(config, process.env));
 
@@ -199,7 +203,7 @@ async function run(flags: RunFlags): Promise<number> {
     observations,
     ...(config.tenants === undefined ? {} : { tenants: config.tenants }),
   });
-  const findings = diffAccess(matrix, config.policy);
+  const findings = diffAccess(matrix, policy);
 
   // Реестр создаётся явно и локально: глобального состояния в ядре нет (ADR-0003).
   // Проверка сама промолчит, если ни один эндпоинт не помечен tenantScoped.
@@ -209,7 +213,7 @@ async function run(flags: RunFlags): Promise<number> {
   const suspicions = findUnauthenticated(
     accounts,
     observations,
-    config.policy,
+    policy,
     config.resources,
     config.tenants,
   );

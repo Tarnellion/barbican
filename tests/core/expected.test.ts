@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ExpectedAccessPolicy } from "../../src/core/index.js";
+import type { ResolvedAccessPolicy } from "../../src/core/index.js";
 import {
   ANY,
   assertPolicyIsSound,
@@ -10,7 +10,7 @@ import { policy } from "../fixtures/scenario.js";
 
 describe("resolveExpected", () => {
   it("возвращает fallback, если ни одно правило не подошло", () => {
-    const empty: ExpectedAccessPolicy = { fallback: "denied", rules: [] };
+    const empty: ResolvedAccessPolicy = { fallback: "denied", rules: [] };
 
     expect(resolveExpected(empty, "player", "ep.anything")).toBe("denied");
     expect(resolveExpected({ ...empty, fallback: "allowed" }, "player", "ep.anything")).toBe(
@@ -30,7 +30,7 @@ describe("resolveExpected", () => {
   });
 
   it("отдаёт победу последнему подходящему правилу, а не первому", () => {
-    const narrowThenBroad: ExpectedAccessPolicy = {
+    const narrowThenBroad: ResolvedAccessPolicy = {
       fallback: "denied",
       rules: [
         { roles: ["player"], endpoints: ["ep.x"], outcome: "allowed" },
@@ -40,7 +40,7 @@ describe("resolveExpected", () => {
 
     expect(resolveExpected(narrowThenBroad, "player", "ep.x")).toBe("denied");
 
-    const broadThenNarrow: ExpectedAccessPolicy = {
+    const broadThenNarrow: ResolvedAccessPolicy = {
       fallback: "denied",
       rules: [
         { roles: ANY, endpoints: ["ep.x"], outcome: "denied" },
@@ -65,7 +65,7 @@ describe("assertPolicyIsSound", () => {
   });
 
   it("отвергает пустой список ролей — такое правило не сработает никогда", () => {
-    const broken: ExpectedAccessPolicy = {
+    const broken: ResolvedAccessPolicy = {
       fallback: "denied",
       rules: [{ roles: [], endpoints: ANY, outcome: "allowed" }],
     };
@@ -76,7 +76,7 @@ describe("assertPolicyIsSound", () => {
   });
 
   it("отвергает пустой список эндпоинтов", () => {
-    const broken: ExpectedAccessPolicy = {
+    const broken: ResolvedAccessPolicy = {
       fallback: "denied",
       rules: [{ roles: ANY, endpoints: [], outcome: "allowed" }],
     };

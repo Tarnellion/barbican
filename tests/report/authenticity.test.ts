@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { AccessObservation, Account, ExpectedAccessPolicy } from "../../src/core/index.js";
+import type { AccessObservation, Account, ResolvedAccessPolicy } from "../../src/core/index.js";
 import { ANY } from "../../src/core/index.js";
 import { findUnauthenticated } from "../../src/report/authenticity.js";
 
@@ -20,7 +20,7 @@ const accounts: readonly Account[] = [
   { id: "admin", roleId: "admin", tenantId: "t" },
 ];
 
-const policy: ExpectedAccessPolicy = {
+const policy: ResolvedAccessPolicy = {
   fallback: "denied",
   rules: [
     { roles: ANY, endpoints: ["me"], outcome: "allowed" },
@@ -65,7 +65,7 @@ describe("findUnauthenticated", () => {
   });
 
   it("не судит об аккаунте, которому по политике ничего не положено", () => {
-    const closed: ExpectedAccessPolicy = { fallback: "denied", rules: [] };
+    const closed: ResolvedAccessPolicy = { fallback: "denied", rules: [] };
     const observations = [observe("user", "me", 401)];
 
     // Нет объявленного доступа — не с чем сравнивать, тревога была бы выдумкой.
@@ -83,7 +83,7 @@ describe("findUnauthenticated", () => {
   });
 
   it("подсказывает преобладающий статус отказа", () => {
-    const wide: ExpectedAccessPolicy = {
+    const wide: ResolvedAccessPolicy = {
       fallback: "denied",
       rules: [{ roles: ANY, endpoints: ANY, outcome: "allowed" }],
     };
@@ -103,7 +103,7 @@ describe("findUnauthenticated", () => {
 // не применялись без отношения, поэтому у политики в стиле ADR-0010 счётчик
 // объявленного доступа оставался нулевым и предохранитель молчал всегда.
 describe("политика с областью действия", () => {
-  const scoped: ExpectedAccessPolicy = {
+  const scoped: ResolvedAccessPolicy = {
     fallback: "denied",
     rules: [{ roles: ANY, endpoints: ["profile"], scope: "own", outcome: "allowed" }],
   };

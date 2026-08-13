@@ -12,7 +12,7 @@ import { createCredentialProvider } from "../src/adapters/credentials.js";
 import { createHttpClient } from "../src/adapters/http.js";
 import { createOpenApiParser } from "../src/adapters/openapi.js";
 import { createThrottle } from "../src/adapters/throttle.js";
-import { buildAccessMatrix, diffAccess } from "../src/core/index.js";
+import { buildAccessMatrix, diffAccess, expandPolicy } from "../src/core/index.js";
 import { parseRunConfig, resolveTokens, toAccounts } from "../src/io/config.js";
 import { buildReport, exitCodeFor } from "../src/report/build.js";
 import { collectObservations } from "../src/runner.js";
@@ -112,7 +112,8 @@ policy:
       });
 
       const matrix = buildAccessMatrix({ endpoints, accounts, observations });
-      const findings = diffAccess(matrix, config.policy);
+      // Тот же путь, что в CLI: политика раскрывается до диффа.
+      const findings = diffAccess(matrix, expandPolicy(config.policy, endpoints));
       const report = buildReport({
         version: "0.0.0-test",
         config,
@@ -205,7 +206,7 @@ policy:
 
       const findings = diffAccess(
         buildAccessMatrix({ endpoints, accounts, observations }),
-        config.policy,
+        expandPolicy(config.policy, endpoints),
       );
       const report = buildReport({
         version: "0.0.0-test",

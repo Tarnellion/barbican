@@ -11,7 +11,7 @@ import type {
   AccessObservation,
   Account,
   Endpoint,
-  ExpectedAccessPolicy,
+  ResolvedAccessPolicy,
   Resource,
 } from "../../src/core/index.js";
 import {
@@ -69,7 +69,7 @@ describe("relationOf", () => {
 });
 
 describe("область действия правила", () => {
-  const policy: ExpectedAccessPolicy = {
+  const policy: ResolvedAccessPolicy = {
     fallback: "denied",
     rules: [
       { roles: ["player"], endpoints: ["profile.read"], scope: "own", outcome: "allowed" },
@@ -89,7 +89,7 @@ describe("область действия правила", () => {
   });
 
   it("правило без области действует при любом отношении и без объекта", () => {
-    const wide: ExpectedAccessPolicy = {
+    const wide: ResolvedAccessPolicy = {
       fallback: "denied",
       rules: [{ roles: ANY, endpoints: ["ping"], outcome: "allowed" }],
     };
@@ -100,7 +100,7 @@ describe("область действия правила", () => {
 });
 
 describe("дифф по тройкам", () => {
-  const policy: ExpectedAccessPolicy = {
+  const policy: ResolvedAccessPolicy = {
     fallback: "denied",
     rules: [{ roles: ["player"], endpoints: ["profile.read"], scope: "own", outcome: "allowed" }],
   };

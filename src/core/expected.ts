@@ -5,7 +5,9 @@
  * в ADR-0006. Здесь только разрешение политики в конкретный ожидаемый исход.
  */
 
-import type { ExpectedOutcome, ResourceRelation, RoleId } from "./types.js";
+import type { EndpointPattern } from "./selectors.js";
+import { expandPattern } from "./selectors.js";
+import type { Endpoint, ExpectedOutcome, ResourceRelation, RoleId } from "./types.js";
 
 /** Совпадает с любым значением поля. */
 export const ANY = "*";
@@ -15,8 +17,14 @@ export type Any = typeof ANY;
 export interface ExpectedAccessRule {
   /** Роли, к которым применимо правило, либо `*`. */
   readonly roles: readonly RoleId[] | Any;
-  /** Идентификаторы эндпоинтов, к которым применимо правило, либо `*`. */
-  readonly endpoints: readonly string[] | Any;
+  /**
+   * Эндпоинты, к которым применимо правило, либо `*`.
+   *
+   * Элемент — либо идентификатор, либо шаблон метода и пути. Шаблоны
+   * раскрываются в идентификаторы `expandPolicy` до диффа, поэтому разрешение
+   * политики про них ничего не знает.
+   */
+  readonly endpoints: readonly (string | EndpointPattern)[] | Any;
   /**
    * Отношение аккаунта к объекту, при котором правило действует.
    *
@@ -25,6 +33,22 @@ export interface ExpectedAccessRule {
    */
   readonly scope?: ResourceRelation | undefined;
   readonly outcome: ExpectedOutcome;
+}
+
+/**
+ * Правило с уже раскрытыми шаблонами.
+ *
+ * Отдельный тип, а не проверка в рантайме: раскрытая политика присваивается
+ * объявленной, но не наоборот, поэтому передать нераскрытую туда, где нужна
+ * раскрытая, компилятор не даст. Иначе шаблон, доживший до сравнения, молча
+ * не совпал бы ни с чем и увёл пары в `fallback`.
+ */
+export interface ResolvedAccessRule extends Omit<ExpectedAccessRule, "endpoints"> {
+  readonly endpoints: readonly string[] | Any;
+}
+
+export interface ResolvedAccessPolicy extends Omit<ExpectedAccessPolicy, "rules"> {
+  readonly rules: readonly ResolvedAccessRule[];
 }
 
 export interface ExpectedAccessPolicy {
@@ -79,7 +103,7 @@ export function assertPolicyIsSound(policy: ExpectedAccessPolicy): void {
  * правило и сузить его последующими.
  */
 export function resolveExpected(
-  policy: ExpectedAccessPolicy,
+  policy: ResolvedAccessPolicy,
   roleId: RoleId,
   endpointId: string,
   relation?: ResourceRelation,
@@ -94,4 +118,33 @@ export function resolveExpected(
     }
   }
   return outcome;
+}
+
+/**
+ * Раскрывает шаблоны в правилах в конкретные идентификаторы.
+ *
+ * Вызывается один раз, до построения матрицы. Так `resolveExpected` остаётся
+ * функцией от идентификатора, а не от эндпоинта, и связанные с ней места —
+ * в том числе проверка достоверности прогона — не меняются вовсе.
+ *
+ * @throws {UnmatchedPatternError} если шаблон не совпал ни с одним эндпоинтом.
+ */
+export function expandPolicy(
+  policy: ExpectedAccessPolicy,
+  endpoints: readonly Endpoint[],
+): ResolvedAccessPolicy {
+  return {
+    ...policy,
+    rules: policy.rules.map((rule) => {
+      if (rule.endpoints === ANY) {
+        return { ...rule, endpoints: ANY };
+      }
+      const ids = rule.endpoints.flatMap((entry) =>
+        typeof entry === "string" ? [entry] : expandPattern(entry, endpoints),
+      );
+      // Дубли убираются: один эндпоинт мог подойти и по идентификатору,
+      // и под шаблон. На результат это не влияет, но список в отчёте читается.
+      return { ...rule, endpoints: [...new Set(ids)] };
+    }),
+  };
 }

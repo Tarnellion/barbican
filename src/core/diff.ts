@@ -4,7 +4,7 @@
  * Чистая функция: одинаковый вход всегда даёт одинаковый выход, включая порядок.
  */
 
-import type { ExpectedAccessPolicy } from "./expected.js";
+import type { ResolvedAccessPolicy } from "./expected.js";
 import { resolveExpected } from "./expected.js";
 import { indexObservations, resourceApplies } from "./matrix.js";
 import { createTenantHierarchy, FLAT_HIERARCHY } from "./tenancy.js";
@@ -52,7 +52,7 @@ function classify(expected: ExpectedOutcome, actual: AccessOutcome | undefined):
  */
 export function diffAccess(
   matrix: AccessMatrix,
-  policy: ExpectedAccessPolicy,
+  policy: ResolvedAccessPolicy,
 ): readonly AccessDiff[] {
   const index = indexObservations(matrix);
   // Дерево строится один раз на дифф: проверки целостности (неизвестный

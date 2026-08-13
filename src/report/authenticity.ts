@@ -15,7 +15,7 @@
 import type {
   AccessObservation,
   Account,
-  ExpectedAccessPolicy,
+  ResolvedAccessPolicy,
   Resource,
   TenantNode,
 } from "../core/index.js";
@@ -53,7 +53,7 @@ export interface AuthenticitySuspicion {
 export function findUnauthenticated(
   accounts: readonly Account[],
   observations: readonly AccessObservation[],
-  policy: ExpectedAccessPolicy,
+  policy: ResolvedAccessPolicy,
   resources: readonly Resource[] = [],
   /**
    * Дерево тенантов. Пропустить его — значит повторить регрессию, случившуюся
