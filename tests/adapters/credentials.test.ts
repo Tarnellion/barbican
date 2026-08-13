@@ -15,29 +15,34 @@ import {
 
 const tokens = new Map([["acc", "s3cret-token"]]);
 
+/** Встроенные схемы обращение игнорируют: заголовок у них один на все ячейки. */
+const ANY_REQUEST = { method: "GET", url: "https://api.test/v1/orders" };
+
 describe("схемы аутентификации", () => {
   it("bearer кладёт токен в Authorization с префиксом", () => {
     const provider = createCredentialProvider({ kind: "bearer" }, tokens);
 
-    expect(provider.headersFor("acc")).toEqual({ authorization: "Bearer s3cret-token" });
+    expect(provider.headersFor("acc", ANY_REQUEST)).toEqual({
+      authorization: "Bearer s3cret-token",
+    });
   });
 
   it("header кладёт токен в указанный заголовок целиком, без префикса", () => {
     const provider = createCredentialProvider({ kind: "header", header: "X-API-Key" }, tokens);
 
-    expect(provider.headersFor("acc")).toEqual({ "x-api-key": "s3cret-token" });
+    expect(provider.headersFor("acc", ANY_REQUEST)).toEqual({ "x-api-key": "s3cret-token" });
   });
 
   it("cookie собирает пару имя-значение", () => {
     const provider = createCredentialProvider({ kind: "cookie", name: "session" }, tokens);
 
-    expect(provider.headersFor("acc")).toEqual({ cookie: "session=s3cret-token" });
+    expect(provider.headersFor("acc", ANY_REQUEST)).toEqual({ cookie: "session=s3cret-token" });
   });
 
   it("basic кодирует логин и пароль в base64", () => {
     const provider = createCredentialProvider({ kind: "basic" }, new Map([["acc", "user:pass"]]));
 
-    expect(provider.headersFor("acc")).toEqual({
+    expect(provider.headersFor("acc", ANY_REQUEST)).toEqual({
       authorization: `Basic ${Buffer.from("user:pass").toString("base64")}`,
     });
   });
@@ -52,7 +57,7 @@ describe("анонимное обращение", () => {
   it("аккаунт без токена обращается без заголовков", () => {
     const provider = createCredentialProvider({ kind: "bearer" }, tokens);
 
-    expect(provider.headersFor("неизвестный")).toEqual({});
+    expect(provider.headersFor("неизвестный", ANY_REQUEST)).toEqual({});
   });
 });
 
@@ -76,12 +81,18 @@ describe("схема на аккаунт", () => {
   );
 
   it("аккаунт со своей схемой идёт по ней", () => {
-    expect(provider.headersFor("operator")).toEqual({ cookie: "opsid=operator-token" });
-    expect(provider.headersFor("affiliate")).toEqual({ "x-affiliate-key": "affiliate-token" });
+    expect(provider.headersFor("operator", ANY_REQUEST)).toEqual({
+      cookie: "opsid=operator-token",
+    });
+    expect(provider.headersFor("affiliate", ANY_REQUEST)).toEqual({
+      "x-affiliate-key": "affiliate-token",
+    });
   });
 
   it("аккаунт без своей схемы идёт по схеме по умолчанию", () => {
-    expect(provider.headersFor("player")).toEqual({ authorization: "Bearer player-token" });
+    expect(provider.headersFor("player", ANY_REQUEST)).toEqual({
+      authorization: "Bearer player-token",
+    });
   });
 
   it("переопределение не даёт заголовков аккаунту без токена", () => {
@@ -93,7 +104,7 @@ describe("схема на аккаунт", () => {
       new Map([["ghost", { kind: "cookie", name: "opsid" } as const]]),
     );
 
-    expect(anonymous.headersFor("ghost")).toEqual({});
+    expect(anonymous.headersFor("ghost", ANY_REQUEST)).toEqual({});
   });
 });
 

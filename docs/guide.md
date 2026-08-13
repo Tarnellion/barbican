@@ -104,6 +104,43 @@ API аутентифицируются по-разному, а разбив пр
 - объявленная схема не используется ни одним аккаунтом (обычно это забытый
   `authScheme`: аккаунт ушёл бы по умолчанию и промолчал);
 - на схему ссылается аккаунт без `tokenEnv` — предъявлять по ней нечего.
+
+#### Подпись обращения (HMAC) — только из кода
+
+Четыре схемы предъявляют **статичный** секрет. Подпись — HMAC по методу, пути
+и метке времени — конфигурацией не описывается, и это решение, а не пробел:
+канонизация у SigV4, у Stripe-подобных схем и у самописных разная, и общий
+формат, придуманный без настоящей цели, совпал бы с реальной платформой
+в лучшем случае наполовину. А наполовину верная подпись даёт 401 везде —
+то есть отчёт «доступа нигде нет», неотличимый от исправной платформы.
+
+Из кода подпись выражается: `barbican` — не только CLI, и порт
+`CredentialProvider` получает описание обращения, для которого выдаёт заголовки.
+
+```ts
+import { createHmac } from "node:crypto";
+import type { CredentialProvider } from "barbican";
+
+const signing: CredentialProvider = {
+  headersFor(accountId, request) {
+    const secret = process.env[`BARBICAN_SECRET_${accountId.toUpperCase()}`] ?? "";
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const { pathname, search } = new URL(request.url);
+    const canonical = `${request.method}\n${pathname}${search}\n${timestamp}`;
+    return {
+      "x-timestamp": timestamp,
+      "x-signature": createHmac("sha256", secret).update(canonical).digest("hex"),
+    };
+  },
+};
+```
+
+Провайдер вызывается **на каждое обращение**, включая канареечное: подпись,
+вычисленная один раз на аккаунт, подошла бы одной ячейке из девяноста
+([ADR-0018](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0018-request-signing-is-a-port-concern.md)).
+Канарейка при этом остаётся главной страховкой: неверная канонизация видна
+на ней сразу, а не в виде чистого отчёта.
+
 #### Аккаунт сразу в нескольких тенантах
 
 Когда область аккаунта — не поддерево, а **набор** узлов, вместо `tenant`

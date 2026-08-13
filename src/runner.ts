@@ -307,15 +307,20 @@ export async function probeCanaries(options: {
       throw new ExcludedCanaryError(canary.accountId, canary.endpointId);
     }
 
+    const canaryUrl = joinUrl(
+      baseUrlForTenant(tenantOf.get(canary.accountId), options.tenantBaseUrls, options.baseUrl),
+      endpoint.path,
+    );
+
     let status = 0;
     try {
       const response = await options.client.send({
         method: endpoint.method,
-        url: joinUrl(
-          baseUrlForTenant(tenantOf.get(canary.accountId), options.tenantBaseUrls, options.baseUrl),
-          endpoint.path,
-        ),
-        headers: options.credentials.headersFor(canary.accountId),
+        url: canaryUrl,
+        headers: options.credentials.headersFor(canary.accountId, {
+          method: endpoint.method,
+          url: canaryUrl,
+        }),
       });
       status = response.status;
     } catch {
@@ -395,7 +400,6 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
   }
 
   for (const account of options.accounts) {
-    const authHeaders = options.credentials.headersFor(account.id);
     for (const { endpoint, resource } of cells) {
       const startedAt = Date.now();
       const path = resource === undefined ? endpoint.path : substitute(endpoint.path, resource);
@@ -425,10 +429,13 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         ...(endpoint.responseMustDifferByTenant === true ? DIGEST_SIGNALS : []),
         ...(endpoint.signals ?? []),
       ];
+      // Заголовки берутся на каждое обращение, а не один раз на аккаунт:
+      // подпись зависит от метода и адреса, и вынесенное из цикла значение
+      // молча подписывало бы все ячейки первым запросом. См. ADR-0018.
       const request = {
         method: endpoint.method,
         url,
-        headers: authHeaders,
+        headers: options.credentials.headersFor(account.id, { method: endpoint.method, url }),
         ...(specs.length === 0 ? {} : { signals: specs }),
       };
 

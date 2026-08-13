@@ -7,7 +7,13 @@
 
 import { describe, expect, it } from "vitest";
 import { createCredentialProvider, DEFAULT_AUTH_SCHEME } from "../src/adapters/credentials.js";
-import type { HttpClient, HttpRequest, HttpResponse } from "../src/adapters/ports.js";
+import type {
+  CredentialProvider,
+  HttpClient,
+  HttpRequest,
+  HttpResponse,
+  SignedRequest,
+} from "../src/adapters/ports.js";
 import type { Account, Endpoint } from "../src/core/index.js";
 import {
   classifyStatus,
@@ -62,6 +68,66 @@ describe("classifyStatus", () => {
     for (const status of [301, 302, 400, 405, 429, 500, 503]) {
       expect(classifyStatus(status)).toBe("error");
     }
+  });
+});
+
+describe("подпись обращения", () => {
+  /**
+   * Раньше заголовки вычислялись один раз на аккаунт и переиспользовались
+   * на всех ячейках. Провайдер, подписывающий метод и путь, подписал бы этим
+   * первую ячейку, а разослал бы подпись во все: платформа отвергла бы всё,
+   * кроме первого обращения, и отчёт вышел бы «доступа нигде нет» —
+   * неотличимо от исправной платформы с закрытым доступом.
+   */
+  it("даёт провайдеру адрес каждой ячейки, а не первой", async () => {
+    const endpoints: readonly Endpoint[] = [
+      { id: "users.list", method: "GET", path: "/v1/admin/users" },
+      { id: "tickets.list", method: "GET", path: "/v1/support/tickets" },
+    ];
+    const asked: SignedRequest[] = [];
+    const signing: CredentialProvider = {
+      headersFor(accountId, request) {
+        asked.push(request);
+        return { "x-signature": `${accountId}:${request.method}:${new URL(request.url).pathname}` };
+      },
+    };
+
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+    await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints,
+      accounts: accounts.slice(0, 1),
+      credentials: signing,
+      client,
+    });
+
+    expect(asked.map((request) => request.url)).toEqual([
+      "https://api.test/v1/admin/users",
+      "https://api.test/v1/support/tickets",
+    ]);
+    expect(seen.map((request) => request.headers?.["x-signature"])).toEqual([
+      "player-a:GET:/v1/admin/users",
+      "player-a:GET:/v1/support/tickets",
+    ]);
+  });
+
+  it("подписывает и канареечное обращение", async () => {
+    const asked: SignedRequest[] = [];
+    const { client } = fakeClient(() => ({ status: 200, headers: {} }));
+    await probeCanaries({
+      baseUrl: "https://api.test",
+      endpoints: [{ id: "whoami", method: "GET", path: "/v1/me" }],
+      canaries: [{ accountId: "player-a", endpointId: "whoami" }],
+      credentials: {
+        headersFor(_accountId, request) {
+          asked.push(request);
+          return {};
+        },
+      },
+      client,
+    });
+
+    expect(asked).toEqual([{ method: "GET", url: "https://api.test/v1/me" }]);
   });
 });
 
