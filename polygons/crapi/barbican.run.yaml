@@ -100,3 +100,10 @@ policy:
 # срабатывание.
 bodySignals:
   tenantScoped: [get_vehicles, get_orders, get_dashboard]
+# Запись, спрятанная за безопасным по букве методом. GET
+# /workshop/api/mechanic/receive_report называется в спецификации
+# create_service_report, описан как «Create and Assign a Service Report» и объявлен
+# без аутентификации. Безопасный режим его не остановит — метод-то GET, — поэтому
+# эндпоинт исключён поимённо. Без обязательных параметров он отвечает 400 и даёт
+# probe-error у каждого аккаунта; с параметрами создал бы отчёт в стенде.
+exclude: [create_service_report]
