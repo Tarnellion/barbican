@@ -10,7 +10,7 @@ BOLA/IDOR, and cross-tenant leaks.
 ## Status
 
 Early development, but end-to-end: `barbican run` walks a live API and writes a report.
-(Build from source for now — see Install: the published CLI is a stub.)
+(Build from source until `0.2.0` is published — see Install: the CLI in `0.1.0` is a stub.)
 Validated against three targets — [crAPI](docs/polygons/crapi.md), VAmPI, and a
 [reference platform](polygon/) with switchable defects and a hand-written oracle.
 
@@ -62,11 +62,11 @@ behind each design decision.
 
 ## Install
 
-**The CLI published to npm as `barbican@0.1.0` is a stub: it registers no commands.**
-The repository carries the same version number with a working `run`, so the version
-alone does not tell the two apart. This is a packaging mistake on my side, not a
-missing feature, and it is being fixed by publishing through the release workflow
-(provenance via OIDC) rather than by hand. Until that lands, build from source:
+**`barbican@0.1.0` on npm is a stub: it registers no commands.** The repository
+carried the same version number with a working `run`, so the version alone does not
+tell the two apart — a packaging mistake on my side, not a missing feature. The fix
+is `0.2.0`, published through the release workflow with provenance via OIDC instead
+of by hand. Until that release is out, build from source:
 
 ```bash
 git clone https://github.com/Tarnellion/barbican.git
@@ -187,6 +187,27 @@ pnpm install
 pnpm run hooks:install   # git hooks; requires gitleaks (brew install gitleaks)
 pnpm run check           # lint + typecheck + test + build
 ```
+
+## Releasing
+
+Publishing goes through CI, never from a laptop. `publishConfig.provenance` is on,
+and provenance needs an OIDC witness that a local machine cannot provide — a manual
+`npm publish` fails by design, which is the point.
+
+```bash
+# 1. version in package.json is already the one being released
+# 2. tag it — the tag must match that version, the workflow verifies it
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The tag triggers [`release.yml`](.github/workflows/release.yml): it runs the same
+gate as CI, checks that the tag equals `package.json`'s version, and publishes with
+short-lived credentials issued over OIDC. No long-lived npm token exists anywhere.
+
+One-time setup on npmjs.com, done by the package owner: add a **trusted publisher**
+for `barbican` pointing at this repository and the `release.yml` workflow. Until that
+exists, the release job fails at the publish step — which is the safe direction:
+not publishing beats publishing without provenance.
 
 ## License
 
