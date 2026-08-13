@@ -31,6 +31,16 @@ A clean run against such a platform is not evidence of isolation. This is demons
 not theorised: see [tests/core/tenant-hierarchy.test.ts](tests/core/tenant-hierarchy.test.ts)
 and [docs/research/coverage-model.md](docs/research/coverage-model.md).
 
+## Documentation
+
+The guides are written in Russian, matching the rest of `docs/`; this README is
+the package front page and stays in English.
+
+- **[docs/guide.md](docs/guide.md)** — declaring accounts, tenants, resources and
+  the access policy; running a scan; what the tool deliberately does not do.
+- **[docs/report.md](docs/report.md)** — reading the report: every summary field,
+  exit codes, and how to tell *"checked and clean"* from *"nothing was checked"*.
+
 See [plan.md](plan.md) for the roadmap and [docs/adr/](docs/adr/) for the reasoning
 behind each design decision.
 
