@@ -807,3 +807,32 @@ policy: { fallback: denied, rules: [] }
     expect(() => parseRunConfig(config)).not.toThrow();
   });
 });
+
+/**
+ * Найдено холодным чтением: два самых громких инварианта проекта отвечали
+ * читателю сырым zod по-английски. «Обязательный allowlist» и «умолчания
+ * у fallback нет намеренно» расписаны в руководстве целыми абзацами,
+ * а `Invalid input: expected array, received undefined` читается как баг
+ * в конфиге, а не как «вы пытаетесь сканировать чужую систему без области».
+ */
+describe("сообщения на обязательных полях", () => {
+  it("объясняет, зачем нужен allowlist, а не сообщает тип", () => {
+    expect(() =>
+      parseRunConfig(`
+target: { baseUrl: "https://a.test" }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
+policy: { fallback: denied, rules: [] }
+`),
+    ).toThrow(/сканирование чужой системы/);
+  });
+
+  it("объясняет, почему у fallback нет умолчания", () => {
+    expect(() =>
+      parseRunConfig(`
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
+policy: { rules: [] }
+`),
+    ).toThrow(/Умолчания у fallback нет намеренно/);
+  });
+});
