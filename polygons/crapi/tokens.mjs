@@ -35,10 +35,25 @@ function user(id, email, secret, tokenEnv) {
  * разойдясь, они дали бы прогон без единого токена, то есть сплошные 401,
  * а сплошной отказ совпадает с политикой и выглядит чистым отчётом.
  */
+/**
+ * Пароли предзаведённых пользователей стенда.
+ *
+ * Это не секреты: значения опубликованы в самом crAPI как seed-константы,
+ * а стенд живёт в петле и создаётся заново на каждый прогон. VAmPI обходится
+ * без них — там пользователи регистрируются скриптом со случайными паролями, —
+ * а здесь учётные записи предзаведены, и взять их неоткуда.
+ *
+ * Переопределяются окружением: держать в репозитории образец «пароль строкой»
+ * не стоит даже там, где он безобиден, — читатель копирует форму, а не оговорку.
+ */
+function secretOf(name, published) {
+  return process.env[`CRAPI_PASSWORD_${name.toUpperCase()}`] ?? published;
+}
+
 export const USERS = [
-  user("adam", "adam007@example.com", "adam007!123", "CRAPI_TOKEN_ADAM"),
-  user("pogba", "pogba006@example.com", "pogba006!123", "CRAPI_TOKEN_POGBA"),
-  user("admin", "admin@example.com", "Admin!123", "CRAPI_TOKEN_ADMIN"),
+  user("adam", "adam007@example.com", secretOf("adam", "adam007!123"), "CRAPI_TOKEN_ADAM"),
+  user("pogba", "pogba006@example.com", secretOf("pogba", "pogba006!123"), "CRAPI_TOKEN_POGBA"),
+  user("admin", "admin@example.com", secretOf("admin", "Admin!123"), "CRAPI_TOKEN_ADMIN"),
 ];
 
 export class ProvisionError extends Error {
