@@ -52,6 +52,13 @@ export interface ReportSummary {
   /** Расхождения по серьёзности — с чего читателю начинать. См. ADR-0014. */
   readonly bySeverity: Readonly<Record<Severity, number>>;
   /**
+   * По серьёзности, но считая **дефекты**, а не строки.
+   *
+   * `critical: 10` в `bySeverity` — это один отсутствующий фильтр, задевший
+   * десять ячеек, а читается как десять проблем. Число рядом снимает вопрос.
+   */
+  readonly defectsBySeverity: Readonly<Record<Severity, number>>;
+  /**
    * Различных сигнатур дефекта. **Нижняя граница** числа проблем: две разные
    * ошибки с одинаковой сигнатурой снаружи неразличимы. Верхняя граница —
    * `findings`.
@@ -105,8 +112,14 @@ export interface ReportFinding {
   /** Только у находок проверок: человекочитаемое описание и обоснование. */
   readonly title?: string;
   readonly evidence?: Readonly<Record<string, string | number | boolean>>;
-  /** Чем воспроизвести. Отсутствует, если наблюдение не сохранило адрес. */
+  /**
+   * Чем воспроизвести и что ответила платформа.
+   *
+   * Код нужен прямо здесь: `actual: "allowed"` означает «2xx», а какой именно —
+   * приходилось искать в наблюдениях и соединять вручную по тройке.
+   */
   readonly request?: { readonly method: HttpMethod; readonly url: string };
+  readonly status?: number;
 }
 
 /**
@@ -190,6 +203,14 @@ export interface RunReport {
   readonly target: {
     readonly baseUrl: string;
     readonly allowedHosts: readonly string[];
+    /**
+     * Опознание проверяемой системы, объявленное человеком.
+     *
+     * Отсутствие значимо: отчёт не называет платформу, и читатель не может
+     * отличить прогон против прод-подобного стенда от прогона демо-полигона.
+     * Заводить по такому артефакту тикет на платформу нельзя.
+     */
+    readonly label?: string;
   };
   readonly accounts: readonly {
     readonly id: string;
@@ -338,7 +359,11 @@ function mergeFindings(
     if (observation?.url === undefined || observation.method === undefined) {
       return finding;
     }
-    return { ...finding, request: { method: observation.method, url: observation.url } };
+    return {
+      ...finding,
+      request: { method: observation.method, url: observation.url },
+      status: observation.status,
+    };
   }
 
   const fromMatrix: readonly ReportFinding[] = diffs.map((diff) =>
@@ -368,6 +393,14 @@ function mergeFindings(
   return [...fromMatrix, ...fromChecks];
 }
 
+function countGroupsBySeverity(groups: readonly DefectGroup[]): Readonly<Record<Severity, number>> {
+  const counts = { ...EMPTY_BY_SEVERITY };
+  for (const group of groups) {
+    counts[group.severity] += 1;
+  }
+  return counts;
+}
+
 function countByKind(findings: readonly ReportFinding[]): Readonly<Record<string, number>> {
   const counts: Record<string, number> = { ...EMPTY_BY_KIND };
   for (const finding of findings) {
@@ -387,6 +420,7 @@ function countByReason(skipped: readonly SkippedEndpoint[]): Readonly<Record<str
 export function buildReport(options: BuildReportOptions): RunReport {
   const merged = mergeFindings(options.findings, options.checks ?? [], options.observations);
   const notObserved = options.findings.filter((finding) => finding.kind === "not-observed").length;
+  const groups = groupDefects(merged);
   return {
     schemaVersion: REPORT_SCHEMA_VERSION,
     runId: randomUUID(),
@@ -400,6 +434,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     target: {
       baseUrl: options.config.target.baseUrl,
       allowedHosts: options.config.target.allowedHosts,
+      ...(options.config.target.label === undefined ? {} : { label: options.config.target.label }),
     },
     // tokenEnv намеренно не переносится: имя переменной не секрет, но и смысла
     // в отчёте не несёт, а соблазн положить рядом значение убирает.
@@ -415,10 +450,13 @@ export function buildReport(options: BuildReportOptions): RunReport {
       // единственный положительный вывод отчёта — «аноним всюду получил 401» —
       // недоказуем: аккаунт с ошибочно поданным токеном выглядел бы так же.
       anonymous: account.tokenEnv === undefined,
-      // Каким контуром ходил аккаунт. Без этого читатель не отличит «ручка
+      // Каким контуром ходил аккаунт. У анонимного не пишется вовсе:
+      // предъявлять ему нечего, и запись схемы там только путала. Без этого читатель не отличит «ручка
       // закрыта» от «мы стучались не тем транспортом»: и то и другое даёт 401.
       // Здесь только вид схемы и имя заголовка или куки — значений нет нигде.
-      auth: options.config.accountAuth.get(account.id) ?? options.config.auth,
+      ...(account.tokenEnv === undefined
+        ? {}
+        : { auth: options.config.accountAuth.get(account.id) ?? options.config.auth }),
     })),
     endpoints: options.endpoints,
     resources: options.config.resources,
@@ -447,7 +485,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
       tenants: options.config.tenants ?? [],
       auth: options.config.auth,
     },
-    defects: groupDefects(merged),
+    defects: groups,
     summary: {
       endpoints: options.endpoints.length,
       accounts: options.config.accounts.length,
@@ -462,7 +500,8 @@ export function buildReport(options: BuildReportOptions): RunReport {
       findings: merged.length,
       byKind: countByKind(merged),
       bySeverity: countBySeverity(merged),
-      defectGroups: groupDefects(merged).length,
+      defectGroups: groups.length,
+      defectsBySeverity: countGroupsBySeverity(groups),
       checkFindings: merged.filter((finding) => finding.source === "check").length,
     },
   };

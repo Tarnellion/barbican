@@ -87,6 +87,18 @@ const configSchema = z.object({
   target: z.object({
     baseUrl: z.url({ protocol: /^https?$/ }),
     allowedHosts: z.array(z.string().min(1)).min(1),
+    /**
+     * Как называется проверяемая система: окружение, версия, что угодно
+     * опознающее.
+     *
+     * Объявляется человеком, потому что инструмент этого знать не может:
+     * `baseUrl` вида `http://127.0.0.1:8787` не отличает прогон против
+     * прод-подобного стенда от прогона демо-полигона, а отпечаток
+     * конфигурации опознаёт **наше объявление**, а не цель. Читатель отчёта
+     * без этого поля не имеет права заводить тикет на платформу: артефакт
+     * не называет платформу.
+     */
+    label: z.string().min(1).optional(),
   }),
   accounts: z
     .array(
@@ -296,6 +308,8 @@ export interface AccountConfig {
 export interface RunTarget {
   readonly baseUrl: string;
   readonly allowedHosts: readonly string[];
+  /** Опознание проверяемой системы. Объявляется человеком. */
+  readonly label?: string | undefined;
 }
 
 /** Узел дерева тенантов плюс необязательный свой базовый адрес. */

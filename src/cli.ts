@@ -90,6 +90,16 @@ interface RunFlags {
 async function run(flags: RunFlags): Promise<number> {
   const config = parseRunConfig(await readFile(flags.config, "utf8"));
 
+  // Предупреждение, а не отказ: на своём полигоне метка не нужна, а на чужой
+  // платформе отчёт без неё нельзя приложить к тикету — он не называет цель.
+  if (config.target.label === undefined) {
+    process.stderr.write(
+      `${paint("Цель не названа:", "yellow")} в target нет поля label. ` +
+        `Отчёт не сможет опознать проверяемую систему, и читатель не отличит ` +
+        `прогон против стенда от прогона демонстрационного полигона.\n`,
+    );
+  }
+
   // Ровно один источник эндпоинтов: два молча разошлись бы, а ни одного
   // дало бы отчёт без находок, неотличимый от успешного.
   const sources = [
@@ -300,19 +310,26 @@ async function run(flags: RunFlags): Promise<number> {
     // С чего начинать читателю: 17 находок в одном списке — это не отчёт.
     summary.findings === 0
       ? undefined
-      : `По серьёзности: критических ${summary.bySeverity.critical}, ` +
+      : `По серьёзности строк: критических ${summary.bySeverity.critical}, ` +
         `высоких ${summary.bySeverity.high}, средних ${summary.bySeverity.medium}, ` +
         `низких ${summary.bySeverity.low}`,
+    // Рядом — то же по дефектам. Иначе «критических 10» читается как десять
+    // проблем, тогда как это один отсутствующий фильтр в десяти ячейках.
+    summary.findings === 0
+      ? undefined
+      : `По серьёзности дефектов: критических ${summary.defectsBySeverity.critical}, ` +
+        `высоких ${summary.defectsBySeverity.high}, средних ${summary.defectsBySeverity.medium}, ` +
+        `низких ${summary.defectsBySeverity.low}`,
     // Число строк говорит о размере матрицы, число сигнатур — о числе проблем.
     // «Не менее», а не «ровно»: два дефекта с одинаковой сигнатурой снаружи
     // неразличимы, и завышать точность нельзя.
     summary.findings === 0
       ? undefined
-      : `Различных дефектов: не менее ${summary.defectGroups} (наблюдений ${summary.findings})`,
+      : `Различных дефектов: не менее ${summary.defectGroups} (строк находок ${summary.findings})`,
     // Находки проверок называются отдельной строкой: они увидены не по статусу,
     // и смешивать их с эскалацией значило бы стереть это различие.
     summary.checkFindings > 0
-      ? paint(`Из них найдено по телу, а не по статусу: ${summary.checkFindings}`, "red")
+      ? paint(`Из общего числа найдено по телу, а не по статусу: ${summary.checkFindings}`, "red")
       : undefined,
     flags.report === undefined ? undefined : `Отчёт: ${flags.report}`,
   ].filter((line): line is string => line !== undefined);

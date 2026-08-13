@@ -148,6 +148,9 @@ policy:
           // Воспроизведение приложено к находке: читателю не нужно склеивать
           // адрес из эндпоинта, объекта и базового URL вручную.
           request: { method: "GET", url: `${config.target.baseUrl}/v1/admin/users` },
+          // Код ответа прямо в находке: «allowed» означает лишь «2xx»,
+          // а какой именно — приходилось искать в наблюдениях.
+          status: 200,
         },
       ]);
       expect(report.summary.byKind["privilege-escalation"]).toBe(1);
