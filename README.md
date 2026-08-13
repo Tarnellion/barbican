@@ -176,6 +176,30 @@ pnpm run hooks:install   # git hooks; requires gitleaks (brew install gitleaks)
 pnpm run check           # lint + typecheck + test + build
 ```
 
+## How much traffic it makes
+
+Throttling is a port, not an option: there is no way to turn it off. The defaults
+are deliberately timid, and the numbers are these:
+
+| Limit | Default | Flag |
+|---|---|---|
+| Concurrent requests | 2 | `--concurrency` |
+| Requests per second | 5 | `--rps` |
+| Requests per run | 2000 | `--max-requests` |
+
+One cell is one request. A run costs roughly `accounts × endpoints × resources`
+requests — the reference polygon with 9 accounts, 6 endpoints and 6 resources
+comes to 144 cells and finishes in about a minute. Declaring request conditions
+multiplies that by the number of contexts, which is why a context must name the
+endpoints it applies to.
+
+When the budget runs out the run stops and the report says so: `truncated: true`
+and exit code 2, because the tail of the matrix was never tested and the absence
+of findings there means nothing. A run that ends this way is not a clean run.
+
+The effective limits are written into the report (`inputs.throttle`), so «the
+throttle was on» is not something you have to take on faith.
+
 ## Releasing
 
 Publishing goes through CI, never from a laptop. `publishConfig.provenance` is on,

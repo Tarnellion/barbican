@@ -12,8 +12,11 @@ import {
   assertContextsCannotWrite,
   ForbiddenContextHeaderError,
   ForbiddenContextQueryError,
+  InvalidContextValueError,
   MethodOverrideInContextError,
+  MissingContextValueError,
   parseRunConfig,
+  resolveContextValues,
   toAccounts,
   UncarriableKeyError,
   UnknownContextReferenceError,
@@ -282,7 +285,8 @@ contexts:
    * и вендорский заголовок, о котором никто не слышал.
    */
   describe("подмена метода ловится значением атрибута", () => {
-    const parsed = (attributes: string) => parseRunConfig(withContext("proxy", attributes));
+    const parsed = (attributes: string) =>
+      resolveContextValues(parseRunConfig(withContext("proxy", attributes)), {});
 
     it("отвергает заголовок, чьё значение — имя метода", () => {
       expect(() =>
@@ -316,5 +320,80 @@ contexts:
         }),
       ).not.toThrow();
     });
+  });
+});
+
+/**
+ * Значение атрибута печатается в отчёте дословно, и человеку, которому нужна
+ * в условиях подпись устройства или партнёрский ключ, деться было некуда,
+ * кроме открытого текста в конфигурации. Форма `{ env: ИМЯ }` повторяет
+ * `tokenEnv` у аккаунта: в отчёт уезжает имя, значение живёт в окружении.
+ */
+describe("значение атрибута из окружения", () => {
+  const CONFIG = `
+target: { baseUrl: "https://api.test", allowedHosts: [api.test] }
+accounts: [{ id: alice, role: user, tenant: tenant-a, tokenEnv: T_ALICE }]
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [orders.list], context: partner, outcome: allowed }
+contexts:
+  - id: partner
+    headers: { x-partner-key: { env: PARTNER_KEY } }
+    endpoints: [orders.list]
+`;
+
+  it("подставляет значение из переменной окружения", () => {
+    const values = resolveContextValues(parseRunConfig(CONFIG), { PARTNER_KEY: "s3cret" });
+
+    expect(values.get("partner")?.headers["x-partner-key"]).toBe("s3cret");
+  });
+
+  it("в конфигурации остаётся имя переменной, а не значение", () => {
+    const config = parseRunConfig(CONFIG);
+
+    expect(config.contexts[0]?.headers["x-partner-key"]).toEqual({ env: "PARTNER_KEY" });
+  });
+
+  it("отвергает незаданную переменную, а не ходит с пустым заголовком", () => {
+    expect(() => resolveContextValues(parseRunConfig(CONFIG), {})).toThrow(
+      MissingContextValueError,
+    );
+  });
+
+  it("отвергает значение, которое нельзя отправить", () => {
+    expect(() =>
+      resolveContextValues(parseRunConfig(CONFIG), { PARTNER_KEY: "перенос\nстроки" }),
+    ).toThrow(InvalidContextValueError);
+  });
+
+  /**
+   * Проверка подмены метода идёт по разрешённым значениям: объявление
+   * `{ env: VERB }` при `VERB=DELETE` иначе прошло бы мимо неё.
+   */
+  it("ловит подмену метода, пришедшую из окружения", () => {
+    const config = parseRunConfig(`
+target: { baseUrl: "https://api.test", allowedHosts: [api.test] }
+accounts: [{ id: alice, role: user, tenant: tenant-a, tokenEnv: T_ALICE }]
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [orders.list], context: sneaky, outcome: allowed }
+contexts:
+  - id: sneaky
+    headers: { x-vendor-verb: { env: VERB } }
+    endpoints: [orders.list]
+`);
+
+    expect(() =>
+      assertContextsCannotWrite(resolveContextValues(config, { VERB: "DELETE" }), {
+        allowUnsafeMethods: false,
+      }),
+    ).toThrow(MethodOverrideInContextError);
+  });
+
+  /** Пропущенный шаг разрешения обязан быть слышен, а не уехать объектом. */
+  it("отказывается строить аккаунты, если значения не разрешены", () => {
+    expect(() => toAccounts(parseRunConfig(CONFIG))).toThrow(MissingContextValueError);
   });
 });

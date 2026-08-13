@@ -32,7 +32,12 @@ import type {
   TenantNode,
 } from "../core/index.js";
 import { groupDefects, principalOf } from "../core/index.js";
-import type { AccountConfig, RequestContextConfig, RunConfig } from "../io/config.js";
+import type {
+  AccountConfig,
+  ContextAttributeValue,
+  RequestContextConfig,
+  RunConfig,
+} from "../io/config.js";
 import type { ProbeFailure, SkippedEndpoint } from "../runner.js";
 
 /**
@@ -168,7 +173,13 @@ export interface ReportFinding {
 export interface RequestRecord {
   readonly method: HttpMethod;
   readonly url: string;
-  readonly contextHeaders?: Readonly<Record<string, string>>;
+  /**
+   * Атрибуты условий в объявленной форме: строка либо `{ env: ИМЯ }`.
+   *
+   * Именно объявленной, а не разрешённой: значение из окружения в отчёт
+   * не попадает никогда — там остаётся имя переменной, ровно как у `tokenEnv`.
+   */
+  readonly contextHeaders?: Readonly<Record<string, ContextAttributeValue>>;
 }
 
 /**
@@ -222,8 +233,9 @@ export interface RunInputs {
 export interface ReportedContext {
   readonly id: string;
   readonly description?: string;
-  readonly headers: Readonly<Record<string, string>>;
-  readonly query: Readonly<Record<string, string>>;
+  /** Объявленная форма: строка либо `{ env: ИМЯ }`. Значений из окружения тут нет. */
+  readonly headers: Readonly<Record<string, ContextAttributeValue>>;
+  readonly query: Readonly<Record<string, ContextAttributeValue>>;
   readonly endpointIds: readonly string[];
   /** Аккаунты, к которым применялись. Пусто — ко всем. */
   readonly accountIds: readonly string[];

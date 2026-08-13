@@ -34,6 +34,7 @@ import {
   assertContextsCannotWrite,
   assertReferencesResolve,
   parseRunConfig,
+  resolveContextValues,
   resolveTokens,
   toAccounts,
 } from "./io/config.js";
@@ -122,9 +123,11 @@ async function run(flags: RunFlags): Promise<number> {
   const parsed = await source.create().parse(await readFile(source.path, "utf8"));
   // Ссылки сверяются после разбора спецификации: раньше эндпоинтов ещё нет.
   assertReferencesResolve(config, parsed);
-  // Подмена метода атрибутами условий: проверяется здесь, а не при разборе,
-  // потому что зависит от флага прогона. См. ADR-0019.
-  assertContextsCannotWrite(config, { allowUnsafeMethods: flags.unsafeMethods === true });
+  // Значения атрибутов условий: литералы как есть, ссылки — из окружения.
+  // Разрешаются до проверки подмены метода, потому что проверять надо то,
+  // что реально уйдёт по проводу, а не то, что написано в файле.
+  const contextValues = resolveContextValues(config, process.env);
+  assertContextsCannotWrite(contextValues, { allowUnsafeMethods: flags.unsafeMethods === true });
   // responseMustDifferByTenant — заявление человека об ожидании; источники
   // эндпоинтов (спека, список, коллекция) о нём не знают и знать не должны.
   const endpoints = applyBodySignals(parsed, config);
@@ -157,7 +160,7 @@ async function run(flags: RunFlags): Promise<number> {
 
   // Аккаунты в объявленных условиях — отдельные строки матрицы. Атрибуты
   // (заголовки, параметры запроса) в ядро не идут: там достаточно метки.
-  const { accounts, attributes: contextAttributes } = toAccounts(config);
+  const { accounts, attributes: contextAttributes } = toAccounts(config, contextValues);
 
   // Бренды часто разнесены по поддоменам; адрес выбирается по тенанту объекта,
   // потому что спрашиваем мы именно за чужие данные, а лежат они на чужом хосте.

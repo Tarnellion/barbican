@@ -6,6 +6,7 @@
  * пропускает всплеск, положит чужой стенд ровно так же, как его отсутствие.
  */
 
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
   createThrottle,
@@ -146,5 +147,23 @@ describe("потолок на прогон", () => {
     ).rejects.toThrow(RunBudgetExhaustedError);
 
     expect(executed).toBe(false);
+  });
+});
+
+/**
+ * Числа умолчаний напечатаны в README как обещание пользователю: «инструмент
+ * бежит по чужому стенду вот так осторожно». Молчаливое расхождение обещания
+ * с кодом — ровно тот класс, против которого написан весь проект, поэтому
+ * таблица в README проверяется тестом, а не глазами.
+ */
+describe("умолчания названы в README", () => {
+  it("совпадают с таблицей «How much traffic it makes»", async () => {
+    const readme = await readFile(new URL("../../README.md", import.meta.url), "utf8");
+
+    expect(readme).toContain(`| Concurrent requests | ${DEFAULT_THROTTLE_LIMITS.concurrency} |`);
+    expect(readme).toContain(
+      `| Requests per second | ${DEFAULT_THROTTLE_LIMITS.requestsPerSecond} |`,
+    );
+    expect(readme).toContain(`| Requests per run | ${DEFAULT_THROTTLE_LIMITS.maxRequests} |`);
   });
 });

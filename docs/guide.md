@@ -1,65 +1,68 @@
-# Руководство оператора
+# Operator guide
 
-Как объявить проверяемое и запустить прогон. Как читать результат —
-в [report.md](report.md).
+How to declare what gets checked and how to start a run. How to read the result —
+see [report.md](report.md).
 
-## Модель в одном абзаце
+## The model in one paragraph
 
-Вы объявляете, **кому что положено**. Инструмент ходит по API от имени каждого
-аккаунта и записывает, что получилось. Находка — это расхождение между вашим
-объявлением и наблюдаемым поведением.
+You declare **who is meant to get what**. The tool walks the API as each account
+and records what came back. A finding is a discrepancy between your declaration
+and the observed behavior.
 
-Отсюда следует главное: **пустая политика даёт прогон без единой находки**,
-и это будет означать «ничего не объявлено», а не «всё чисто». Ожидаемый доступ
-не выводится из спецификации проверяемого API намеренно — спека порождается
-из того же кода, и вывод из неё означал бы сравнение реализации с самой собой
+The main consequence: **an empty policy produces a run without a single finding**,
+and that will mean "nothing was declared", not "everything is clean". Expected
+access is deliberately not derived from the specification of the API under test —
+the spec is generated from the same code, and deriving from it would mean
+comparing an implementation against itself
 ([ADR-0006](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0006-expected-access-declaration.md)).
 
-## Из чего состоит объявление
+## What a declaration is made of
 
-### Аккаунты
+### Accounts
 
 ```yaml
 accounts:
   - id: alice
     role: user
     tenant: brand-a
-    tokenEnv: TOKEN_ALICE     # имя переменной окружения, не сам токен
+    tokenEnv: TOKEN_ALICE     # the environment variable name, not the token itself
     canary: orders.list
 
-  - id: anonymous             # ни tenant, ни tokenEnv
+  - id: anonymous             # no tenant, no tokenEnv
     role: anonymous
 ```
 
-`tokenEnv` называет переменную, а не значение: конфигурацию можно коммитить
-и ревьюить. Аккаунт **без** `tokenEnv` обращается анонимно — так проверяется
-утверждение «эта ручка не публична». Именно анонимный аккаунт нашёл сломанную
-аутентификацию в crAPI: двумерная модель с обязательным токеном такое пропускала.
+`tokenEnv` names a variable, not a value: the configuration can be committed and
+reviewed. An account **without** `tokenEnv` makes its requests anonymously — that
+is how you check the claim that an endpoint is not public. It was the anonymous
+account that found the broken authentication in crAPI: a two-dimensional model
+with a mandatory token missed that.
 
-`tenant` тоже необязателен, и его отсутствие — утверждение, а не пропуск:
-**аккаунт объявлен вне тенантов**. Это и есть аноним. Такому аккаунту любой
-объект приходится `foreign-tenant`: своим он быть не может (владение — отношение
-внутри тенанта), соседом по тенанту тоже, а родства по дереву у него нет,
-потому что нет и узла, от которого его считать. В строгую сверку имён он
-не входит и записи в `tenants` не требует.
+`tenant` is optional too, and its absence is a statement, not an omission:
+**the account is declared outside of tenants**. That is exactly what an anonymous
+account is. For such an account every resource comes out as `foreign-tenant`: it
+cannot be the account's own (ownership is a relation inside a tenant), nor a
+neighbor inside the same tenant, and it has no kinship along the tree, because
+there is no node to count that kinship from. It takes no part in the strict name
+check and needs no entry in `tenants`.
 
-Служебного имени вроде `tenant: none` заводить **нельзя**. Оно лежит в одном
-пространстве значений с настоящими именами: платформа, где тенант действительно
-называется `none`, молча сделает аноним его соседом по тенанту — и утечка
-собственных данных этого тенанта перестанет быть находкой.
+A reserved name like `tenant: none` must **never** be introduced. It sits in the
+same value space as real names: on a platform where a tenant really is called
+`none`, that would silently make the anonymous account a neighbor inside that
+tenant — and a leak of that tenant's own data would stop being a finding.
 
-`canary` — ручка, заведомо доступная этому аккаунту. Она проверяется до основного
-прогона, и без неё нельзя отличить «доступа действительно нет» от «мы не
-аутентифицировались». **Заводите канарейку каждому аккаунту.** Прогон без них
-формально работает, но его «чисто» ничем не подкреплено.
+`canary` is an endpoint this account is known to have access to. It is checked
+before the main run, and without it you cannot tell "access really is absent"
+from "we failed to authenticate". **Give every account a canary.** A run without
+them formally works, but its "clean" verdict rests on nothing.
 
-### Аутентификация
+### Authentication
 
-Схема по умолчанию объявляется в корне, контуры со своей схемой — поимённо,
-а аккаунт на них ссылается:
+The default scheme is declared at the root, surfaces with their own scheme are
+declared by name, and an account refers to them:
 
 ```yaml
-auth: { kind: bearer }              # по умолчанию; можно не писать
+auth: { kind: bearer }              # the default; can be omitted
 
 authSchemes:
   operator-console: { kind: cookie, name: opsid }
@@ -70,52 +73,58 @@ accounts:
     role: operator
     tenant: brand-a
     tokenEnv: TOKEN_OLGA
-    authScheme: operator-console   # ссылка по имени, а не схема заново
+    authScheme: operator-console   # a reference by name, not the scheme again
 ```
 
-| `kind` | Что уходит | Что лежит в переменной |
+| `kind` | What goes out | What the variable holds |
 |---|---|---|
-| `bearer` | `Authorization: Bearer <токен>` | токен |
-| `header` | `<header>: <токен>` целиком, без префикса | ключ |
-| `cookie` | `Cookie: <name>=<токен>` | значение куки |
-| `basic` | `Authorization: Basic <base64>` | `логин:пароль` |
+| `bearer` | `Authorization: Bearer <token>` | the token |
+| `header` | `<header>: <token>` as-is, no prefix | the key |
+| `cookie` | `Cookie: <name>=<token>` | the cookie value |
+| `basic` | `Authorization: Basic <base64>` | `login:password` |
 
-**Секретов в конфигурации нет ни в каком виде** — ни значений, ни умолчаний.
-Схема описывает только транспорт; сам токен приходит из переменной, названной
-аккаунтом. Лишний ключ в схеме — ошибка, а не молча отброшенное поле: иначе
-`{ kind: bearer, token: "…" }` притворился бы работающим, оставив секрет в файле,
-который положено коммитить.
+**There are no secrets in the configuration in any form** — no values, no
+defaults. A scheme describes the transport only; the token itself comes from the
+variable the account names. An extra key in a scheme is an error, not a silently
+dropped field: otherwise `{ kind: bearer, token: "…" }` would pretend to work
+while leaving a secret in a file that is meant to be committed.
 
-Один прогон охватывает несколько контуров сразу, и это его смысл: на
-мультибрендовой платформе кабинет аффилиата, операторская админка и клиентское
-API аутентифицируются по-разному, а разбив прогон на три, вы потеряете саму
-матрицу «контур × контур» и будете сшивать отчёты руками.
+One run covers several surfaces at once, and that is the point of it: on a
+multi-brand platform the affiliate cabinet, the operator console and the customer
+API authenticate differently, and by splitting the run into three you lose the
+surface × surface matrix itself and end up stitching reports together by hand.
 
-Схемы **именованные**, а не выписанные у каждого аккаунта, потому что имя куки
-и имя заголовка — свойства контура, а не аккаунта. Повторённые у пяти
-операторских аккаунтов, они разойдутся опечаткой, а опечатка в имени куки
-неотличима от верного имени: платформа ответит 401, отказ совпадёт с политикой
-везде, где доступ не положен, и отчёт выйдет чистым. Опечатка в **ссылке** так
-не умеет — имя либо объявлено, либо нет ([ADR-0016](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0016-per-account-auth-schemes.md)).
+Schemes are **named** rather than written out on every account, because the
+cookie name and the header name are properties of the surface, not of the
+account. Repeated across five operator accounts, they will drift apart through a
+typo, and a typo in a cookie name is indistinguishable from the correct name: the
+platform answers 401, the denial matches the policy everywhere access is not
+meant to be granted, and the report comes out clean. A typo in a **reference**
+cannot do that — a name is either declared or it is not
+([ADR-0016](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0016-per-account-auth-schemes.md)).
 
-Прогон останавливается на старте, до первого запроса, если:
+The run stops at startup, before the first request, if:
 
-- аккаунт ссылается на схему, которой нет, — включая опечатку в имени;
-- объявленная схема не используется ни одним аккаунтом (обычно это забытый
-  `authScheme`: аккаунт ушёл бы по умолчанию и промолчал);
-- на схему ссылается аккаунт без `tokenEnv` — предъявлять по ней нечего.
+- an account refers to a scheme that does not exist — including through a typo in
+  the name;
+- a declared scheme is used by no account (usually a forgotten `authScheme`: the
+  account would have gone out with the default and said nothing);
+- a scheme is referred to by an account without `tokenEnv` — there is nothing to
+  present with it.
 
-#### Подпись обращения (HMAC) — только из кода
+#### Request signing (HMAC) — from code only
 
-Четыре схемы предъявляют **статичный** секрет. Подпись — HMAC по методу, пути
-и метке времени — конфигурацией не описывается, и это решение, а не пробел:
-канонизация у SigV4, у Stripe-подобных схем и у самописных разная, и общий
-формат, придуманный без настоящей цели, совпал бы с реальной платформой
-в лучшем случае наполовину. А наполовину верная подпись даёт 401 везде —
-то есть отчёт «доступа нигде нет», неотличимый от исправной платформы.
+The four schemes present a **static** secret. Signing — an HMAC over the method,
+the path and a timestamp — is not described by configuration, and that is a
+decision, not a gap: canonicalization differs between SigV4, Stripe-like schemes
+and homegrown ones, and a common format invented without a real target would
+match a real platform halfway at best. And a half-correct signature gives 401
+everywhere — that is, a report saying there is no access anywhere,
+indistinguishable from a platform that works correctly.
 
-Из кода подпись выражается: `barbican` — не только CLI, и порт
-`CredentialProvider` получает описание обращения, для которого выдаёт заголовки.
+From code, signing is expressible: `barbican` is not only a CLI, and the
+`CredentialProvider` port receives a description of the request it issues headers
+for.
 
 ```ts
 import { createHmac } from "node:crypto";
@@ -135,27 +144,28 @@ const signing: CredentialProvider = {
 };
 ```
 
-Провайдер вызывается **на каждое обращение**, включая канареечное: подпись,
-вычисленная один раз на аккаунт, подошла бы одной ячейке из девяноста
+The provider is called **for every request**, the canary one included: a
+signature computed once per account would fit one cell out of ninety
 ([ADR-0018](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0018-request-signing-is-a-port-concern.md)).
-Канарейка при этом остаётся главной страховкой: неверная канонизация видна
-на ней сразу, а не в виде чистого отчёта.
+The canary stays the main safety net here: wrong canonicalization shows up on it
+right away, instead of as a clean report.
 
-#### Условия обращения: гео, KYC, устройство
+#### Request conditions: geo, KYC, device
 
-Четыре предыдущие секции описывают, **кто** обращается. Условия описывают,
-**как**: тот же аккаунт с той же ролью, но обращение помечено атрибутами.
-Ставка из запрещённой юрисдикции, вывод до прохождения KYC, операция
-с неподтверждённого устройства — ограничения, которые правами не выражаются
-вовсе: роль, тенант и объект в них те же самые.
+The four preceding sections describe **who** makes the request. Conditions
+describe **how**: the same account with the same role, but the request is tagged
+with attributes. A bet from a prohibited jurisdiction, a withdrawal before KYC is
+passed, an operation from an unverified device — restrictions that permissions
+cannot express at all: the role, the tenant and the resource in them are the very
+same.
 
 ```yaml
 contexts:
   - id: geo-blocked
-    description: обращение из запрещённой юрисдикции
+    description: a request from a prohibited jurisdiction
     headers: { cf-ipcountry: AQ }
-    endpoints: [orders.list, orders.read]   # обязательно
-    accounts: [alice-a]                     # необязательно: по умолчанию ко всем
+    endpoints: [orders.list, orders.read]   # required
+    accounts: [alice-a]                     # optional: applies to all by default
 
 policy:
   rules:
@@ -165,108 +175,114 @@ policy:
       outcome: denied
 ```
 
-Каждые условия дают отдельные строки матрицы — `alice-a@geo-blocked`, — и
-в отчёте они стоят рядом с базовыми. Учётные данные те же: меняется обращение,
-а не аккаунт.
+Every set of conditions gives its own matrix rows — `alice-a@geo-blocked` — and
+in the report they stand next to the baseline ones. The credentials are the same:
+what changes is the request, not the account.
 
-**Атрибут условий — это произвольный заголовок к чужой системе, и относиться
-к нему нужно так же.** Инструмент отвергает на старте те, что меняют смысл
-обращения, а не его условия: подмену метода (`x-http-method-override` и всё
-семейство), подмену адреса (`x-original-url`, `x-rewrite-url`), маршрутизацию
-(`x-forwarded-host` и подобные), учётные данные — и отдельно любой атрибут,
-**чьё значение равно имени HTTP-метода**, пока не задан `--unsafe-methods`.
-Последнее правило существует потому, что платформы, уважающие подмену метода,
-выполнят по такому обращению запись, хотя по проводу уйдёт GET: гейт безопасных
-методов смотрит на метод запроса и такой обход не видит.
+**A context attribute is an arbitrary header sent into someone else's system, and
+it has to be treated as exactly that.** At startup the tool rejects the ones that
+change the meaning of the request rather than its conditions: method override
+(`x-http-method-override` and the whole family), address override
+(`x-original-url`, `x-rewrite-url`), routing (`x-forwarded-host` and the like),
+credentials — and, separately, any attribute **whose value equals the name of an
+HTTP method**, until `--unsafe-methods` is set. The last rule exists because
+platforms that honor method override will perform a write on such a request even
+though a GET goes out on the wire: the safe-method gate looks at the request
+method and does not see that bypass.
 
-В строке запроса запрещены ключи, которыми предъявляют учётные данные
-(`access_token`, `api_key`, `token`…) и которыми объекты задают себя. Первое —
-потому что токен в адресе означает **другой аккаунт**: платформа обслужит
-обращение как его, а отчёт напишет исходный. Второе — потому что такой атрибут
-переписал бы адрес объекта, оставив вердикт от объявленного.
+In the query string, keys that present credentials (`access_token`, `api_key`,
+`token`…) and keys by which resources identify themselves are forbidden. The
+first, because a token in the address means **a different account**: the platform
+will serve the request as that account, while the report will name the original
+one. The second, because such an attribute would rewrite the resource's address
+while the verdict would still come from the declared one.
 
-Списка, закрывающего всё, не существует: заголовок, который уважает конкретная
-платформа, инструменту неизвестен. Проверяйте, что объявляете.
+No list exists that closes everything off: the tool does not know which header a
+particular platform honors. Check what you declare.
 
-**Правило без `context` действует только в базовых условиях.** Это главное,
-что стоит запомнить. Отсутствие поля означает «базовые», а не «любые»: иначе
-объявление новых условий молча распространило бы на них все прежние ожидания,
-и платформа, законно закрывающая ручку из запрещённой страны, дала бы
-«неожиданный отказ» на каждой ячейке. Ожидание в условиях объявляется явно —
-либо срабатывает `fallback`.
+**A rule without `context` applies in baseline conditions only.** That is the
+main thing to remember. A missing field means "baseline", not "any": otherwise
+declaring new conditions would silently extend every previous expectation to
+them, and a platform that lawfully closes an endpoint for a prohibited country
+would produce an unexpected denial on every cell. An expectation under conditions
+is declared explicitly — or `fallback` applies.
 
-**`endpoints` обязателен.** Условия без границ умножают матрицу на всю
-поверхность API; на чужом стенде это не мелочь. Побочный и полезный эффект:
-на ручках вне списка ячейки в этих условиях **не существует**, и она не попадёт
-в отчёт как непроверенная.
+**`endpoints` is required.** Conditions without bounds multiply the matrix by the
+entire API surface; on someone else's deployment that is not a small matter. A side
+effect, and a useful one: on endpoints outside the list the cell under these
+conditions **does not exist**, so it will not turn up in the report as unchecked.
 
-Прогон останавливается на старте, если условия объявлены, но ни одно правило
-на них не ссылается: без правила все их ячейки уйдут в `fallback`, и отчёт
-наполнится расхождениями, которых никто не заявлял.
+The run stops at startup if conditions are declared but no rule refers to them:
+with no rule, all of their cells fall through to `fallback`, and the report fills
+up with discrepancies nobody claimed.
 
-Атрибуты не могут подменить основу обращения: `authorization`, `cookie`, `host`,
-заголовки обмена и имя любого заголовка, по которому предъявляются учётные
-данные, отвергаются на старте. Условия, тихо переписавшие `Authorization`, дали
-бы прогон, где часть ячеек ходит не тем аккаунтом, — а выглядело бы это как
-находки платформы ([ADR-0019](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0019-request-contexts.md)).
+Attributes cannot substitute the foundation of the request: `authorization`,
+`cookie`, `host`, transport headers and the name of any header that presents
+credentials are rejected at startup. Conditions that quietly rewrote
+`Authorization` would give a run where some cells go out as a different account —
+and it would look like findings about the platform
+([ADR-0019](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0019-request-contexts.md)).
 
-Что инструмент при этом **не делает**: он не моделирует логику решения
-платформы. Он сравнивает исходы двух объявленных наборов условий — и только.
+What the tool **does not** do here: it does not model the platform's decision
+logic. It compares the outcomes of two declared sets of conditions — and that is
+all.
 
-**Чего он не может проверить: дошли ли атрибуты.** Заголовок условий может
-срезать прокси или балансировщик, и тогда обращения в условиях просто повторят
-базовые — а отчёт скажет «ограничение не работает». Отличить это от настоящего
-дефекта инструмент не в силах. Если прогон идёт через чужой периметр,
-подтверждайте доставку атрибутов отдельно: логом шлюза, эхо-ручкой, чем угодно
-вне инструмента.
+**What it cannot check: whether the attributes arrived.** A proxy or a load
+balancer can strip a condition header, and then the requests under conditions
+simply repeat the baseline ones — while the report says the restriction does not
+work. The tool has no way to tell that apart from a real defect. If the run goes
+through someone else's perimeter, confirm attribute delivery separately: with a
+gateway log, an echo endpoint, anything outside the tool.
 
-#### Аккаунт сразу в нескольких тенантах
+#### An account in several tenants at once
 
-Когда область аккаунта — не поддерево, а **набор** узлов, вместо `tenant`
-пишется `tenants`:
+When an account's reach is not a subtree but a **set** of nodes, write `tenants`
+instead of `tenant`:
 
 ```yaml
 accounts:
   - id: sara
     role: support
-    tenants: [brand-a, brand-c]     # бренды разных холдингов
+    tenants: [brand-a, brand-c]     # brands of different holdings
     tokenEnv: TOKEN_SARA
     canary: orders.list
 ```
 
-Это саппорт на части брендов, аффилиат на двух брендах группы из трёх, партнёр
-двух программ. Деревом такой аккаунт не выражается: общего предка у его тенантов
-нет, кроме корня платформы, — а посадив его в корень, вы отдадите ему и всё
-остальное поддерево, и прогон замолчит на настоящей утечке
-([ADR-0017](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0017-account-tenant-set.md), там же прогон всех трёх обходных
-путей и что каждый из них ломает).
+This is support staff over some of the brands, an affiliate on two brands of a
+group of three, a partner in two programs. A tree cannot express such an account:
+its tenants have no common ancestor other than the platform root — and by seating
+it at the root you hand it the whole remaining subtree as well, and the run goes
+silent on a real leak
+([ADR-0017](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0017-account-tenant-set.md), which also walks all three
+workarounds and what each of them breaks).
 
-Отношение считается по каждому членству, и выигрывает ближайшее: объект бренда A
-для такого аккаунта — `same-tenant`, объект холдинга над A — `ancestor-tenant`,
-объект бренда, которого в наборе нет, — `foreign-tenant`. Шестого значения
-`scope` не появляется, и прежние правила продолжают применяться как есть.
+The relation is computed for every membership, and the nearest one wins: for such
+an account a resource of brand A is `same-tenant`, a resource of the holding
+above A is `ancestor-tenant`, a resource of a brand that is not in the set is
+`foreign-tenant`. No sixth `scope` value appears, and the existing rules keep
+applying as they are.
 
-Два ограничения набора:
+Two constraints on the set:
 
-- **Меньше двух имён не принимается.** Набор из одного — это `tenant`.
-- **Членства не должны вкладываться друг в друга.** `[holding-1, brand-a]`
-  отвергается на старте: членство в холдинге уже покрывает бренд, а лишняя
-  строка молча переводит объекты бренда из `descendant-tenant` в `same-tenant` —
-  и правило, написанное для взгляда сверху вниз, перестаёт применяться.
+- **Fewer than two names is not accepted.** A set of one is `tenant`.
+- **Memberships must not nest inside one another.** `[holding-1, brand-a]` is
+  rejected at startup: membership in the holding already covers the brand, and
+  the extra line silently moves the brand's resources from `descendant-tenant` to
+  `same-tenant` — and a rule written for the top-down view stops applying.
 
-Своего `baseUrl` у такого аккаунта нет: адрес выбирается по тенанту объекта,
-а там, где объекта нет (списочная ручка, канарейка), обращение идёт на общий
-адрес цели.
+Such an account has no `baseUrl` of its own: the address is chosen by the
+resource's tenant, and where there is no resource (a list endpoint, a canary),
+the request goes to the target's common address.
 
-### Тенанты
+### Tenants
 
-Плоский перечень — если иерархии нет:
+A flat list — if there is no hierarchy:
 
 ```yaml
 tenants: [brand-a, brand-b]
 ```
 
-Дерево — если над брендами стоит холдинг, а под брендом аффилиат:
+A tree — if a holding stands above the brands and an affiliate below a brand:
 
 ```yaml
 tenants:
@@ -277,22 +293,24 @@ tenants:
   - { id: brand-c, parent: holding-2 }
 ```
 
-Дерево обязательно, если контуров больше одного. Без него холдинг приходится
-приписывать к одному из своих брендов, и инструмент **ошибается дважды сразу**:
-объявляет эскалацией законное чтение своего бренда и не замечает утечку в бренд
-чужого холдинга. Второе тяжелее — прогон выглядит чистым
+The tree is mandatory once there is more than one surface. Without it the holding
+has to be attributed to one of its own brands, and the tool is **wrong twice at
+once**: it declares a lawful read of its own brand an escalation, and it does not
+notice a leak into a brand of a different holding. The second is the heavier one —
+the run looks clean
 ([ADR-0013](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0013-tenant-hierarchy.md)).
 
-`baseUrl` у тенанта нужен, когда бренды разнесены по поддоменам. Адрес
-обращения выбирается по тенанту **объекта**: спрашиваем за чужие данные, лежат
-они на чужом хосте, а токен остаётся своим — в этом и состоит проверка.
+A tenant's `baseUrl` is needed when brands are spread across subdomains. The
+address of the request is chosen by the **resource's** tenant: we ask for someone
+else's data, it lives on someone else's host, and the token stays ours — that is
+exactly what the check consists of.
 
-Перечень тенантов необязателен, но задав его, вы получаете строгую сверку имён.
-Это не формальность: лишний пробел в имени тенанта однажды **спрятал настоящую
-утечку** — объект уехал в `foreign-tenant`, правило перестало применяться,
-и находка исчезла.
+The tenant list is optional, but by declaring it you get a strict name check.
+This is not a formality: a stray space in a tenant name once **hid a real leak** —
+the resource moved into `foreign-tenant`, the rule stopped applying, and the
+finding vanished.
 
-### Объекты
+### Resources
 
 ```yaml
 resources:
@@ -303,17 +321,17 @@ resources:
   - id: report-7
     tenant: brand-a
     query: { report_id: "7" }
-    endpoints: [reports.read]   # когда идентификатор в строке запроса
+    endpoints: [reports.read]   # when the identifier is in the query string
 ```
 
-Объекты объявляются человеком, а не выуживаются из ответов. Утверждение «объект
-1001 принадлежит alice» — такое же заявление о намерении, как и политика.
+Resources are declared by a human, not fished out of responses. The statement
+that resource 1001 belongs to alice is a claim of intent, exactly like the policy.
 
-Поле `endpoints` обязательно, когда идентификатор лежит в **строке запроса**:
-у такой ручки нет параметров в пути, и связать её с объектом по совпадению имён
-невозможно.
+The `endpoints` field is required when the identifier sits in the **query
+string**: such an endpoint has no path parameters, so it cannot be tied to a
+resource by matching names.
 
-### Политика
+### Policy
 
 ```yaml
 policy:
@@ -330,31 +348,33 @@ policy:
       outcome: allowed
 ```
 
-Побеждает **последнее подошедшее** правило. Непокрытое падает в `fallback`;
-значения по умолчанию у него нет намеренно — молчаливое «всё разрешено» или
-«всё запрещено» одинаково опасно, когда от этого зависит вердикт.
+The **last rule that matched** wins. Anything uncovered falls through to
+`fallback`; it deliberately has no default value — a silent "everything is
+allowed" and a silent "everything is denied" are equally dangerous when the
+verdict depends on it.
 
-Эндпоинты задаются идентификаторами, шаблонами `{ method?, path }` или `"*"`.
-В шаблоне `*` не пересекает границу сегмента, `**` пересекает. Шаблон,
-не совпавший ни с одним эндпоинтом, **останавливает прогон**: правило
-не применилось бы ни разу, пары ушли бы в `fallback`, и отчёт остался бы чистым.
+Endpoints are given as identifiers, as `{ method?, path }` patterns, or as `"*"`.
+Inside a pattern `*` does not cross a segment boundary, `**` does. A pattern that
+matched no endpoint **stops the run**: the rule would never have applied, the
+pairs would have fallen through to `fallback`, and the report would have stayed
+clean.
 
-`scope` — отношение аккаунта к объекту:
+`scope` is the account's relation to the resource:
 
-| Значение | Когда |
+| Value | When |
 |---|---|
-| `own` | владелец объекта — сам аккаунт |
-| `same-tenant` | тот же тенант, другой владелец |
-| `descendant-tenant` | объект ниже по дереву: холдинг читает свой бренд |
-| `ancestor-tenant` | объект выше по дереву: бренд читает уровень холдинга |
-| `foreign-tenant` | родства нет: чужой холдинг, а также аккаунт вне тенантов |
+| `own` | the owner of the resource is the account itself |
+| `same-tenant` | same tenant, different owner |
+| `descendant-tenant` | the resource is lower in the tree: a holding reads its own brand |
+| `ancestor-tenant` | the resource is higher in the tree: a brand reads the holding level |
+| `foreign-tenant` | no kinship: a different holding, and also an account outside of tenants |
 
-Отсутствие `scope` означает «при любом отношении», включая обращения без объекта.
+A missing `scope` means "under any relation", including requests without a resource.
 
-У аккаунта с набором тенантов отношение считается по каждому членству, и в таблицу
-попадает ближайшее — сверху вниз по этому же списку.
+For an account with a set of tenants the relation is computed for every
+membership, and the nearest one lands in the table — top to bottom down this same list.
 
-### Сигналы над телом
+### Signals over the body
 
 ```yaml
 bodySignals:
@@ -363,118 +383,122 @@ bodySignals:
     - { name: orderCount, kind: count, path: orders, endpoints: [orders.list] }
 ```
 
-Выключено, если секции нет: тело не читается вовсе, поток отменяется.
+Off when the section is absent: the body is not read at all, the stream is cancelled.
 
-`responseMustDifferByTenant` перечисляет ручки, ответ которых **обязан
-различаться между тенантами**. Совпадение означает отсутствующий фильтр —
-дефект, не меняющий статуса и потому невидимый иначе. Это ваше объявление,
-а не свойство API: без него `GET /v1/health`, отдающий всем одинаковое
-`{"status":"ok"}`, стал бы находкой.
+`responseMustDifferByTenant` lists the endpoints whose response **must differ
+between tenants**. A match means a missing filter — a defect that does not change
+the status and is therefore invisible any other way. This is your declaration,
+not a property of the API: without it `GET /v1/health`, which returns the same
+`{"status":"ok"}` to everyone, would become a finding.
 
-Обратное тоже верно и важно: отсутствие ручки в списке **не** означает, что она
-не ограничена тенантом. Ручка вида `GET /v1/orders/{orderId}` тенант-скоупная
-по смыслу, но объявлять её здесь незачем — межтенантный доступ к конкретному
-объекту виден по статусу и попадает в `findings`. Список отвечает ровно на один
-вопрос: где сравнивать тела.
+The converse is true too, and it matters: the absence of an endpoint from the
+list does **not** mean it is not tenant-scoped. An endpoint like
+`GET /v1/orders/{orderId}` is tenant-scoped by its very nature, but there is no
+point declaring it here — cross-tenant access to a specific resource is visible
+from the status and lands in `findings`. The list answers exactly one question:
+where to compare bodies.
 
-`signals` — дополнительные скаляры (`count`, `present`). Находок они не
-порождают; они нужны при разборе. «Ответы совпали у alice и carol» — тревога,
-а разбор начинается с вопроса «сколько записей кто увидел».
+`signals` are extra scalars (`count`, `present`). They produce no findings; they
+are there for the follow-up. "The responses matched for alice and carol" is the
+alarm, and the follow-up starts with the question of how many records each of
+them saw.
 
-### Область проверки
+### Scope
 
 ```yaml
 target:
   baseUrl: https://api.example.test
   allowedHosts: [api.example.test, a.example.test]
-  label: staging, релиз 2026.08   # как называется проверяемая система
+  label: staging, release 2026.08   # what the system under test is called
 exclude: [dangerous.reset]
 ```
 
-**`label` объявляется человеком, и его отсутствие значимо.** Инструмент назвать
-проверяемую систему не может: `https://api.example.test` не отличает прод-подобный
-стенд от демонстрационного полигона. Отчёт без метки не называет платформу, и
-заводить по нему тикет нельзя — CLI об этом предупреждает на каждом прогоне.
+**`label` is declared by a human, and its absence is meaningful.** The tool
+cannot name the system under test: `https://api.example.test` does not tell a
+production-like deployment from a demo polygon. A report without a label does not
+name the platform, and you cannot file a ticket from it — the CLI warns about
+this on every run.
 
-`allowedHosts` обязателен: без явно очерченной области прогон против
-незаявленного хоста — это не проверка, а сканирование чужой системы. Запись
-без порта разрешает любой порт, с портом — ровно один. Хосты тенантов обязаны
-входить в этот же перечень.
+`allowedHosts` is mandatory: without an explicitly drawn scope, a run against an
+undeclared host is not a check but a scan of someone else's system. An entry
+without a port allows any port, an entry with a port allows exactly one. Tenant
+hosts must be in this same list.
 
-`exclude` нужен, потому что GET не обязан быть безопасным на деле: адрес вида
-`/createdb` сбрасывает базу, оставаясь GET. Такой был реально вызван инструментом
-на полигоне VAmPI, отсюда и список.
+`exclude` is needed because a GET is not obliged to be safe in practice: an
+address like `/createdb` resets the database while remaining a GET. One like that
+was actually called by the tool on the VAmPI polygon — hence the list.
 
-## Запуск
+## Running
 
 ```bash
 barbican run --config barbican.run.yaml --endpoints endpoints.yaml --report run.json
 ```
 
-Источник эндпоинтов ровно один: `--spec` (OpenAPI), `--endpoints` (ручной список)
-или `--postman`. Два разошлись бы молча, ни одного — дало бы отчёт без находок,
-неотличимый от успешного.
+There is exactly one source of endpoints: `--spec` (OpenAPI), `--endpoints` (a
+manual list) or `--postman`. Two of them would diverge silently; none of them
+would give a report with no findings, indistinguishable from a successful one.
 
-### Ручной список эндпоинтов
+### Manual endpoint list
 
-Формат `--endpoints` — тот же YAML, один ключ верхнего уровня:
+The `--endpoints` format is the same YAML, with one top-level key:
 
 ```yaml
 endpoints:
-  - id: orders.list          # имя, которым на ручку ссылаются политика и объекты
+  - id: orders.list          # the name the policy and resources use for this endpoint
     method: GET
     path: /v1/orders
   - id: orders.read
     method: GET
-    path: /v1/orders/{orderId}   # параметр пути в фигурных скобках
+    path: /v1/orders/{orderId}   # a path parameter in curly braces
   - id: admin.accounts
     method: GET
     path: /v1/admin/accounts
 ```
 
-Три поля, все обязательные. `id` — ваш, а не платформы: по нему на ручку
-ссылаются правила политики, объекты, условия и канарейки, поэтому опечатка
-здесь останавливает прогон на старте, а не меняет вердикт молча.
+Three fields, all of them required. The `id` is yours, not the platform's: policy
+rules, resources, conditions and canaries refer to the endpoint by it, so a typo
+here stops the run at startup instead of changing the verdict silently.
 
-Имя параметра в `path` должно совпадать с ключом в `params` объекта — по этому
-совпадению объект и привязывается к ручке. Значение с двоеточием или скобками
-YAML требует брать в кавычки: `path: "/api/tickets/{ticketId}"` безопаснее
-писать в кавычках всегда.
+The parameter name in `path` must match the key in the resource's `params` — that
+match is what binds the resource to the endpoint. YAML requires a value with a
+colon or braces to be quoted: `path: "/api/tickets/{ticketId}"` is safer written
+in quotes always.
 
-Список пишется руками, когда спецификации нет либо она не отражает
-действительность. Это объявление человека, ровно как политика: инструмент
-не проверяет, что перечисленные ручки существуют, — он проверяет, что
-с ними происходит.
+The list is written by hand when there is no specification, or when it does not
+reflect reality. It is a human declaration, exactly like the policy: the tool
+does not check that the listed endpoints exist — it checks what happens with them.
 
-Токены передаются окружением:
+Tokens are passed through the environment:
 
 ```bash
 TOKEN_ALICE=… TOKEN_CAROL=… barbican run --config barbican.run.yaml --spec openapi.json
 ```
 
-Троттлинг: `--concurrency`, `--rps`, `--max-requests`. Дефолты консервативны —
-вы бежите по чужому стенду. Отключить троттлинг нельзя: это порт, а не опция.
+Throttling: `--concurrency`, `--rps`, `--max-requests`. The defaults are
+conservative — you are running across someone else's deployment. Throttling
+cannot be turned off: it is a port, not an option.
 
-## Чего инструмент не делает
+## What the tool does not do
 
-- **Не выполняет методы записи** без `--unsafe-methods`. Только GET и HEAD.
-- **Не ходит по редиректам.** Переход по 3xx на другой хост увёл бы запрос
-  за пределы области проверки.
-- **Не резолвит внешние `$ref`** в OpenAPI — ни по http, ни по файловой системе.
-- **Не сохраняет тела ответов** и не кладёт секреты в отчёт: аккаунт называет
-  переменную окружения, чувствительные заголовки редактируются.
-- **Не добывает токены сам.** Логин — обычно POST, то есть за пределами
-  безопасного режима. Оператор логинится вне инструмента.
+- **Does not issue write methods** without `--unsafe-methods`. GET and HEAD only.
+- **Does not follow redirects.** Following a 3xx to another host would take the
+  request outside the scope.
+- **Does not resolve external `$ref`s** in OpenAPI — neither over http nor
+  through the file system.
+- **Does not store response bodies** and does not put secrets in the report: an
+  account names an environment variable, sensitive headers are redacted.
+- **Does not obtain tokens itself.** A login is usually a POST, that is, outside
+  safe mode. The operator logs in outside the tool.
 
-## Рабочий пример
+## Working example
 
-`polygon/` в корне репозитория — мультитенантный стенд с восемью переключаемыми
-дефектами, деревом тенантов на три уровня, аккаунтом в наборе тенантов
-и машиночитаемым оракулом:
+`polygon/` in the repository root is a multi-tenant test platform with eight
+switchable defects, a three-level tenant tree, an account with a set of tenants
+and a machine-readable oracle:
 
 ```bash
 pnpm run build
 node polygon/verify.mjs
 ```
 
-Минимальный шаблон конфигурации — [`examples/minimal/`](https://github.com/Tarnellion/barbican/blob/main/examples/minimal/).
+A minimal configuration template — [`examples/minimal/`](https://github.com/Tarnellion/barbican/blob/main/examples/minimal/).

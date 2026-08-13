@@ -115,6 +115,17 @@ const authSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("basic") }),
 ]);
 
+/**
+ * Значение атрибута условий: литерал либо имя переменной окружения.
+ *
+ * Заведено потому, что значение атрибута печатается в отчёте дословно —
+ * и человеку, которому нужна в условиях подпись устройства или партнёрский
+ * ключ, деться было некуда, кроме открытого текста в конфигурации. Форма
+ * `{ env: ИМЯ }` повторяет `tokenEnv` у аккаунта: в отчёт уезжает **имя**,
+ * значение живёт только в окружении.
+ */
+const contextValueSchema = z.union([z.string(), z.strictObject({ env: z.string().min(1) })]);
+
 const configSchema = z.object({
   target: z.object({
     baseUrl: z.url({ protocol: /^https?$/ }),
@@ -298,8 +309,8 @@ const configSchema = z.object({
         id: z.string().min(1),
         /** Человеческое описание: что именно объявлено этими атрибутами. */
         description: z.string().min(1).optional(),
-        headers: z.record(z.string().min(1), z.string()).optional(),
-        query: z.record(z.string().min(1), z.string()).optional(),
+        headers: z.record(z.string().min(1), contextValueSchema).optional(),
+        query: z.record(z.string().min(1), contextValueSchema).optional(),
         endpoints: z.array(z.string().min(1)).min(1),
         /** Аккаунты, к которым условия применяются. Отсутствие — ко всем. */
         accounts: z.array(z.string().min(1)).min(1).optional(),
@@ -442,11 +453,19 @@ export interface RunConfig {
  * Атрибуты — заголовки и параметры запроса — живут здесь, а не в ядре: ядро
  * об HTTP не знает и знать не должно, ему достаточно метки `contextId`.
  */
+/**
+ * Значение атрибута: либо строка, либо ссылка на переменную окружения.
+ *
+ * В отчёт уезжает ровно эта форма, поэтому секрет в отчёт попасть не может:
+ * `{ env: "DEVICE_SIGNATURE" }` называет переменную, а не значение.
+ */
+export type ContextAttributeValue = string | { readonly env: string };
+
 export interface RequestContextConfig {
   readonly id: string;
   readonly description?: string | undefined;
-  readonly headers: Readonly<Record<string, string>>;
-  readonly query: Readonly<Record<string, string>>;
+  readonly headers: Readonly<Record<string, ContextAttributeValue>>;
+  readonly query: Readonly<Record<string, ContextAttributeValue>>;
   /** Ручки, на которых условия применяются. Не бывает пустым. */
   readonly endpointIds: readonly string[];
   /** Аккаунты, к которым применяются. Пусто — ко всем. */
@@ -1095,25 +1114,104 @@ export class MethodOverrideInContextError extends Error {
  * @throws {MethodOverrideInContextError}
  */
 export function assertContextsCannotWrite(
-  config: RunConfig,
+  contexts: ReadonlyMap<string, ContextValues>,
   options: { readonly allowUnsafeMethods: boolean },
 ): void {
   if (options.allowUnsafeMethods) {
     return;
   }
   const methods = new Set(["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"]);
-  for (const context of config.contexts) {
-    for (const [name, value] of Object.entries(context.headers)) {
+  // Проверяются **разрешённые** значения, а не объявленные: значение из
+  // переменной окружения на момент разбора конфигурации ещё неизвестно,
+  // и проверка объявления пропустила бы `x-vendor-verb: { env: VERB }`
+  // с `VERB=DELETE` в окружении.
+  for (const [contextId, values] of contexts) {
+    for (const [name, value] of Object.entries(values.headers)) {
       if (methods.has(value.trim().toUpperCase())) {
-        throw new MethodOverrideInContextError(context.id, `header "${name}"`, value);
+        throw new MethodOverrideInContextError(contextId, `header "${name}"`, value);
       }
     }
-    for (const [key, value] of Object.entries(context.query)) {
+    for (const [key, value] of Object.entries(values.query)) {
       if (methods.has(value.trim().toUpperCase())) {
-        throw new MethodOverrideInContextError(context.id, `query parameter "${key}"`, value);
+        throw new MethodOverrideInContextError(contextId, `query parameter "${key}"`, value);
       }
     }
   }
+}
+
+/** Разрешённые значения атрибутов одних условий. */
+export interface ContextValues {
+  readonly headers: Readonly<Record<string, string>>;
+  readonly query: Readonly<Record<string, string>>;
+}
+
+export class MissingContextValueError extends Error {
+  constructor(contextId: string, attribute: string, variable: string) {
+    super(
+      `Environment variable ${variable} is not set for ${attribute} of context ` +
+        `"${contextId}". Context attributes may take their value from the environment ` +
+        `exactly like account tokens do — and for the same reason: the value would ` +
+        `otherwise sit in a configuration file that is meant to be committed.`,
+    );
+    this.name = "MissingContextValueError";
+  }
+}
+
+export class InvalidContextValueError extends Error {
+  constructor(contextId: string, attribute: string, variable: string) {
+    super(
+      `The value from ${variable} for ${attribute} of context "${contextId}" contains ` +
+        `characters that cannot be carried in a request. Check the variable: usually ` +
+        `a stray line break or text pasted from a non-ASCII source.`,
+    );
+    this.name = "InvalidContextValueError";
+  }
+}
+
+/**
+ * Разрешает значения атрибутов условий: литералы как есть, ссылки — из окружения.
+ *
+ * Отдельным шагом, как `resolveTokens`: окружение передаётся явно, а не читается
+ * изнутри. Значение из окружения в отчёт не попадает — там остаётся объявление
+ * `{ env: ИМЯ }`.
+ *
+ * @throws {MissingContextValueError} переменная не задана или пуста
+ * @throws {InvalidContextValueError} значение нельзя отправить в обращении
+ */
+export function resolveContextValues(
+  config: RunConfig,
+  environment: Readonly<Record<string, string | undefined>>,
+): ReadonlyMap<string, ContextValues> {
+  const resolved = new Map<string, ContextValues>();
+  for (const context of config.contexts) {
+    const take = (
+      source: Readonly<Record<string, ContextAttributeValue>>,
+      kind: "header" | "query parameter",
+    ): Record<string, string> => {
+      const out: Record<string, string> = Object.create(null);
+      for (const [name, declared] of Object.entries(source)) {
+        if (typeof declared === "string") {
+          out[name] = declared;
+          continue;
+        }
+        const where = `${kind} "${name}"`;
+        const value = environment[declared.env];
+        if (value === undefined || value.trim() === "") {
+          throw new MissingContextValueError(context.id, where, declared.env);
+        }
+        if (!CONTEXT_VALUE_SAFE.test(value)) {
+          throw new InvalidContextValueError(context.id, where, declared.env);
+        }
+        out[name] = value;
+      }
+      return out;
+    };
+    resolved.set(context.id, {
+      headers: take(context.headers, "header"),
+      query: take(context.query, "query parameter"),
+    });
+  }
+  return resolved;
 }
 
 /**
@@ -1208,8 +1306,8 @@ function normalizeContexts(
   declared: readonly {
     readonly id: string;
     readonly description?: string | undefined;
-    readonly headers?: Readonly<Record<string, string>> | undefined;
-    readonly query?: Readonly<Record<string, string>> | undefined;
+    readonly headers?: Readonly<Record<string, ContextAttributeValue>> | undefined;
+    readonly query?: Readonly<Record<string, ContextAttributeValue>> | undefined;
     readonly endpoints: readonly string[];
     readonly accounts?: readonly string[] | undefined;
   }[],
@@ -1258,7 +1356,7 @@ function normalizeContexts(
     // Без прототипа: имя `__proto__` в обычном объектном литерале не становится
     // ключом, а молча исчезает — объявленный заголовок не ушёл бы по проводу,
     // и никто бы об этом не узнал. Найдено ревью после состязательной проверки.
-    const headers: Record<string, string> = Object.create(null);
+    const headers: Record<string, ContextAttributeValue> = Object.create(null);
     for (const [name, value] of Object.entries(context.headers ?? {})) {
       const lower = name.toLowerCase();
       if (!CONTEXT_HEADER_NAME.test(name)) {
@@ -1269,7 +1367,9 @@ function normalizeContexts(
             "be sent at all",
         );
       }
-      if (!CONTEXT_VALUE_SAFE.test(value)) {
+      // Значение из окружения здесь не проверить — его ещё нет. Оно сверяется
+      // при разрешении, ровно как токен аккаунта.
+      if (typeof value === "string" && !CONTEXT_VALUE_SAFE.test(value)) {
         throw new ForbiddenContextHeaderError(
           context.id,
           name,
@@ -1318,7 +1418,7 @@ function normalizeContexts(
             "for the declared one",
         );
       }
-      if (!CONTEXT_VALUE_SAFE.test(value)) {
+      if (typeof value === "string" && !CONTEXT_VALUE_SAFE.test(value)) {
         throw new ForbiddenContextQueryError(
           context.id,
           key,
@@ -1370,7 +1470,14 @@ const CONTEXT_SEPARATOR = "@";
  * аккаунт без атрибутов ходил бы в базовых условиях, отвечая за находки
  * в условиях объявленных.
  */
-export function toAccounts(config: RunConfig): {
+export function toAccounts(
+  config: RunConfig,
+  /**
+   * Разрешённые значения атрибутов. Обязательны, когда хоть один атрибут берёт
+   * значение из окружения: без них он молча уехал бы в обращение как объект.
+   */
+  contextValues: ReadonlyMap<string, ContextValues> = new Map(),
+): {
   readonly accounts: readonly Account[];
   readonly attributes: ReadonlyMap<string, ContextAttributes>;
 } {
@@ -1394,15 +1501,39 @@ export function toAccounts(config: RunConfig): {
         baseAccountId: account.id,
         endpointIds: context.endpointIds,
       });
+      const values = contextValues.get(context.id) ?? literalValues(context);
       attributes.set(id, {
         contextId: context.id,
-        headers: context.headers,
-        query: context.query,
+        headers: values.headers,
+        query: values.query,
       });
     }
   }
 
   return { accounts: [...base, ...derived], attributes };
+}
+
+/**
+ * Значения условий, когда разрешение не передали.
+ *
+ * Ссылка на окружение здесь превращается в отказ, а не в объект в заголовке:
+ * пропущенный шаг разрешения обязан быть слышен.
+ */
+function literalValues(context: RequestContextConfig): ContextValues {
+  const take = (source: Readonly<Record<string, ContextAttributeValue>>, kind: string) => {
+    const out: Record<string, string> = Object.create(null);
+    for (const [name, value] of Object.entries(source)) {
+      if (typeof value !== "string") {
+        throw new MissingContextValueError(context.id, `${kind} "${name}"`, value.env);
+      }
+      out[name] = value;
+    }
+    return out;
+  };
+  return {
+    headers: take(context.headers, "header"),
+    query: take(context.query, "query parameter"),
+  };
 }
 
 function baseAccounts(config: RunConfig): readonly Account[] {
