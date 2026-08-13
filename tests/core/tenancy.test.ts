@@ -17,9 +17,11 @@ import type {
 import {
   ANY,
   buildAccessMatrix,
+  createTenantHierarchy,
   diffAccess,
   relationOf,
   resolveExpected,
+  severityOf,
 } from "../../src/core/index.js";
 
 const playerA: Account = { id: "player-a", roleId: "player", tenantId: "tenant-a" };
@@ -65,6 +67,61 @@ describe("relationOf", () => {
     const shared: Resource = { id: "s", tenantId: "tenant-a", params: {} };
 
     expect(relationOf(playerA, shared)).toBe("same-tenant");
+  });
+});
+
+/**
+ * Аккаунт вне тенантов — это аноним. Поля `tenantId` у него нет вовсе, и это
+ * утверждение, а не пропуск: служебное имя вроде `none` лежало бы в одном
+ * пространстве значений с настоящими, и платформа с таким тенантом сделала бы
+ * аноним его соседом молча.
+ */
+describe("relationOf для аккаунта вне тенантов", () => {
+  const outsider: Account = { id: "anon", roleId: "anonymous" };
+
+  it("любой объект ему чужой", () => {
+    expect(relationOf(outsider, ownedByA)).toBe("foreign-tenant");
+    expect(relationOf(outsider, ownedByB)).toBe("foreign-tenant");
+  });
+
+  // Владение — отношение внутри тенанта. Даже объявленный владельцем аккаунт
+  // вне тенантов своим объект не получает: иначе опечатка в `owner` открыла бы
+  // анониму доступ, объявленный законным.
+  it("не становится владельцем, даже будучи объявленным в owner", () => {
+    const claimed: Resource = {
+      id: "claimed",
+      tenantId: "tenant-a",
+      ownerAccountId: "anon",
+      params: {},
+    };
+
+    expect(relationOf(outsider, claimed)).toBe("foreign-tenant");
+  });
+
+  // Родство считается по дереву, а узла у такого аккаунта нет.
+  it("не приходится роднёй ни одному узлу дерева", () => {
+    const hierarchy = createTenantHierarchy([
+      { id: "holding-1" },
+      { id: "tenant-a", parentId: "holding-1" },
+    ]);
+    const holdingLevel: Resource = { id: "h", tenantId: "holding-1", params: {} };
+
+    expect(relationOf(outsider, holdingLevel, hierarchy)).toBe("foreign-tenant");
+    expect(relationOf(outsider, ownedByA, hierarchy)).toBe("foreign-tenant");
+  });
+
+  // Шестого значения не заводилось намеренно, и цена этого решения проверяется
+  // здесь: правило `scope: foreign-tenant` продолжает покрывать аноним, а его
+  // доступ к чужим данным остаётся critical, а не понижается до high.
+  it("остаётся под правилами со scope: foreign-tenant и сохраняет critical", () => {
+    const policy: ResolvedAccessPolicy = {
+      fallback: "allowed",
+      rules: [{ roles: ANY, endpoints: ANY, scope: "foreign-tenant", outcome: "denied" }],
+    };
+    const relation = relationOf(outsider, ownedByA);
+
+    expect(resolveExpected(policy, "anonymous", "profile.read", relation)).toBe("denied");
+    expect(severityOf("privilege-escalation", relation)).toBe("critical");
   });
 });
 

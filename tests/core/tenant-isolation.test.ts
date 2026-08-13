@@ -203,6 +203,47 @@ describe("identical-response-across-tenants", () => {
     expect(check.run({ matrix })).toHaveLength(1);
   });
 
+  /**
+   * Аккаунт вне тенантов (аноним) родни в дереве не имеет и иметь не может,
+   * поэтому пара с ним сравнивается: совпадение ответов означает, что данные
+   * тенанта видны тому, кто в нём не состоит.
+   */
+  it("не молчит на совпадении с аккаунтом вне тенантов", () => {
+    const matrix: AccessMatrix = {
+      endpoints: [LIST],
+      accounts: [
+        { id: "alice-a", roleId: "user", tenantId: "tenant-a" },
+        { id: "anon", roleId: "anonymous" },
+      ],
+      resources: [],
+      observations: [observed("alice-a", 111), observed("anon", 111)],
+      tenants: [{ id: "tenant-a" }],
+    };
+
+    const findings = check.run({ matrix });
+
+    expect(findings).toHaveLength(1);
+    // Ключа нет вовсе: пустое место читается как «вне тенантов», а заглушка
+    // читалась бы как имя тенанта.
+    expect(findings[0]?.evidence).not.toHaveProperty("otherTenant");
+    expect(findings[0]?.evidence["tenant"]).toBe("tenant-a");
+  });
+
+  /** Тенанта нет ни у того, ни у другого — разным он у них быть не может. */
+  it("молчит на совпадении двух аккаунтов вне тенантов", () => {
+    const matrix: AccessMatrix = {
+      endpoints: [LIST],
+      accounts: [
+        { id: "anon-1", roleId: "anonymous" },
+        { id: "anon-2", roleId: "anonymous" },
+      ],
+      resources: [],
+      observations: [observed("anon-1", 111), observed("anon-2", 111)],
+    };
+
+    expect(check.run({ matrix })).toEqual([]);
+  });
+
   it("выдаёт находки в устойчивом порядке", () => {
     const first = check.run({
       matrix: matrixOf([observed("carol-b", 111), observed("alice-a", 111)]),

@@ -18,18 +18,24 @@ Validated against three targets — [crAPI](docs/polygons/crapi.md), VAmPI, and 
   detection, scalar signals over response bodies, JSON report and exit codes.
 - **Not yet** — see the limitation below, plus [tasks.md](tasks.md).
 
-### Known limitation: flat tenants
+### Declare your tenant tree, or the old failure mode is still yours
 
-`tenantId` is a flat string, so the only relation between two tenants is "not equal".
-**A platform with a holding structure above its brands is not modelled correctly, and
-the failure is silent.** Given a holding that owns brands A and B, the tool will both
-flag the holding's legitimate read of its own brand as privilege escalation *and* miss a
-real leak into a third brand belonging to a different holding — because "another
-tenant" and "another tenant inside my own holding" are indistinguishable to it.
+Tenants form a forest: a tenant may declare a parent, and the relation between an
+account and a resource is one of five — `own`, `same-tenant`, `descendant-tenant`,
+`ancestor-tenant`, `foreign-tenant`. Holdings above brands and affiliates below them
+are expressible, and the three-level case is proven end-to-end against the reference
+platform, not argued.
 
-A clean run against such a platform is not evidence of isolation. This is demonstrated,
-not theorised: see [tests/core/tenant-hierarchy.test.ts](tests/core/tenant-hierarchy.test.ts)
-and [docs/research/coverage-model.md](docs/research/coverage-model.md).
+**But the tree is something you declare.** Omit it and every tenant is a root, which is
+exactly the flat model — and on a holding structure that model fails silently in both
+directions at once: it flags the holding's legitimate read of its own brand as privilege
+escalation, *and* misses a real leak into a brand owned by a different holding, because
+"another tenant" and "another tenant inside my own holding" are then indistinguishable.
+
+A clean run against a holding-structured platform with no declared tree is not evidence
+of isolation. This is demonstrated, not theorised — see
+[tests/core/tenant-hierarchy.test.ts](tests/core/tenant-hierarchy.test.ts), which pins
+both behaviours side by side, and [docs/guide.md](docs/guide.md) for how to declare it.
 
 ## Documentation
 

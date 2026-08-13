@@ -134,7 +134,8 @@ export interface RunReport {
   readonly accounts: readonly {
     readonly id: string;
     readonly role: string;
-    readonly tenant: string;
+    /** Отсутствует у аккаунта вне тенантов: в JSON ключа просто нет. */
+    readonly tenant?: string | undefined;
   }[];
   readonly endpoints: readonly Endpoint[];
   /**
