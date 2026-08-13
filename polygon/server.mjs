@@ -102,16 +102,82 @@ function parentOf(tenantId) {
  *
  * Токены берутся из переменных окружения и в коде не хранятся. Имена переменных
  * совпадают с `tokenEnv` в `barbican.run.yaml`.
+ *
+ * Поле `auth` — **контур**, а не украшение. На мультибрендовой платформе кабинет
+ * аффилиата, операторская админка и клиентское API аутентифицируются по-разному,
+ * и прогон, охватывающий их разом, обязан ходить в каждый по-своему. Здесь это
+ * смоделировано буквально: клиентские аккаунты предъявляют Bearer, операторская
+ * админка — сессионную куку, кабинет аффилиата — ключ в своём заголовке.
+ *
+ * Токен, предъявленный **не тем** транспортом, платформа не принимает (см.
+ * `authenticate`). Иначе проверка была бы бутафорской: инструмент, шлющий всё
+ * Bearer-ом, проходил бы её насквозь, и полигон подтверждал бы работу того,
+ * чего не делает.
  */
 const ACCOUNTS = [
-  { id: "alice-a", role: "user", tenant: "tenant-a", tokenEnv: "POLYGON_TOKEN_ALICE_A" },
-  { id: "bob-a", role: "user", tenant: "tenant-a", tokenEnv: "POLYGON_TOKEN_BOB_A" },
-  { id: "carol-b", role: "user", tenant: "tenant-b", tokenEnv: "POLYGON_TOKEN_CAROL_B" },
-  { id: "dave-b", role: "user", tenant: "tenant-b", tokenEnv: "POLYGON_TOKEN_DAVE_B" },
-  { id: "admin-a", role: "admin", tenant: "tenant-a", tokenEnv: "POLYGON_TOKEN_ADMIN_A" },
-  { id: "helen-h1", role: "holding", tenant: "holding-1", tokenEnv: "POLYGON_TOKEN_HELEN_H1" },
-  { id: "ivan-af1", role: "affiliate", tenant: "affiliate-a1", tokenEnv: "POLYGON_TOKEN_IVAN_AF1" },
+  {
+    id: "alice-a",
+    role: "user",
+    tenant: "tenant-a",
+    tokenEnv: "POLYGON_TOKEN_ALICE_A",
+    auth: { kind: "bearer" },
+  },
+  {
+    id: "bob-a",
+    role: "user",
+    tenant: "tenant-a",
+    tokenEnv: "POLYGON_TOKEN_BOB_A",
+    auth: { kind: "bearer" },
+  },
+  {
+    id: "carol-b",
+    role: "user",
+    tenant: "tenant-b",
+    tokenEnv: "POLYGON_TOKEN_CAROL_B",
+    auth: { kind: "bearer" },
+  },
+  {
+    id: "dave-b",
+    role: "user",
+    tenant: "tenant-b",
+    tokenEnv: "POLYGON_TOKEN_DAVE_B",
+    auth: { kind: "bearer" },
+  },
+  {
+    id: "admin-a",
+    role: "admin",
+    tenant: "tenant-a",
+    tokenEnv: "POLYGON_TOKEN_ADMIN_A",
+    auth: { kind: "cookie", name: "opsid" },
+  },
+  {
+    id: "helen-h1",
+    role: "holding",
+    tenant: "holding-1",
+    tokenEnv: "POLYGON_TOKEN_HELEN_H1",
+    auth: { kind: "bearer" },
+  },
+  {
+    id: "ivan-af1",
+    role: "affiliate",
+    tenant: "affiliate-a1",
+    tokenEnv: "POLYGON_TOKEN_IVAN_AF1",
+    auth: { kind: "header", name: "x-affiliate-key" },
+  },
 ];
+
+/**
+ * Заголовки, в которых платформа вообще смотрит ключи аффилиатского вида.
+ *
+ * Выводится из аккаунтов, а не пишется списком: разойдясь, список молча перестал
+ * бы видеть предъявленный ключ, и аккаунт получал бы 401 — то есть законный
+ * с виду отказ.
+ */
+const CUSTOM_AUTH_HEADERS = new Set(
+  ACCOUNTS.filter((account) => account.auth.kind === "header").map((account) =>
+    account.auth.name.toLowerCase(),
+  ),
+);
 
 /**
  * Заказы — объекты обращения.
@@ -288,16 +354,80 @@ function readTokens() {
   return byToken;
 }
 
-/** Аккаунт по заголовку `Authorization`. `undefined` — аноним или неверный токен. */
-function authenticate(header, tokensByValue) {
-  if (typeof header !== "string") {
-    return undefined;
+/**
+ * Всё, что в запросе похоже на предъявленные учётные данные.
+ *
+ * Возвращает пары «транспорт → значение»: Bearer из `Authorization`, каждую куку
+ * по имени и каждый известный заголовок-ключ. Разбор именно всех, а не первого
+ * подошедшего: платформа обязана уметь сказать «токен верный, но предъявлен
+ * не тем способом», а для этого нужно видеть, чем именно его предъявили.
+ */
+function presentedCredentials(headers) {
+  const presented = [];
+
+  const authorization = headers.authorization;
+  if (typeof authorization === "string") {
+    const match = /^Bearer[ \t]+(.+)$/i.exec(authorization.trim());
+    if (match !== null) {
+      presented.push({ kind: "bearer", value: match[1].trim() });
+    }
   }
-  const match = /^Bearer[ \t]+(.+)$/i.exec(header.trim());
-  if (match === null) {
-    return undefined;
+
+  const cookie = headers.cookie;
+  if (typeof cookie === "string") {
+    for (const pair of cookie.split(";")) {
+      const separator = pair.indexOf("=");
+      if (separator <= 0) {
+        continue;
+      }
+      presented.push({
+        kind: "cookie",
+        name: pair.slice(0, separator).trim(),
+        value: pair.slice(separator + 1).trim(),
+      });
+    }
   }
-  return tokensByValue.get(match[1].trim());
+
+  for (const name of CUSTOM_AUTH_HEADERS) {
+    const value = headers[name];
+    if (typeof value === "string" && value.trim() !== "") {
+      presented.push({ kind: "header", name, value: value.trim() });
+    }
+  }
+
+  return presented;
+}
+
+/** Предъявлено ли ровно так, как положено этому аккаунту. */
+function matchesScheme(scheme, presented) {
+  if (scheme.kind !== presented.kind) {
+    return false;
+  }
+  if (scheme.kind === "bearer") {
+    return true;
+  }
+  // Имена заголовков Node приводит к нижнему регистру; куки регистрозависимы.
+  return scheme.kind === "header"
+    ? scheme.name.toLowerCase() === presented.name
+    : scheme.name === presented.name;
+}
+
+/**
+ * Аккаунт по предъявленным учётным данным. `undefined` — аноним, неверный токен
+ * либо верный токен, предъявленный не тем транспортом.
+ *
+ * Последний случай — не педантизм. Прими платформа операторскую куку ещё и
+ * Bearer-ом, инструмент со схемой по умолчанию у всех аккаунтов прошёл бы прогон
+ * насквозь, и полигон подтверждал бы работу переопределения, которого нет.
+ */
+function authenticate(headers, tokensByValue) {
+  for (const presented of presentedCredentials(headers)) {
+    const account = tokensByValue.get(presented.value);
+    if (account !== undefined && matchesScheme(account.auth, presented)) {
+      return account;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -445,7 +575,7 @@ function handle(req, res, context) {
     return;
   }
 
-  const account = authenticate(req.headers.authorization, context.tokensByValue);
+  const account = authenticate(req.headers, context.tokensByValue);
   if (account === undefined) {
     // Аутентификация проверяется раньше авторизации, поэтому ни один флаг
     // дефекта не открывает доступ анониму.
@@ -579,8 +709,9 @@ function main() {
       send(res, 500, { error: "internal" });
     }
     if (verbose) {
-      // Заголовок Authorization не логируется намеренно: токен не должен попасть
-      // ни в логи, ни в отчёты.
+      // Заголовки не логируются намеренно: токен не должен попасть ни в логи,
+      // ни в отчёты — и это относится ко всем трём транспортам, а не только
+      // к `Authorization`.
       process.stderr.write(`polygon: ${req.method} ${req.url} -> ${res.statusCode}\n`);
     }
   });

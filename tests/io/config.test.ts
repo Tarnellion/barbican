@@ -12,6 +12,7 @@ import {
   UnknownParentTenantError,
 } from "../../src/core/index.js";
 import {
+  AuthSchemeWithoutTokenError,
   applyBodySignals,
   assertReferencesResolve,
   ConfigParseError,
@@ -26,9 +27,11 @@ import {
   parseRunConfig,
   resolveTokens,
   toAccounts,
+  UnknownAuthSchemeError,
   UnknownEndpointReferenceError,
   UnknownResourceOwnerError,
   UnknownTenantError,
+  UnusedAuthSchemeError,
 } from "../../src/io/config.js";
 
 const VALID = `
@@ -607,6 +610,104 @@ policy: { fallback: denied, rules: [] }
     expect(() =>
       parseRunConfig(withoutList.replace("mine, tenant: tenant-a", "mine, tenant: tenant-z")),
     ).not.toThrow();
+  });
+});
+
+describe("схемы аутентификации на аккаунт", () => {
+  const MULTI = `
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+
+auth: { kind: bearer }
+
+authSchemes:
+  operator-console: { kind: cookie, name: opsid }
+  affiliate-cabinet: { kind: header, header: X-Affiliate-Key }
+
+accounts:
+  - { id: player-a, role: player, tenant: t, tokenEnv: TOK_PLAYER }
+  - { id: operator-a, role: operator, tenant: t, tokenEnv: TOK_OPERATOR, authScheme: operator-console }
+  - { id: affiliate-a, role: affiliate, tenant: t, tokenEnv: TOK_AFFILIATE, authScheme: affiliate-cabinet }
+
+policy: { fallback: denied, rules: [] }
+`;
+
+  it("разрешает ссылки в схемы, оставляя прочие аккаунты на схеме по умолчанию", () => {
+    const config = parseRunConfig(MULTI);
+
+    expect(config.auth).toEqual({ kind: "bearer" });
+    expect([...config.accountAuth]).toEqual([
+      ["operator-a", { kind: "cookie", name: "opsid" }],
+      ["affiliate-a", { kind: "header", header: "X-Affiliate-Key" }],
+    ]);
+  });
+
+  it("без переопределений карта пуста, а не отсутствует", () => {
+    // CLI передаёт её всегда; отсутствие потребовало бы ветки на вызове.
+    expect(parseRunConfig(VALID).accountAuth.size).toBe(0);
+  });
+
+  // Главное утверждение: опечатка в ссылке обязана остановить прогон.
+  // Иначе аккаунт пошёл бы по схеме по умолчанию, получил бы сплошной 401,
+  // а сплошной отказ совпадает с политикой там, где доступ не положен, —
+  // и отчёт вышел бы чистым, ничего не проверив.
+  it("падает на опечатке в имени схемы", () => {
+    expect(() =>
+      parseRunConfig(MULTI.replace("authScheme: operator-console", "authScheme: operator-consol")),
+    ).toThrow(UnknownAuthSchemeError);
+  });
+
+  it("падает на ссылке, когда схем не объявлено вовсе", () => {
+    const noSchemes = `
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: TOK, authScheme: operator-console }]
+policy: { fallback: denied, rules: [] }
+`;
+
+    expect(() => parseRunConfig(noSchemes)).toThrow(UnknownAuthSchemeError);
+  });
+
+  it("не разрешает ссылку через унаследованное свойство объекта", () => {
+    // `authSchemes` приходит из недоверенного файла: индексация обычного объекта
+    // отдала бы `constructor` вместо `undefined`, и ссылка «разрешилась» бы.
+    const inherited = MULTI.replace("authScheme: operator-console", "authScheme: constructor");
+
+    expect(() => parseRunConfig(inherited)).toThrow(UnknownAuthSchemeError);
+  });
+
+  it("падает на схеме, которой никто не пользуется", () => {
+    // Практически это забытый authScheme у аккаунта: он пойдёт по умолчанию
+    // и промолчит. Мёртвое объявление выглядит проверенным утверждением.
+    const forgotten = MULTI.replace(
+      ", tokenEnv: TOK_AFFILIATE, authScheme: affiliate-cabinet",
+      ", tokenEnv: TOK_AFFILIATE",
+    );
+
+    expect(() => parseRunConfig(forgotten)).toThrow(UnusedAuthSchemeError);
+  });
+
+  it("падает на схеме у аккаунта без токена", () => {
+    // Предъявлять по схеме нечего, а ссылка при этом «использует» схему —
+    // и настоящий забытый authScheme перестал бы быть виден.
+    const anonymous = MULTI.replace("tokenEnv: TOK_OPERATOR, ", "");
+
+    expect(() => parseRunConfig(anonymous)).toThrow(AuthSchemeWithoutTokenError);
+  });
+
+  it("отвергает негодное имя заголовка, называя схему", () => {
+    const broken = MULTI.replace("header: X-Affiliate-Key", 'header: "X Affiliate Key"');
+
+    expect(() => parseRunConfig(broken)).toThrow(/affiliate-cabinet/);
+  });
+
+  it("отвергает значение секрета в схеме", () => {
+    // Единственный источник токена — переменная окружения (ADR-0008).
+    // Молча отброшенное поле оставило бы секрет в файле, который коммитят.
+    const withSecret = MULTI.replace(
+      "{ kind: cookie, name: opsid }",
+      '{ kind: cookie, name: opsid, value: "s3cret" }',
+    );
+
+    expect(() => parseRunConfig(withSecret)).toThrow(ConfigValidationError);
   });
 });
 

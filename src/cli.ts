@@ -116,7 +116,11 @@ async function run(flags: RunFlags): Promise<number> {
   // ни с одним эндпоинтом, обязан упасть на старте, а не увести пары в fallback.
   const policy = expandPolicy(config.policy, endpoints);
 
-  const credentials = createCredentialProvider(config.auth, resolveTokens(config, process.env));
+  const credentials = createCredentialProvider(
+    config.auth,
+    resolveTokens(config, process.env),
+    config.accountAuth,
+  );
 
   const throttle = createThrottle({
     ...(flags.concurrency === undefined ? {} : { concurrency: flags.concurrency }),

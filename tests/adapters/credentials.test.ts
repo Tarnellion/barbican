@@ -56,6 +56,47 @@ describe("анонимное обращение", () => {
   });
 });
 
+describe("схема на аккаунт", () => {
+  // Ради этого переопределение и заводилось: на мультибрендовой платформе
+  // клиентское API, операторская админка и кабинет аффилиата аутентифицируются
+  // по-разному, а прогон обязан охватывать их одним заходом.
+  const many = new Map([
+    ["player", "player-token"],
+    ["operator", "operator-token"],
+    ["affiliate", "affiliate-token"],
+  ]);
+
+  const provider = createCredentialProvider(
+    DEFAULT_AUTH_SCHEME,
+    many,
+    new Map([
+      ["operator", { kind: "cookie", name: "opsid" } as const],
+      ["affiliate", { kind: "header", header: "X-Affiliate-Key" } as const],
+    ]),
+  );
+
+  it("аккаунт со своей схемой идёт по ней", () => {
+    expect(provider.headersFor("operator")).toEqual({ cookie: "opsid=operator-token" });
+    expect(provider.headersFor("affiliate")).toEqual({ "x-affiliate-key": "affiliate-token" });
+  });
+
+  it("аккаунт без своей схемы идёт по схеме по умолчанию", () => {
+    expect(provider.headersFor("player")).toEqual({ authorization: "Bearer player-token" });
+  });
+
+  it("переопределение не даёт заголовков аккаунту без токена", () => {
+    // Иначе анонимный аккаунт перестал бы быть анонимным, и утверждение
+    // «эта ручка не публична» проверялось бы не тем обращением.
+    const anonymous = createCredentialProvider(
+      DEFAULT_AUTH_SCHEME,
+      new Map(),
+      new Map([["ghost", { kind: "cookie", name: "opsid" } as const]]),
+    );
+
+    expect(anonymous.headersFor("ghost")).toEqual({});
+  });
+});
+
 describe("проверка схемы", () => {
   it("отвергает имя заголовка с недопустимыми символами", () => {
     expect(() => createCredentialProvider({ kind: "header", header: "X Api Key" }, tokens)).toThrow(
@@ -77,5 +118,27 @@ describe("проверка схемы", () => {
     expect(() => createCredentialProvider({ kind: "header", header: "" }, tokens)).toThrow(
       InvalidAuthSchemeError,
     );
+  });
+
+  it("проверяет и переопределения, а не только схему по умолчанию", () => {
+    // Непроверенное переопределение всплыло бы на том обращении, до которого
+    // прогон дойдёт в середине матрицы, — то есть уже после канареек.
+    expect(() =>
+      createCredentialProvider(
+        DEFAULT_AUTH_SCHEME,
+        tokens,
+        new Map([["acc", { kind: "cookie", name: "sess ion" } as const]]),
+      ),
+    ).toThrow(InvalidAuthSchemeError);
+  });
+
+  it("называет аккаунт в сообщении о негодном переопределении", () => {
+    expect(() =>
+      createCredentialProvider(
+        DEFAULT_AUTH_SCHEME,
+        tokens,
+        new Map([["acc", { kind: "header", header: "X Key" } as const]]),
+      ),
+    ).toThrow(/acc/);
   });
 });
