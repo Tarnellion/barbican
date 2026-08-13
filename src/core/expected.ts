@@ -76,8 +76,8 @@ export interface ExpectedAccessPolicy {
 export class EmptyRuleSelectorError extends Error {
   constructor(index: number, field: "roles" | "endpoints") {
     super(
-      `Правило #${index}: поле "${field}" — пустой список. ` +
-        `Такое правило не применяется никогда; используйте "${ANY}" или удалите его.`,
+      `Rule #${index}: field "${field}" is an empty list. ` +
+        `Such a rule never applies; use "${ANY}" or delete it.`,
     );
     this.name = "EmptyRuleSelectorError";
   }

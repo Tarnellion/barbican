@@ -24,9 +24,9 @@ export class UnmatchedPatternError extends Error {
   constructor(pattern: EndpointPattern) {
     const method = pattern.method === undefined ? "" : `${pattern.method} `;
     super(
-      `Шаблон "${method}${pattern.path}" не совпал ни с одним эндпоинтом. ` +
-        `Правило с таким шаблоном не применится ни разу, и пары молча уйдут ` +
-        `в fallback — то же самое, что опечатка в идентификаторе.`,
+      `Pattern "${method}${pattern.path}" matched no endpoint. ` +
+        `A rule with this pattern will never apply, and its cells will silently fall ` +
+        `through to the fallback — the same effect as a typo in an identifier.`,
     );
     this.name = "UnmatchedPatternError";
   }

@@ -49,8 +49,8 @@ export const DEFAULT_THROTTLE_LIMITS: ThrottleLimits = {
 export class RunBudgetExhaustedError extends Error {
   constructor(maxRequests: number) {
     super(
-      `Исчерпан потолок обращений на прогон (${maxRequests}). ` +
-        `Это защита от бесконтрольной нагрузки, а не ошибка конфигурации.`,
+      `The per-run request budget is exhausted (${maxRequests}). ` +
+        `This is a guard against uncontrolled load, not a configuration error.`,
     );
     this.name = "RunBudgetExhaustedError";
   }
@@ -58,7 +58,7 @@ export class RunBudgetExhaustedError extends Error {
 
 export class InvalidThrottleLimitsError extends Error {
   constructor(field: keyof ThrottleLimits, value: number) {
-    super(`Предел "${field}" должен быть положительным числом, получено ${value}`);
+    super(`Limit "${field}" must be a positive number, got ${value}`);
     this.name = "InvalidThrottleLimitsError";
   }
 }

@@ -52,10 +52,10 @@ function paint(text: string, format: Parameters<typeof styleText>[0]): string {
 }
 
 const SKIP_LABELS: Readonly<Record<string, string>> = {
-  "path-parameters": "с параметрами в пути",
-  "unsafe-method": "небезопасным методом",
-  excluded: "исключено вручную",
-  "escapes-target": "путь уводит за пределы цели",
+  "path-parameters": "have path parameters",
+  "unsafe-method": "use an unsafe method",
+  excluded: "excluded by hand",
+  "escapes-target": "path leaves the target",
 };
 
 /** Расшифровка пропусков: одно число без причин читается как «что-то не проверено». */
@@ -73,7 +73,7 @@ function skipBreakdown(report: {
 function positiveInteger(raw: string): number {
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
-    throw new InvalidArgumentError("ожидается целое положительное число");
+    throw new InvalidArgumentError("a positive integer is expected");
   }
   return value;
 }
@@ -97,9 +97,9 @@ async function run(flags: RunFlags): Promise<number> {
   // платформе отчёт без неё нельзя приложить к тикету — он не называет цель.
   if (config.target.label === undefined) {
     process.stderr.write(
-      `${paint("Цель не названа:", "yellow")} в target нет поля label. ` +
-        `Отчёт не сможет опознать проверяемую систему, и читатель не отличит ` +
-        `прогон против стенда от прогона демонстрационного полигона.\n`,
+      `${paint("The target is unnamed:", "yellow")} target has no label field. ` +
+        `The report will not identify the system under test, and a reader cannot tell ` +
+        `a run against a real environment from a run against a demo polygon.\n`,
     );
   }
 
@@ -115,8 +115,8 @@ async function run(flags: RunFlags): Promise<number> {
   const [source] = sources;
   if (sources.length !== 1 || source === undefined) {
     throw new Error(
-      "Укажите ровно один источник эндпоинтов: --spec (OpenAPI), " +
-        "--endpoints (ручной список) или --postman (коллекция Postman).",
+      "Give exactly one endpoint source: --spec (OpenAPI), " +
+        "--endpoints (a hand-written list) or --postman (a Postman collection).",
     );
   }
   const parsed = await source.create().parse(await readFile(source.path, "utf8"));
@@ -180,8 +180,9 @@ async function run(flags: RunFlags): Promise<number> {
   }[] = [];
   if (canaries.length === 0) {
     process.stderr.write(
-      `${paint("Аутентификация не проверена:", "yellow")} ни у одного аккаунта нет канарейки. ` +
-        `Если токены не работают, прогон покажет «эскалаций не найдено», ничего не проверив.\n`,
+      `${paint("Authentication is unverified:", "yellow")} no account has a canary. ` +
+        `If the tokens do not work, the run will report «no escalations found» having ` +
+        `tested nothing. The run will end with exit code 2.\n`,
     );
   } else {
     const results = await probeCanaries({
@@ -203,12 +204,14 @@ async function run(flags: RunFlags): Promise<number> {
     if (broken.length > 0) {
       const details = broken
         .map(
-          (r) => `  ${r.accountId}: ${r.endpointId} вернул ${r.status === 0 ? "сбой" : r.status}`,
+          (r) =>
+            `  ${r.accountId}: ${r.endpointId} returned ${r.status === 0 ? "a failure" : r.status}`,
         )
         .join("\n");
       throw new Error(
-        `Аккаунты не аутентифицированы, прогон остановлен:\n${details}\n` +
-          `Продолжать нельзя: 401 читается как отказ, и отчёт выглядел бы чистым.`,
+        `Accounts are not authenticated, the run stopped:\n${details}\n` +
+          `Continuing is not an option: 401 reads as a denial, and the report would ` +
+          `come out clean.`,
       );
     }
   }
@@ -302,66 +305,68 @@ async function run(flags: RunFlags): Promise<number> {
   const escalations = summary.byKind["privilege-escalation"] ?? 0;
   if (truncated) {
     process.stderr.write(
-      `${paint("Прогон оборван:", "red")} исчерпан потолок обращений или сработал ` +
-        `размыкатель. Хвост матрицы не проверен — отсутствие находок там ничего не значит.\n`,
+      `${paint("The run was cut short:", "red")} the request budget ran out or the ` +
+        `circuit breaker tripped. The tail of the matrix was never tested — the absence ` +
+        `of findings there means nothing.\n`,
     );
   }
   if (unauthenticated.length > 0) {
     process.stderr.write(
-      `${paint("Доступа нет нигде:", "red")} ${suspicions
+      `${paint("No access anywhere:", "red")} ${suspicions
         .map(
-          (s) =>
-            `${s.accountId} (${s.refused}/${s.expectedAllowed}, чаще всего ${s.dominantStatus})`,
+          (s) => `${s.accountId} (${s.refused}/${s.expectedAllowed}, mostly ${s.dominantStatus})`,
         )
         .join(", ")}. ` +
-        `Ни один объявленный доступным эндпоинт не открылся — это признак неработающих ` +
-        `учётных данных или неверного адреса, а не результата политики. Результатам верить нельзя.\n`,
+        `Not a single endpoint declared accessible opened up — that is a sign of ` +
+        `broken credentials or a wrong address, not of policy. The results cannot ` +
+        `be trusted.\n`,
     );
   }
   const lines = [
     // Не «пар»: ячейка — это тройка «аккаунт × эндпоинт × объект», и 6×8 ≠ 80.
     // Читатель, проверяющий арифметику, решал, что отчёт врёт.
-    `Опрошено ячеек: ${summary.observations} (строк матрицы ${summary.accountRows}` +
+    `Cells probed: ${summary.observations} (matrix rows ${summary.accountRows}` +
       (summary.accountRows === summary.accounts
         ? ""
-        : `, из них аккаунтов ${summary.accounts} и они же в условиях`) +
-      `, эндпоинтов ${summary.endpoints}, объектов ${summary.resources})`,
+        : `, of them accounts ${summary.accounts} and the same accounts under contexts`) +
+      `, endpoints ${summary.endpoints}, resources ${summary.resources})`,
     summary.skipped > 0
-      ? `Не опрошено эндпоинтов: ${summary.skipped}${skipBreakdown(report)}`
+      ? `Endpoints not probed: ${summary.skipped}${skipBreakdown(report)}`
       : undefined,
     summary.failures > 0
-      ? paint(`Сорвалось обращений: ${summary.failures} (причины в отчёте)`, "yellow")
+      ? paint(`Requests that failed: ${summary.failures} (reasons in the report)`, "yellow")
       : undefined,
     escalations > 0
-      ? paint(`Эскалация привилегий: ${escalations}`, "red")
-      : paint("Эскалации привилегий не найдено", "green"),
-    `Прочие расхождения: неожиданных отказов ${summary.byKind["unexpected-denial"] ?? 0}, ` +
-      `не наблюдалось ${summary.byKind["not-observed"] ?? 0}, ошибок обращения ${summary.byKind["probe-error"] ?? 0}`,
+      ? paint(`Privilege escalation: ${escalations}`, "red")
+      : paint("No privilege escalation found", "green"),
+    `Other discrepancies: unexpected denials ${summary.byKind["unexpected-denial"] ?? 0}, ` +
+      `not observed ${summary.byKind["not-observed"] ?? 0}, ` +
+      `probe errors ${summary.byKind["probe-error"] ?? 0}`,
     // С чего начинать читателю: 17 находок в одном списке — это не отчёт.
     summary.findings === 0
       ? undefined
-      : `По серьёзности строк: критических ${summary.bySeverity.critical}, ` +
-        `высоких ${summary.bySeverity.high}, средних ${summary.bySeverity.medium}, ` +
-        `низких ${summary.bySeverity.low}`,
+      : `Rows by severity: critical ${summary.bySeverity.critical}, ` +
+        `high ${summary.bySeverity.high}, medium ${summary.bySeverity.medium}, ` +
+        `low ${summary.bySeverity.low}`,
     // Рядом — то же по дефектам. Иначе «критических 10» читается как десять
     // проблем, тогда как это один отсутствующий фильтр в десяти ячейках.
     summary.findings === 0
       ? undefined
-      : `По серьёзности дефектов: критических ${summary.defectsBySeverity.critical}, ` +
-        `высоких ${summary.defectsBySeverity.high}, средних ${summary.defectsBySeverity.medium}, ` +
-        `низких ${summary.defectsBySeverity.low}`,
+      : `Defects by severity: critical ${summary.defectsBySeverity.critical}, ` +
+        `high ${summary.defectsBySeverity.high}, medium ${summary.defectsBySeverity.medium}, ` +
+        `low ${summary.defectsBySeverity.low}`,
     // Число строк говорит о размере матрицы, число сигнатур — о числе проблем.
     // «Не менее», а не «ровно»: два дефекта с одинаковой сигнатурой снаружи
     // неразличимы, и завышать точность нельзя.
     summary.findings === 0
       ? undefined
-      : `Различных дефектов: не менее ${summary.defectGroups} (строк находок ${summary.findings})`,
+      : `Distinct defects: at least ${summary.defectGroups} (finding rows ${summary.findings})`,
     // Находки проверок называются отдельной строкой: они увидены не по статусу,
     // и смешивать их с эскалацией значило бы стереть это различие.
     summary.checkFindings > 0
-      ? paint(`Из общего числа найдено по телу, а не по статусу: ${summary.checkFindings}`, "red")
+      ? paint(`Of those, found by body rather than status: ${summary.checkFindings}`, "red")
       : undefined,
-    flags.report === undefined ? undefined : `Отчёт: ${flags.report}`,
+    flags.report === undefined ? undefined : `Report: ${flags.report}`,
   ].filter((line): line is string => line !== undefined);
 
   process.stderr.write(`${lines.join("\n")}\n`);
@@ -372,27 +377,27 @@ const program = new Command();
 
 program
   .name("barbican")
-  .description("Проверка RBAC и изоляции тенантов в API мультитенантных платформ")
+  .description("Tests RBAC and tenant isolation in the APIs of multi-tenant platforms")
   .version(version);
 
 program
   .command("run")
-  .description("Пройти матрицу «роль × эндпоинт» и сравнить с объявленной политикой")
-  .requiredOption("-c, --config <path>", "конфигурация прогона (YAML или JSON)")
-  .option("-s, --spec <path>", "спецификация OpenAPI проверяемого API")
-  .option("-e, --endpoints <path>", "ручной список эндпоинтов, если спецификации нет")
-  .option("-p, --postman <path>", "коллекция Postman v2.1")
-  .option("-r, --report <path>", "куда записать JSON-отчёт (по умолчанию в stdout)")
-  .option("--unsafe-methods", "разрешить методы, изменяющие состояние")
-  .option("--concurrency <n>", "одновременных обращений", positiveInteger)
-  .option("--rps <n>", "обращений в секунду", positiveInteger)
-  .option("--max-requests <n>", "потолок обращений на прогон", positiveInteger)
+  .description("Walk the role × endpoint matrix and compare it with the declared policy")
+  .requiredOption("-c, --config <path>", "run configuration (YAML or JSON)")
+  .option("-s, --spec <path>", "OpenAPI specification of the API under test")
+  .option("-e, --endpoints <path>", "hand-written endpoint list, when there is no spec")
+  .option("-p, --postman <path>", "Postman collection v2.1")
+  .option("-r, --report <path>", "where to write the JSON report (stdout by default)")
+  .option("--unsafe-methods", "allow methods that change state")
+  .option("--concurrency <n>", "concurrent requests", positiveInteger)
+  .option("--rps <n>", "requests per second", positiveInteger)
+  .option("--max-requests <n>", "per-run request budget", positiveInteger)
   .action(async (flags: RunFlags) => {
     try {
       process.exitCode = await run(flags);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`${paint("Прогон прерван:", "red")} ${message}\n`);
+      process.stderr.write(`${paint("Run aborted:", "red")} ${message}\n`);
       process.exitCode = 2;
     }
   });

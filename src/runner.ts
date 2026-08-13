@@ -149,9 +149,10 @@ export class PathEscapesTargetError extends Error {
 
   constructor(endpointPath: string, resolved: string, expectedOrigin: string) {
     super(
-      `Путь "${endpointPath}" уводит обращение на "${resolved}" вместо "${expectedOrigin}". ` +
-        `Путь эндпоинта берётся из спецификации проверяемой системы и доверенным ` +
-        `не является: абсолютный адрес в нём позволил бы задать чужую схему и порт.`,
+      `Path "${endpointPath}" would send the request to "${resolved}" instead of ` +
+        `"${expectedOrigin}". An endpoint path comes from the specification of the ` +
+        `system under test and is not trusted: an absolute address in it would let ` +
+        `that system choose the scheme and port.`,
     );
     this.name = "PathEscapesTargetError";
     this.endpointPath = endpointPath;
@@ -254,7 +255,7 @@ export interface CanaryResult {
 
 export class UnknownCanaryEndpointError extends Error {
   constructor(accountId: string, endpointId: string) {
-    super(`Канарейка аккаунта "${accountId}" ссылается на неизвестный эндпоинт "${endpointId}"`);
+    super(`The canary of account "${accountId}" references an unknown endpoint "${endpointId}"`);
     this.name = "UnknownCanaryEndpointError";
   }
 }
@@ -262,9 +263,9 @@ export class UnknownCanaryEndpointError extends Error {
 export class ExcludedCanaryError extends Error {
   constructor(accountId: string, endpointId: string) {
     super(
-      `Канарейка аккаунта "${accountId}" указывает на исключённый эндпоинт "${endpointId}". ` +
-        `Список исключений существует ровно для адресов, которые трогать нельзя, — ` +
-        `канарейка не должна быть лазейкой мимо него.`,
+      `The canary of account "${accountId}" points at excluded endpoint "${endpointId}". ` +
+        `The exclusion list exists precisely for addresses that must not be touched — ` +
+        `a canary must not be a way around it.`,
     );
     this.name = "ExcludedCanaryError";
   }
@@ -273,8 +274,8 @@ export class ExcludedCanaryError extends Error {
 export class TemplatedCanaryError extends Error {
   constructor(accountId: string, endpointId: string) {
     super(
-      `Канарейка аккаунта "${accountId}" указывает на "${endpointId}" с параметрами в пути. ` +
-        `Подставить значение нечем — выберите эндпоинт без параметров.`,
+      `The canary of account "${accountId}" points at "${endpointId}", which has path ` +
+        `parameters. There is nothing to substitute — choose an endpoint without them.`,
     );
     this.name = "TemplatedCanaryError";
   }

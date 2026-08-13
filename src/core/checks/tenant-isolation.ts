@@ -56,9 +56,9 @@ function digestOf(observation: AccessObservation, name: string): number | undefi
 function tenantLabel(account: Account): string {
   const tenants = tenantIdsOf(account);
   if (tenants.length === 0) {
-    return `аккаунта вне тенантов (${account.id})`;
+    return `an account outside tenants (${account.id})`;
   }
-  return tenants.length === 1 ? `тенанта ${tenants[0]}` : `тенантов ${tenants.join(", ")}`;
+  return tenants.length === 1 ? `tenant ${tenants[0]}` : `tenants ${tenants.join(", ")}`;
 }
 
 /**
@@ -138,9 +138,9 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
   return {
     id: IDENTICAL_RESPONSE_CHECK_ID,
     description:
-      "Дайджест ответа совпал у аккаунтов из разных тенантов на эндпоинте, " +
-      "ответ которого объявлен обязанным различаться между ними: признак " +
-      "отсутствующего фильтра по тенанту",
+      "The response digest matched for accounts from different tenants on an " +
+      "endpoint whose response was declared to differ between them: the sign of " +
+      "a missing tenant filter",
     severity: "high",
     /**
      * API3 (property-level) убран намеренно: проверка ничего не знает о полях,
@@ -224,7 +224,7 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
               severity: "high",
               // Заголовок говорит о дайджесте, а не об ответе: тела не
               // сохраняются, и сравнить их было нечем. См. `bodyDigestsEqual`.
-              title: `Дайджест ответа ${endpointId} совпал у ${tenantLabel(leftAccount)} и ${tenantLabel(rightAccount)}`,
+              title: `Response digest of ${endpointId} matched for ${tenantLabel(leftAccount)} and ${tenantLabel(rightAccount)}`,
               endpointId,
               accountId: leftAccount.id,
               // Пара всегда в одних условиях — разные не сравниваются, — поэтому

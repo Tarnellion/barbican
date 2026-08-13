@@ -39,10 +39,10 @@ const MAX_ALIAS_COUNT = 100;
  */
 const outcomeSchema = z.enum(["allowed", "denied"], {
   error:
-    'ожидается "allowed" или "denied". Умолчания у fallback нет намеренно: ' +
-    "молчаливое «всё разрешено» или «всё запрещено» одинаково опасно, когда " +
-    "от него зависит вердикт о наличии уязвимости. Скажите прямо, чем считать " +
-    "пары, не покрытые ни одним правилом",
+    'expected "allowed" or "denied". `fallback` has no default on purpose: ' +
+    "a silent «everything is allowed» or «everything is denied» is equally " +
+    "dangerous when a verdict about a vulnerability rests on it. Say plainly " +
+    "what cells no rule covers should count as",
 });
 
 const selectorSchema = z.union([z.literal(ANY), z.array(z.string().min(1)).min(1)]);
@@ -121,11 +121,12 @@ const configSchema = z.object({
     allowedHosts: z
       .array(z.string().min(1), {
         error:
-          "нужен список хостов: без явно очерченной области прогон против " +
-          "незаявленного хоста — это не проверка, а сканирование чужой системы. " +
-          "Запись без порта разрешает любой порт, с портом — ровно один",
+          "a list of hosts is required: without an explicitly drawn scope, a run " +
+          "against an undeclared host is not testing, it is scanning someone " +
+          "else's system. An entry without a port allows any port, with a port — " +
+          "exactly that one",
       })
-      .min(1, "список хостов не может быть пустым: разрешать нечего"),
+      .min(1, "the host list cannot be empty: there would be nothing to allow"),
     /**
      * Как называется проверяемая система: окружение, версия, что угодно
      * опознающее.
@@ -166,7 +167,7 @@ const configSchema = z.object({
            */
           tenants: z
             .array(z.string().min(1))
-            .min(2, "нужно не меньше двух тенантов: набор из одного — это поле tenant")
+            .min(2, "at least two tenants are required: a set of one is the `tenant` field")
             .optional(),
           /**
            * Имя переменной окружения с токеном.
@@ -200,8 +201,8 @@ const configSchema = z.object({
         // молчаливым выбором за человека.
         .refine((account) => account.tenant === undefined || account.tenants === undefined, {
           error:
-            'у аккаунта заданы и "tenant", и "tenants". Это взаимоисключающие ' +
-            "утверждения: один узел дерева либо набор узлов",
+            'the account declares both "tenant" and "tenants". These are mutually ' +
+            "exclusive statements: one node of the tree, or a set of nodes",
           path: ["tenants"],
         }),
     )
@@ -405,8 +406,8 @@ export interface BodySignalsConfig {
 export class DuplicateSignalNameError extends Error {
   constructor(name: string) {
     super(
-      `Сигнал с именем "${name}" объявлен больше одного раза. Имена — ключи ` +
-        `в наблюдении, и повторное имя молча затирало бы предыдущий скаляр.`,
+      `Signal name "${name}" is declared more than once. Names are keys in the ` +
+        `observation, so a repeated name would silently overwrite the previous scalar.`,
     );
     this.name = "DuplicateSignalNameError";
   }
@@ -454,14 +455,14 @@ export interface RequestContextConfig {
 
 export class ConfigParseError extends Error {
   constructor(message: string, options?: { cause: unknown }) {
-    super(`Не удалось разобрать конфигурацию: ${message}`, options);
+    super(`Could not parse the configuration: ${message}`, options);
     this.name = "ConfigParseError";
   }
 }
 
 export class ConfigValidationError extends Error {
   constructor(details: string) {
-    super(`Конфигурация не прошла проверку:\n${details}`);
+    super(`The configuration is invalid:\n${details}`);
     this.name = "ConfigValidationError";
   }
 }
@@ -475,19 +476,19 @@ function hostAllowed(url: URL, allowedHosts: readonly string[]): boolean {
 export class HostOutsideScopeError extends Error {
   constructor(host: string, allowedHosts: readonly string[]) {
     super(
-      `Хост "${host}" из baseUrl не входит в allowedHosts (${allowedHosts.join(", ")}). ` +
-        `Область проверки задаётся явно: опечатка в адресе не должна её расширять.`,
+      `Host "${host}" from baseUrl is not in allowedHosts (${allowedHosts.join(", ")}). ` +
+        `The scope is declared explicitly: a typo in an address must not widen it.`,
     );
     this.name = "HostOutsideScopeError";
   }
 }
 
 export class CredentialsInUrlError extends Error {
-  constructor(where = "В baseUrl") {
+  constructor(where = "baseUrl") {
     super(
-      `${where} указаны логин и пароль. Учётные данные передаются только через ` +
-        "переменные окружения: адрес копируется в отчёт дословно, а отчёт " +
-        "по умолчанию печатается в stdout.",
+      `${where} carries a login and password. Credentials are passed only through ` +
+        "environment variables: the address is copied into the report verbatim, " +
+        "and the report goes to stdout by default.",
     );
     this.name = "CredentialsInUrlError";
   }
@@ -495,7 +496,7 @@ export class CredentialsInUrlError extends Error {
 
 export class DuplicateAccountIdError extends Error {
   constructor(id: string) {
-    super(`Аккаунт с id "${id}" объявлен больше одного раза`);
+    super(`An account with id "${id}" is declared more than once`);
     this.name = "DuplicateAccountIdError";
   }
 }
@@ -512,12 +513,12 @@ export class DuplicateAccountIdError extends Error {
 export class UnknownAuthSchemeError extends Error {
   constructor(accountId: string, name: string, known: readonly string[]) {
     super(
-      `Аккаунт "${accountId}" ссылается на схему аутентификации "${name}", которой нет ` +
-        `среди объявленных в authSchemes ` +
-        `(${known.length === 0 ? "не объявлено ни одной" : known.join(", ")}). ` +
-        `Опечатка здесь прячет результат: аккаунт ушёл бы на прогон с чужой схемой, ` +
-        `получил бы сплошной 401, а сплошной отказ совпадает с политикой там, где ` +
-        `доступ не положен, — и отчёт выглядел бы чистым.`,
+      `Account "${accountId}" references authentication scheme "${name}", which is not ` +
+        `declared in authSchemes ` +
+        `(${known.length === 0 ? "none are declared" : known.join(", ")}). ` +
+        `A typo here hides the result: the account would run with someone else's scheme, ` +
+        `get 401 everywhere, and a blanket denial agrees with the policy wherever access ` +
+        `is not meant to be granted — so the report would come out clean.`,
     );
     this.name = "UnknownAuthSchemeError";
   }
@@ -534,10 +535,10 @@ export class UnknownAuthSchemeError extends Error {
 export class UnusedAuthSchemeError extends Error {
   constructor(name: string) {
     super(
-      `Схема аутентификации "${name}" объявлена, но ни один аккаунт на неё не ссылается. ` +
-        `Скорее всего у аккаунта забыт authScheme: он пойдёт по схеме по умолчанию, ` +
-        `получит 401 — и прогон промолчит. Мёртвое объявление выглядит проверенным ` +
-        `утверждением, не будучи им.`,
+      `Authentication scheme "${name}" is declared, but no account references it. ` +
+        `Most likely an account is missing its authScheme: it will fall back to the ` +
+        `default scheme, get 401 — and the run will say nothing. A dead declaration ` +
+        `looks like a tested statement without being one.`,
     );
     this.name = "UnusedAuthSchemeError";
   }
@@ -554,9 +555,9 @@ export class UnusedAuthSchemeError extends Error {
 export class AuthSchemeWithoutTokenError extends Error {
   constructor(accountId: string, name: string) {
     super(
-      `Аккаунт "${accountId}" ссылается на схему "${name}", но не называет tokenEnv. ` +
-        `Аккаунт без токена обращается анонимно, предъявлять по схеме нечего: ` +
-        `либо у аккаунта забыт tokenEnv, либо ссылка на схему лишняя.`,
+      `Account "${accountId}" references scheme "${name}" but names no tokenEnv. ` +
+        `An account without a token calls anonymously, so the scheme has nothing to ` +
+        `present: either tokenEnv is missing, or the scheme reference is redundant.`,
     );
     this.name = "AuthSchemeWithoutTokenError";
   }
@@ -564,7 +565,7 @@ export class AuthSchemeWithoutTokenError extends Error {
 
 export class DuplicateResourceIdError extends Error {
   constructor(id: string) {
-    super(`Объект с id "${id}" объявлен больше одного раза`);
+    super(`A resource with id "${id}" is declared more than once`);
     this.name = "DuplicateResourceIdError";
   }
 }
@@ -572,8 +573,8 @@ export class DuplicateResourceIdError extends Error {
 export class UnknownResourceOwnerError extends Error {
   constructor(resourceId: string, owner: string) {
     super(
-      `Ресурс "${resourceId}" объявлен принадлежащим аккаунту "${owner}", ` +
-        `которого нет среди аккаунтов. Отношение «своё или чужое» стало бы неопределённым.`,
+      `Resource "${resourceId}" is declared as owned by account "${owner}", which is ` +
+        `not among the declared accounts. The «own or foreign» relation would be undefined.`,
     );
     this.name = "UnknownResourceOwnerError";
   }
@@ -582,10 +583,10 @@ export class UnknownResourceOwnerError extends Error {
 export class UnknownTenantError extends Error {
   constructor(where: string, tenant: string, known: readonly string[]) {
     super(
-      `${where} относится к тенанту "${tenant}", которого нет среди объявленных ` +
-        `(${known.join(", ")}). Опечатка здесь прячет находку: объект уезжает ` +
-        `в «чужой тенант», правило со scope перестаёт применяться, и настоящая ` +
-        `утечка проваливается в fallback.`,
+      `${where} belongs to tenant "${tenant}", which is not among the declared ones ` +
+        `(${known.join(", ")}). A typo here hides a finding: the resource drifts ` +
+        `into «foreign tenant», a rule with a scope stops applying, and a real ` +
+        `leak falls through to the fallback.`,
     );
     this.name = "UnknownTenantError";
   }
@@ -601,8 +602,8 @@ export class UnknownTenantError extends Error {
 export class ForbiddenContextHeaderError extends Error {
   constructor(contextId: string, header: string, reason: string) {
     super(
-      `Условия "${contextId}" задают заголовок "${header}": ${reason}. ` +
-        `Атрибуты условий добавляются к обращению, а не подменяют его основу.`,
+      `Context "${contextId}" sets header "${header}": ${reason}. ` +
+        `Context attributes are added to a request, they do not replace its substance.`,
     );
     this.name = "ForbiddenContextHeaderError";
   }
@@ -611,8 +612,8 @@ export class ForbiddenContextHeaderError extends Error {
 export class ForbiddenContextQueryError extends Error {
   constructor(contextId: string, key: string, reason: string) {
     super(
-      `Условия "${contextId}" задают параметр запроса "${key}": ${reason}. ` +
-        `Атрибуты условий добавляются к обращению, а не подменяют его основу.`,
+      `Context "${contextId}" sets query parameter "${key}": ${reason}. ` +
+        `Context attributes are added to a request, they do not replace its substance.`,
     );
     this.name = "ForbiddenContextQueryError";
   }
@@ -621,8 +622,8 @@ export class ForbiddenContextQueryError extends Error {
 export class DuplicateContextIdError extends Error {
   constructor(contextId: string) {
     super(
-      `Условия "${contextId}" объявлены дважды. Какие из них применялись бы — ` +
-        `определить нельзя, а исход зависит от ответа.`,
+      `Context "${contextId}" is declared twice. Which one would apply cannot be ` +
+        `determined, and the outcome depends on the answer.`,
     );
     this.name = "DuplicateContextIdError";
   }
@@ -631,11 +632,11 @@ export class DuplicateContextIdError extends Error {
 export class UnusedContextError extends Error {
   constructor(contextId: string) {
     super(
-      `Условия "${contextId}" объявлены, но ни одно правило политики на них ` +
-        `не ссылается. Ожидание в условиях объявляется явно: без правила все ` +
-        `их ячейки уйдут в fallback, и отчёт наполнится расхождениями, ` +
-        `которых никто не заявлял. Напишите правило с "context: ${contextId}" ` +
-        `— хотя бы одно, объявляющее общий исход.`,
+      `Context "${contextId}" is declared, but no policy rule references it. ` +
+        `Expectations under a context are declared explicitly: without a rule, every ` +
+        `cell of that context falls through to the fallback, and the report fills up ` +
+        `with discrepancies nobody claimed. Write a rule with "context: ${contextId}" ` +
+        `— at least one, declaring the general outcome.`,
     );
     this.name = "UnusedContextError";
   }
@@ -644,9 +645,9 @@ export class UnusedContextError extends Error {
 export class UnknownContextReferenceError extends Error {
   constructor(index: number, contextId: string, declared: readonly string[]) {
     super(
-      `Правило политики #${index} ссылается на условия "${contextId}", которых нет. ` +
-        `Объявлены: ${declared.length === 0 ? "нет ни одних" : declared.join(", ")}. ` +
-        `Опечатка здесь молча меняет вердикт: правило не применяется ни к одной ячейке.`,
+      `Policy rule #${index} references context "${contextId}", which does not exist. ` +
+        `Declared: ${declared.length === 0 ? "none" : declared.join(", ")}. ` +
+        `A typo here silently changes the verdict: the rule applies to no cell at all.`,
     );
     this.name = "UnknownContextReferenceError";
   }
@@ -655,8 +656,8 @@ export class UnknownContextReferenceError extends Error {
 export class UnknownContextAccountError extends Error {
   constructor(contextId: string, accountId: string) {
     super(
-      `Условия "${contextId}" ссылаются на аккаунт "${accountId}", которого нет ` +
-        `среди объявленных. Условия просто не применились бы ни к кому.`,
+      `Context "${contextId}" references account "${accountId}", which is not among ` +
+        `the declared accounts. The context would simply apply to nobody.`,
     );
     this.name = "UnknownContextAccountError";
   }
@@ -665,9 +666,10 @@ export class UnknownContextAccountError extends Error {
 export class UnknownEndpointReferenceError extends Error {
   constructor(where: string, endpointId: string) {
     super(
-      `${where} ссылается на эндпоинт "${endpointId}", которого нет среди разобранных. ` +
-        `Опечатка здесь не безобидна: правило молча перестаёт применяться, а объект — ` +
-        `привязываться, и то и другое меняет вердикт, не оставляя следа в отчёте.`,
+      `${where} references endpoint "${endpointId}", which is not among the parsed ones. ` +
+        `A typo here is not harmless: a rule silently stops applying and a resource ` +
+        `silently stops binding — both change the verdict without leaving a trace ` +
+        `in the report.`,
     );
     this.name = "UnknownEndpointReferenceError";
   }
@@ -703,7 +705,7 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
         continue;
       }
       if (!known.has(entry)) {
-        throw new UnknownEndpointReferenceError(`Правило политики #${index}`, entry);
+        throw new UnknownEndpointReferenceError(`Policy rule #${index}`, entry);
       }
     }
   });
@@ -711,7 +713,7 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
   for (const resource of config.resources) {
     for (const endpointId of resource.endpointIds ?? []) {
       if (!known.has(endpointId)) {
-        throw new UnknownEndpointReferenceError(`Объект "${resource.id}"`, endpointId);
+        throw new UnknownEndpointReferenceError(`Resource "${resource.id}"`, endpointId);
       }
     }
   }
@@ -719,14 +721,17 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
   for (const context of config.contexts) {
     for (const endpointId of context.endpointIds) {
       if (!known.has(endpointId)) {
-        throw new UnknownEndpointReferenceError(`Условия "${context.id}"`, endpointId);
+        throw new UnknownEndpointReferenceError(`Context "${context.id}"`, endpointId);
       }
     }
   }
 
   for (const account of config.accounts) {
     if (account.canary !== undefined && !known.has(account.canary)) {
-      throw new UnknownEndpointReferenceError(`Канарейка аккаунта "${account.id}"`, account.canary);
+      throw new UnknownEndpointReferenceError(
+        `The canary of account "${account.id}"`,
+        account.canary,
+      );
     }
   }
 
@@ -735,7 +740,10 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
   // в имени тенанта, — молчаливое сужение области проверки.
   for (const endpointId of config.bodySignals?.responseMustDifferByTenant ?? []) {
     if (!known.has(endpointId)) {
-      throw new UnknownEndpointReferenceError("Объявление responseMustDifferByTenant", endpointId);
+      throw new UnknownEndpointReferenceError(
+        "The responseMustDifferByTenant declaration",
+        endpointId,
+      );
     }
   }
 
@@ -747,7 +755,7 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
     seenNames.add(signal.name);
     for (const endpointId of signal.endpoints) {
       if (!known.has(endpointId)) {
-        throw new UnknownEndpointReferenceError(`Сигнал "${signal.name}"`, endpointId);
+        throw new UnknownEndpointReferenceError(`Signal "${signal.name}"`, endpointId);
       }
     }
   }
@@ -787,8 +795,9 @@ export class MissingCredentialError extends Error {
 
   constructor(accountId: string, variable: string) {
     super(
-      `Для аккаунта "${accountId}" не задана переменная окружения ${variable}. ` +
-        `Токены передаются только через окружение и в конфигурации не хранятся.`,
+      `Environment variable ${variable} is not set for account "${accountId}". ` +
+        `Tokens are passed through the environment only and are never stored in ` +
+        `the configuration.`,
     );
     this.name = "MissingCredentialError";
     this.accountId = accountId;
@@ -820,7 +829,7 @@ function resolveAccountAuth(
   // «разрешилась» бы во что попало.
   const schemes = new Map<string, AuthScheme>(Object.entries(declared ?? {}));
   for (const [name, scheme] of schemes) {
-    assertAuthSchemeIsSound(scheme, `схема "${name}"`);
+    assertAuthSchemeIsSound(scheme, `scheme "${name}"`);
   }
 
   const resolved = new Map<string, AuthScheme>();
@@ -909,7 +918,7 @@ export function parseRunConfig(source: string): RunConfig {
       }
       const url = new URL(node.baseUrl);
       if (url.username !== "" || url.password !== "") {
-        throw new CredentialsInUrlError(`Базовый адрес тенанта "${node.id}"`);
+        throw new CredentialsInUrlError(`The base address of tenant "${node.id}"`);
       }
       // Область проверки одна на прогон: адрес тенанта её не расширяет.
       if (!hostAllowed(url, config.target.allowedHosts)) {
@@ -933,14 +942,14 @@ export function parseRunConfig(source: string): RunConfig {
     if (declaredTenants !== undefined) {
       for (const tenant of memberships) {
         if (!declaredTenants.includes(tenant)) {
-          throw new UnknownTenantError(`Аккаунт "${account.id}"`, tenant, declaredTenants);
+          throw new UnknownTenantError(`Account "${account.id}"`, tenant, declaredTenants);
         }
       }
     }
     // Повтор и вложенность в наборе меняют отношение молча — см. ADR-0017.
     // Проверка идёт после сверки имён: на неизвестном тенанте вложенность
     // всё равно не определена, и внятнее сказать про имя.
-    assertIndependentMemberships(`Аккаунт "${account.id}"`, memberships, hierarchy);
+    assertIndependentMemberships(`Account "${account.id}"`, memberships, hierarchy);
   }
 
   // Проверяется здесь, а не при первом запросе: прогон должен падать до сети.
@@ -974,7 +983,7 @@ export function parseRunConfig(source: string): RunConfig {
     // законный случай), поэтому для строгой проверки заводится `tenants`.
     const knownTenants = declaredTenants ?? accountTenants;
     if (declaredTenants !== undefined && !knownTenants.includes(tenant)) {
-      throw new UnknownTenantError(`Объект "${declared.id}"`, tenant, knownTenants);
+      throw new UnknownTenantError(`Resource "${declared.id}"`, tenant, knownTenants);
     }
     resources.push({
       id: declared.id,
@@ -1013,12 +1022,12 @@ export function parseRunConfig(source: string): RunConfig {
 export class MethodOverrideInContextError extends Error {
   constructor(contextId: string, where: string, value: string) {
     super(
-      `Условия "${contextId}" задают ${where} со значением "${value}" — это имя ` +
-        `HTTP-метода. Платформы, уважающие подмену метода (Rails, Laravel, Symfony, ` +
-        `Spring, большинство шлюзов), выполнят по такому обращению запись, хотя ` +
-        `по проводу уйдёт GET: гейт безопасных методов смотрит на метод запроса ` +
-        `и такой обход не видит. Если запись входит в намерение — запускайте ` +
-        `с --unsafe-methods, и тогда отчёт скажет об этом честно.`,
+      `Context "${contextId}" sets ${where} to "${value}" — that is the name of an ` +
+        `HTTP method. Platforms that honour method override (Rails, Laravel, Symfony, ` +
+        `Spring, most API gateways) will perform a write for such a request even ` +
+        `while a GET goes over the wire: the safe-method gate looks at the request ` +
+        `method and cannot see that bypass. If writing is the intention, run with ` +
+        `--unsafe-methods and the report will say so honestly.`,
     );
     this.name = "MethodOverrideInContextError";
   }
@@ -1051,12 +1060,12 @@ export function assertContextsCannotWrite(
   for (const context of config.contexts) {
     for (const [name, value] of Object.entries(context.headers)) {
       if (methods.has(value.trim().toUpperCase())) {
-        throw new MethodOverrideInContextError(context.id, `заголовок "${name}"`, value);
+        throw new MethodOverrideInContextError(context.id, `header "${name}"`, value);
       }
     }
     for (const [key, value] of Object.entries(context.query)) {
       if (methods.has(value.trim().toUpperCase())) {
-        throw new MethodOverrideInContextError(context.id, `параметр запроса "${key}"`, value);
+        throw new MethodOverrideInContextError(context.id, `query parameter "${key}"`, value);
       }
     }
   }
@@ -1072,17 +1081,17 @@ export function assertContextsCannotWrite(
  * остальные ломают сам обмен.
  */
 const FORBIDDEN_CONTEXT_HEADERS: ReadonlyMap<string, string> = new Map([
-  ["authorization", "это учётные данные аккаунта"],
-  ["proxy-authorization", "это учётные данные"],
-  ["cookie", "это учётные данные аккаунта"],
-  ["host", "подмена хоста уводит обращение за пределы области проверки"],
-  ["forwarded", "заголовок маршрутизации: он меняет адресата, а не условия"],
-  ["content-length", "заголовок обмена, а не атрибут обращения"],
-  ["transfer-encoding", "заголовок обмена, а не атрибут обращения"],
-  ["connection", "заголовок обмена, а не атрибут обращения"],
-  ["te", "заголовок обмена, а не атрибут обращения"],
-  ["upgrade", "заголовок обмена, а не атрибут обращения"],
-  ["expect", "заголовок обмена, а не атрибут обращения"],
+  ["authorization", "these are the account's credentials"],
+  ["proxy-authorization", "these are credentials"],
+  ["cookie", "these are the account's credentials"],
+  ["host", "overriding the host takes the request outside the declared scope"],
+  ["forwarded", "a routing header: it changes the recipient, not the conditions"],
+  ["content-length", "a transport header, not an attribute of the request"],
+  ["transfer-encoding", "a transport header, not an attribute of the request"],
+  ["connection", "a transport header, not an attribute of the request"],
+  ["te", "a transport header, not an attribute of the request"],
+  ["upgrade", "a transport header, not an attribute of the request"],
+  ["expect", "a transport header, not an attribute of the request"],
 ]);
 
 /**
@@ -1100,15 +1109,15 @@ const FORBIDDEN_CONTEXT_HEADERS: ReadonlyMap<string, string> = new Map([
  * только те `x-forwarded-*`, что меняют адресата.
  */
 const FORBIDDEN_HEADER_PREFIXES: readonly (readonly [string, string])[] = [
-  ["x-http-method", "заголовок подмены метода: платформа выполнит запись за GET"],
-  ["x-method", "заголовок подмены метода: платформа выполнит запись за GET"],
-  ["x-original-", "заголовок подмены адреса: обращение уйдёт мимо объявленного пути"],
-  ["x-rewrite-", "заголовок подмены адреса: обращение уйдёт мимо объявленного пути"],
-  ["x-forwarded-host", "заголовок маршрутизации: он меняет адресата, а не условия"],
-  ["x-forwarded-proto", "заголовок маршрутизации: он меняет адресата, а не условия"],
-  ["x-forwarded-port", "заголовок маршрутизации: он меняет адресата, а не условия"],
-  ["x-forwarded-prefix", "заголовок маршрутизации: он меняет адресата, а не условия"],
-  ["x-forwarded-uri", "заголовок маршрутизации: он меняет адресата, а не условия"],
+  ["x-http-method", "a method-override header: the platform will write behind a GET"],
+  ["x-method", "a method-override header: the platform will write behind a GET"],
+  ["x-original-", "a path-override header: the request would go past the declared path"],
+  ["x-rewrite-", "a path-override header: the request would go past the declared path"],
+  ["x-forwarded-host", "a routing header: it changes the recipient, not the conditions"],
+  ["x-forwarded-proto", "a routing header: it changes the recipient, not the conditions"],
+  ["x-forwarded-port", "a routing header: it changes the recipient, not the conditions"],
+  ["x-forwarded-prefix", "a routing header: it changes the recipient, not the conditions"],
+  ["x-forwarded-uri", "a routing header: it changes the recipient, not the conditions"],
 ];
 
 /**
@@ -1208,15 +1217,16 @@ function normalizeContexts(
         throw new ForbiddenContextHeaderError(
           context.id,
           name,
-          "это не имя заголовка по RFC 9110 — обращение с ним не уйдёт вовсе",
+          "this is not a header name per RFC 9110 — a request carrying it would not " +
+            "be sent at all",
         );
       }
       if (!CONTEXT_VALUE_SAFE.test(value)) {
         throw new ForbiddenContextHeaderError(
           context.id,
           name,
-          "значение содержит символы, недопустимые в заголовке: каждая ячейка " +
-            "такого прогона умрёт непрозрачным сбоем обращения",
+          "the value contains characters a header cannot carry: every cell of such " +
+            "a run would die with an opaque request failure",
         );
       }
       const forbidden =
@@ -1229,7 +1239,7 @@ function normalizeContexts(
         throw new ForbiddenContextHeaderError(
           context.id,
           name,
-          "по этому заголовку предъявляются учётные данные",
+          "credentials are presented through this header",
         );
       }
       headers[lower] = value;
@@ -1241,9 +1251,10 @@ function normalizeContexts(
         throw new ForbiddenContextQueryError(
           context.id,
           key,
-          "этим предъявляют учётные данные: платформа обслужит обращение как другой " +
-            "аккаунт, а отчёт назовёт исходный — и само значение уедет в отчёт " +
-            "открытым текстом, потому что адреса обращений там печатаются",
+          "credentials are presented through this: the platform would serve the " +
+            "request as a different account while the report names the original one — " +
+            "and the value itself would land in the report in the clear, because " +
+            "request URLs are printed there",
         );
       }
       // Ключ объекта, переписанный условиями, — самая тихая из подмен:
@@ -1254,15 +1265,16 @@ function normalizeContexts(
         throw new ForbiddenContextQueryError(
           context.id,
           key,
-          "этим ключом объекты задают себя в строке запроса: условия переписали бы " +
-            "адрес объекта, а вердикт считался бы по объявленному",
+          "resources identify themselves with this key in the query string: the " +
+            "context would rewrite the resource address while the verdict was computed " +
+            "for the declared one",
         );
       }
       if (!CONTEXT_VALUE_SAFE.test(value)) {
         throw new ForbiddenContextQueryError(
           context.id,
           key,
-          "значение содержит символы, недопустимые в адресе обращения",
+          "the value contains characters a request URL cannot carry",
         );
       }
     }
@@ -1374,9 +1386,9 @@ export class InvalidCredentialError extends Error {
 
   constructor(accountId: string, variable: string) {
     super(
-      `Токен из ${variable} для аккаунта "${accountId}" содержит символы, недопустимые ` +
-        `в значении HTTP-заголовка. Проверьте переменную: обычно это случайный перенос ` +
-        `строки или скопированный текст с кириллицей.`,
+      `The token from ${variable} for account "${accountId}" contains characters that ` +
+        `an HTTP header value cannot carry. Check the variable: usually a stray line ` +
+        `break or text pasted from a non-ASCII source.`,
     );
     this.name = "InvalidCredentialError";
     this.accountId = accountId;

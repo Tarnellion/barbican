@@ -35,9 +35,7 @@ export const DEFAULT_AUTH_SCHEME: AuthScheme = { kind: "bearer" };
 
 export class InvalidAuthSchemeError extends Error {
   constructor(reason: string, where?: string) {
-    super(
-      `Некорректная схема аутентификации${where === undefined ? "" : ` (${where})`}: ${reason}`,
-    );
+    super(`Invalid authentication scheme${where === undefined ? "" : ` (${where})`}: ${reason}`);
     this.name = "InvalidAuthSchemeError";
   }
 }
@@ -56,10 +54,10 @@ const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
  */
 export function assertAuthSchemeIsSound(scheme: AuthScheme, where?: string): void {
   if (scheme.kind === "header" && !HEADER_NAME.test(scheme.header)) {
-    throw new InvalidAuthSchemeError(`"${scheme.header}" не является именем заголовка`, where);
+    throw new InvalidAuthSchemeError(`"${scheme.header}" is not a header name`, where);
   }
   if (scheme.kind === "cookie" && !HEADER_NAME.test(scheme.name)) {
-    throw new InvalidAuthSchemeError(`"${scheme.name}" не является именем куки`, where);
+    throw new InvalidAuthSchemeError(`"${scheme.name}" is not a cookie name`, where);
   }
 }
 
@@ -99,7 +97,7 @@ export function createCredentialProvider(
   // при создании провайдера, а не при первом обращении от того аккаунта,
   // до которого прогон дойдёт в середине матрицы.
   for (const [accountId, scheme] of schemesByAccount) {
-    assertAuthSchemeIsSound(scheme, `аккаунт "${accountId}"`);
+    assertAuthSchemeIsSound(scheme, `account "${accountId}"`);
   }
 
   return {

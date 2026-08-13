@@ -135,7 +135,7 @@ describe("identical-response-across-tenants", () => {
 
     expect(findings[0]?.evidence["bodyDigestsEqual"]).toBe(true);
     expect(findings[0]?.evidence).not.toHaveProperty("identicalBody");
-    expect(findings[0]?.title).toContain("Дайджест");
+    expect(findings[0]?.title).toContain("Response digest");
   });
 
   it("молчит, когда ответы различаются", () => {
@@ -351,7 +351,7 @@ describe("identical-response-across-tenants", () => {
     // Имена набора называет заголовок; в обосновании их нет, потому что
     // склейка через запятую встала бы в поле настоящих идентификаторов.
     // Пары упорядочены по идентификатору аккаунта, поэтому набор здесь — второй.
-    expect(findings[0]?.title).toContain("тенантов brand-a, brand-c");
+    expect(findings[0]?.title).toContain("tenants brand-a, brand-c");
     expect(findings[0]?.evidence["tenant"]).toBe("brand-b");
     expect(findings[0]?.evidence).not.toHaveProperty("otherTenant");
   });

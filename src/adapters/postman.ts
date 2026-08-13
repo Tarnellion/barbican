@@ -63,21 +63,21 @@ export const DEFAULT_POSTMAN_LIMITS: PostmanCollectionLimits = {
 
 export class PostmanCollectionTooLargeError extends Error {
   constructor(actualBytes: number, maxBytes: number) {
-    super(`Коллекция ${actualBytes} байт при пределе ${maxBytes}`);
+    super(`The collection is ${actualBytes} bytes, the limit is ${maxBytes}`);
     this.name = "PostmanCollectionTooLargeError";
   }
 }
 
 export class PostmanCollectionTooDeepError extends Error {
   constructor(maxFolderDepth: number) {
-    super(`Вложенность папок коллекции превышает предел ${maxFolderDepth}`);
+    super(`Collection folder nesting exceeds the limit of ${maxFolderDepth}`);
     this.name = "PostmanCollectionTooDeepError";
   }
 }
 
 export class PostmanCollectionParseError extends Error {
   constructor(message: string, options?: { cause: unknown }) {
-    super(`Не удалось разобрать коллекцию Postman: ${message}`, options);
+    super(`Could not parse the Postman collection: ${message}`, options);
     this.name = "PostmanCollectionParseError";
   }
 }
@@ -87,8 +87,9 @@ export class UnsupportedPostmanSchemaError extends Error {
 
   constructor(schema: string) {
     super(
-      `Схема коллекции "${schema}" не поддерживается: нужен экспорт Collection v2.0 или v2.1. ` +
-        `Формат v1 описывает запросы иначе, и прочитать его как v2 значит прочитать неверно.`,
+      `Collection schema "${schema}" is not supported: a Collection v2.0 or v2.1 export ` +
+        `is required. The v1 format describes requests differently, and reading it as v2 ` +
+        `means reading it wrong.`,
     );
     this.name = "UnsupportedPostmanSchemaError";
     this.schema = schema;
@@ -104,8 +105,8 @@ export class UnsupportedPostmanSchemaError extends Error {
 export class EmptyPostmanCollectionError extends Error {
   constructor() {
     super(
-      "В коллекции нет ни одного запроса. Прогон по пустому списку даёт отчёт без находок, " +
-        "который читается как «нарушений нет», хотя не проверено ничего.",
+      "The collection contains no requests. A run over an empty list produces a report " +
+        "with no findings, which reads as «nothing is broken» while nothing was tested.",
     );
     this.name = "EmptyPostmanCollectionError";
   }
@@ -120,7 +121,7 @@ export class InvalidPostmanItemError extends Error {
   readonly field: PostmanItemField;
 
   constructor(location: string, field: PostmanItemField, reason: string) {
-    super(`Элемент коллекции "${location}": ${reason}`);
+    super(`Collection item "${location}": ${reason}`);
     this.name = "InvalidPostmanItemError";
     this.location = location;
     this.field = field;
@@ -132,9 +133,9 @@ export class DuplicatePostmanEndpointIdError extends Error {
 
   constructor(id: string) {
     super(
-      `Запрос "${id}" встречается в коллекции дважды. ` +
-        `Политика доступа ссылается на эндпоинты по id, и дубль сделал бы её толкование ` +
-        `неоднозначным. Переименуйте один из запросов или разложите их по разным папкам.`,
+      `Request "${id}" appears in the collection twice. The access policy references ` +
+        `endpoints by id, and a duplicate would make its interpretation ambiguous. ` +
+        `Rename one of the requests or put them in different folders.`,
     );
     this.name = "DuplicatePostmanEndpointIdError";
     this.id = id;
@@ -208,7 +209,7 @@ function toMethod(value: string): HttpMethod | undefined {
 }
 
 function locationOf(trail: readonly string[]): string {
-  return trail.length === 0 ? "<корень коллекции>" : trail.join("/");
+  return trail.length === 0 ? "<collection root>" : trail.join("/");
 }
 
 /**
@@ -259,14 +260,14 @@ function assertStaysWithinTarget(path: string, location: string): void {
     throw new InvalidPostmanItemError(
       location,
       "path",
-      `путь ${JSON.stringify(path)} не удалось разобрать как адрес: ${describe(cause)}`,
+      `path ${JSON.stringify(path)} could not be parsed as a URL: ${describe(cause)}`,
     );
   }
   if (resolved.origin !== base.origin) {
     throw new InvalidPostmanItemError(
       location,
       "path",
-      `путь ${JSON.stringify(path)} адресует ${resolved.origin}, а не путь на проверяемом хосте`,
+      `path ${JSON.stringify(path)} addresses ${resolved.origin}, not a path on the host under test`,
     );
   }
 }
@@ -289,15 +290,15 @@ function normalizePath(path: string, location: string): string {
     throw new InvalidPostmanItemError(
       location,
       "path",
-      `путь "${converted}" адресует другой хост (схемо-относительный URL)`,
+      `path "${converted}" addresses another host (a scheme-relative URL)`,
     );
   }
   if (!TEMPLATE_ONLY.test(converted)) {
     throw new InvalidPostmanItemError(
       location,
       "path",
-      `путь "${converted}" содержит незакрытую или пустую фигурную скобку; ` +
-        `переменная Postman записывается как {{имя}}, параметр пути — как {имя}`,
+      `path "${converted}" contains an unclosed or empty brace; a Postman variable is ` +
+        `written as {{name}}, a path parameter as {name}`,
     );
   }
   assertStaysWithinTarget(converted, location);
@@ -332,8 +333,8 @@ function pathFromRaw(raw: string, location: string): string {
     throw new InvalidPostmanItemError(
       location,
       "url",
-      `из адреса ${JSON.stringify(raw)} не удалось выделить путь: после базы ожидался слэш. ` +
-        `Задайте "url.path" или начните путь со слэша.`,
+      `could not extract a path from ${JSON.stringify(raw)}: a slash was expected after ` +
+        `the base. Set "url.path" or start the path with a slash.`,
     );
   }
   return rest;
@@ -363,7 +364,7 @@ function pathFromSegments(segments: unknown, location: string): string | undefin
       throw new InvalidPostmanItemError(
         location,
         "path",
-        `сегмент пути ${JSON.stringify(segment)} не является строкой`,
+        `path segment ${JSON.stringify(segment)} is not a string`,
       );
     }
     parts.push(segment);
@@ -374,7 +375,7 @@ function pathFromSegments(segments: unknown, location: string): string | undefin
 function pathOf(url: unknown, location: string): string {
   if (typeof url === "string") {
     if (url.trim() === "") {
-      throw new InvalidPostmanItemError(location, "url", '"request.url" пуст');
+      throw new InvalidPostmanItemError(location, "url", '"request.url" is empty');
     }
     return normalizePath(pathFromRaw(url, location), location);
   }
@@ -382,7 +383,7 @@ function pathOf(url: unknown, location: string): string {
     throw new InvalidPostmanItemError(
       location,
       "url",
-      '"request.url" отсутствует или не является ни строкой, ни объектом',
+      '"request.url" is missing or is neither a string nor an object',
     );
   }
 
@@ -398,7 +399,7 @@ function pathOf(url: unknown, location: string): string {
   throw new InvalidPostmanItemError(
     location,
     "path",
-    'у "request.url" нет ни непустого "path", ни "raw"',
+    '"request.url" has neither a non-empty "path" nor a "raw"',
   );
 }
 
@@ -413,7 +414,7 @@ function toEndpoint(request: unknown, trail: readonly string[]): Endpoint {
     throw new InvalidPostmanItemError(
       location,
       "request",
-      '"request" должен быть объектом с полями method и url',
+      '"request" must be an object with method and url fields',
     );
   }
 
@@ -422,7 +423,7 @@ function toEndpoint(request: unknown, trail: readonly string[]): Endpoint {
     throw new InvalidPostmanItemError(
       location,
       "method",
-      `"request.method" обязателен и должен быть строкой; допустимы ${METHOD_NAMES}`,
+      `"request.method" is required and must be a string; allowed: ${METHOD_NAMES}`,
     );
   }
   const method = toMethod(rawMethod);
@@ -430,7 +431,7 @@ function toEndpoint(request: unknown, trail: readonly string[]): Endpoint {
     throw new InvalidPostmanItemError(
       location,
       "method",
-      `метод "${rawMethod}" не поддерживается; допустимы ${METHOD_NAMES}`,
+      `method "${rawMethod}" is not supported; allowed: ${METHOD_NAMES}`,
     );
   }
 
@@ -463,7 +464,7 @@ function collectItems(
       throw new InvalidPostmanItemError(
         locationOf(trail),
         "item",
-        `элемент ${JSON.stringify(item)} должен быть объектом с полем name`,
+        `item ${JSON.stringify(item)} must be an object with a name field`,
       );
     }
 
@@ -472,7 +473,7 @@ function collectItems(
       throw new InvalidPostmanItemError(
         locationOf(trail),
         "name",
-        "у элемента нет непустого имени, а идентификатор эндпоинта строится из имён",
+        "the item has no non-empty name, and an endpoint identifier is built from names",
       );
     }
     const nested = [...trail, name.trim()];
@@ -483,13 +484,13 @@ function collectItems(
       throw new InvalidPostmanItemError(
         locationOf(nested),
         "item",
-        'элемент содержит и "item", и "request" — папка это или запрос, определить нельзя',
+        'the item has both "item" and "request" — whether it is a folder or a request cannot be determined',
       );
     }
 
     if (children !== undefined) {
       if (!Array.isArray(children)) {
-        throw new InvalidPostmanItemError(locationOf(nested), "item", '"item" должен быть списком');
+        throw new InvalidPostmanItemError(locationOf(nested), "item", '"item" must be a list');
       }
       collectItems(children, nested, depth + 1, limits, out);
       continue;
@@ -499,7 +500,7 @@ function collectItems(
       throw new InvalidPostmanItemError(
         locationOf(nested),
         "request",
-        'элемент не содержит ни "item" (папка), ни "request" (запрос)',
+        'the item has neither "item" (a folder) nor "request" (a request)',
       );
     }
 
@@ -547,7 +548,7 @@ export function createPostmanCollectionParser(
       }
 
       if (!isRecord(document)) {
-        throw new PostmanCollectionParseError('документ не является объектом с ключом "item"');
+        throw new PostmanCollectionParseError('the document is not an object with an "item" key');
       }
 
       const info = document.info;
@@ -561,7 +562,7 @@ export function createPostmanCollectionParser(
 
       const items = document.item;
       if (!Array.isArray(items)) {
-        throw new PostmanCollectionParseError('ключ "item" отсутствует или не является списком');
+        throw new PostmanCollectionParseError('the "item" key is missing or is not a list');
       }
 
       const endpoints: Endpoint[] = [];

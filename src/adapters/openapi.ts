@@ -45,14 +45,14 @@ export const DEFAULT_SPEC_LIMITS: SpecParserLimits = {
 
 export class SpecTooLargeError extends Error {
   constructor(actualBytes: number, maxBytes: number) {
-    super(`Документ спецификации ${actualBytes} байт при пределе ${maxBytes}`);
+    super(`The specification document is ${actualBytes} bytes, the limit is ${maxBytes}`);
     this.name = "SpecTooLargeError";
   }
 }
 
 export class SpecTooDeepError extends Error {
   constructor(maxDepth: number) {
-    super(`Вложенность документа превышает предел ${maxDepth}`);
+    super(`Document nesting exceeds the limit of ${maxDepth}`);
     this.name = "SpecTooDeepError";
   }
 }
@@ -62,8 +62,8 @@ export class ExternalRefError extends Error {
 
   constructor(ref: string) {
     super(
-      `Внешняя ссылка "${ref}" не разрешается: это защита от SSRF и path traversal. ` +
-        `Сведите спецификацию в один файл перед проверкой.`,
+      `External reference "${ref}" is not resolved: this guards against SSRF and path ` +
+        `traversal. Flatten the specification into a single file before testing.`,
     );
     this.name = "ExternalRefError";
     this.ref = ref;
@@ -72,7 +72,7 @@ export class ExternalRefError extends Error {
 
 export class SpecParseError extends Error {
   constructor(message: string, options?: { cause: unknown }) {
-    super(`Не удалось разобрать спецификацию: ${message}`, options);
+    super(`Could not parse the specification: ${message}`, options);
     this.name = "SpecParseError";
   }
 }
@@ -97,11 +97,11 @@ function describe(cause: unknown): string {
 export class UnsupportedYamlTagError extends Error {
   constructor(tag: string) {
     super(
-      `Спецификация содержит узел с тегом ${tag}. В OpenAPI такого узла быть ` +
-        `не может: это JSON-совместимая структура. Разбор остановлен, потому что ` +
-        `такой узел не виден обходу — внешняя ссылка под ним прошла бы мимо ` +
-        `проверки, а список ручек под ним дал бы ноль эндпоинтов без единой ошибки, ` +
-        `то есть стопроцентное покрытие пустоты.`,
+      `The specification contains a node tagged ${tag}. OpenAPI cannot contain such ` +
+        `a node: it is a JSON-compatible structure. Parsing stopped because such ` +
+        `a node is invisible to the walk — an external reference under it would ` +
+        `slip past the check, and a path list under it would yield zero endpoints ` +
+        `without a single error, that is, a hundred percent coverage of nothing.`,
     );
     this.name = "UnsupportedYamlTagError";
   }
@@ -148,7 +148,7 @@ function assertSafeShape(root: unknown, limits: SpecParserLimits): void {
 
 function toEndpoints(document: unknown): readonly Endpoint[] {
   if (!isRecord(document)) {
-    throw new SpecParseError("документ не является объектом");
+    throw new SpecParseError("the document is not an object");
   }
 
   const paths = document.paths;

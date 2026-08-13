@@ -44,7 +44,7 @@ export function parseSignalPath(path: string): readonly string[] {
   }
   const segments = path.split(".");
   if (segments.some((segment) => segment === "")) {
-    throw new InvalidSignalSpecError(`Путь "${path}" содержит пустой сегмент`);
+    throw new InvalidSignalSpecError(`Path "${path}" contains an empty segment`);
   }
   return segments;
 }
@@ -152,7 +152,7 @@ export interface SignalExtractorOptions {
 export function createSignalExtractor(options: SignalExtractorOptions = {}): SignalExtractor {
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   if (!Number.isInteger(maxBodyBytes) || maxBodyBytes <= 0) {
-    throw new InvalidSignalSpecError("Потолок размера тела должен быть положительным целым");
+    throw new InvalidSignalSpecError("The body size cap must be a positive integer");
   }
   const salt = options.salt ?? randomBytes(32);
 

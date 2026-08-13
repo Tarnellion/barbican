@@ -361,7 +361,7 @@ policy:
     const broken = () => parseRunConfig(WITH_RESOURCES.replace("id: foreign", "id: mine"));
 
     expect(broken).toThrow(DuplicateResourceIdError);
-    expect(broken).toThrow(/Объект/);
+    expect(broken).toThrow(/A resource with id/);
   });
 
   it("без объектов список пуст, а не отсутствует", () => {
@@ -823,7 +823,7 @@ target: { baseUrl: "https://a.test" }
 accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
 policy: { fallback: denied, rules: [] }
 `),
-    ).toThrow(/сканирование чужой системы/);
+    ).toThrow(/scanning someone else's system/);
   });
 
   it("объясняет, почему у fallback нет умолчания", () => {
@@ -833,6 +833,6 @@ target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
 accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
 policy: { rules: [] }
 `),
-    ).toThrow(/Умолчания у fallback нет намеренно/);
+    ).toThrow(/`fallback` has no default on purpose/);
   });
 });

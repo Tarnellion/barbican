@@ -129,7 +129,7 @@ describe("документ не той формы", () => {
 
   it("отвергает документ без ключа endpoints", async () => {
     await expect(parser.parse("endpoints: null")).rejects.toThrow(
-      /"endpoints" отсутствует или не является списком/,
+      /"endpoints" key is missing or is not a list/,
     );
   });
 
@@ -146,7 +146,7 @@ endpoints:
   - { id: a, method: GET, path: /a }
 `;
 
-    await expect(parser.parse(list)).rejects.toThrow(/неизвестный ключ документа "version"/);
+    await expect(parser.parse(list)).rejects.toThrow(/unknown document key "version"/);
   });
 
   it("отвергает неразбираемый YAML", async () => {
@@ -176,14 +176,14 @@ describe("элемент списка не проходит проверку", (
   it("отвергает неизвестное поле элемента", async () => {
     const list = "endpoints: [{ id: a, method: GET, path: /a, tenant: acme }]";
 
-    await expect(parser.parse(list)).rejects.toThrow(/неизвестное поле "tenant"/);
+    await expect(parser.parse(list)).rejects.toThrow(/unknown field "tenant"/);
   });
 
   // $ref здесь не поддерживается вовсе: разрешать нечего и некуда ходить.
   it("не знает про $ref и отвергает его как неизвестное поле", async () => {
     const list = 'endpoints: [{ $ref: "http://127.0.0.1:1/evil.yaml" }]';
 
-    await expect(parser.parse(list)).rejects.toThrow(/неизвестное поле "\$ref"/);
+    await expect(parser.parse(list)).rejects.toThrow(/unknown field "\$ref"/);
   });
 
   it("отвергает отсутствующий id", async () => {
@@ -210,7 +210,7 @@ describe("элемент списка не проходит проверку", (
 
   it("отвергает метод вне набора HttpMethod", async () => {
     await expect(parser.parse("endpoints: [{ id: a, method: TRACE, path: /a }]")).rejects.toThrow(
-      /метод "TRACE" не поддерживается/,
+      /method "TRACE" is not supported/,
     );
     await expect(parser.parse("endpoints: [{ id: a, method: CONNECT, path: /a }]")).rejects.toThrow(
       InvalidEndpointError,
@@ -226,7 +226,7 @@ describe("элемент списка не проходит проверку", (
   it("отвергает путь без ведущего слэша", async () => {
     await expect(
       parser.parse("endpoints: [{ id: a, method: GET, path: v1/users }]"),
-    ).rejects.toThrow(/должен быть строкой, начинающейся со слэша/);
+    ).rejects.toThrow(/must be a string starting with a slash/);
   });
 
   it("отвергает абсолютный URL вместо пути", async () => {
@@ -240,7 +240,7 @@ describe("элемент списка не проходит проверку", (
   it("отвергает схемо-относительный URL", async () => {
     const list = 'endpoints: [{ id: a, method: GET, path: "//evil.test/v1/users" }]';
 
-    await expect(parser.parse(list)).rejects.toThrow(/адресует другой хост/);
+    await expect(parser.parse(list)).rejects.toThrow(/addresses another host/);
   });
 
   it("отвергает отсутствующий путь", async () => {
@@ -275,7 +275,7 @@ endpoints:
 
     await expect(attempt).rejects.toThrow(DuplicateEndpointIdError);
     await expect(attempt).rejects.toMatchObject({ id: "users.list" });
-    await expect(attempt).rejects.toThrow(/#0 и #2/);
+    await expect(attempt).rejects.toThrow(/#0 and #2/);
   });
 
   it("различает id по регистру: это разные эндпоинты", async () => {
@@ -331,7 +331,7 @@ endpoints:
 
     await expect(attempt).rejects.toThrow(EndpointListTooLargeError);
     await expect(attempt).rejects.toThrow(
-      new RegExp(`${Buffer.byteLength(MINIMAL_LIST, "utf8")} байт при пределе 32`),
+      new RegExp(`${Buffer.byteLength(MINIMAL_LIST, "utf8")} bytes, the limit is 32`),
     );
   });
 

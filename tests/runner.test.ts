@@ -701,7 +701,7 @@ describe("значение объекта не уводит обращение",
     });
 
     expect(seen).toEqual([]);
-    expect(result.failures[0]?.reason).toContain("уводит обращение");
+    expect(result.failures[0]?.reason).toContain("would send the request");
   });
 
   it("слэш в значении кодируется и обхода не даёт", async () => {

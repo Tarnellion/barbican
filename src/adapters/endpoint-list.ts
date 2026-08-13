@@ -59,14 +59,14 @@ export const DEFAULT_ENDPOINT_LIST_LIMITS: EndpointListLimits = {
 
 export class EndpointListTooLargeError extends Error {
   constructor(actualBytes: number, maxBytes: number) {
-    super(`Список эндпоинтов ${actualBytes} байт при пределе ${maxBytes}`);
+    super(`The endpoint list is ${actualBytes} bytes, the limit is ${maxBytes}`);
     this.name = "EndpointListTooLargeError";
   }
 }
 
 export class EndpointListParseError extends Error {
   constructor(message: string, options?: { cause: unknown }) {
-    super(`Не удалось разобрать список эндпоинтов: ${message}`, options);
+    super(`Could not parse the endpoint list: ${message}`, options);
     this.name = "EndpointListParseError";
   }
 }
@@ -80,8 +80,8 @@ export class EndpointListParseError extends Error {
 export class EmptyEndpointListError extends Error {
   constructor() {
     super(
-      "Список эндпоинтов пуст. Прогон по пустому списку даёт отчёт без находок, " +
-        "который читается как «нарушений нет», хотя не проверено ничего.",
+      "The endpoint list is empty. A run over an empty list produces a report with no " +
+        "findings, which reads as «nothing is broken» while nothing was tested at all.",
     );
     this.name = "EmptyEndpointListError";
   }
@@ -95,7 +95,7 @@ export class InvalidEndpointError extends Error {
   readonly field: EndpointField;
 
   constructor(index: number, field: EndpointField, reason: string) {
-    super(`Эндпоинт #${index}: ${reason}`);
+    super(`Endpoint #${index}: ${reason}`);
     this.name = "InvalidEndpointError";
     this.index = index;
     this.field = field;
@@ -107,8 +107,9 @@ export class DuplicateEndpointIdError extends Error {
 
   constructor(id: string, firstIndex: number, secondIndex: number) {
     super(
-      `Идентификатор "${id}" объявлен дважды: эндпоинты #${firstIndex} и #${secondIndex}. ` +
-        `Политика доступа ссылается на эндпоинты по id, и дубль сделал бы её толкование неоднозначным.`,
+      `Identifier "${id}" is declared twice: endpoints #${firstIndex} and #${secondIndex}. ` +
+        `The access policy references endpoints by id, and a duplicate would make its ` +
+        `interpretation ambiguous.`,
     );
     this.name = "DuplicateEndpointIdError";
     this.id = id;
@@ -159,7 +160,7 @@ function toEndpoint(entry: unknown, index: number): Endpoint {
     throw new InvalidEndpointError(
       index,
       "entry",
-      `элемент списка должен быть объектом с полями ${[...ENDPOINT_FIELDS].join(", ")}`,
+      `a list item must be an object with fields ${[...ENDPOINT_FIELDS].join(", ")}`,
     );
   }
 
@@ -168,14 +169,14 @@ function toEndpoint(entry: unknown, index: number): Endpoint {
       throw new InvalidEndpointError(
         index,
         "entry",
-        `неизвестное поле "${key}"; допустимы только ${[...ENDPOINT_FIELDS].join(", ")}`,
+        `unknown field "${key}"; only ${[...ENDPOINT_FIELDS].join(", ")} are allowed`,
       );
     }
   }
 
   const id = entry.id;
   if (typeof id !== "string" || id.trim() === "") {
-    throw new InvalidEndpointError(index, "id", "id обязателен и должен быть непустой строкой");
+    throw new InvalidEndpointError(index, "id", "id is required and must be a non-empty string");
   }
 
   const rawMethod = entry.method;
@@ -183,7 +184,7 @@ function toEndpoint(entry: unknown, index: number): Endpoint {
     throw new InvalidEndpointError(
       index,
       "method",
-      `method обязателен и должен быть строкой; допустимы ${METHOD_NAMES}`,
+      `method is required and must be a string; allowed: ${METHOD_NAMES}`,
     );
   }
   const method = toMethod(rawMethod);
@@ -191,7 +192,7 @@ function toEndpoint(entry: unknown, index: number): Endpoint {
     throw new InvalidEndpointError(
       index,
       "method",
-      `метод "${rawMethod}" не поддерживается; допустимы ${METHOD_NAMES}`,
+      `method "${rawMethod}" is not supported; allowed: ${METHOD_NAMES}`,
     );
   }
 
@@ -200,7 +201,7 @@ function toEndpoint(entry: unknown, index: number): Endpoint {
     throw new InvalidEndpointError(
       index,
       "path",
-      `path должен быть строкой, начинающейся со слэша; получено ${JSON.stringify(path)}`,
+      `path must be a string starting with a slash; got ${JSON.stringify(path)}`,
     );
   }
   // `//host/x` — схемо-относительный URL: он адресует другой хост, а не путь
@@ -210,7 +211,7 @@ function toEndpoint(entry: unknown, index: number): Endpoint {
     throw new InvalidEndpointError(
       index,
       "path",
-      `path "${path}" адресует другой хост (схемо-относительный URL), а не путь на проверяемом`,
+      `path "${path}" addresses another host (a scheme-relative URL), not a path on the target`,
     );
   }
 
@@ -219,18 +220,18 @@ function toEndpoint(entry: unknown, index: number): Endpoint {
 
 function toEndpoints(document: unknown): readonly Endpoint[] {
   if (!isRecord(document)) {
-    throw new EndpointListParseError('документ не является объектом с ключом "endpoints"');
+    throw new EndpointListParseError('the document is not an object with an "endpoints" key');
   }
 
   for (const key of Object.keys(document)) {
     if (!DOCUMENT_FIELDS.has(key)) {
-      throw new EndpointListParseError(`неизвестный ключ документа "${key}"`);
+      throw new EndpointListParseError(`unknown document key "${key}"`);
     }
   }
 
   const list = document.endpoints;
   if (!Array.isArray(list)) {
-    throw new EndpointListParseError('ключ "endpoints" отсутствует или не является списком');
+    throw new EndpointListParseError('the "endpoints" key is missing or is not a list');
   }
   if (list.length === 0) {
     throw new EmptyEndpointListError();

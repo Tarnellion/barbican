@@ -18,9 +18,9 @@ export interface TenantNode {
 export class UnknownParentTenantError extends Error {
   constructor(id: TenantId, parentId: TenantId) {
     super(
-      `Тенант "${id}" объявлен потомком "${parentId}", которого нет в перечне. ` +
-        `Опечатка в родителе делает тенанта отдельным корнем и превращает ` +
-        `«свой бренд» в «чужой», то есть прячет находку.`,
+      `Tenant "${id}" is declared a child of "${parentId}", which is not in the list. ` +
+        `A typo in the parent makes the tenant a separate root and turns «our own brand» ` +
+        `into «someone else's» — that is, it hides a finding.`,
     );
     this.name = "UnknownParentTenantError";
   }
@@ -28,14 +28,14 @@ export class UnknownParentTenantError extends Error {
 
 export class TenantCycleError extends Error {
   constructor(id: TenantId) {
-    super(`Тенант "${id}" оказывается собственным предком: в перечне тенантов цикл`);
+    super(`Tenant "${id}" ends up being its own ancestor: the tenant list has a cycle`);
     this.name = "TenantCycleError";
   }
 }
 
 export class DuplicateTenantIdError extends Error {
   constructor(id: TenantId) {
-    super(`Тенант с id "${id}" объявлен больше одного раза`);
+    super(`A tenant with id "${id}" is declared more than once`);
     this.name = "DuplicateTenantIdError";
   }
 }
@@ -43,9 +43,9 @@ export class DuplicateTenantIdError extends Error {
 export class DuplicateMembershipError extends Error {
   constructor(where: string, id: TenantId) {
     super(
-      `${where} объявлен в тенанте "${id}" дважды. Повтор — всегда опечатка: ` +
-        `на отношение он не влияет, но прячет второй, настоящий тенант, ` +
-        `который хотели написать.`,
+      `${where} is declared in tenant "${id}" twice. A repeat is always a typo: ` +
+        `it does not affect the relation, but it hides the second, real tenant ` +
+        `that was meant to be written.`,
     );
     this.name = "DuplicateMembershipError";
   }
@@ -54,11 +54,12 @@ export class DuplicateMembershipError extends Error {
 export class SubsumedMembershipError extends Error {
   constructor(where: string, ancestor: TenantId, descendant: TenantId) {
     super(
-      `${where} объявлен сразу в "${ancestor}" и в "${descendant}", а второй лежит ` +
-        `в поддереве первого. Такой набор меняет смысл молча: объекты "${descendant}" ` +
-        `перестают быть descendant-tenant и становятся same-tenant, правило со scope: ` +
-        `descendant-tenant к ним больше не применяется, и ячейка уходит в fallback. ` +
-        `Оставьте "${ancestor}": членство в предке уже покрывает всё поддерево.`,
+      `${where} is declared in both "${ancestor}" and "${descendant}", and the second ` +
+        `lies in the subtree of the first. Such a set changes the meaning silently: ` +
+        `resources of "${descendant}" stop being descendant-tenant and become ` +
+        `same-tenant, a rule with scope: descendant-tenant no longer applies to them, ` +
+        `and the cell falls through to the fallback. Keep "${ancestor}": membership ` +
+        `in an ancestor already covers the whole subtree.`,
     );
     this.name = "SubsumedMembershipError";
   }

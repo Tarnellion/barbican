@@ -8,15 +8,15 @@ import type { TenantNode } from "./tenancy.js";
 import type { AccessMatrix, AccessObservation, Account, Endpoint, Resource } from "./types.js";
 
 export class DuplicateIdError extends Error {
-  constructor(kind: "эндпоинт" | "аккаунт" | "ресурс", id: string) {
-    super(`Дублирующийся ${kind} с id "${id}"`);
+  constructor(kind: "endpoint" | "account" | "resource", id: string) {
+    super(`Duplicate ${kind} with id "${id}"`);
     this.name = "DuplicateIdError";
   }
 }
 
 export class UnknownReferenceError extends Error {
-  constructor(kind: "эндпоинт" | "аккаунт" | "ресурс", id: string) {
-    super(`Наблюдение ссылается на неизвестный ${kind} "${id}"`);
+  constructor(kind: "endpoint" | "account" | "resource", id: string) {
+    super(`An observation references an unknown ${kind} "${id}"`);
     this.name = "UnknownReferenceError";
   }
 }
@@ -25,8 +25,8 @@ export class ConflictingObservationError extends Error {
   constructor(accountId: string, endpointId: string, resourceId?: string) {
     const cell = resourceId === undefined ? "" : ` × "${resourceId}"`;
     super(
-      `Больше одного наблюдения для "${accountId}" × "${endpointId}"${cell}. ` +
-        `Какое из них отражает доступ — определить нельзя.`,
+      `More than one observation for "${accountId}" × "${endpointId}"${cell}. ` +
+        `Which one reflects access cannot be determined.`,
     );
     this.name = "ConflictingObservationError";
   }
@@ -97,7 +97,7 @@ export function buildAccessMatrix(input: AccessMatrixInput): AccessMatrix {
   const endpointIds = new Set<string>();
   for (const endpoint of input.endpoints) {
     if (endpointIds.has(endpoint.id)) {
-      throw new DuplicateIdError("эндпоинт", endpoint.id);
+      throw new DuplicateIdError("endpoint", endpoint.id);
     }
     endpointIds.add(endpoint.id);
   }
@@ -105,7 +105,7 @@ export function buildAccessMatrix(input: AccessMatrixInput): AccessMatrix {
   const resourceIds = new Set<string>();
   for (const resource of input.resources ?? []) {
     if (resourceIds.has(resource.id)) {
-      throw new DuplicateIdError("ресурс", resource.id);
+      throw new DuplicateIdError("resource", resource.id);
     }
     resourceIds.add(resource.id);
   }
@@ -113,7 +113,7 @@ export function buildAccessMatrix(input: AccessMatrixInput): AccessMatrix {
   const accountIds = new Set<string>();
   for (const account of input.accounts) {
     if (accountIds.has(account.id)) {
-      throw new DuplicateIdError("аккаунт", account.id);
+      throw new DuplicateIdError("account", account.id);
     }
     accountIds.add(account.id);
   }
@@ -121,13 +121,13 @@ export function buildAccessMatrix(input: AccessMatrixInput): AccessMatrix {
   const seen = new Map<string, Map<string, Set<string | undefined>>>();
   for (const observation of input.observations) {
     if (!accountIds.has(observation.accountId)) {
-      throw new UnknownReferenceError("аккаунт", observation.accountId);
+      throw new UnknownReferenceError("account", observation.accountId);
     }
     if (!endpointIds.has(observation.endpointId)) {
-      throw new UnknownReferenceError("эндпоинт", observation.endpointId);
+      throw new UnknownReferenceError("endpoint", observation.endpointId);
     }
     if (observation.resourceId !== undefined && !resourceIds.has(observation.resourceId)) {
-      throw new UnknownReferenceError("ресурс", observation.resourceId);
+      throw new UnknownReferenceError("resource", observation.resourceId);
     }
 
     let byEndpoint = seen.get(observation.accountId);

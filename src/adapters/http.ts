@@ -108,8 +108,9 @@ export const DEFAULT_TIMEOUT_MS = 15_000;
 export class EmptyScopeError extends Error {
   constructor() {
     super(
-      "Не задан allowlist хостов. Инструмент не работает без явно очерченной области: " +
-        "прогон против незаявленного хоста — это не проверка, а сканирование чужой системы.",
+      "No host allowlist was given. The tool does not run without an explicitly drawn " +
+        "scope: a run against an undeclared host is not testing, it is scanning " +
+        "someone else's system.",
     );
     this.name = "EmptyScopeError";
   }
@@ -119,7 +120,7 @@ export class HostNotAllowedError extends Error {
   readonly host: string;
 
   constructor(host: string) {
-    super(`Хост "${host}" вне заданной области проверки`);
+    super(`Host "${host}" is outside the declared scope`);
     this.name = "HostNotAllowedError";
     this.host = host;
   }
@@ -127,7 +128,7 @@ export class HostNotAllowedError extends Error {
 
 export class UnsupportedProtocolError extends Error {
   constructor(protocol: string) {
-    super(`Протокол "${protocol}" не поддерживается: допустимы только http и https`);
+    super(`Protocol "${protocol}" is not supported: only http and https are allowed`);
     this.name = "UnsupportedProtocolError";
   }
 }
@@ -137,8 +138,8 @@ export class UnsafeMethodError extends Error {
 
   constructor(method: HttpMethod) {
     super(
-      `Метод ${method} изменяет состояние и запрещён по умолчанию. ` +
-        `Разрешается только явным включением небезопасных методов.`,
+      `Method ${method} changes state and is forbidden by default. ` +
+        `It is allowed only by explicitly enabling unsafe methods.`,
     );
     this.name = "UnsafeMethodError";
     this.method = method;
@@ -148,8 +149,8 @@ export class UnsafeMethodError extends Error {
 export class CircuitOpenError extends Error {
   constructor(failures: number) {
     super(
-      `Прогон остановлен после ${failures} неудачных ответов подряд. ` +
-        `Продолжать — значит добивать систему, которой и так плохо.`,
+      `The run stopped after ${failures} consecutive failed responses. ` +
+        `Continuing would mean hammering a system that is already unwell.`,
     );
     this.name = "CircuitOpenError";
   }
@@ -175,7 +176,7 @@ function safeUrl(url: string): string {
 
 export class RequestFailedError extends Error {
   constructor(url: string, attempts: number, options?: { cause: unknown }) {
-    super(`Обращение к "${safeUrl(url)}" не удалось за ${attempts} попыток`, options);
+    super(`The request to "${safeUrl(url)}" failed after ${attempts} attempts`, options);
     this.name = "RequestFailedError";
   }
 }

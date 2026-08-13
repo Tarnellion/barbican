@@ -251,7 +251,7 @@ describe("переменные Postman в пути", () => {
       item: [{ name: "Карточка", request: request("GET", ["v1", "{{ player id }}"]) }],
     });
 
-    await expect(parser.parse(collection)).rejects.toThrow(/незакрытую или пустую фигурную скобку/);
+    await expect(parser.parse(collection)).rejects.toThrow(/unclosed or empty brace/);
   });
 
   it("отвергает незакрытую фигурную скобку", async () => {
@@ -389,7 +389,7 @@ describe("путь берётся из url", () => {
       item: [{ name: "Список", request: { method: "GET", url: "   " } }],
     });
 
-    await expect(parser.parse(collection)).rejects.toThrow(/"request.url" пуст/);
+    await expect(parser.parse(collection)).rejects.toThrow(/"request.url" is empty/);
   });
 
   it("отвергает url, не являющийся ни строкой, ни объектом", async () => {
@@ -405,7 +405,9 @@ describe("путь берётся из url", () => {
       item: [{ name: "a", request: { method: "GET", url: { host: ["{{baseUrl}}"] } } }],
     });
 
-    await expect(parser.parse(collection)).rejects.toThrow(/ни непустого "path", ни "raw"/);
+    await expect(parser.parse(collection)).rejects.toThrow(
+      /neither a non-empty "path" nor a "raw"/,
+    );
   });
 
   it("отвергает сегмент пути, не являющийся строкой", async () => {
@@ -450,7 +452,7 @@ describe("хост из коллекции не влияет на адресат
       item: [{ name: "a", request: { method: "GET", url: { path: ["", "evil.test", "x"] } } }],
     });
 
-    await expect(parser.parse(collection)).rejects.toThrow(/адресует другой хост/);
+    await expect(parser.parse(collection)).rejects.toThrow(/addresses another host/);
   });
 
   // Такой путь начинается со слэша и мимо простой проверки проходит, но
@@ -466,7 +468,7 @@ describe("хост из коллекции не влияет на адресат
     const attempt = parser.parse(collection);
 
     await expect(attempt).rejects.toMatchObject({ field: "path" });
-    await expect(attempt).rejects.toThrow(/адресует https:\/\/evil\.test/);
+    await expect(attempt).rejects.toThrow(/addresses https:\/\/evil\.test/);
   });
 
   it("отвергает путь, который не разбирается как адрес", async () => {
@@ -474,7 +476,7 @@ describe("хост из коллекции не влияет на адресат
       item: [{ name: "a", request: { method: "GET", url: { path: ["https:", "", "["] } } }],
     });
 
-    await expect(parser.parse(collection)).rejects.toThrow(/не удалось разобрать как адрес/);
+    await expect(parser.parse(collection)).rejects.toThrow(/could not be parsed as a URL/);
   });
 
   // Следствие того, что проверка повторяет правило прогона: прогон убирает
@@ -490,7 +492,7 @@ describe("хост из коллекции не влияет на адресат
       item: [{ name: "b", request: { method: "GET", url: { path: ["v1", "orders:cancel"] } } }],
     });
 
-    await expect(parser.parse(first)).rejects.toThrow(/адресует null/);
+    await expect(parser.parse(first)).rejects.toThrow(/addresses null/);
     await expect(parser.parse(later)).resolves.toEqual([
       { id: "b", method: "GET", path: "/v1/orders:cancel" },
     ]);
@@ -512,7 +514,7 @@ describe("документ не той формы", () => {
 
   it("отвергает документ без ключа item", async () => {
     await expect(parser.parse(JSON.stringify({ info: { name: "x" } }))).rejects.toThrow(
-      /"item" отсутствует или не является списком/,
+      /"item" key is missing or is not a list/,
     );
   });
 
@@ -560,7 +562,7 @@ describe("элемент коллекции не проходит проверк
   it("отвергает элемент, не являющийся объектом", async () => {
     await expect(parser.parse(JSON.stringify({ item: ["/v1/users"] }))).rejects.toMatchObject({
       name: "InvalidPostmanItemError",
-      location: "<корень коллекции>",
+      location: "<collection root>",
       field: "item",
     });
   });
@@ -591,13 +593,13 @@ describe("элемент коллекции не проходит проверк
       item: [{ name: "Оба", item: [], request: request("GET", ["a"]) }],
     });
 
-    await expect(parser.parse(collection)).rejects.toThrow(/папка это или запрос/);
+    await expect(parser.parse(collection)).rejects.toThrow(/whether it is a folder or a request/);
   });
 
   it("отвергает папку, у которой item не список", async () => {
     const collection = JSON.stringify({ item: [{ name: "Папка", item: { name: "x" } }] });
 
-    await expect(parser.parse(collection)).rejects.toThrow(/"item" должен быть списком/);
+    await expect(parser.parse(collection)).rejects.toThrow(/"item" must be a list/);
   });
 
   // Сокращённая запись `"request": "https://..."` означала бы GET по умолчанию;
@@ -625,7 +627,7 @@ describe("элемент коллекции не проходит проверк
       item: [{ name: "a", request: request("TRACE", ["a"]) }],
     });
 
-    await expect(parser.parse(collection)).rejects.toThrow(/метод "TRACE" не поддерживается/);
+    await expect(parser.parse(collection)).rejects.toThrow(/method "TRACE" is not supported/);
   });
 
   it("называет папку, в которой лежит сбойный элемент", async () => {
@@ -724,7 +726,7 @@ item:
 
     await expect(attempt).rejects.toThrow(PostmanCollectionTooLargeError);
     await expect(attempt).rejects.toThrow(
-      new RegExp(`${Buffer.byteLength(COLLECTION, "utf8")} байт при пределе 32`),
+      new RegExp(`${Buffer.byteLength(COLLECTION, "utf8")} bytes, the limit is 32`),
     );
   });
 

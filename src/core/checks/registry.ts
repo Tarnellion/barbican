@@ -11,7 +11,7 @@ export class DuplicateCheckIdError extends Error {
   readonly checkId: string;
 
   constructor(checkId: string) {
-    super(`Проверка с id "${checkId}" уже зарегистрирована`);
+    super(`A check with id "${checkId}" is already registered`);
     this.name = "DuplicateCheckIdError";
     this.checkId = checkId;
   }
