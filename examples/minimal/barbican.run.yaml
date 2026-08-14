@@ -1,10 +1,14 @@
 # A minimal run configuration.
 #
-# Two tenants, three accounts, three endpoints. The full walk-through of the format —
-# ADR-0008. A working example with a deployment and an oracle — the `polygon/`
-# directory.
+# Two tenants, three accounts, three endpoints. The walk-through of the format is
+# in `docs/guide.md`; why it looks like this is ADR-0008. A working example with a
+# deployment and an oracle — the `polygon/` directory.
 
 target:
+  # What was checked, in the words of whoever will read the report. Without it a
+  # reader cannot tell a run against a staging deployment from a run against a demo
+  # polygon — and the tool warns about that on every start.
+  label: local stand, minimal example
   baseUrl: http://127.0.0.1:8080/api
   # Mandatory. Without an explicit list of hosts the tool refuses to work: a run
   # against an undeclared host is not a check but a scan of someone else's system. An

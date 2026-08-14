@@ -467,6 +467,23 @@ There is exactly one source of endpoints: `--spec` (OpenAPI), `--endpoints` (a
 manual list) or `--postman`. Two of them would diverge silently; none of them
 would give a report with no findings, indistinguishable from a successful one.
 
+**Where the identifiers come from.** Policy, resources, conditions and canaries
+refer to an endpoint by its `id`, and where that `id` comes from depends on the
+source:
+
+| Source | `id` |
+|---|---|
+| `--endpoints` | the `id` you wrote |
+| `--spec` | `operationId`, and where the operation has none — `"GET /v1/orders"` |
+| `--postman` | the trail of folders and the request name: `"Orders/List orders"` |
+
+A specification without `operationId` therefore gives identifiers with a space
+in them, and a rule has to quote them: `endpoints: ["GET /v1/admin/users"]`.
+Referring to an endpoint that is not among the parsed ones stops the run — the
+alternative is a rule that silently never applies. The parsed list is written
+into the report as `endpoints[]`, which is the place to look when a name does
+not match.
+
 ### Manual endpoint list
 
 The `--endpoints` format is the same YAML, with one top-level key:
@@ -506,6 +523,52 @@ TOKEN_ALICE=… TOKEN_CAROL=… barbican run --config barbican.run.yaml --spec o
 Throttling: `--concurrency`, `--rps`, `--max-requests`. The defaults are
 conservative — you are running across someone else's deployment. Throttling
 cannot be turned off: it is a port, not an option.
+
+### Write methods
+
+Without `--unsafe-methods` a write endpoint is not requested at all. It is not
+dropped quietly either: it lands in `coverage.skipped` with the reason
+`unsafe-method`, and `coverage.writeMethodsProbed` stays `false`. That pair is
+the whole point — a report from a safe run says out loud that the write half of
+the matrix is untested, so its "no findings" cannot be read as "writes are fine".
+
+With the flag a write cell is an ordinary cell: same accounts, same resources,
+same comparison against the declared policy. What changes is the cost of being
+wrong. Before passing it, three things are worth having:
+
+- **Permission from whoever owns the deployment.** A cancelled order stays
+  cancelled after the report is written; barbican does not undo what it did.
+- **Rules for the write endpoints.** Under `fallback: denied` an endpoint with
+  no rule is expected to be refused, and every account that gets through is a
+  finding. That is a usable default, but it is a declaration either way — write
+  it down rather than inherit it.
+- **A run against a stand, not production**, until the policy has been through
+  one clean pass.
+
+The asymmetry between reading and writing is the part a read-only matrix cannot
+express, and it is where real platforms leak. A holding account that legitimately
+reads a rollup across its brands is not thereby entitled to act on their orders;
+an owner may cancel their own order while a colleague in the same tenant may not.
+Both are separate rules over the same endpoint, and neither follows from the read
+rules:
+
+```yaml
+    - roles: [user]
+      endpoints: [orders.cancel]
+      scope: own
+      outcome: allowed
+
+    - roles: [holding]
+      endpoints: [orders.cancel]
+      scope: descendant-tenant
+      outcome: denied      # reading a rollup is not a right to act on it
+```
+
+The reference platform in `polygon/` carries this as a pair of switchable
+defects — a write that ignores the tenant, a write that ignores the owner — and
+the oracle
+pins the cells they light up. That is what keeps the flag honest: without those
+cells `--unsafe-methods` would be a code path nothing had ever walked.
 
 ## What the tool does not do
 

@@ -17,7 +17,8 @@ Validated against three targets — [crAPI](docs/polygons/crapi.md), VAmPI, and 
   accounts and roles, path and query parameter substitution, cross-tenant and BOLA
   detection, scalar signals over response bodies, request conditions as a fourth
   coordinate of a cell (geo, KYC, device — the part of ABAC that permissions cannot
-  express), a per-cell verdict in the report, JSON report and exit codes.
+  express), write methods behind `--unsafe-methods` with the skip recorded when the
+  flag is absent, a per-cell verdict in the report, JSON report and exit codes.
 - **Not yet** — see the limitation below, plus [tasks.md](tasks.md).
 
 ### Declare your tenant tree, or the old failure mode is still yours
@@ -50,11 +51,12 @@ workarounds and what each of them gets wrong. See
 
 ## Documentation
 
-Everything the tool says and everything you read to use it is in English:
-this README, both guides, every polygon write-up, all twenty design records
-in `docs/adr/`, and every message the CLI prints. Working notes (`tasks.md`,
-`plan.md`) and comments inside the source stay Russian — they are addressed to
-whoever maintains the code, not to whoever runs it.
+The repository is English throughout: this README, both guides, every polygon
+write-up, every design record in `docs/adr/`, the working notes, the
+comments and test names inside the source, and every message the CLI prints. A
+test enforces it — the rule survives exactly as long as it is checked. Russian
+copies live outside the repository and are a snapshot, not a second version;
+where two language versions disagree, the English files are the source of truth.
 
 - **[docs/guide.md](docs/guide.md)** — declaring accounts, tenants, resources and
   the access policy; running a scan; what the tool deliberately does not do.
@@ -78,19 +80,25 @@ before the release pipeline existed.
 
 ## Example
 
-The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config
-and [`polygon/`](polygon/) for a working target with deliberate defects and a hand-written
-oracle. The starter config points at a host that does not exist and expects a token in
-the environment, so it is a template to edit, not a demo to run:
+The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.
+It points at a host that does not exist and expects a token in the environment, so it is
+a template to edit, not a demo to run:
 
 ```bash
 barbican run --config examples/minimal/barbican.run.yaml --endpoints examples/minimal/endpoints.yaml
 ```
 
-For something that actually answers, run against the bundled polygon — it needs no
-Docker, only Node:
+The package ships `docs/` and `examples/`, so after an install those files are under
+`node_modules/barbican/` — copy the pair out and edit them in place.
+
+For something that actually answers, run against the reference platform in
+[`polygon/`](polygon/): a multi-tenant target with switchable defects and a hand-written
+oracle, needing no Docker, only Node. It comes with a clone rather than with the package —
+a deliberately vulnerable server has no business landing in everyone's `node_modules`:
 
 ```bash
+git clone https://github.com/Tarnellion/barbican && cd barbican
+pnpm install && pnpm run build
 node polygon/verify.mjs
 ```
 
@@ -124,12 +132,13 @@ const policy: ExpectedAccessPolicy = {
 console.log(diffAccess(matrix, policy));
 // [
 //   {
-//     accountId: "player-1",
-//     endpointId: "users.list",
-//     expected: "denied",
-//     actual: "allowed",
-//     kind: "privilege-escalation",
-//   },
+//     accountId: 'player-1',
+//     endpointId: 'users.list',
+//     expected: 'denied',
+//     kind: 'privilege-escalation',
+//     severity: 'high',
+//     actual: 'allowed'
+//   }
 // ]
 ```
 
@@ -193,10 +202,11 @@ are deliberately timid, and the numbers are these:
 | Requests per run | 2000 | `--max-requests` |
 
 One cell is one request. A run costs roughly `accounts × endpoints × resources`
-requests — the reference polygon with 9 accounts, 6 endpoints and 6 resources
-comes to 144 cells and finishes in about a minute. Declaring request conditions
-multiplies that by the number of contexts, which is why a context must name the
-endpoints it applies to.
+requests — the reference polygon with 9 accounts, 6 resources and 7 endpoints
+comes to 144 cells and finishes in about a minute. One of those endpoints is a
+write, so it is skipped unless `--unsafe-methods` is passed; with the flag the
+same run walks 180. Declaring request conditions multiplies that by the number of
+contexts, which is why a context must name the endpoints it applies to.
 
 When the budget runs out the run stops and the report says so: `truncated: true`
 and exit code 2, because the tail of the matrix was never tested and the absence

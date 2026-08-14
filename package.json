@@ -39,7 +39,9 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "docs",
+    "examples"
   ],
   "publishConfig": {
     "access": "public",

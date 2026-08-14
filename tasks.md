@@ -655,6 +655,70 @@ two of the project's defences against each other:
       plain Node with no Docker, about a minute and a half. The strongest correctness check
       in the project used to run only on my machine and only when I remembered it.
 
+## Write methods (closed 14 August 2026)
+
+`--unsafe-methods` had existed since the CLI did, and not one oracle cell ever
+walked the path behind it. A flag that turns on untested code is a claim, not a
+capability.
+
+- [x] **The polygon gained a write endpoint** — `POST /v1/orders/{orderId}/cancel` —
+      and two switches behind it: a cross-tenant write and a write with no owner
+      check. Cancelling rather than a mutation the traversal can observe:
+      authorization never reads `cancelled`, so the oracle does not depend on the
+      order in which cells are walked.
+- [x] **The policy declares the read/write asymmetry.** A holding may read a rollup
+      across its brands and may not cancel their orders — an explicit `denied`
+      rather than a fall-through to `fallback`, because that difference is the
+      whole reason the endpoint exists here.
+- [x] **Three oracle variants carry `unsafeMethods: true`.** 28 combinations, 0
+      mismatches; 180 cells with the flag against 144 without, the findings carry
+      `"method": "POST"` and `writeMethodsProbed: true`.
+- [x] The guide got a section on write methods: what the flag turns on, what it
+      costs to be wrong, and what a policy needs before it is passed.
+
+## The fourth cold read (14 August 2026)
+
+A read from the position of someone installing 0.2.0 from npm and never opening
+the repository. Everything the tool promises about safety held up under
+experiment — write methods skipped without the flag, the redirect trap on a
+second port got zero requests, `set-cookie` and the tokens absent from a 21 KB
+report, the budget cut giving `truncated: true` and exit 2. What did not hold up
+was the packaging.
+
+- [x] **The tarball of 0.2.0 carries a pre-release README.** The tag was cut from a
+      commit that still said "build from source until `0.2.0` is published", and
+      npm shows the README of the tagged commit — so the package page talked
+      readers out of the package it was serving. Closed by a test rather than by
+      care: `tests/docs/release-readme.test.ts`.
+- [x] **The package contained no documentation and no example.** `files: ["dist"]`,
+      so every relative link in the README was dead for anyone who installed
+      rather than cloned, and the one thing a new user needs first — a whole valid
+      configuration to copy — was outside the package. Now `docs` and `examples`
+      ship; `polygon/` deliberately does not (ADR-0021).
+- [x] **The canonical template tripped its own warning:** `examples/minimal/` had no
+      `target.label`, which the tool warns about on every start.
+- [x] **The guide never said where endpoint identifiers come from.** With `--spec`
+      the `id` is the `operationId`, and an operation without one gets
+      `"GET /v1/admin/users"` — a name with a space that a rule has to quote. The
+      reader worked this out by reverse-engineering `endpoints[]` in the report.
+- [x] **The README's library example printed an object that the library does not
+      print** — `severity` was missing and the key order was wrong. A "run this,
+      see that" claim is the cheapest kind to check and the most embarrassing to
+      get wrong.
+- [ ] **The error "endpoint is not among the parsed ones" does not list the parsed
+      ones.** It explains why the mismatch matters and leaves the reader to guess
+      what the right name was. The list is right there at the point the error is
+      raised.
+- [ ] **The canary blames a stale token for a dead port.** `ECONNREFUSED` produces
+      "401 reads as a refusal, and the report would have looked clean" — the
+      reader went looking for a token problem. Transport failure and a refusal are
+      different facts and deserve different sentences.
+- [ ] **The summary says "at least 1 defect" next to exit code 0.** Correct by the
+      contract — a low-severity `probe-error` does not fail a run — and still reads
+      in CI as "a defect was found and the build is green".
+- [ ] **No JSON schema for the configuration ships with the package**, so an editor
+      offers no completion for a format whose every field is hand-written.
+
 ## Blockers for a run on someone else's platform
 
 They lay mixed in with everything else, which made them read as equals. They are not equals:
