@@ -23,8 +23,16 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
-/** Cyrillic, including the Ukrainian and Belarusian letters the range misses. */
-const CYRILLIC = /[Ѐ-ӿ]/;
+/**
+ * Cyrillic: the main block plus the supplement, which carries the Ukrainian,
+ * Belarusian and Slavic letters the main one misses.
+ *
+ * Written as escapes rather than as the characters themselves. With literal
+ * endpoints this guard flagged its own source — and it only noticed once it was
+ * committed, because until then git did not track it and it never looked at
+ * itself. A check that cannot survive its own rule is not a rule.
+ */
+const CYRILLIC = /[\u0400-\u052f]/;
 
 /**
  * Files tracked by git — the exact set that ends up on GitHub.
