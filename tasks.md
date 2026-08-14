@@ -436,7 +436,11 @@ Nothing here is fixed yet. The order of work is at the end.
       compares declared signals against each other only — the implied `digest`
       never enters `seenNames`. The text of that very error describes this
       failure.
-- [ ] **A-1. An exhausted budget never reaches the verdict.** `--max-requests
+- [x] **A-1. An exhausted budget never reaches the verdict.** Closed 14 August: the
+      whole `cause` chain is examined instead of the outer name, the failure
+      carries the terminal error's own words, and the canary tells a ceiling of
+      our own from a platform that is down. Proven through the real client, not a
+      fake — the fake is what hid it. Original finding: `--max-requests
       149` against a 144-cell matrix leaves three cells unprobed and reports
       `truncated: false`, exit 0. `http.ts:391` wraps everything in
       `RequestFailedError` with the cause attached; `runner.ts:572` matches
@@ -557,7 +561,9 @@ everything downstream of it.
       advance — `admit()` throws before `started += 1` — so the budget cannot
       recover and the retries are futile by construction. The silence boundary is
       exactly **4 cells**: from the fifth the circuit breaker fires and masks A-1.
-- [ ] **G-4.** An exhausted budget sends the reader to check the port.
+- [x] **G-4.** An exhausted budget sends the reader to check the port. Closed with
+      A-1: the canary now names `RunBudgetExhaustedError` and the message says to
+      raise the ceiling rather than to check the deployment. Original finding:
       `RunBudgetExhaustedError` carries no `code`, `failureCode()` falls back to
       `"TRANSPORT"`, and the canary prints "The platform did not answer at all…
       Check the address, the port". The error's own text — "a guard against

@@ -95,6 +95,19 @@ function skipBreakdown(report: {
   return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
 }
 
+/**
+ * A canary failure that is the run's own doing rather than the platform's.
+ *
+ * The names come from the client's errors and reach here through
+ * `CanaryResult.failure`. Kept apart from a transport failure because the advice
+ * is opposite: nothing to check on the deployment, something to change in the
+ * invocation.
+ */
+const TERMINAL_FAILURES: ReadonlySet<string> = new Set([
+  "RunBudgetExhaustedError",
+  "CircuitOpenError",
+]);
+
 function positiveInteger(raw: string): number {
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
@@ -324,12 +337,22 @@ async function run(flags: RunFlags): Promise<number> {
         )
         .join("\n");
 
-      // Two different facts, and the message used to name only one of them. A
-      // cold read hit a dead port and was told "401 reads as a denial", so it
-      // went looking for a stale token instead of a wrong address.
-      const unreachable = broken.some((r) => r.status === 0);
+      // Three different facts, and the message used to name one. A cold read hit
+      // a dead port and was told "401 reads as a denial", so it went looking for
+      // a stale token; the audit then hit its own `--max-requests` and was told
+      // to check the port, while the platform was up and had already answered.
+      const stopped = broken.some((r) => TERMINAL_FAILURES.has(r.failure ?? ""));
+      const unreachable = broken.some(
+        (r) => r.status === 0 && !TERMINAL_FAILURES.has(r.failure ?? ""),
+      );
       const refused = broken.some((r) => r.status !== 0);
       const why = [
+        stopped
+          ? `The run stopped itself before the canaries were through: the request ` +
+            `budget ran out, or the circuit breaker tripped on a run of failures. ` +
+            `Nothing here is about the platform or the tokens — raise ` +
+            `--max-requests, or find out what the platform was answering.`
+          : undefined,
         unreachable
           ? `The platform did not answer at all: nothing reached the application, so ` +
             `this says nothing about the tokens. Check the address, the port and that ` +

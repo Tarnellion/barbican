@@ -288,14 +288,69 @@ export interface CanaryResult {
  * failed`, and the code sits one or two levels down.
  */
 function failureCode(error: unknown): string | undefined {
-  for (let current = error, depth = 0; current !== undefined && depth < 4; depth += 1) {
-    const code = (current as { code?: unknown }).code;
+  for (const link of causeChain(error)) {
+    const code = (link as { code?: unknown }).code;
     if (typeof code === "string" && /^[A-Z][A-Z0-9_]*$/.test(code)) {
       return code;
     }
-    current = (current as { cause?: unknown }).cause;
   }
   return undefined;
+}
+
+/**
+ * The error and everything it wraps, outermost first.
+ *
+ * Bounded rather than looping until `cause` runs out: a cycle would hang the
+ * run, and nothing useful sits four wrappers deep.
+ */
+function* causeChain(error: unknown, limit = 4): Generator<unknown> {
+  let current = error;
+  for (let depth = 0; current !== undefined && current !== null && depth < limit; depth += 1) {
+    yield current;
+    current = (current as { cause?: unknown }).cause;
+  }
+}
+
+/**
+ * The names by which a client says "the walk cannot go on" rather than "this one
+ * request failed".
+ *
+ * By name, because the runner sits above the ports and must not know the classes
+ * of any particular client: `instanceof` here would tie it to one implementation
+ * of `HttpClient`, which is the thing the port exists to prevent.
+ */
+const TERMINAL_ERROR_NAMES: ReadonlySet<string> = new Set([
+  "RunBudgetExhaustedError",
+  "CircuitOpenError",
+]);
+
+/**
+ * Whether a failure cut the walk short.
+ *
+ * The whole chain is examined, not the outermost error. Found by the audit of 14
+ * August: the client wraps everything in `RequestFailedError` before it leaves
+ * (`http.ts`), and a match on the outer name therefore never saw
+ * `RunBudgetExhaustedError` at all. An exhausted budget left three cells unprobed
+ * and reported `truncated: false`, exit 0 — a clean verdict over a tail nobody
+ * looked at.
+ *
+ * `CircuitOpenError` was recognised only because it happens to be thrown
+ * directly, which is what made the defect look closed: past five consecutive
+ * failures the breaker trips and sets the flag for its own reasons, so only the
+ * last four cells of a run ever showed the fault.
+ */
+function terminalCause(error: unknown): Error | undefined {
+  for (const link of causeChain(error)) {
+    if (link instanceof Error && TERMINAL_ERROR_NAMES.has(link.name)) {
+      return link;
+    }
+  }
+  return undefined;
+}
+
+/** What to write in `failures[].reason`. */
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export class UnknownCanaryEndpointError extends Error {
@@ -391,7 +446,12 @@ export async function probeCanaries(options: {
       status = response.status;
     } catch (error) {
       status = 0;
-      failure = failureCode(error) ?? "TRANSPORT";
+      // A terminal condition is our own doing, not the platform's silence. Left
+      // as `TRANSPORT` it produced "the platform did not answer at all — check
+      // the address, the port and that the deployment is up" while the platform
+      // was up and had already answered: the run had simply hit the ceiling the
+      // operator set. Found by the audit of 14 August.
+      failure = terminalCause(error)?.name ?? failureCode(error) ?? "TRANSPORT";
     }
 
     results.push({
@@ -569,8 +629,8 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         headers = response.headers;
         signals = response.signals;
       } catch (cause) {
-        const name = cause instanceof Error ? cause.name : "";
-        if (name === "RunBudgetExhaustedError" || name === "CircuitOpenError") {
+        const terminal = terminalCause(cause);
+        if (terminal !== undefined) {
           truncated = true;
         }
         // A failed request is the absence of a conclusion, not a denial of access.
@@ -580,7 +640,11 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
           accountId: account.id,
           endpointId: endpoint.id,
           ...(resource === undefined ? {} : { resourceId: resource.id }),
-          reason: cause instanceof Error ? cause.message : String(cause),
+          // The terminal error's own words, not the wrapper's. "The request
+          // failed after 3 attempts" describes the symptom and blames the
+          // network; "the per-run request budget is exhausted" names the cause
+          // and says it was our own doing.
+          reason: reasonOf(terminal ?? cause),
         });
       }
 
