@@ -326,6 +326,26 @@ export interface Coverage {
    * sum with the discrepancies must give `cellsObserved`.
    */
   readonly cellsMatched?: number;
+  /**
+   * Resources every account was answered 404 for.
+   *
+   * Found by the audit of 14 August. A resource that is not there answers 404 to
+   * everybody; `not-found` folds into `denied`; and where no rule grants anyone
+   * access, every one of its cells agrees with the policy and the report says
+   * "tested and agreed". The central claim of the tool — "carol cannot read
+   * alice's order" — was then proved by the order not existing.
+   *
+   * Where an owner **is** granted access the tool already speaks: that account's
+   * cell expects `allowed`, gets a denial and lands in `findings` as an
+   * unexpected denial. This field is for the other half, where the declaration
+   * grants nobody anything and a 404 is indistinguishable from a locked door.
+   *
+   * Two situations produce it, and neither can be told from the other by status
+   * alone: the object is absent, or the platform hides its existence from
+   * everyone. Both mean the same thing for a reader — no cell touching this
+   * resource says anything about isolation.
+   */
+  readonly resourcesNotFound: readonly string[];
 }
 
 export interface RunReport {
@@ -733,6 +753,30 @@ function withVerdicts(options: BuildReportOptions): readonly ReportedObservation
   });
 }
 
+/**
+ * Resources that answered 404 to every account that asked.
+ *
+ * Only cells that produced an answer count: a request that failed says nothing
+ * about whether the object is there. A resource nobody reached at all does not
+ * appear here either — that is a different gap, and `cellsNotObserved` carries it.
+ */
+function resourcesNeverFound(observations: readonly AccessObservation[]): readonly string[] {
+  const answered = new Map<string, { total: number; missing: number }>();
+  for (const observation of observations) {
+    if (observation.resourceId === undefined || observation.outcome === "error") {
+      continue;
+    }
+    const seen = answered.get(observation.resourceId) ?? { total: 0, missing: 0 };
+    seen.total += 1;
+    seen.missing += observation.outcome === "not-found" ? 1 : 0;
+    answered.set(observation.resourceId, seen);
+  }
+  return [...answered]
+    .filter(([, seen]) => seen.total > 0 && seen.total === seen.missing)
+    .map(([resourceId]) => resourceId)
+    .sort();
+}
+
 /** How many cells were observed under each set of conditions, untested included. */
 function countByContext(options: BuildReportOptions): Readonly<Record<string, number>> {
   const counts: Record<string, number> = {};
@@ -851,6 +895,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
       checksRun: options.checksRun ?? [],
       bodyComparison: options.bodyComparison ?? [],
       contextsProbed: countByContext(options),
+      resourcesNotFound: resourcesNeverFound(options.observations),
       // Counted from the verdicts themselves, not by subtraction. Subtraction
       // lied: among the discrepancies there are `not-observed` ones that have no
       // observation at all, and the number came out too low. ADR-0020 promises

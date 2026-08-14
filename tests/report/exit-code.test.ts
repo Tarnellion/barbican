@@ -54,6 +54,7 @@ function report(overrides: {
       checksRun: [],
       bodyComparison: [],
       contextsProbed: {},
+      resourcesNotFound: [],
       cellsMatched: 0,
     },
     tool: { name: "barbican", version: "test" },
@@ -191,6 +192,113 @@ describe("coverage and run identification", () => {
    */
   it("names by name where bodies were compared", () => {
     expect(build().coverage.bodiesComparedOn).toEqual(["a"]);
+  });
+
+  /**
+   * Found by the audit of 14 August. A resource that is not there answers 404 to
+   * everybody, `not-found` folds into `denied`, and where no rule grants anyone
+   * access every one of its cells agrees with the policy. The tool's central
+   * claim — "carol cannot read alice's order" — was proved by the order not
+   * existing, and the report said "tested and agreed" about it.
+   *
+   * Where an owner is granted access this already surfaced as an unexpected
+   * denial. This names the other half.
+   */
+  it("names resources every account was answered 404 for", () => {
+    const observations = [
+      {
+        accountId: "u",
+        endpointId: "a",
+        resourceId: "ghost",
+        status: 404,
+        headers: {},
+        outcome: "not-found" as const,
+        durationMs: 1,
+      },
+      {
+        accountId: "v",
+        endpointId: "a",
+        resourceId: "ghost",
+        status: 404,
+        headers: {},
+        outcome: "not-found" as const,
+        durationMs: 1,
+      },
+      {
+        accountId: "u",
+        endpointId: "a",
+        resourceId: "real",
+        status: 200,
+        headers: {},
+        outcome: "allowed" as const,
+        durationMs: 1,
+      },
+      {
+        accountId: "v",
+        endpointId: "a",
+        resourceId: "real",
+        status: 404,
+        headers: {},
+        outcome: "not-found" as const,
+        durationMs: 1,
+      },
+    ];
+
+    expect(build({ observations }).coverage.resourcesNotFound).toEqual(["ghost"]);
+  });
+
+  // One account reaching it is enough: the object is there, and every other 404
+  // is then a statement about access rather than about existence.
+  it("says nothing about a resource one account did reach", () => {
+    const observations = [
+      {
+        accountId: "u",
+        endpointId: "a",
+        resourceId: "real",
+        status: 200,
+        headers: {},
+        outcome: "allowed" as const,
+        durationMs: 1,
+      },
+      {
+        accountId: "v",
+        endpointId: "a",
+        resourceId: "real",
+        status: 404,
+        headers: {},
+        outcome: "not-found" as const,
+        durationMs: 1,
+      },
+    ];
+
+    expect(build({ observations }).coverage.resourcesNotFound).toEqual([]);
+  });
+
+  // A request that failed proves nothing either way, so it must not turn a
+  // resource nobody reached into a resource everybody missed.
+  it("ignores cells that never produced an answer", () => {
+    const observations = [
+      {
+        accountId: "u",
+        endpointId: "a",
+        resourceId: "ghost",
+        status: 0,
+        headers: {},
+        outcome: "error" as const,
+        durationMs: 1,
+      },
+      {
+        accountId: "v",
+        endpointId: "a",
+        resourceId: "ghost",
+        status: 0,
+        headers: {},
+        outcome: "error" as const,
+        durationMs: 1,
+      },
+    ];
+
+    expect(build({ observations }).coverage.resourcesNotFound).toEqual([]);
   });
 
   it("says whether write methods were performed", () => {

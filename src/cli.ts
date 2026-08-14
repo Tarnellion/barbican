@@ -496,6 +496,17 @@ async function run(flags: RunFlags): Promise<number> {
     summary.failures > 0
       ? paint(`Requests that failed: ${summary.failures} (reasons in the report)`, "yellow")
       : undefined,
+    // A resource nobody could reach settles nothing about isolation: a 404
+    // satisfies a denial whether the object is protected or simply absent. Said
+    // out loud, because the cells for it otherwise read as "tested and agreed".
+    report.coverage.resourcesNotFound.length > 0
+      ? paint(
+          `Resources answered 404 to everyone: ${report.coverage.resourcesNotFound.join(", ")}. ` +
+            `Their cells say nothing about isolation — a missing object refuses ` +
+            `exactly like a protected one.`,
+          "yellow",
+        )
+      : undefined,
     escalations > 0
       ? paint(`Privilege escalation: ${escalations}`, "red")
       : paint("No privilege escalation found", "green"),

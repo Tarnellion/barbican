@@ -449,7 +449,12 @@ Nothing here is fixed yet. The order of work is at the end.
       `RunBudgetExhaustedError` never leaves the client. Recorded as closed in
       the ADR-0005 addendum of 12 August — it is not. The test that "covers" it
       feeds a fake client an error the real client cannot produce.
-- [ ] **L-2. A resource that does not exist yields "isolation verified."** A 404
+- [x] **L-2. A resource that does not exist yields "isolation verified."** Closed 14
+      August through `coverage.resourcesNotFound` rather than a resource canary:
+      the fact is derived from the walk that already happened, costs no traffic,
+      and covers resources with no declared owner too. Half the class turned out
+      to be caught already — where an owner is granted access, a missing object
+      gives that account an unexpected denial. Original finding: A 404
       becomes `not-found`, `toBinary` folds that into `denied`, and the cell
       reports `MATCH: true`. The tool's central claim — "carol cannot read
       alice's order" — is proved by the order not existing. Credentials get a

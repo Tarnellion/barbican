@@ -266,6 +266,23 @@ conditions".
 you gave the tool a list of six endpoints while the platform has a hundred, the
 report does not know that and cannot know it.
 
+## Resources nobody could reach
+
+`coverage.resourcesNotFound` names the resources every account was answered 404
+for. Their cells settle nothing: a missing object refuses exactly like a
+protected one, and `not-found` counts as a denial, so every one of those cells
+agrees with a policy of denial and reads as "tested and agreed".
+
+Two situations produce the same list and cannot be told apart by status: the
+object is not there, or the platform hides its existence from everyone. For a
+reader they mean the same thing — no conclusion about isolation follows from
+those cells.
+
+Where an owner **is** granted access this surfaces on its own: that account's
+cell expects `allowed`, gets a denial and lands in `findings` as an unexpected
+denial. The field is for the other half, where the declaration grants nobody
+anything and there is nothing to contradict.
+
 ## What the tool did not test
 
 - **Write methods.** Without `--unsafe-methods` only GET and HEAD are performed;
