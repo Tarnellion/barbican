@@ -95,9 +95,13 @@ uselessness of the VAmPI switch: a difference visible only in the bodies does no
 for the tool (ADR-0009). The role of this phase grew after the VAmPI check — it is the
 only source of switchable defects fit to serve as an oracle.
 
-**Exit criterion:** every switchable defect is detected when it is on and produces no
-finding when it is off; traceability between the findings and the ground truth is
-reproducible.
+**Exit criterion — met.** Every switchable defect is detected when it is on and produces
+no finding when it is off, and the traceability between the findings and the ground truth
+is reproducible: 28 combinations, 0 mismatches, run in CI rather than from a laptop. The
+platform ended up bigger than the minimal version described above — twelve switches, a
+three-level tenant tree, an account with a set of tenants, declared request conditions,
+and since 14 August a write endpoint that keeps `--unsafe-methods` from being a code path
+nothing had ever walked.
 
 **This is the most expensive phase, and it is about writing a *second* application.** If
 the pace slips, cut here: the minimal version is 3–4 endpoints, two tenants, three
@@ -116,11 +120,21 @@ misunderstandings of cold readers. Changesets were vetted and rejected: 40 trans
 packages against a lockfile of 256, for a changelog on a project whose version is moved
 by hand once every few days.
 
-**Exit criterion — not met, and it is the only thing left in this phase:** an outsider
-following the README gets `npx barbican` to a meaningful run. Two cold reads have
-happened, but both read the *report* and the guides; the README and the installation
-path have never been read by anyone but their author. Until `0.2.0` that check was not
-even worth running — the published CLI was a stub — and now it is.
+**Exit criterion — the run passed, the artifact failed it.** On 14 August someone
+installed `barbican` from npm, read nothing but the README and the two guides, wrote
+their own configuration and reached a meaningful run on the first attempt: 25 cells, a
+deliberate cross-tenant defect found, exit 1. The safety promises held under experiment
+rather than under reading — the redirect trap on a second port got zero requests, the
+session cookie was `[REDACTED]`, the write endpoint was skipped and said so.
+
+What failed was the package. The `v0.2.0` tag was cut from a commit whose README still
+said "build from source until `0.2.0` is published", so the npm page argued against the
+package it was serving; `files: ["dist"]` left the tarball with no guide and no example,
+making every relative link dead for anyone who installed rather than cloned; and the CLI
+in that release still spoke Russian around English documentation. All three are fixed on
+`main` and none of them is fixed for anyone who runs `npm install barbican` today.
+
+**Phase 4 closes with the release of `0.3.0`**, not with another cold read.
 
 ---
 
