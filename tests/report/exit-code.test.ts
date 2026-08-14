@@ -32,6 +32,7 @@ function report(overrides: {
   checks?: readonly ReportFinding[];
   denials?: number;
   canariesChecked?: number;
+  staleCredentials?: readonly string[];
   accounts?: readonly {
     readonly id: string;
     readonly role: string;
@@ -69,6 +70,7 @@ function report(overrides: {
     unauthenticated: overrides.unauthenticated ?? [],
     canariesChecked: overrides.canariesChecked ?? 1,
     canaries: [],
+    staleCredentials: overrides.staleCredentials ?? [],
     inputs: {
       policy: { fallback: "denied", rules: [] },
       tenants: [],
@@ -801,6 +803,28 @@ describe("exitCodeFor", () => {
         report({ canariesChecked: 0, accounts: [{ id: "anon", role: "guest", anonymous: true }] }),
       ),
     ).toBe(0);
+  });
+
+  /**
+   * Found by the audit of 14 August. Canaries were probed once, before the walk,
+   * so a token that expired in the middle turned every remaining cell into a 401
+   * — which reads as a denial, agrees with a policy of denial, and lands in
+   * `cellsMatched` as "tested and agreed". `findUnauthenticated` cannot see it:
+   * it asks about accounts granted access nowhere, and the first half succeeded.
+   */
+  it("2 — the credentials went stale halfway through", () => {
+    const verdict = runVerdict(report({ observations: 4, staleCredentials: ["alice"] }));
+
+    expect(verdict.code).toBe(2);
+    expect(verdict.reason).toContain("alice");
+  });
+
+  // Outranks a finding, exactly as truncation does: what was not tested is never
+  // clean, and here the tail was tested by an account that had stopped counting.
+  it("an expired token outranks an escalation", () => {
+    expect(
+      exitCodeFor(report({ observations: 4, escalations: 3, staleCredentials: ["alice"] })),
+    ).toBe(2);
   });
 
   it("2 — authentication did not work", () => {

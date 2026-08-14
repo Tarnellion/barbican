@@ -454,6 +454,24 @@ export interface RunReport {
    * findings is indistinguishable from one where the canaries failed silently.
    */
   readonly canaries: readonly CanaryOutcome[];
+  /**
+   * Accounts whose canary passed before the walk and failed after it.
+   *
+   * Found by the audit of 14 August. Canaries were probed once, at the start. A
+   * token that expires in the middle of a walk — and at the default five
+   * requests a second a matrix of ten accounts, sixty endpoints and three
+   * resources takes about an hour, longer than a typical JWT — turns every
+   * remaining cell into a 401. That reads as a denial, agrees with a policy of
+   * denial, and lands in `cellsMatched` as "tested and agreed".
+   *
+   * `findUnauthenticated` cannot see it by construction: it asks whether an
+   * account was granted access **nowhere**, and the first half of the walk
+   * succeeded.
+   *
+   * Non-empty means the tail of the walk says nothing, exactly like `truncated`,
+   * and the verdict is 2 for the same reason.
+   */
+  readonly staleCredentials: readonly string[];
   /** The run was cut short before it reached the end of the matrix. */
   readonly truncated: boolean;
   readonly observations: readonly ReportedObservation[];
@@ -493,6 +511,8 @@ export interface BuildReportOptions {
   readonly unauthenticated: readonly string[];
   readonly canariesChecked: number;
   readonly canaries?: readonly CanaryOutcome[];
+  /** Accounts whose canary passed before the walk and failed after it. */
+  readonly staleCredentials?: readonly string[];
   readonly truncated: boolean;
   /** Whether methods that change state were performed. */
   readonly unsafeMethods?: boolean;
@@ -879,6 +899,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     unauthenticated: options.unauthenticated,
     canariesChecked: options.canariesChecked,
     canaries: options.canaries ?? [],
+    staleCredentials: options.staleCredentials ?? [],
     truncated: options.truncated,
     observations,
     findings: merged,
@@ -997,6 +1018,19 @@ export function runVerdict(report: RunReport): RunVerdict {
       reason:
         "the run was cut short: the tail of the matrix was never probed, and the " +
         "absence of findings there means nothing",
+    };
+  }
+  // The same class as `truncated`, arriving from the other end: there the tail
+  // was never walked, here it was walked by an account that had stopped being
+  // authenticated. Both leave cells whose denials mean nothing, and both make the
+  // whole result untrustworthy rather than merely incomplete.
+  if (report.staleCredentials.length > 0) {
+    return {
+      code: 2,
+      reason:
+        `credentials went stale during the run: ${report.staleCredentials.join(", ")} — ` +
+        `every cell probed after that point recorded a refusal that says nothing ` +
+        `about access`,
     };
   }
   if (report.unauthenticated.length > 0) {

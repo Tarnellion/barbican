@@ -62,6 +62,14 @@ everything, with a policy made only of denials, produces a report with no findin
 at all, and every cell in it says "tested and agreed". An adversarial review built
 exactly that run.
 
+The canaries are probed **twice**: once before the walk and once after it. A
+token that expires in the middle turns every remaining cell into a 401, which
+reads as a denial, agrees with a policy of denial and is counted as "tested and
+agreed". At the conservative default of five requests a second a matrix of any
+real size takes longer than a short-lived token lives, so this is the ordinary
+case. An account whose canary passed before and fails after ends the run with
+exit code 2 and is named in `staleCredentials`.
+
 Accounts declared without credentials are exempt: an anonymous run has nothing to
 authenticate, and demanding a canary of it would forbid a legitimate scenario —
 "check that nobody at all can get in here".

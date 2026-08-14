@@ -462,7 +462,11 @@ Nothing here is fixed yet. The order of work is at the end.
       written by hand and go stale faster than tokens. The comment above
       `toBinary` names the gap and defers it to "separate checks" that do not
       exist.
-- [ ] **L-1. A token that expires mid-walk.** Canaries are probed once, before
+- [x] **L-1. A token that expires mid-walk.** Closed 14 August: the canaries are
+      probed again after the walk, and an account that passed before and fails now
+      is named in `staleCredentials` and gives exit 2. A terminal failure on the
+      second pass is not counted as stale — that is our own ceiling, not a dead
+      token. Original finding: Canaries are probed once, before
       the walk. Every remaining cell then answers 401, matches a policy of
       denial, and lands in `cellsMatched`; exit 0. `findUnauthenticated` requires
       "refused everywhere" and stays silent by construction once the first half

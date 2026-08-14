@@ -385,6 +385,55 @@ async function run(flags: RunFlags): Promise<number> {
   });
   const finishedAt = new Date();
 
+  /**
+   * The canaries again, now that the walk is over.
+   *
+   * Checked once at the start, they answer "were we authenticated when we
+   * began". A token that dies in the middle turns every remaining cell into a
+   * 401, which reads as a denial, agrees with a policy of denial and lands in
+   * `cellsMatched` as "tested and agreed". At the conservative default of five
+   * requests a second a matrix of any size takes longer than a short-lived token
+   * lives, so this is the ordinary case rather than the exotic one.
+   *
+   * `findUnauthenticated` cannot catch it: it asks whether an account was
+   * granted access nowhere, and the first half of the walk succeeded.
+   *
+   * Skipped when the run was already cut short — the verdict is 2 either way,
+   * and the budget that ended the walk would end these requests too.
+   */
+  const staleCredentials: string[] = [];
+  if (canaries.length > 0 && !truncated) {
+    const after = await probeCanaries({
+      baseUrl: config.target.baseUrl,
+      endpoints,
+      canaries,
+      credentials,
+      client,
+      exclude: config.exclude,
+      accounts: accounts.filter((account) => account.contextId === undefined),
+      tenantBaseUrls,
+    });
+    const passedBefore = new Set(
+      canaryOutcomes.filter((one) => one.authenticated).map((one) => one.accountId),
+    );
+    for (const result of after) {
+      // A terminal failure is our own ceiling, not a dead token: saying the
+      // credentials went stale there would send the reader after the wrong thing.
+      const stopped = TERMINAL_FAILURES.has(result.failure ?? "");
+      if (passedBefore.has(result.accountId) && !result.authenticated && !stopped) {
+        staleCredentials.push(result.accountId);
+      }
+    }
+    if (staleCredentials.length > 0) {
+      process.stderr.write(
+        `${paint("Credentials went stale during the run:", "red")} ${staleCredentials.join(", ")}. ` +
+          `Their canary passed before the walk and fails now, so every cell probed ` +
+          `after that point recorded a refusal that says nothing about access. The ` +
+          `results cannot be trusted.\n`,
+      );
+    }
+  }
+
   // The matrix is built only from what was probed: a skip is a gap in coverage,
   // not a discrepancy per account. Otherwise one skip gives as many findings as
   // there are accounts.
@@ -436,6 +485,7 @@ async function run(flags: RunFlags): Promise<number> {
     failures,
     unauthenticated,
     canariesChecked,
+    staleCredentials,
     canaries: canaryOutcomes,
     truncated,
     unsafeMethods: flags.unsafeMethods === true,
