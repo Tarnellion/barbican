@@ -26,6 +26,10 @@ Cells probed: 144 (matrix rows 27, of them accounts 9 and the same accounts
 under contexts, endpoints 6, resources 6)
 ```
 
+Every number quoted in this document comes from one run — the reference polygon
+with all defects switched on, 13 August 2026. They illustrate the shape of the
+output; yours will be different, and a difference is not a discrepancy.
+
 **There are more matrix rows than accounts** when request conditions are
 declared: one account gives a row per set of conditions. Count cells from
 `accountRows`, not from `accounts` — otherwise the arithmetic will not add up.
@@ -187,7 +191,10 @@ no findings there precisely because it was never reached.
 ## What was tested and what was not
 
 The `coverage` section answers the question without which the numbers above mean
-nothing:
+nothing. The numbers in this example come from one particular run — the reference
+polygon with all nine defects switched on, 13 August 2026 — and they are here to
+show the shape of the section, not to be compared with yours. Your run will
+differ in every one of them:
 
 ```jsonc
 "coverage": {
