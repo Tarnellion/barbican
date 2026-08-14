@@ -346,6 +346,21 @@ export interface Coverage {
    * resource says anything about isolation.
    */
   readonly resourcesNotFound: readonly string[];
+  /**
+   * Checks that produced a finding naming neither an account nor an endpoint.
+   *
+   * Such a finding cannot be placed in the report — every downstream structure
+   * is keyed by the cell — so it is dropped. It used to be dropped in silence,
+   * behind a comment claiming the counter kept it visible; the counter counts
+   * the list after the drop, so a critical finding could arrive and leave no
+   * trace anywhere while `checksRun` named the check as having run.
+   *
+   * Empty on every run today: no registered check produces one. It stops being
+   * empty exactly when someone writes the first run-level check, which is when
+   * the report needs a shape for it (phase 5), and this field is what will say
+   * so instead of nothing saying anything.
+   */
+  readonly checksWithUnusableFindings: readonly string[];
 }
 
 export interface RunReport {
@@ -648,9 +663,27 @@ function mergeFindings(
     withRequest({ ...diff, source: "matrix" as const }),
   );
 
-  // On a check finding the account and the endpoint are optional by the `Finding`
-  // type, but a check that named neither is useless for triage: those do not go
-  // into the common list and stay visible only through the counter.
+  /**
+   * A check finding that names neither an account nor an endpoint is dropped.
+   *
+   * The `Finding` type makes both optional, and a finding with neither cannot be
+   * placed in the report: everything downstream — the request, the defect
+   * signature, the whole idea of a cell — is keyed by them.
+   *
+   * The comment that used to stand here said such findings "stay visible only
+   * through the counter". That was untrue: `summary.checkFindings` counts the
+   * list **after** this filter, so they were visible nowhere at all — a
+   * critical finding could arrive and the report would say `findings: 0`,
+   * `checkFindings: 0`, verdict clean, while `coverage.checksRun` named the
+   * check as having run. Found by the audit of 14 August.
+   *
+   * The silence is what is fixed here — `coverage.checksWithUnusableFindings`
+   * names the checks it happened to. The limitation is not: a run-level finding
+   * ("this clause is not covered") is the natural shape for the evidence pack,
+   * and giving it one is a rework of `Finding`, `CheckContext` and `Coverage`
+   * that belongs to phase 5 rather than to a bug fix. Today no registered check
+   * produces one, so nothing is lost and the report stops lying about it.
+   */
   const fromChecks: readonly ReportFinding[] = checks
     .filter(
       (check): check is Finding & { accountId: string; endpointId: string } =>
@@ -771,6 +804,20 @@ function withVerdicts(options: BuildReportOptions): readonly ReportedObservation
       ...(cell.ruleIndex === undefined ? {} : { ruleIndex: cell.ruleIndex }),
     };
   });
+}
+
+/**
+ * The checks whose findings could not be placed in the report.
+ *
+ * A finding naming neither an account nor an endpoint has no cell, and every
+ * structure below the finding list is keyed by one. Dropping it is the only
+ * thing to do with it today; dropping it without a word is what this prevents.
+ */
+function checksWithUnusableFindings(checks: readonly Finding[]): readonly string[] {
+  const unusable = checks
+    .filter((check) => check.accountId === undefined || check.endpointId === undefined)
+    .map((check) => check.checkId);
+  return [...new Set(unusable)].sort();
 }
 
 /**
@@ -917,6 +964,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
       bodyComparison: options.bodyComparison ?? [],
       contextsProbed: countByContext(options),
       resourcesNotFound: resourcesNeverFound(options.observations),
+      checksWithUnusableFindings: checksWithUnusableFindings(options.checks ?? []),
       // Counted from the verdicts themselves, not by subtraction. Subtraction
       // lied: among the discrepancies there are `not-observed` ones that have no
       // observation at all, and the number came out too low. ADR-0020 promises

@@ -549,6 +549,16 @@ async function run(flags: RunFlags): Promise<number> {
     // A resource nobody could reach settles nothing about isolation: a 404
     // satisfies a denial whether the object is protected or simply absent. Said
     // out loud, because the cells for it otherwise read as "tested and agreed".
+    // A check that produced a finding with no cell: it is not in the list, and
+    // without this line it is nowhere at all.
+    report.coverage.checksWithUnusableFindings.length > 0
+      ? paint(
+          `Checks whose findings named no cell: ${report.coverage.checksWithUnusableFindings.join(", ")}. ` +
+            `Those findings are not in the report — a finding with no account and ` +
+            `no endpoint has nowhere to go in it.`,
+          "yellow",
+        )
+      : undefined,
     report.coverage.resourcesNotFound.length > 0
       ? paint(
           `Resources answered 404 to everyone: ${report.coverage.resourcesNotFound.join(", ")}. ` +
