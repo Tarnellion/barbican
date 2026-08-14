@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Callable, so that a release runs these very jobs rather than a copy of them.
+  # A release used to run one of the four — `pnpm run check` — and a tag could
+  # therefore publish a commit that the secret scan, the oracle and the
+  # vulnerability scan had never seen. Duplicating the steps into release.yml
+  # would have started the same drift one commit later.
+  workflow_call:
 
 # Least privilege by default: widen it one job at a time, only where needed.
 permissions:
@@ -92,12 +98,16 @@ jobs:
         run: ./gitleaks git --redact --no-banner .
 
   polygon:
-    name: oracle (reference polygon, 25 combinations)
+    name: oracle (reference polygon)
     runs-on: ubuntu-latest
     # The strongest correctness check in the project used to run on one machine
     # only, and only when its author remembered it. The deployment is plain Node,
-    # no Docker: verify.mjs brings it up and takes it down itself, about a minute
-    # and a half for all twenty-five combinations of flags.
+    # no Docker: verify.mjs brings it up and takes it down itself, a minute or two
+    # for every combination of flags in the oracle.
+    #
+    # The count is deliberately absent from the name and from this comment: it
+    # said twenty-five while the oracle held twenty-eight, and a number woven
+    # into prose is one no test can keep honest.
     #
     # What is compared is not the numbers in the README but the findings, cell by
     # cell, against a hand-written oracle. A mismatch means either a regression in

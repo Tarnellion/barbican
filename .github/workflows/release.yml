@@ -17,8 +17,26 @@ env:
   COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
 
 jobs:
+  # The whole CI gate, not a copy of one job of it.
+  #
+  # This used to be a single `pnpm run check` step inside `publish`, with a
+  # comment claiming it was "the same gate as CI". It was one gate of four: the
+  # secret scan over the full history, the verification against the hand-written
+  # oracle and the vulnerability scan were all absent, so a tag could publish —
+  # with provenance attesting to it — a commit that three quarters of CI had
+  # never seen. Found by the audit of 14 August.
+  #
+  # Called rather than duplicated: two lists of the same steps drift, and this
+  # one would drift in the half nobody looks at until a release.
+  gate:
+    name: CI gate
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   publish:
     name: publish to npm with provenance
+    needs: gate
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -50,10 +68,11 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # The same gate as CI. A tag can be put on a commit that CI never ran on —
-      # and a release must have run it.
-      - name: Check
-        run: pnpm run check
+      # Only the build here: verification is the `gate` job above, and repeating
+      # it would say that this step is what guards the release. `npm publish`
+      # ships `dist`, so it has to exist.
+      - name: Build
+        run: pnpm run build
 
       # The package version must match the tag. Otherwise the registry receives
       # something other than what history marks, and there is no way left to tie

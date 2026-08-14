@@ -679,7 +679,11 @@ the run. Generation does not reach a number inside a sentence.
 
 ### The artifact is guarded by nothing
 
-- [ ] **F-2.** A release publishes having run **one CI gate out of four**.
+- [x] **F-2.** A release publishes having run **one CI gate out of four**. Closed 14
+      August: `ci.yml` gained `workflow_call`, and `release.yml` calls it as a
+      job the publish depends on, rather than repeating a part of it. A test
+      asserts the call is there and that no verification step crept back into the
+      release. Original finding:
       `release.yml` runs `pnpm run check` and nothing else: no gitleaks over the
       history, no oracle verification, no vulnerability scan. Its own comment
       promises "The same gate as CI".
@@ -709,7 +713,11 @@ Track A: 40 mutations of the invariants, 34 killed. Track C over the core: 148
 mutations, 80.4 % killed; after an honest re-triage (equivalent mutants, and
 mutants the type checker rejects) **7 real gaps**, not 29.
 
-- [ ] **C-2.** Six defaults of twelve are caught by nothing: retry `maxAttempts`
+- [x] **C-2.** Six defaults of twelve are caught by nothing — closed 14 August by
+      `tests/adapters/defaults.test.ts`; each of the six mutations that survived
+      the audit now turns it red. The digest width is pinned by behaviour rather
+      than by exporting the constant: 500 distinct bodies bound it from both
+      sides. Original finding: retry `maxAttempts`
       and `baseDelayMs`, the **breaker threshold 5 -> 5000** (the 5xx/429 guard
       effectively off), the request timeout, `maxBodyBytes`, and `DIGEST_BYTES
       6 -> 1` — an eight-bit digest, roughly one collision in 256 per pair. The
