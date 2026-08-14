@@ -1,46 +1,46 @@
-# Черновики субагентов
+# Subagent drafts
 
-**Не активированы.** Чтобы включить — перенести `.draft.md` в `.claude/agents/`
-с обычным расширением `.md`. Подкаталог `_drafts` не сканируется: наши черновики
-skills лежат так же и в списке доступных не появляются.
+**Not active.** To enable one, move the `.draft.md` into `.claude/agents/`
+with a plain `.md` extension. The `_drafts` subdirectory is not scanned: our skill
+drafts sit the same way and do not show up in the list of available ones.
 
-Формат файла — YAML-frontmatter плюс системный промпт. Обязательные поля только
-`name` и `description`; `description` определяет, когда Claude делегирует задачу
-этому агенту. Полный перечень полей — в
-[документации](https://code.claude.com/docs/en/sub-agents).
+The file format is YAML frontmatter plus a system prompt. The only required fields are
+`name` and `description`; `description` decides when Claude delegates a task to
+this agent. The full list of fields is in the
+[documentation](https://code.claude.com/docs/en/sub-agents).
 
-## Что здесь и почему
+## What is here and why
 
-| Агент | Когда запускать | Проверено на |
+| Agent | When to run | Proven on |
 |---|---|---|
-| `invariant-attacker` | перед закрытием фазы, перед публикацией, после правок в адаптерах | нашёл 3 настоящих пробоя 12.08.2026 |
-| `polygon-recon` | перед прогоном против нового полигона | VAmPI, crAPI |
-| `port-implementer` | новая реализация существующего порта | `endpoint-list.ts` |
+| `invariant-attacker` | before closing a phase, before publishing, after edits in the adapters | found 3 real breaks on 12 August 2026 |
+| `polygon-recon` | before a run against a new polygon | VAmPI, crAPI |
+| `port-implementer` | a new implementation of an existing port | `endpoint-list.ts` |
 
-## Чему научил первый заход
+## What the first attempt taught
 
-**Ценность субагента — в независимости взгляда, а не в объёме работы.**
-Реализацию адаптера автор сделал бы и сам за сопоставимое время. А вот пробои
-в инвариантах нашлись именно потому, что атакующий не знал замысла и не считал
-комментарии доказательством.
+**A subagent's value is in the independence of its view, not in the volume of work.**
+The author would have written the adapter implementation himself in comparable time.
+But the breaks in the invariants were found precisely because the attacker did not
+know the intent and did not treat comments as proof.
 
-**Параллелить реализацию по большей части нечем.** Этапы работы над ядром
-трогают одни и те же файлы; изолирована только реализация за портом.
-Отсюда `port-implementer` с явным запретом на связывающие файлы.
+**There is mostly nothing to parallelize in the implementation.** The stages of work
+on the core touch the same files; only the implementation behind a port is isolated.
+Hence `port-implementer`, with an explicit ban on the wiring files.
 
-**Worktree создаётся внутри репозитория**, в `.claude/worktrees/`. Копия
-`biome.json` там ломает линтер вложенным корневым конфигом — каталог добавлен
-в `.gitignore`. После слияния worktree убирать:
+**A worktree is created inside the repository**, in `.claude/worktrees/`. A copy of
+`biome.json` there breaks the linter with a nested root config — the directory has been
+added to `.gitignore`. Remove the worktree after merging:
 `git worktree remove … --force && git branch -D worktree-agent-…`.
 
-**Работу агента проверять перед вливанием.** Не «прошли ли тесты», а: не появились
-ли зависимости, не тронуты ли запрещённые файлы, нет ли `any` и `!`, не обращается
-ли код к сети и файловой системе там, где не должен.
+**Check an agent's work before merging it in.** Not "did the tests pass", but: did any
+dependencies appear, were forbidden files touched, is there any `any` or `!`, does the
+code reach for the network or the file system where it must not.
 
-## Про GitHub Actions
+## About GitHub Actions
 
-Официальный [`anthropics/claude-code-action`](https://github.com/anthropics/claude-code-action)
-умеет запускать ревью на каждый PR. Для этого проекта пока не берём: он требует
-долгоживущего ключа в секретах репозитория, что расходится с посылкой ADR-0004,
-а ревью на солo-проекте с одним автором и без входящих PR приносит мало.
-Пересмотреть, если появятся внешние контрибьюторы.
+The official [`anthropics/claude-code-action`](https://github.com/anthropics/claude-code-action)
+can run a review on every PR. We are not taking it for this project yet: it requires
+a long-lived key in the repository secrets, which conflicts with the premise of ADR-0004,
+and a review on a solo project with one author and no incoming PRs brings little.
+Revisit if external contributors appear.

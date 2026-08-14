@@ -1,41 +1,41 @@
 ---
 name: dep-vetting
-description: Проверить npm-пакет перед добавлением в barbican — возраст релиза, мейнтейнеры, транзитивные зависимости, lifecycle-скрипты, provenance. Использовать всегда перед установкой любой новой зависимости.
+description: Vet an npm package before adding it to barbican — release age, maintainers, transitive dependencies, lifecycle scripts, provenance. Use always, before installing any new dependency.
 ---
 
-**ЧЕРНОВИК — не активирован. Ревью и перенос вручную.**
+**DRAFT — not active. Review and move by hand.**
 
-# Проверка пакета перед установкой
+# Vetting a package before installing
 
-Основной риск — не CVE, а компрометация цепочки поставок (ADR-0004). Проверять
-каждый пакет, включая «маленькие и очевидные».
+The main risk is not a CVE but a supply-chain compromise (ADR-0004). Vet
+every package, including the "small and obvious" ones.
 
-## Собрать данные
+## Collect the data
 
 ```bash
 npm view <pkg> version time.modified maintainers dependencies
-npm view <pkg> time --json   # дата конкретной версии
+npm view <pkg> time --json   # the date of a specific version
 ```
 
-Нужны четыре числа и один факт:
+You need four numbers and one fact:
 
-1. **Возраст версии.** Моложе 7 суток — не ставить: `minimumReleaseAge` и не даст.
-   Для срочного патча — точечная запись в `minimumReleaseAgeExclude`, а не снижение порога.
-2. **Число мейнтейнеров.** Один мейнтейнер — не запрет, но повод посмотреть внимательнее.
-3. **Транзитивные зависимости.** Считать все, не только прямые. Каждая расширяет границу
-   доверия. Zero-dependency предпочтительнее при прочих равных.
-4. **Lifecycle-скрипты.** Есть `preinstall`/`postinstall`/`install` — прочитать их код
-   до установки. `strictDepBuilds` остановит установку и потребует явного решения;
-   решение по умолчанию — **не разрешать**, а выполнить нужное действие явной командой.
-5. **Provenance.** Наличие аттестации — плюс, отсутствие — не блокер само по себе.
+1. **The age of the version.** Younger than 7 days — do not install: `minimumReleaseAge` will not let you.
+   For an urgent patch — a targeted entry in `minimumReleaseAgeExclude`, not a lowered threshold.
+2. **The number of maintainers.** One maintainer is not a ban, but a reason to look closer.
+3. **Transitive dependencies.** Count all of them, not only the direct ones. Each one widens
+   the trust boundary. Zero-dependency is preferable, all else being equal.
+4. **Lifecycle scripts.** If there is a `preinstall`/`postinstall`/`install` — read its code
+   before installing. `strictDepBuilds` will stop the install and demand an explicit decision;
+   the default decision is **not to allow it**, but to perform the needed action with an explicit command.
+5. **Provenance.** An attestation is a plus; its absence is not a blocker in itself.
 
-## Прежде чем добавлять — спросить
+## Before adding — ask
 
-Решается ли задача встроенными средствами Node? Если да, зависимость не нужна.
-Отказ от бандлера в пользу `tsc` убрал 17 транзитивных зависимостей (ADR-0001) —
-такие развилки встречаются чаще, чем кажется.
+Can the task be solved with Node's built-ins? If it can, the dependency is not needed.
+Dropping the bundler in favour of `tsc` removed 17 transitive dependencies (ADR-0001) —
+such forks in the road come up more often than it seems.
 
-## Зафиксировать
+## Record it
 
-Пакет, версию и обоснование — в ADR или в записи о сессии. Если пакета нет в исходном
-техническом отчёте, согласовать отдельно.
+The package, the version and the reasoning — in an ADR or in a session note. If the package is not
+in the original technical report, agree on it separately.

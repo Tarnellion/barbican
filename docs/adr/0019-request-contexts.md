@@ -1,46 +1,49 @@
-# ADR-0019. Условия обращения как измерение матрицы
+# ADR-0019. Request conditions as a dimension of the matrix
 
-**Дата:** 13 августа 2026
-**Статус:** принято
+**Date:** 13 August 2026
+**Status:** accepted
 
-## Контекст
+## Context
 
-Матрица описывала ячейку тройкой «аккаунт × эндпоинт × объект». Этого хватает
-для RBAC и для изоляции тенантов, но не для целого класса ограничений, ради
-которых инструмент и берут в финтехе и iGaming:
+The matrix described a cell as the triple account × endpoint × resource. That is
+enough for RBAC and for tenant isolation, but not for a whole class of
+restrictions that the tool is taken up for in fintech and iGaming in the first
+place:
 
-- ставка не принимается из запрещённой юрисдикции;
-- вывод средств закрыт, пока не пройден KYC;
-- операция закрыта с неподтверждённого устройства;
-- лимит зависит от суммы, времени или канала обращения.
+- a bet is not accepted from a prohibited jurisdiction;
+- a withdrawal is closed until KYC is passed;
+- an operation is closed from an unverified device;
+- a limit depends on the amount, the time or the channel of the request.
 
-Общее у них одно: **роль, тенант и объект те же самые**, а исход обязан быть
-другим. «alice видит свой заказ» верно и остаётся верным; «alice видит свой
-заказ, обратившись из запрещённой страны» — уже дефект. Различить эти две
-ячейки инструмент не мог: у него не было координаты, по которой они
-различаются.
+They have one thing in common: **the role, the tenant and the resource are the
+very same ones**, and the outcome must be different. "alice sees her own order"
+is true and stays true; "alice sees her own order having made the request from a
+prohibited country" is already a defect. The tool could not tell these two cells
+apart: it had no coordinate along which they differ.
 
-Это тот самый минимальный полезный кусок ABAC, который записан в `tasks.md`:
-объявить два набора условий и сравнить исходы, **не моделируя логику решения**
-платформы. Инструмент не знает и не должен знать, как платформа принимает
-решение; он сравнивает наблюдаемые исходы с объявленным ожиданием.
+This is the minimal useful piece of ABAC written down in `tasks.md`: declare two
+sets of conditions and compare the outcomes, **without modelling the platform's
+decision logic**. The tool does not know and must not know how the platform
+makes its decision; it compares observed outcomes against the declared
+expectation.
 
-## Решение
+## Decision
 
-Ячейка получает четвёртую координату — **условия обращения**.
+A cell gets a fourth coordinate — **request conditions**.
 
-В конфигурации условия — именованный набор атрибутов с обязательной областью:
+In the configuration, conditions are a named set of attributes with a mandatory
+scope:
 
 ```yaml
 contexts:
   - id: geo-blocked
-    description: обращение из запрещённой юрисдикции
+    description: a request from a prohibited jurisdiction
     headers: { cf-ipcountry: AQ }
     endpoints: [orders.list, orders.read]
-    accounts: [alice-a]        # необязательно: по умолчанию ко всем
+    accounts: [alice-a]        # optional: applies to all by default
 ```
 
-Правило политики называет условия явно:
+A policy rule names the conditions explicitly:
 
 ```yaml
 - roles: "*"
@@ -49,140 +52,152 @@ contexts:
   outcome: denied
 ```
 
-Семь решений, каждое из которых могло быть принято иначе:
+Seven decisions, every one of which could have been made otherwise:
 
-**1. Отсутствие `context` в правиле означает базовые условия, а не «любые».**
-Иначе объявление новых условий молча распространило бы на них все прежние
-ожидания, и платформа, законно закрывающая ставку из запрещённой страны, дала
-бы «неожиданный отказ» на каждой ручке. Ожидание в условиях объявляется явно —
-либо срабатывает `fallback`.
+**1. A missing `context` in a rule means the baseline conditions, not "any".**
+Otherwise declaring new conditions would silently extend every previous
+expectation to them, and a platform that lawfully closes a bet from a prohibited
+country would give an "unexpected denial" on every endpoint. An expectation
+under conditions is declared explicitly — or `fallback` fires.
 
-**2. Условия — метка в ядре, атрибуты — в адаптерах.** Ядро об HTTP не знает
-(ADR-0002), поэтому `Account.contextId` — строка, а заголовки и параметры
-запроса живут в `ContextAttributes` рядом с портами.
+**2. Conditions are a label in the core, attributes live in the adapters.** The
+core knows nothing about HTTP (ADR-0002), so `Account.contextId` is a string,
+while the headers and the query parameters live in `ContextAttributes` next to
+the ports.
 
-**3. Аккаунт в условиях — отдельная строка матрицы** с идентификатором
-`alice-a@geo-blocked`. Совпадение с реально объявленным аккаунтом (если
-аккаунты названы, скажем, адресами почты) не проходит молча: построение матрицы
-отвергает дубликаты идентификаторов.
+**3. An account under conditions is a separate matrix row** with the identifier
+`alice-a@geo-blocked`. A collision with an actually declared account (if
+accounts are named, say, by email addresses) does not pass silently: building
+the matrix rejects duplicate identifiers.
 
-**4. `endpoints` у условий обязателен.** Условия без границ умножили бы матрицу
-на всю поверхность API, а стоимость прогона на чужом стенде — не мелочь.
-Аккаунт в условиях существует только на объявленных ручках; на остальных ячейки
-**не бывает**, и «не пронаблюдено» о ней сказать нельзя — это была бы выдуманная
-дыра в покрытии.
+**4. `endpoints` on conditions is mandatory.** Conditions without bounds would
+multiply the matrix by the entire API surface, and the cost of a run on someone
+else's deployment is not a small matter. An account under conditions exists only
+on the declared endpoints; on the rest the cell **does not exist**, and "not
+observed" cannot be said about it — that would be an invented hole in coverage.
 
-**5. Атрибуты не могут подменить основу обращения.** Первая версия этого
-решения была **неверной**, и состязательная проверка пробила её в тот же день
-тремя способами. Запрет из шести точных имён закрывал учётные данные и хост,
-но не закрывал главного: условия с `x-http-method-override: DELETE` заставили
-стенд **удалить объект**, пока по проводу шёл GET, — а отчёт написал
-`writeMethodsProbed: false`. Гейт `SAFE_METHODS` смотрит на метод запроса
-и такой обход не видит по построению.
+**5. Attributes cannot replace the basis of the request.** The first version of
+this decision was **wrong**, and an adversarial review broke it the same day in
+three ways. A ban list of six exact names closed off the credentials and the
+host, but did not close off the main thing: conditions with
+`x-http-method-override: DELETE` made the deployment **delete a resource** while
+a GET went out on the wire — and the report wrote `writeMethodsProbed: false`.
+The `SAFE_METHODS` gate looks at the request method and does not see such a
+bypass by construction.
 
-Правило переписано на три слоя:
+The rule was rewritten into three layers:
 
-- **Точные имена** — учётные данные, хост, заголовки обмена;
-- **Префиксы семейств**, меняющих смысл обращения: `x-http-method*`,
-  `x-method*`, `x-original-*`, `x-rewrite-*` и те `x-forwarded-*`, что меняют
-  адресата. Префиксом, а не именем: у подмены метода десяток написаний,
-  и список точных имён отстанет от следующего фреймворка. `x-forwarded-for`
-  при этом разрешён намеренно — это и есть типовой атрибут гео-условий;
-- **Проверка по значению**: атрибут, чьё значение равно имени HTTP-метода,
-  отвергается, пока не задан `--unsafe-methods`. Это ловит и вендорский
-  заголовок, о котором никто не слышал: имён у подмены много, а значение
-  у неё всегда одно.
+- **Exact names** — credentials, the host, transport headers;
+- **Family prefixes** of the ones that change the meaning of the request:
+  `x-http-method*`, `x-method*`, `x-original-*`, `x-rewrite-*` and those
+  `x-forwarded-*` that change the addressee. By prefix, not by name: method
+  override has a dozen spellings, and a list of exact names will fall behind the
+  next framework. `x-forwarded-for` is allowed deliberately — it is the typical
+  attribute of geo conditions;
+- **A check by value**: an attribute whose value equals the name of an HTTP
+  method is rejected until `--unsafe-methods` is set. This also catches a vendor
+  header nobody has heard of: override has many names, but its value is always
+  one and the same.
 
-Для строки запроса добавлено своё: запрещены ключи, которыми предъявляют
-учётные данные (`access_token`, `api_key`, `token` и подобные), и ключи,
-которыми объекты задают себя. Первое — потому что токен в адресе означает
-**другой аккаунт**: платформа обслужит обращение как его, а отчёт напишет
-исходный `baseAccountId`, и половина матрицы уедет не туда. Второе — потому
-что атрибут, переписавший ключ объекта, делает вердикт ложным в обе стороны:
-межтенантная утечка ложится в отчёт как «свой объект, проверено и совпало».
+The query string gets a rule of its own: keys that present credentials
+(`access_token`, `api_key`, `token` and the like) are forbidden, and so are keys
+by which resources identify themselves. The first, because a token in the
+address means **a different account**: the platform will serve the request as
+that account, while the report writes the original `baseAccountId`, and half the
+matrix goes to the wrong place. The second, because an attribute that rewrote a
+resource's key makes the verdict false in both directions: a cross-tenant leak
+lands in the report as "own resource, tested and agreed".
 
-Остаточный риск назван прямо: полного списка заголовков, которые может уважать
-чужая платформа, не существует. Инструмент закрывает известные семейства
-и проверяет значение; всё, что за этим, — ответственность того, кто объявляет
-условия. Поэтому же в руководстве сказано: атрибут условий — это произвольный
-заголовок к чужой системе, и относиться к нему нужно так же.
+The residual risk is named directly: no complete list exists of the headers
+someone else's platform may honor. The tool closes off the known families and
+checks the value; everything beyond that is the responsibility of whoever
+declares the conditions. For the same reason the guide says: a context attribute
+is an arbitrary header sent into someone else's system, and it has to be treated
+as exactly that.
 
-**6. Условия входят в сигнатуру дефекта.** Проверка страны и проверка прав —
-разные механизмы, ломаются независимо и чинятся в разных местах.
+**6. Conditions are part of the defect signature.** The country check and the
+permission check are different mechanisms, they break independently and are
+fixed in different places.
 
-**7. Сравнение тел — только при совпадающих условиях.** Утверждение проверки
-`identical-response-across-tenants` — «разным тенантам приходит разное **при
-прочих равных**». Пара, у которой различаются и тенант, и атрибуты, ни о чём
-не говорит, а выглядела бы находкой.
+**7. Bodies are compared only under matching conditions.** What the
+`identical-response-across-tenants` check asserts is "different tenants get
+different responses **all else being equal**". A pair in which both the tenant
+and the attributes differ says nothing, yet would look like a finding.
 
-Заодно **451 признан отказом** наравне с 401 и 403. Он неоднозначным не бывает:
-«недоступно по юридическим причинам» есть решение не обслуживать, а не сбой
-и не отсутствие объекта. Гео- и юрисдикционные ограничения отвечают именно им,
-и без этого исправная платформа давала бы стену `probe-error` там, где она как
-раз работает верно.
+Along the way, **451 is recognized as a denial** on a par with 401 and 403. It
+is never ambiguous: "unavailable for legal reasons" is a decision not to serve,
+not a failure and not a missing resource. Geo and jurisdiction restrictions
+answer with exactly that, and without this a healthy platform would give a wall
+of `probe-error` right where it behaves correctly.
 
-## Альтернативы
+## Alternatives
 
-**Атрибуты как свойство аккаунта.** Завести «alice из запрещённой страны»
-отдельным аккаунтом в конфигурации. Отвергнута: у него был бы тот же токен и та
-же роль, но политика не смогла бы отличить его от настоящей alice иначе, чем
-по имени, — то есть ожидания пришлось бы писать по идентификаторам аккаунтов,
-а не по ролям. Это ровно та связанность, от которой уводит модель «роль ×
-эндпоинт».
+**Attributes as a property of the account.** Set up "alice from a prohibited
+country" as a separate account in the configuration. Rejected: it would have the
+same token and the same role, but the policy could not tell it from the real
+alice by anything other than the name — that is, the expectations would have to
+be written by account identifiers rather than by roles. This is exactly the
+coupling that the role × endpoint model leads away from.
 
-**Условия как фильтр правил без новых ячеек.** Не опрашивать ничего заново,
-а лишь по-разному толковать уже собранные наблюдения. Отвергнута: наблюдения
-в условиях **не существует**, пока обращение не сделано с атрибутами. Толковать
-нечего.
+**Conditions as a filter over rules, with no new cells.** Probe nothing anew and
+merely interpret the already collected observations differently. Rejected: an
+observation under conditions **does not exist** until a request has been made
+with the attributes. There is nothing to interpret.
 
-**Моделировать логику решения (полноценный ABAC-движок).** Объявить атрибуты
-субъекта, объекта и среды и вычислять решение. Отвергнута: это второй PDP рядом
-с проверяемым, и расхождение между ними означало бы ошибку в модели ровно так
-же часто, как дефект платформы. Инструмент сравнивает исходы, а не решения.
+**Model the decision logic (a full ABAC engine).** Declare the attributes of the
+subject, the resource and the environment and compute the decision. Rejected:
+that is a second PDP next to the one under test, and a discrepancy between them
+would mean an error in the model exactly as often as a defect in the platform.
+The tool compares outcomes, not decisions.
 
-## Последствия
+## Consequences
 
-- Матрица растёт: каждые условия добавляют (аккаунты × их ручки × объекты)
-  ячеек. На референс-полигоне 90 → 144 при двух объявленных условиях.
-  Ограничение области у условий обязательно именно поэтому.
-- `coverage.contextsProbed` называет число пронаблюдённых ячеек по каждым
-  условиям, включая ноль: «условия объявлены, но не проверены» иначе читалось
-  бы как «под этими условиями всё в порядке».
-- Предохранитель достоверности (`findUnauthenticated`) учитывает условия.
-  Без этого аккаунт, которому в условиях всё объявлено запрещённым, выглядел
-  бы аккаунтом с неработающими учётными данными, и **исправный** прогон
-  возвращал бы код 2. Найдено сверкой с оракулом: сейчас 25 комбинаций из 25.
-- Схема правила политики стала строгой (`strictObject`). Найдено там же:
-  старая сборка молча отбрасывала нераспознанный ключ `context`, и правило
-  «запретить в этих условиях» превращалось в «запретить всегда» — 19 находок
-  на исправной платформе. Та же опечатка в `scope` действует наоборот
-  и **прячет** находку.
-- **Доставку атрибутов инструмент не проверяет и проверить не может.**
-  Срезанный по дороге заголовок даёт обращения, неотличимые от базовых, и
-  отчёт скажет «ограничение не работает» там, где его не проверяли. Это
-  единственное место в отчёте, где «не проверяли» не отличается от «не
-  работает»; названо прямо в `docs/report.md` и в руководстве.
-- Тождество строки матрицы держится на `baseAccountId`, а не на разборе
-  идентификатора. Первая версия его не имела, и владение объектом терялось:
-  `order-a-1001` переставал быть своим для `alice-a@geo-blocked`, отношение
-  уезжало в `same-tenant`, серьёзность — с medium на high, а группа дефектов
-  `own` исчезала. Там же ломалась печать схемы аутентификации: строка искала
-  её по своему идентификатору и печатала корневую. Найдено холодным чтением
-  отчёта человеком без доступа к проекту.
-- **Прогон без единой канарейки объявлен недостоверным (код 2).** Найдено там же
-  и относится к тому же классу: стенд отвечал 401 на всё, токены были протухшие,
-  политика состояла из одних запретов — и предохранитель `findUnauthenticated`
-  промолчал **по построению**, потому что доступным не объявлено ничего.
-  Отчёт вышел чистым с кодом 0 и с `match: true` на каждой ячейке. Аккаунты
-  без учётных данных из правила исключены: анонимному прогону аутентифицировать
-  нечего.
-- На полигоне появились два флага: `POLYGON_DEFECT_GEO_BYPASS` — первый дефект,
-  который не выражается правами вовсе, — и `POLYGON_DEFECT_SCOPE_ALL_HONORED`,
-  где условия заданы **параметром запроса**, а не заголовком: пути у них разные,
-  и без второй ячейки утверждение «параметр доезжает» держалось бы на одном
-  модульном тесте.
-- Дефект, видный в базовых условиях, обычно виден и в объявленных, и группируется
-  отдельно: одна поломка платформы даёт две группы, отличающиеся только
-  `contextId`. Сведение их — не задача инструмента: снаружи «течёт с атрибутом»
-  и «течёт без» могут быть разными путями в коде, и ради такого случая условия
-  и заведены. Читателю об этом сказано прямо в `docs/report.md`.
+- The matrix grows: every set of conditions adds (accounts × their endpoints ×
+  resources) cells. On the reference polygon 90 → 144 with two declared sets of
+  conditions. That is exactly why bounding the scope of conditions is mandatory.
+- `coverage.contextsProbed` names the number of observed cells for each set of
+  conditions, including a zero: "conditions declared but not tested" would
+  otherwise read as "everything is in order under these conditions".
+- The trustworthiness safeguard (`findUnauthenticated`) takes conditions into
+  account. Without that, an account for which everything is declared forbidden
+  under conditions would look like an account with credentials that do not work,
+  and a **healthy** run would return code 2. Found by checking against the
+  oracle: 25 combinations out of 25 now.
+- The policy rule schema became strict (`strictObject`). Found in the same
+  place: the old build silently dropped the unrecognized `context` key, and the
+  rule "deny under these conditions" turned into "deny always" — 19 findings on
+  a healthy platform. The same typo in `scope` works the other way round and
+  **hides** a finding.
+- **The tool does not check the delivery of the attributes and cannot check
+  it.** A header stripped on the way gives requests indistinguishable from the
+  baseline ones, and the report will say "the restriction does not work" where
+  it was not tested. This is the one place in the report where "was not tested"
+  is not distinguishable from "does not work"; it is named directly in
+  `docs/report.md` and in the guide.
+- The identity of a matrix row rests on `baseAccountId`, not on parsing the
+  identifier. The first version did not have it, and ownership of a resource was
+  lost: `order-a-1001` stopped being its own for `alice-a@geo-blocked`, the
+  relation slid to `same-tenant`, the severity from medium to high, and the
+  `own` defect group disappeared. Printing the authentication scheme broke in
+  the same place: the row looked it up by its own identifier and printed the
+  root one. Found by a cold read of the report by a person with no access to the
+  project.
+- **A run without a single canary is declared untrustworthy (code 2).** Found in
+  the same place and belongs to the same class: the deployment answered 401 to
+  everything, the tokens were stale, the policy consisted of denials only — and
+  the `findUnauthenticated` safeguard stayed silent **by construction**, because
+  nothing was declared accessible. The report came out clean with code 0 and
+  with `match: true` on every cell. Accounts without credentials are excluded
+  from the rule: an anonymous run has nothing to authenticate.
+- Two flags appeared on the polygon: `POLYGON_DEFECT_GEO_BYPASS` — the first
+  defect that permissions cannot express at all — and
+  `POLYGON_DEFECT_SCOPE_ALL_HONORED`, where the conditions are given by a
+  **query parameter** rather than by a header: their paths differ, and without
+  the second cell the claim "the parameter arrives" would rest on a single unit
+  test.
+- A defect visible in the baseline conditions is usually visible under the
+  declared ones too, and it is grouped separately: one breakage in the platform
+  gives two groups differing only by `contextId`. Merging them is not the tool's
+  job: from the outside "leaks with the attribute" and "leaks without it" may be
+  different paths in the code, and conditions were introduced for exactly that
+  case. The reader is told this directly in `docs/report.md`.

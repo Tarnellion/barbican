@@ -1,9 +1,10 @@
 /**
- * Аккаунт в наборе тенантов: до ADR-0017 и после.
+ * An account with a set of tenants: before ADR-0017 and after.
  *
- * Первый describe — эксперимент, ради которого ADR писался: он перебирает **все**
- * способы выразить такой аккаунт деревом и показывает, что каждый из них лжёт.
- * Второй показывает, что набор членств чинит оба симптома разом.
+ * The first describe is the experiment the ADR was written for: it walks
+ * through **every** way of expressing such an account with a tree and shows
+ * that each of them lies. The second shows that a set of memberships fixes both
+ * symptoms at once.
  */
 
 import { describe, expect, it } from "vitest";
@@ -21,11 +22,12 @@ import {
 import type { Account, Endpoint, Resource } from "../../src/core/types.js";
 
 /**
- * Платформа над двумя холдингами, у каждого по два бренда.
+ * A platform over two holdings, each with two brands.
  *
- * Второй бренд в каждом холдинге — не для симметрии: без него «весь холдинг»
- * и «один его бренд» совпали бы, и разница между членством в узле и членством
- * в поддереве была бы ненаблюдаемой.
+ * The second brand in each holding is not there for symmetry: without it "the
+ * whole holding" and "one of its brands" would coincide, and the difference
+ * between membership in a node and membership in a subtree would be
+ * unobservable.
  */
 const TENANTS: readonly TenantNode[] = [
   { id: "platform" },
@@ -46,10 +48,11 @@ const RESOURCES: readonly Resource[] = ["a", "b", "c", "d"].map((letter) => ({
 const ENDPOINTS: readonly Endpoint[] = [{ id: "report", method: "GET", path: "/v1/reports/{id}" }];
 
 /**
- * Платформа течёт: саппорту отдаются все четыре бренда.
+ * The platform leaks: the support account is given all four brands.
  *
- * Ему положены A и C — так объявил человек. Находок обязано быть ровно две:
- * B и D. Наблюдения заданы вручную, а не выведены из политики.
+ * It is meant to get A and C — so a human declared. There must be exactly two
+ * findings: B and D. The observations are written by hand, not derived from the
+ * policy.
  */
 const OBSERVATIONS = RESOURCES.map((resource) => ({
   endpointId: "report",
@@ -86,49 +89,50 @@ function ruleWithScope(
   };
 }
 
-describe("деревом такой аккаунт не выражается ни одним из трёх способов", () => {
+describe("a tree cannot express such an account in any of the three ways", () => {
   /**
-   * Способ первый: посадить на один из своих брендов и разрешить своё.
+   * Way one: seat it on one of its own brands and allow its own tenant.
    *
-   * Утечки находятся, но вместе с ними находкой объявляется законное чтение
-   * второго бренда. Читатель отчёта не может отличить одно от другого: три
-   * находки одного вида, одна из них выдумана.
+   * The leaks are found, but along with them a lawful read of the second brand
+   * is declared a finding. The reader of the report cannot tell one from the
+   * other: three findings of one kind, one of them invented.
    */
-  it("посаженный на brand-a получает ложную находку на законном brand-c", () => {
+  it("seated on brand-a it gets a false finding on the lawful brand-c", () => {
     const sam: Account = { id: "sam", roleId: "support", tenantId: "brand-a" };
     expect(escalationsOn(sam, ruleWithScope("same-tenant"))).toEqual(["r-b", "r-c", "r-d"]);
   });
 
   /**
-   * Способ второй — то, чем ложную находку убирают на практике: открыть
-   * `foreign-tenant`. Результат хуже болезни: обе настоящие утечки исчезают,
-   * а находка на собственном бренде остаётся, потому что правило покрывает
-   * только чужих. Прогон и лжёт, и выглядит содержательным.
+   * Way two — what is used in practice to remove the false finding: open up
+   * `foreign-tenant`. The cure is worse than the disease: both real leaks
+   * vanish, and the finding on the account's own brand stays, because the rule
+   * covers foreign tenants only. The run both lies and looks substantial.
    */
-  it("с открытым foreign-tenant обе настоящие утечки исчезают", () => {
+  it("with foreign-tenant opened up both real leaks vanish", () => {
     const sam: Account = { id: "sam", roleId: "support", tenantId: "brand-a" };
     expect(escalationsOn(sam, ruleWithScope("foreign-tenant"))).toEqual(["r-a"]);
   });
 
   /**
-   * Способ третий: посадить в общий корень. Общего предка у брендов разных
-   * холдингов нет, кроме платформы, — и вместе с A и C аккаунт получает
-   * B и D. Прогон чист, а утечка на месте: это и есть «чисто ≠ проверено».
+   * Way three: seat it at the common root. Brands of different holdings have no
+   * common ancestor other than the platform — and along with A and C the
+   * account gets B and D. The run is clean while the leak is in place: this is
+   * exactly "clean is not the same as tested".
    */
-  it("посаженный в общий корень не находит ничего", () => {
+  it("seated at the common root it finds nothing", () => {
     const sam: Account = { id: "sam", roleId: "support", tenantId: "platform" };
     expect(escalationsOn(sam, ruleWithScope("descendant-tenant"))).toEqual([]);
   });
 });
 
-describe("с объявленным набором членств", () => {
+describe("with a declared set of memberships", () => {
   const sam: Account = { id: "sam", roleId: "support", tenantIds: ["brand-a", "brand-c"] };
 
-  it("находит ровно две утечки и не придирается к своим брендам", () => {
+  it("finds exactly two leaks and does not nitpick its own brands", () => {
     expect(escalationsOn(sam, ruleWithScope("same-tenant"))).toEqual(["r-b", "r-d"]);
   });
 
-  it("считает отношение по каждому членству", () => {
+  it("computes the relation for every membership", () => {
     const hierarchy = createTenantHierarchy(TENANTS);
     expect(RESOURCES.map((resource) => relationOf(sam, resource, hierarchy))).toEqual([
       "same-tenant",
@@ -139,10 +143,10 @@ describe("с объявленным набором членств", () => {
   });
 
   /**
-   * Владение — отношение внутри тенанта, и набор этого не меняет: объект своего
-   * тенанта, владельцем которого числится сам аккаунт, остаётся `own`.
+   * Ownership is a relation inside a tenant, and a set does not change that: a
+   * resource of one's own tenant whose owner is the account itself stays `own`.
    */
-  it("оставляет own своим объектом в любом из членств", () => {
+  it("keeps own for its own resource in any of the memberships", () => {
     const own: Resource = {
       id: "r-own",
       tenantId: "brand-c",
@@ -153,11 +157,12 @@ describe("с объявленным набором членств", () => {
   });
 
   /**
-   * Родство считается по каждому членству, а выигрывает ближайшее отношение.
-   * Аккаунт холдинга и бренда чужой ветви видит свой холдинг сверху вниз,
-   * а уровень чужого холдинга — снизу вверх, и это два разных вердикта.
+   * Kinship is computed for every membership, and the nearest relation wins. An
+   * account of a holding and of a brand in another branch sees its own holding
+   * top-down and the level of the other holding bottom-up, and those are two
+   * different verdicts.
    */
-  it("различает вниз и вверх по разным членствам", () => {
+  it("tells down from up across different memberships", () => {
     const hierarchy = createTenantHierarchy(TENANTS);
     const mixed: Account = { id: "mix", roleId: "ops", tenantIds: ["holding-1", "brand-c"] };
 
@@ -173,10 +178,10 @@ describe("с объявленным набором членств", () => {
   });
 
   /**
-   * Совместимость: набор из одного элемента обязан вести себя как `tenantId`.
-   * Утверждение проверяется на всех отношениях сразу, а не на одном.
+   * Compatibility: a set of one must behave like `tenantId`. The claim is
+   * checked across every relation at once, not on a single one.
    */
-  it("на одном членстве отвечает так же, как аккаунт с одним тенантом", () => {
+  it("with one membership it answers as an account with a single tenant does", () => {
     const hierarchy = createTenantHierarchy(TENANTS);
     const single: Account = { id: "one", roleId: "support", tenantId: "brand-a" };
     const asSet: Account = { id: "one", roleId: "support", tenantIds: ["brand-a"] };
@@ -192,47 +197,48 @@ describe("с объявленным набором членств", () => {
     );
   });
 
-  it("перечисляет членства одним списком, а вне тенантов даёт пустой", () => {
+  it("lists the memberships as one list, and gives an empty one outside of tenants", () => {
     expect(tenantIdsOf(sam)).toEqual(["brand-a", "brand-c"]);
     expect(tenantIdsOf({ id: "anon", roleId: "anonymous" })).toEqual([]);
   });
 });
 
-describe("проверка набора на старте", () => {
+describe("validating the set at startup", () => {
   const hierarchy = createTenantHierarchy(TENANTS);
 
   /**
-   * Вложенное членство меняет отношение молча: объекты бренда перестают быть
-   * `descendant-tenant` и становятся `same-tenant`, правило для взгляда сверху
-   * вниз перестаёт применяться, ячейка уходит в `fallback`. Проверка стоит
-   * на старте ровно потому, что в отчёте этот сдвиг ничем себя не выдаёт.
+   * A nested membership changes the relation silently: the brand's resources
+   * stop being `descendant-tenant` and become `same-tenant`, the rule written
+   * for the top-down view stops applying, the cell falls through to `fallback`.
+   * The check stands at startup for exactly this reason: in the report the
+   * shift gives no sign of itself.
    */
-  it("отвергает членство, покрытое другим членством", () => {
+  it("rejects a membership covered by another membership", () => {
     expect(() =>
-      assertIndependentMemberships("Аккаунт «sam»", ["holding-1", "brand-a"], hierarchy),
+      assertIndependentMemberships("Account 'sam'", ["holding-1", "brand-a"], hierarchy),
     ).toThrow(SubsumedMembershipError);
   });
 
-  it("отвергает повтор в наборе", () => {
+  it("rejects a repeat inside the set", () => {
     expect(() =>
-      assertIndependentMemberships("Аккаунт «sam»", ["brand-a", "brand-a"], hierarchy),
+      assertIndependentMemberships("Account 'sam'", ["brand-a", "brand-a"], hierarchy),
     ).toThrow(DuplicateMembershipError);
   });
 
-  it("пропускает набор из несвязанных тенантов", () => {
+  it("accepts a set of unrelated tenants", () => {
     expect(() =>
-      assertIndependentMemberships("Аккаунт «sam»", ["brand-a", "brand-c"], hierarchy),
+      assertIndependentMemberships("Account 'sam'", ["brand-a", "brand-c"], hierarchy),
     ).not.toThrow();
   });
 
   /**
-   * Без объявленного дерева родства нет ни у кого, поэтому вложенности
-   * не бывает, а повтор ловится всё равно — он опечатка при любой модели.
+   * Without a declared tree nobody has any kinship, so nesting cannot happen,
+   * while a repeat is still caught — it is a typo under any model.
    */
-  it("без дерева ловит только повтор", () => {
+  it("without a tree it catches only a repeat", () => {
     const flat = createTenantHierarchy([{ id: "brand-a" }, { id: "brand-c" }]);
     expect(() =>
-      assertIndependentMemberships("Аккаунт «sam»", ["brand-a", "brand-c"], flat),
+      assertIndependentMemberships("Account 'sam'", ["brand-a", "brand-c"], flat),
     ).not.toThrow();
   });
 });

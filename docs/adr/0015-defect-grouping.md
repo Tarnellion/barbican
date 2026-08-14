@@ -1,81 +1,90 @@
-# 0015. Группировка расхождений по сигнатуре дефекта
+# 0015. Grouping discrepancies by defect signature
 
-- **Статус:** принято
-- **Дата:** 2026-08-12
+- **Status:** accepted
+- **Date:** 2026-08-12
 
-## Контекст
+## Context
 
-Один дефект платформы задевает столько ячеек матрицы, сколько их есть, и каждая
-даёт строку в отчёте. Числа перестают означать то, что читатель в них видит.
+One defect in the platform touches as many cells of the matrix as there are, and
+each one gives a row in the report. The numbers stop meaning what the reader
+sees in them.
 
-Измерено на прогонах, а не предположено:
+Measured on runs, not assumed:
 
-- crAPI: **шесть строк на три BOLA** — те же три дефекта, увиденные с точки
-  пользователя и с точки администратора.
-- Референс-платформа: **десять строк на один** отсутствующий фильтр по тенанту.
+- crAPI: **six rows for three BOLAs** — the same three defects, seen from the
+  user's side and from the administrator's side.
+- The reference platform: **ten rows for one** missing tenant filter.
 
-«Найдено 17 расхождений» звучит как «семнадцать проблем», а означает «семнадцать
-задетых ячеек». Разница принципиальна: первое число говорит о платформе, второе —
-о размере матрицы, которую мы сами и задали.
+"17 discrepancies found" sounds like "seventeen problems", but means "seventeen
+cells touched". The difference matters: the first number speaks about the
+platform, the second about the size of the matrix, which we set ourselves.
 
-## Решение
+## Decision
 
-Расхождения сводятся к **сигнатуре**: эндпоинт, вид расхождения, отношение
-к объекту. Отчёт получает поле `defects` с группами и `summary.defectGroups`
-с их числом; сами строки остаются на месте как свидетельство.
+Discrepancies collapse to a **signature**: the endpoint, the kind of
+discrepancy, the relation to the resource. The report gets a `defects` field
+with the groups and `summary.defectGroups` with their count; the rows themselves
+stay in place as evidence.
 
-Роль в сигнатуру не входит. Если ручку открыли и пользователю, и администратору,
-дефект один — отсутствующая проверка, — а не два.
+Role is not part of the signature. If an endpoint was opened to a user and to an
+administrator alike, the defect is one — a missing check — and not two.
 
-Отношение входит. BOLA внутри тенанта и межтенантная утечка живут на одной ручке,
-но ломаются независимо: это разные ветки авторизации и разные дефекты.
+Relation is part of it. BOLA inside a tenant and a cross-tenant leak live on the
+same endpoint but break independently: these are different branches of
+authorization and different defects.
 
-### Это нижняя граница, и так и написано
+### This is a lower bound, and it is written that way
 
-Инструмент **не знает** числа дефектов и знать его не может. Две разные ошибки
-с одинаковой сигнатурой снаружи неразличимы.
+The tool **does not know** the number of defects and cannot know it. Two
+different bugs with the same signature are indistinguishable from the outside.
 
-Пример не выдуманный, он на своей же платформе. В режиме `all-six` группа
-`orders.read × privilege-escalation × foreign-tenant` содержит 12 ячеек — и это
-**два** дефекта: `POLYGON_DEFECT_CROSS_TENANT` (10 ячеек, брендовые аккаунты)
-и `POLYGON_DEFECT_CROSS_HOLDING` (2 ячейки, холдинговый аккаунт). В платформе это
-разные ветки `authorizeOrder` с разными фильтрами; снаружи обе дают 200 там, где
-ожидался отказ, на той же ручке при том же отношении.
+The example is not invented, it is from our own platform. In `all-six` mode the
+group `orders.read × privilege-escalation × foreign-tenant` holds 12 cells — and
+that is **two** defects: `POLYGON_DEFECT_CROSS_TENANT` (10 cells, brand
+accounts) and `POLYGON_DEFECT_CROSS_HOLDING` (2 cells, the holding account). In
+the platform these are different branches of `authorizeOrder` with different
+filters; from the outside both give 200 where a denial was expected, on the same
+endpoint under the same relation.
 
-Поэтому CLI печатает «различных дефектов: **не менее** N», а не «N». Число
-наблюдений — верхняя граница, число сигнатур — нижняя, истина между ними.
-Инструмент, называющий нижнюю границу точным значением, врёт в свою пользу.
+That is why the CLI prints "distinct defects: **at least** N", not "N". The
+number of observations is the upper bound, the number of signatures the lower
+one, and the truth lies between them. A tool that calls a lower bound an exact
+value lies in its own favour.
 
-## Альтернативы
+## Alternatives
 
-**Оставить плоский список.** Отклонено: отчёт, где размер матрицы неотличим
-от числа проблем, читают неверно, и тем вернее, чем он длиннее.
+**Keep a flat list.** Rejected: a report where the size of the matrix is
+indistinguishable from the number of problems gets read wrongly, and the longer
+it is the more surely so.
 
-**Схлопывать строки, оставляя по одной на группу.** Отклонено: строки — это
-свидетельство. Утверждение «этот аккаунт получил этот объект» проверяемо, а
-сводка — нет. Терять свидетельство ради краткости нельзя, поэтому группы
-добавляются, а не заменяют.
+**Collapse the rows, leaving one per group.** Rejected: the rows are evidence.
+The statement "this account got this resource" is checkable, a summary is not.
+Evidence must not be lost for the sake of brevity, so the groups are added
+rather than replacing anything.
 
-**Включить роль в сигнатуру.** Отклонено: даёт ровно ту инфляцию, от которой
-уходим. Открытая всем ручка превратилась бы в столько дефектов, сколько ролей.
+**Include the role in the signature.** Rejected: it gives exactly the inflation
+we are moving away from. An endpoint open to everyone would turn into as many
+defects as there are roles.
 
-**Просить человека объявить дефекты и связывать находки с ними.** Так устроен
-машиночитаемый оракул полигонов ([ADR-0012](0012-ground-truth-format.md)), и там
-это уместно: дефекты известны заранее. На чужом стенде они неизвестны по
-определению — если бы были известны, инструмент был бы не нужен.
+**Ask a human to declare the defects and link findings to them.** That is how
+the machine-readable oracle of the polygons is built
+([ADR-0012](0012-ground-truth-format.md)), and there it fits: the defects are
+known in advance. On someone else's deployment they are unknown by definition —
+if they were known, the tool would not be needed.
 
-## Последствия
+## Consequences
 
-Сводка начинает отвечать на вопрос «сколько у нас проблем» вместо «сколько
-строк». Группа несёт наибольшую серьёзность своих наблюдений, поэтому
-сортировка по ней сразу даёт порядок разбора.
+The summary starts answering the question "how many problems do we have" instead
+of "how many rows". A group carries the highest severity of its observations, so
+sorting by it gives the order to work through straight away.
 
-Расплата — заниженная оценка там, где платформа ломается в нескольких местах
-одинаково снаружи. Смягчения нет и быть не может: различить эти случаи по
-HTTP-ответам нельзя. Единственная защита — не выдавать нижнюю границу
-за точное число, что и сделано в формулировке.
+The price is an underestimate where the platform breaks in several places that
+look the same from the outside. There is no mitigation and there cannot be:
+these cases cannot be told apart by HTTP responses. The only defence is not to
+pass a lower bound off as an exact number, and that is what the wording does.
 
-Пересмотреть, если появится сигнал, различающий ветки авторизации снаружи.
-Скалярные сигналы над телом ([ADR-0011](0011-response-body-signals.md)) в принципе
-могли бы: разная форма ответа у разных веток дала бы разный набор скаляров.
-Пока это домысел, а не измерение.
+Revisit if a signal appears that tells branches of authorization apart from the
+outside. Scalar signals over the body
+([ADR-0011](0011-response-body-signals.md)) could in principle: a different
+shape of response from different branches would give a different set of scalars.
+For now that is a guess, not a measurement.

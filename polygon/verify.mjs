@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 
 /**
- * Сверка инструмента с оракулом референс-платформы.
+ * Verification of the tool against the reference platform's oracle.
  *
- * Для каждой комбинации флагов дефектов: поднимает платформу, прогоняет
- * собранный `dist/cli.js run`, сравнивает находки с `ground-truth.json`
- * и печатает расхождения в обе стороны — пропущенное и лишнее.
+ * For every combination of defect flags: brings the platform up, runs the built
+ * `dist/cli.js run`, compares the findings against `ground-truth.json` and prints
+ * the discrepancies in both directions — what was missed and what was extra.
  *
- * Важнее обнаружения — пустой результат при выключенных флагах. Инструмент,
- * который находит дефекты, но фабрикует находки на корректной платформе,
- * бесполезен одинаково.
+ * More important than detection is an empty result with the flags switched off. A
+ * tool that finds defects but fabricates findings on a correct platform is just as
+ * useless.
  *
- * Ноль зависимостей: только встроенные модули.
+ * Zero dependencies: built-in modules only.
  *
- * Использование:
- *   node polygon/verify.mjs            # все комбинации
- *   node polygon/verify.mjs clean all  # только названные
+ * Usage:
+ *   node polygon/verify.mjs            # all combinations
+ *   node polygon/verify.mjs clean all  # only the named ones
  */
 
 import { spawn } from "node:child_process";
@@ -34,7 +34,7 @@ const CONFIG = join(POLYGON_DIR, "barbican.run.yaml");
 const ENDPOINTS = join(POLYGON_DIR, "endpoints.yaml");
 const GROUND_TRUTH = join(POLYGON_DIR, "ground-truth.json");
 
-/** Имя переменной окружения → поле в ответе `/v1/health`. */
+/** The environment variable name → the field in the `/v1/health` response. */
 const FLAG_FIELDS = {
   POLYGON_DEFECT_CROSS_TENANT: "crossTenant",
   POLYGON_DEFECT_NO_ROLE_CHECK: "noRoleCheck",
@@ -49,11 +49,12 @@ const FLAG_FIELDS = {
 };
 
 /**
- * Локальная петля терпит частоту выше дефолтной.
+ * The local loopback tolerates a higher rate than the default.
  *
- * Дефолты инструмента (2 одновременно, 5 в секунду) рассчитаны на чужой стенд.
- * Здесь стенд свой, в том же процессе-родителе, и 80 обращений по 5 в секунду
- * растянули бы каждую из девятнадцати комбинаций на полминуты.
+ * The tool's defaults (2 at a time, 5 per second) are meant for someone else's
+ * deployment. Here the deployment is our own, under the same parent process, and 80
+ * requests at 5 per second would stretch each of the nineteen combinations to half
+ * a minute.
  */
 const RUN_FLAGS = ["--rps", "50", "--concurrency", "4"];
 
@@ -63,10 +64,10 @@ function fail(message) {
 }
 
 /**
- * Достаёт baseUrl из конфигурации прогона.
+ * Pulls the baseUrl out of the run configuration.
  *
- * Регулярным выражением, а не YAML-разбором: у скрипта не должно быть
- * зависимостей. Значение нужно ровно одно, и формат файла мы контролируем.
+ * With a regular expression rather than by parsing YAML: the script must have no
+ * dependencies. Exactly one value is needed, and we control the file's format.
  */
 function readBaseUrl(configText) {
   const match = /^\s*baseUrl:\s*(\S+)\s*$/m.exec(configText);
@@ -76,7 +77,7 @@ function readBaseUrl(configText) {
   return new URL(match[1]);
 }
 
-/** Имена переменных с токенами берутся из той же конфигурации — чтобы не разошлись. */
+/** The token variable names come from the same configuration — so the two cannot diverge. */
 function readTokenEnvNames(configText) {
   const names = [...configText.matchAll(/^\s*tokenEnv:\s*(\S+)\s*$/gm)].map((match) => match[1]);
   if (names.length === 0) {
@@ -96,7 +97,7 @@ async function waitForHealth(baseUrl, child, attempts = 100) {
         return await response.json();
       }
     } catch {
-      // Ещё не слушает — пробуем снова.
+      // Not listening yet — try again.
     }
     await new Promise((done) => setTimeout(done, 50));
   }
@@ -150,11 +151,12 @@ const TABLE_BEGIN = "<!-- verify:begin -->";
 const TABLE_END = "<!-- verify:end -->";
 
 /**
- * Собирает блок с результатом сверки.
+ * Assembles the block with the result of the verification.
  *
- * Печатает прогон, а не человек: числа в этом документе разъезжались с кодом
- * дважды, причём во второй раз соседний абзац сам объяснял, почему они другие,
- * — обновили объяснение, а не число.
+ * Written by the run, not by a human: the numbers in that document drifted apart
+ * from the code twice, and the second time the neighbouring paragraph itself
+ * explained why they were different — the explanation got updated, the number did
+ * not.
  */
 function renderTable(rows) {
   const width = Math.max(...rows.map((row) => row.id.length));
@@ -176,7 +178,7 @@ function renderTable(rows) {
   ].join("\n");
 }
 
-/** Заменяет блок между метками. @throws если меток нет */
+/** Replaces the block between the markers. @throws if the markers are absent */
 async function writeReadmeTable(block) {
   const path = new URL(`../${README}`, import.meta.url);
   const text = await readFile(path, "utf8");
@@ -184,7 +186,7 @@ async function writeReadmeTable(block) {
   await writeFile(path, replaced, "utf8");
 }
 
-/** Возвращает описание расхождения либо undefined, если всё совпало. */
+/** Returns a description of the discrepancy, or undefined if everything matched. */
 async function compareReadmeTable(block) {
   const path = new URL(`../${README}`, import.meta.url);
   const text = await readFile(path, "utf8");
@@ -225,15 +227,15 @@ async function main() {
   const tokenEnvNames = readTokenEnvNames(configText);
 
   const groundTruth = loadGroundTruth(await readFile(GROUND_TRUTH, "utf8"));
-  // Полнота проверяется до прогона: дефект, объявленный видимым и не ожидаемый
-  // ни в одном варианте, — это забытый вариант либо неверная пометка видимости.
+  // Completeness is checked before the run: a defect declared visible and expected
+  // in no variant is either a forgotten variant or a wrong visibility mark.
   const gaps = checkCoverage(groundTruth);
   if (gaps.length > 0) {
     fail(`the ground truth is incomplete:\n  ${gaps.join("\n  ")}`);
   }
   const argv = process.argv.slice(2);
-  // Сверка таблицы в README — модификатор обычного прогона, а не отдельный
-  // режим: числа в документе обязаны быть с того же прогона, что и вердикт.
+  // Checking the table in the README is a modifier of an ordinary run, not a mode of
+  // its own: the numbers in the document must come from the same run as the verdict.
   const checkReadme = argv.includes("--check-readme");
   const updateReadme = argv.includes("--update-readme");
   const selected = argv.filter((argument) => !argument.startsWith("--"));
@@ -247,14 +249,14 @@ async function main() {
     fail(`no combination matched the filter: ${selected.join(", ")}`);
   }
 
-  // Токены случайны на каждый запуск: в файлах их нет и быть не должно.
+  // The tokens are random on every launch: they are not in the files and must not be.
   const tokens = Object.fromEntries(
     tokenEnvNames.map((name) => [name, randomBytes(24).toString("hex")]),
   );
   const reportDir = await mkdtemp(join(tmpdir(), "barbican-polygon-"));
 
   let mismatched = 0;
-  /** Строки для таблицы в README: печатает их прогон, а не человек. */
+  /** The rows for the table in the README: the run writes them, not a human. */
   const rows = [];
 
   for (const combination of combinations) {
@@ -282,8 +284,8 @@ async function main() {
       fail(`the platform did not come up on ${baseUrl.origin}:\n${readStderr()}`);
     }
 
-    // Флаг мог не долететь — например, из-за опечатки в имени переменной.
-    // Тогда прогон дал бы ноль находок и выглядел бы пропуском инструмента.
+    // A flag might not have arrived — because of a typo in the variable name, say.
+    // Then the run would give zero findings and would look like a miss by the tool.
     for (const [name, on] of Object.entries(combination.selector)) {
       const field = FLAG_FIELDS[name];
       if (health.defects?.[field] !== on) {
@@ -305,10 +307,11 @@ async function main() {
     }
     const report = JSON.parse(await readFile(reportPath, "utf8"));
 
-    // Сравнение и проверки достоверности — общие для всех полигонов (ADR-0012).
+    // The comparison and the trustworthiness checks are shared by all polygons
+    // (ADR-0012).
     const { problems: shared } = compareVariant(combination, report, result.code);
     const problems = [...shared];
-    // Свойственное этому стенду: он свой и должен отвечать без сбоев.
+    // Specific to this deployment: it is our own and must answer without failures.
     if (report.summary.failures > 0) {
       problems.push(`failed requests: ${report.summary.failures}`);
     }
@@ -319,10 +322,10 @@ async function main() {
     process.stdout.write(
       `  cells probed: ${report.summary.observations}, ` +
         `canaries: ${report.canariesChecked}, ` +
-        // `findings` считает весь список целиком — и матричные расхождения,
-        // и находки по телу. Прибавлять к нему `checkFindings` значило считать
-        // вторые дважды: 88 на экране при 76 строках в отчёте. Сверка при этом
-        // оставалась зелёной, потому что сравнивает множества ключей, а не числа.
+        // `findings` counts the whole list — both matrix discrepancies and findings
+        // by body. Adding `checkFindings` to it meant counting the latter twice: 88
+        // on the screen against 76 rows in the report. The verification stayed green
+        // through all of it, because it compares sets of keys, not numbers.
         `findings: ${report.summary.findings} ` +
         `(of them by body ${report.summary.checkFindings}) ` +
         `(oracle expects ${combination.findings.length})\n`,

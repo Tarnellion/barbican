@@ -1,8 +1,8 @@
 /**
- * Реестр проверок.
+ * The check registry.
  *
- * Экземплярный, не глобальный: глобальное состояние в ядре запрещено.
- * Инструмент создаёт реестр явно и передаёт его дальше.
+ * Per-instance, not global: global state in the core is forbidden. The tool
+ * creates the registry explicitly and passes it on.
  */
 
 import type { Check } from "./types.js";
@@ -21,10 +21,10 @@ export class CheckRegistry {
   readonly #checks = new Map<string, Check>();
 
   /**
-   * Регистрирует проверку.
+   * Registers a check.
    *
-   * @throws {DuplicateCheckIdError} если `id` уже занят — молчаливая перезапись
-   * проверки означала бы тихо потерянное покрытие.
+   * @throws {DuplicateCheckIdError} if `id` is already taken — silently
+   * overwriting a check would mean silently lost coverage.
    */
   register(check: Check): void {
     if (this.#checks.has(check.id)) {

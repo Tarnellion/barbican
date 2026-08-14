@@ -1,34 +1,34 @@
 ---
 name: no-employer-sources
-description: Жёсткая граница между этим личным проектом и инструментами работодателя.
+description: A hard boundary between this personal project and the employer's tools.
 ---
 
-**ЧЕРНОВИК — не активирован. Ревью и перенос вручную.**
+**DRAFT — not active. Review and move by hand.**
 
-# Никаких источников работодателя
+# No employer sources
 
-`barbican` — личный open-source проект. К работодателю отношения не имеет.
+`barbican` is a personal open-source project. It has nothing to do with the employer.
 
-## Запрещено
+## Forbidden
 
-MCP-серверы, связанные с основной работой: не читать, не вызывать, не ссылаться.
-Конкретный перечень — в `.claude/rules/_local/employer-mcp-servers.md`. Этот файл
-не версионируется намеренно: репозиторий публичный, и названиям внутренних
-инструментов в нём не место.
+MCP servers connected with the day job: do not read them, do not call them, do not refer to them.
+The specific list is in `.claude/rules/_local/employer-mcp-servers.md`. That file
+is deliberately not versioned: the repository is public, and the names of internal
+tools have no place in it.
 
-Ничего оттуда не должно попасть в репозиторий — ни напрямую, ни «по мотивам»:
-код, конфиги, имена эндпоинтов, структуры данных, названия ролей и прав, схемы
-тенантов, тексты требований.
+Nothing from there may end up in the repository — neither directly nor "in the same spirit":
+code, configs, endpoint names, data structures, names of roles and permissions, tenant
+schemas, requirement texts.
 
-Это относится и к случаям, когда оттуда что-то можно «просто подсмотреть для ускорения».
-Нельзя.
+This applies as well to the cases where something there could be "just peeked at to go faster".
+It cannot.
 
-## При сомнении
+## When in doubt
 
-Если непонятно, относится ли инструмент или источник к запрещённым — не использовать
-и спросить.
+If it is unclear whether a tool or a source is one of the forbidden ones — do not use it
+and ask.
 
-## Разрешено
+## Allowed
 
-`context7` — для сверки актуальной документации библиотек. Использовать активно:
-не писать по памяти то, что можно проверить.
+`context7` — for checking current library documentation. Use it actively:
+do not write from memory what can be verified.

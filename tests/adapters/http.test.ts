@@ -1,8 +1,9 @@
 /**
- * Тесты HTTP-клиента.
+ * HTTP client tests.
  *
- * Против настоящего локального сервера, без подмены fetch: проверяется то,
- * что реально ушло в сеть и что реально вернулось, а не то, как оформлен вызов.
+ * Against a real local server, with no fetch stub: what is checked is what
+ * really went out on the network and what really came back, not how the call
+ * was written.
  */
 
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
@@ -40,7 +41,7 @@ async function startServer(handler: Handler): Promise<TestServer> {
   });
   const address = server.address();
   if (address === null || typeof address === "string") {
-    throw new Error("не удалось поднять тестовый сервер");
+    throw new Error("could not start the test server");
   }
   return {
     port: address.port,
@@ -67,19 +68,20 @@ function clientFor(overrides: Record<string, unknown> = {}) {
 const GET = (port: number, path = "/") =>
   ({ method: "GET", url: `http://127.0.0.1:${port}${path}`, headers: {} }) as const;
 
-describe("заголовки, добавленные по итогам холодного чтения", () => {
+describe("headers added after a cold read", () => {
   /**
-   * Оба редактировались зря, и оба нужны для разбора находки.
+   * Both were redacted for nothing, and both are needed to work through a
+   * finding.
    *
-   * `cache-control` меняет оценку ущерба: межтенантная утечка с `public`
-   * размножается через CDN, и радиус поражения совсем иной. `date` —
-   * единственная зацепка, чтобы сопоставить находку с логом сервера.
-   * Учётных данных не несёт ни тот, ни другой.
+   * `cache-control` changes the damage estimate: a cross-tenant leak marked
+   * `public` multiplies through a CDN, and the blast radius is a different one
+   * entirely. `date` is the only handle for matching a finding against the
+   * server log. Neither carries credentials.
    */
-  it("сохраняет cache-control и date, но по-прежнему режет set-cookie", async () => {
+  it("keeps cache-control and date while still redacting set-cookie", async () => {
     const server = await startServer((_request, response) => {
       response.setHeader("cache-control", "public, max-age=60");
-      // Только ASCII: Node отвергает кириллицу в значении заголовка.
+      // ASCII only: Node rejects Cyrillic in a header value.
       response.setHeader("set-cookie", "session=platform-secret");
       response.setHeader("x-internal", "also-secret");
       response.writeHead(200);
@@ -105,24 +107,24 @@ describe("заголовки, добавленные по итогам холо�
   });
 });
 
-describe("область проверки", () => {
-  it("отказывается работать без allowlist", () => {
+describe("the scope of the check", () => {
+  it("refuses to work without an allowlist", () => {
     const throttle = createThrottle();
 
     expect(() => createHttpClient({ allowedHosts: [], throttle })).toThrow(EmptyScopeError);
     expect(() => createHttpClient({ allowedHosts: ["  "], throttle })).toThrow(EmptyScopeError);
   });
 
-  it("различает записи с портом и без", async () => {
+  it("tells entries with a port apart from entries without one", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(200).end();
     });
     try {
-      // Запись без порта разрешает любой порт — так было и раньше.
+      // An entry without a port allows any port — as it did before.
       const loose = clientFor().client;
       await expect(loose.send(GET(server.port))).resolves.toMatchObject({ status: 200 });
 
-      // Запись с портом разрешает ровно его.
+      // An entry with a port allows exactly that one.
       const exact = clientFor({ allowedHosts: [`127.0.0.1:${server.port}`] }).client;
       await expect(exact.send(GET(server.port))).resolves.toMatchObject({ status: 200 });
 
@@ -133,7 +135,7 @@ describe("область проверки", () => {
     }
   });
 
-  it("не обращается к хосту вне области", async () => {
+  it("makes no request to a host outside the scope", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(200).end();
     });
@@ -147,7 +149,7 @@ describe("область проверки", () => {
     }
   });
 
-  it("отвергает протоколы кроме http и https", async () => {
+  it("rejects protocols other than http and https", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(200).end();
     });
@@ -163,8 +165,8 @@ describe("область проверки", () => {
   });
 });
 
-describe("безопасные методы по умолчанию", () => {
-  it("не отправляет изменяющий запрос без явного разрешения", async () => {
+describe("safe methods by default", () => {
+  it("does not send a modifying request without explicit permission", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(200).end();
     });
@@ -175,14 +177,14 @@ describe("безопасные методы по умолчанию", () => {
         client.send({ method: "DELETE", url: `http://127.0.0.1:${server.port}/`, headers: {} }),
       ).rejects.toThrow(UnsafeMethodError);
 
-      // Ничего не ушло: запрет действует до отправки, а не после.
+      // Nothing went out: the ban applies before sending, not after.
       expect(server.paths).toEqual([]);
     } finally {
       await server.close();
     }
   });
 
-  it("пропускает изменяющий запрос при явном разрешении", async () => {
+  it("lets a modifying request through with explicit permission", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(204).end();
     });
@@ -203,10 +205,10 @@ describe("безопасные методы по умолчанию", () => {
   });
 });
 
-describe("тело ответа и чувствительные заголовки", () => {
-  const CANARY = "pii-канарейка-3f9a2b";
+describe("the response body and sensitive headers", () => {
+  const CANARY = "pii-canary-3f9a2b";
 
-  it("не возвращает тело ни в каком виде", async () => {
+  it("returns no body in any form", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ email: CANARY, balance: 1000 }));
@@ -223,10 +225,10 @@ describe("тело ответа и чувствительные заголовк
     }
   });
 
-  // Найдено состязательной проверкой: список запрещённых имён был структурно
-  // неверен — мимо него проходили x-auth-token, authentication-info,
-  // x-amz-security-token и почта клиента в x-user-email.
-  it("редактирует любой заголовок, которого нет в разрешённом списке", async () => {
+  // Found by adversarial review: the deny list of names was structurally wrong —
+  // x-auth-token, authentication-info, x-amz-security-token and a client's
+  // email in x-user-email all slipped past it.
+  it("redacts any header that is not on the allow list", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(200, {
         "set-cookie": "session=super-secret-token; HttpOnly",
@@ -252,16 +254,16 @@ describe("тело ответа и чувствительные заголовк
       ]) {
         expect(JSON.stringify(response)).not.toContain(secret);
       }
-      // Имена сохраняются: факт присутствия заголовка — сигнал, значение — нет.
+      // Names are kept: the presence of a header is a signal, its value is not.
       expect(response.headers["x-auth-token"]).toBe("[REDACTED]");
-      // Разрешённые сохраняются целиком: они нужны для вердикта.
+      // Allowed ones are kept whole: they are needed for the verdict.
       expect(response.headers["content-type"]).toBe("application/json");
     } finally {
       await server.close();
     }
   });
 
-  it("вычищает query и фрагмент из location: там приезжает OAuth-токен", async () => {
+  it("strips the query and the fragment from location: an OAuth token arrives there", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(302, {
         location: "https://sso.example.test/cb#access_token=ya29.LEAKED_OAUTH_TOKEN&state=1",
@@ -274,7 +276,7 @@ describe("тело ответа и чувствительные заголовк
       const response = await client.send(GET(server.port));
 
       expect(JSON.stringify(response)).not.toContain("ya29.LEAKED_OAUTH_TOKEN");
-      // Адрес назначения сохраняется — по нему видно, куда уводит редирект.
+      // The destination address is kept — it shows where the redirect leads.
       expect(response.headers["location"]).toContain("sso.example.test/cb");
     } finally {
       await server.close();
@@ -282,8 +284,8 @@ describe("тело ответа и чувствительные заголовк
   });
 });
 
-describe("редиректы", () => {
-  it("не переходит по 3xx: это увело бы запрос за пределы allowlist", async () => {
+describe("redirects", () => {
+  it("does not follow a 3xx: that would take the request outside the allowlist", async () => {
     const target = await startServer((_request, response) => {
       response.writeHead(200).end();
     });
@@ -297,7 +299,7 @@ describe("редиректы", () => {
       const response = await client.send(GET(source.port));
 
       expect(response.status).toBe(302);
-      // Хост localhost в allowlist не входит — и обращения к нему не было.
+      // The host localhost is not in the allowlist — and no request went to it.
       expect(target.paths).toEqual([]);
     } finally {
       await source.close();
@@ -306,8 +308,8 @@ describe("редиректы", () => {
   });
 });
 
-describe("повторы и backoff", () => {
-  it("повторяет 429 и слушается Retry-After вместо своей формулы", async () => {
+describe("retries and backoff", () => {
+  it("retries a 429 and obeys Retry-After instead of its own formula", async () => {
     let calls = 0;
     const server = await startServer((_request, response) => {
       calls += 1;
@@ -330,10 +332,10 @@ describe("повторы и backoff", () => {
     }
   });
 
-  // Найдено состязательной проверкой: setTimeout зажимает значения свыше
-  // 2^31-1 мс до одной миллисекунды, поэтому огромный Retry-After снимал
-  // выдержку целиком — три попытки проходили за считанные миллисекунды.
-  it("не даёт серверу отменить выдержку огромным Retry-After", async () => {
+  // Found by adversarial review: setTimeout clamps values above 2^31-1 ms down
+  // to a single millisecond, so a huge Retry-After removed the wait entirely —
+  // three attempts went through in a few milliseconds.
+  it("does not let the server cancel the wait with a huge Retry-After", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(429, { "retry-after": "2147484" }).end();
     });
@@ -351,7 +353,7 @@ describe("повторы и backoff", () => {
     }
   });
 
-  it("наращивает паузу экспоненциально, когда сервер молчит о сроке", async () => {
+  it("grows the pause exponentially when the server says nothing about timing", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(503).end();
     });
@@ -363,16 +365,17 @@ describe("повторы и backoff", () => {
 
       const response = await client.send(GET(server.port));
 
-      // Последняя попытка возвращает ответ как есть — выдумывать исход нельзя.
+      // The last attempt returns the response as-is — the outcome must not be
+      // invented.
       expect(response.status).toBe(503);
-      // Полный джиттер при random=0.5: 400*0.5, затем 800*0.5.
+      // Full jitter with random=0.5: 400*0.5, then 800*0.5.
       expect(clock.sleeps).toEqual([200, 400]);
     } finally {
       await server.close();
     }
   });
 
-  it("не повторяет успешный и не повторяет 403", async () => {
+  it("retries neither a success nor a 403", async () => {
     let calls = 0;
     const server = await startServer((_request, response) => {
       calls += 1;
@@ -392,9 +395,9 @@ describe("повторы и backoff", () => {
   });
 });
 
-describe("сетевой сбой", () => {
-  it("повторяет и сообщает об отказе, а не выдаёт результат", async () => {
-    // Поднимаем и сразу гасим сервер, чтобы получить заведомо закрытый порт.
+describe("a network failure", () => {
+  it("retries and reports the failure instead of producing a result", async () => {
+    // Raise the server and shut it down at once to get a port known to be closed.
     const server = await startServer((_request, response) => {
       response.writeHead(200).end();
     });
@@ -407,13 +410,13 @@ describe("сетевой сбой", () => {
     });
 
     await expect(client.send(GET(closedPort))).rejects.toThrow(RequestFailedError);
-    // Две паузы между тремя попытками.
+    // Two pauses between three attempts.
     expect(clock.sleeps).toEqual([50, 100]);
   });
 });
 
 describe("circuit breaker", () => {
-  it("останавливает прогон после серии неудач и больше не ходит в сеть", async () => {
+  it("stops the run after a series of failures and goes to the network no more", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(500).end();
     });
@@ -423,14 +426,14 @@ describe("circuit breaker", () => {
         breaker: { consecutiveFailures: 3 },
       });
 
-      // Два неудачных обращения порог не переходят.
+      // Two failed requests do not cross the threshold.
       await expect(client.send(GET(server.port, "/a"))).resolves.toMatchObject({ status: 500 });
       await expect(client.send(GET(server.port, "/b"))).resolves.toMatchObject({ status: 500 });
-      // Третье — переходит.
+      // The third one does.
       await expect(client.send(GET(server.port, "/c"))).rejects.toThrow(CircuitOpenError);
       const afterOpen = server.paths.length;
 
-      // Следующее обращение обрывается до сети.
+      // The next request is cut off before the network.
       await expect(client.send(GET(server.port, "/another"))).rejects.toThrow(CircuitOpenError);
       expect(server.paths.length).toBe(afterOpen);
     } finally {
@@ -438,9 +441,9 @@ describe("circuit breaker", () => {
     }
   });
 
-  // Найдено состязательной проверкой: счётчик рос на каждую ПОПЫТКУ, поэтому
-  // при дефолтах (3 попытки, порог 5) прогон вставал после двух обращений.
-  it("считает неудачные обращения, а не собственные попытки их повторить", async () => {
+  // Found by adversarial review: the counter grew on every ATTEMPT, so with the
+  // defaults (3 attempts, threshold 5) the run stalled after two requests.
+  it("counts failed requests, not its own attempts to retry them", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(503).end();
     });
@@ -450,8 +453,8 @@ describe("circuit breaker", () => {
         breaker: { consecutiveFailures: 5 },
       });
 
-      // Четыре обращения по три попытки — это двенадцать попыток, но лишь
-      // четыре неудачи, и порог в пять ещё не достигнут.
+      // Four requests of three attempts each is twelve attempts, but only four
+      // failures, and the threshold of five is not reached yet.
       for (let i = 0; i < 4; i += 1) {
         await expect(client.send(GET(server.port, `/x${i}`))).resolves.toMatchObject({
           status: 503,
@@ -464,7 +467,7 @@ describe("circuit breaker", () => {
     }
   });
 
-  it("сбрасывает счётчик после удачного ответа", async () => {
+  it("resets the counter after a successful response", async () => {
     let calls = 0;
     const server = await startServer((_request, response) => {
       calls += 1;
@@ -486,22 +489,22 @@ describe("circuit breaker", () => {
 });
 
 describe("parseRetryAfter", () => {
-  it("понимает секунды", () => {
+  it("understands seconds", () => {
     expect(parseRetryAfter("12", 0)).toBe(12_000);
     expect(parseRetryAfter(" 0 ", 0)).toBe(0);
     expect(parseRetryAfter("-5", 0)).toBe(0);
   });
 
-  it("понимает HTTP-дату", () => {
+  it("understands an HTTP date", () => {
     const now = Date.parse("2026-08-12T10:00:00Z");
     expect(parseRetryAfter("Wed, 12 Aug 2026 10:00:30 GMT", now)).toBe(30_000);
-    // Дата в прошлом не даёт отрицательной паузы.
+    // A date in the past gives no negative pause.
     expect(parseRetryAfter("Wed, 12 Aug 2026 09:00:00 GMT", now)).toBe(0);
   });
 
-  it("возвращает undefined на мусоре и отсутствии заголовка", () => {
+  it("returns undefined on junk and on a missing header", () => {
     expect(parseRetryAfter(null, 0)).toBeUndefined();
     expect(parseRetryAfter("", 0)).toBeUndefined();
-    expect(parseRetryAfter("скоро", 0)).toBeUndefined();
+    expect(parseRetryAfter("soon", 0)).toBeUndefined();
   });
 });

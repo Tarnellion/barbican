@@ -1,37 +1,41 @@
-# 0013. Иерархия тенантов
+# 0013. Tenant hierarchy
 
-- **Статус:** принято
-- **Дата:** 2026-08-12
+- **Status:** accepted
+- **Date:** 2026-08-12
 
-## Контекст
+## Context
 
-`tenantId` — плоская строка, и отношение между двумя тенантами определено ровно
-одно: «не совпадают». Для платформы, где над брендами стоит холдинг, а над
-холдингами — платформа, этого недостаточно, и недостаточность не безобидна.
+`tenantId` is a flat string, and exactly one relation between two tenants is
+defined: "they do not match". For a platform where a holding stands above the brands
+and a platform above the holdings, that is not enough, and the shortfall is not
+harmless.
 
-Эксперимент (закреплён тестом `tests/core/tenant-hierarchy.test.ts`): холдинг H1
-владеет брендами A и B, холдинг H2 — брендом C. Выразить это нечем, поэтому
-холдинг приписывается к одному из своих брендов и получает `scope: foreign-tenant`,
-иначе второй бренд недостижим. Результат одного прогона:
+An experiment (fixed by the test `tests/core/tenant-hierarchy.test.ts`): holding H1
+owns brands A and B, holding H2 owns brand C. There is nothing to express this with,
+so the holding is attributed to one of its own brands and gets
+`scope: foreign-tenant`, otherwise the second brand is unreachable. The result of
+one run:
 
 ```
-настоящая утечка (чужой холдинг C) найдена: false
-ложное срабатывание на своём бренде A: true
+real leak (someone else's holding C) found: false
+false positive on its own brand A: true
 ```
 
-**Инструмент ошибается дважды сразу.** Законное чтение объявляет эскалацией
-и пропускает настоящую межхолдинговую утечку. Второе тяжелее: прогон выглядит
-чистым. Это пятый экземпляр класса «чисто ≠ проверено», с которым проект борется
-с самого начала, — и первый, встроенный в саму модель, а не в её применение.
+**The tool is wrong twice at once.** It declares a lawful read an escalation and
+misses the real leak between holdings. The second is the heavier one: the run looks
+clean. This is the fifth instance of the class "clean ≠ tested" the project has been
+fighting from the very start — and the first one built into the model itself rather
+than into its use.
 
-Отдельно: без иерархии не выразить и аффилиата. Два аффилиата одного бренда дают
-`same-tenant`; объявить аффилиата тенантом можно, но тогда пара «оператор и его же
-аффилиат» станет `foreign-tenant`, что неверно. Это та же нехватка, вид сбоку.
+Separately: without a hierarchy an affiliate cannot be expressed either. Two
+affiliates of one brand give `same-tenant`; an affiliate can be declared a tenant,
+but then the pair "an operator and their own affiliate" becomes `foreign-tenant`,
+which is wrong. This is the same shortfall seen from the side.
 
-## Решение
+## Decision
 
-Тенанты образуют лес: у тенанта может быть родитель. Связь объявляется **явно**,
-отдельным полем, а не кодируется внутри идентификатора.
+Tenants form a forest: a tenant may have a parent. The link is declared
+**explicitly**, in a separate field, not encoded inside the identifier.
 
 ```yaml
 tenants:
@@ -42,79 +46,80 @@ tenants:
   - { id: brand-c, parent: holding-2 }
 ```
 
-Прежняя форма — `tenants: [tenant-a, tenant-b]` — продолжает работать и означает
-лес из корней без связей.
+The old form — `tenants: [tenant-a, tenant-b]` — keeps working and means a forest of
+roots with no links.
 
-`ResourceRelation` расширяется с трёх значений до пяти:
+`ResourceRelation` is extended from three values to five:
 
-| Значение | Когда | Типичное намерение |
+| Value | When | Typical intent |
 |---|---|---|
-| `own` | владелец объекта — сам аккаунт | доступ есть |
-| `same-tenant` | тот же тенант, другой владелец | BOLA внутри тенанта |
-| `descendant-tenant` | объект **ниже** по дереву | холдинг читает свой бренд — обычно можно |
-| `ancestor-tenant` | объект **выше** по дереву | бренд читает уровень холдинга — обычно нельзя |
-| `foreign-tenant` | родства нет вовсе | чужой холдинг — нельзя никогда |
+| `own` | the owner of the resource is the account itself | access exists |
+| `same-tenant` | same tenant, different owner | BOLA inside a tenant |
+| `descendant-tenant` | the resource is **lower** in the tree | a holding reads its own brand — usually allowed |
+| `ancestor-tenant` | the resource is **higher** in the tree | a brand reads the holding level — usually not allowed |
+| `foreign-tenant` | there is no kinship at all | someone else's holding — never allowed |
 
-Три причины разделить `descendant` и `ancestor`, а не свести их к «родственный»:
-намерения противоположны (вниз обычно можно, вверх обычно нельзя); утечка вверх
-и утечка вниз — разные дефекты с разной ценой; а сведя их вместе, мы бы получили
-ровно ту потерю различия, из-за которой этот ADR и пишется.
+Three reasons to separate `descendant` and `ancestor` rather than reduce them to
+"related": the intents are opposite (downward is usually allowed, upward usually
+not); a leak upward and a leak downward are different defects with different cost;
+and by merging them we would get exactly the loss of distinction this ADR is being
+written about.
 
-**Совместимость полная.** Без объявленных связей все тенанты — корни, `descendant`
-и `ancestor` не возникают ни разу, и поведение совпадает с прежним побайтово.
-Существующие конфигурации полигонов не меняются.
+**Compatibility is complete.** With no links declared all tenants are roots,
+`descendant` and `ancestor` never arise once, and the behaviour matches the old one
+byte for byte. The existing polygon configurations do not change.
 
-### Почему явные связи, а не путь в идентификаторе
+### Why explicit links and not a path in the identifier
 
-Форма `holding-1/brand-a` короче и не требует новой секции. Отклонена.
+The form `holding-1/brand-a` is shorter and needs no new section. Rejected.
 
-Она превращает идентификатор в структуру, которую надо разбирать, — а идентификаторы
-приходят из конфигурации, написанной человеком. Опечатка в префиксе молча
-переродняет тенанта: `holding-l/brand-a` (латинская `l` вместо единицы) станет
-отдельным корнем, `descendant-tenant` превратится в `foreign-tenant`, правило
-перестанет применяться, и находка исчезнет. Этот сценарий уже происходил:
-лишний пробел в имени тенанта прятал настоящую утечку, из-за чего и появилась
-строгая сверка по списку `tenants`. Путь в идентификаторе умножает тот же риск
-и не даёт его проверить — любая строка с `/` синтаксически корректна.
+It turns the identifier into a structure that has to be parsed — and identifiers
+come from configuration written by a human. A typo in the prefix silently re-parents
+a tenant: `holding-l/brand-a` (a Latin `l` instead of a one) becomes a separate root,
+`descendant-tenant` turns into `foreign-tenant`, the rule stops applying, and the
+finding disappears. This scenario has already happened: a stray space in a tenant
+name hid a real leak, which is why the strict check against the `tenants` list
+appeared. A path in the identifier multiplies that same risk and gives no way to
+check it — any string with a `/` is syntactically valid.
 
-Явная связь проверяема: родитель обязан существовать в списке, цикл обязан
-обнаруживаться. Опечатка становится ошибкой на старте, а не тихим изменением
-смысла.
+An explicit link is checkable: the parent must exist in the list, a cycle must be
+detected. A typo becomes an error at startup rather than a quiet change of meaning.
 
-Вдобавок это согласуется с принципом проекта: структура не выводится из строк,
-пришедших извне.
+On top of that, it agrees with the project's principle: structure is not derived
+from strings that came from outside.
 
-## Альтернативы
+## Alternatives
 
-**Оставить плоскую модель, описав ограничение в документации.** Сделано как
-временная мера (README), но как решение отклонено: инструмент, дающий ложное
-успокоение на целом классе платформ, документацией не чинится.
+**Keep the flat model and describe the limitation in the documentation.** Done as a
+temporary measure (README), but rejected as a decision: a tool that gives false
+reassurance on a whole class of platforms is not fixed by documentation.
 
-**Произвольный граф вместо леса** — тенант с несколькими родителями (бренд
-в совместном владении двух холдингов). Отклонено пока: случай редкий, а граф
-превращает «выше/ниже» в «достижим по какому-то пути», и `ancestor`/`descendant`
-перестают быть взаимоисключающими. Вернуться, если появится реальный случай.
+**An arbitrary graph instead of a forest** — a tenant with several parents (a brand
+jointly owned by two holdings). Rejected for now: the case is rare, and a graph turns
+"above/below" into "reachable by some path", and `ancestor`/`descendant` stop being
+mutually exclusive. Come back to it if a real case appears.
 
-**Роль вместо иерархии** — объявить роль `holding` и разрешить ей всё. Отклонено:
-это ровно то, что делает нынешний обходной путь, и именно он пропускает
-межхолдинговую утечку. Роль отвечает на «что можно делать», а не на «над чем».
+**A role instead of a hierarchy** — declare a `holding` role and allow it
+everything. Rejected: that is exactly what the current workaround does, and it is
+exactly what misses the leak between holdings. A role answers "what may be done",
+not "over what".
 
-**Глубина как отдельное поле** (`level: holding | brand`). Отклонено: уровень
-не задаёт родства. Два бренда разных холдингов имеют одинаковый уровень
-и не должны быть родственниками.
+**Depth as a separate field** (`level: holding | brand`). Rejected: a level does not
+establish kinship. Two brands of different holdings have the same level and must not
+be kin.
 
-## Последствия
+## Consequences
 
-Закрывается класс, ради которого ADR писался: холдинг, платформа над холдингами
-и аффилиат под брендом становятся выразимыми. `unexpected-denial` приобретает
-смысл, которого у него не было: «холдинг не увидел собственный бренд» — теперь
-формулируемое утверждение, а для мультибрендового гемблинга ещё и регуляторно
-значимое (см. `docs/research/igaming-contours.md` о требовании UKGC к сквозному
-взгляду лицензиата).
+The class the ADR was written for is closed: a holding, a platform above holdings
+and an affiliate under a brand become expressible. `unexpected-denial` acquires a
+meaning it did not have: "the holding did not see its own brand" is now a statement
+that can be formulated, and for multi-brand gambling a regulatorily significant one
+as well (see `docs/research/igaming-contours.md` on the UKGC requirement for a
+licensee's end-to-end view).
 
-Цена: политика становится богаче, и человеку легче ошибиться в ней. Пять значений
-`scope` вместо трёх — это пять способов промахнуться. Смягчение — строгая проверка
-дерева на старте и правило «непокрытое падает в `fallback`», которое остаётся
-консервативным.
+The price: the policy becomes richer, and it is easier for a human to make a mistake
+in it. Five `scope` values instead of three is five ways to miss. The mitigation is
+the strict check of the tree at startup and the rule "anything uncovered falls
+through to `fallback`", which stays conservative.
 
-Пересмотреть, если понадобится несколько родителей у одного тенанта.
+Revisit if several parents for one tenant become necessary.

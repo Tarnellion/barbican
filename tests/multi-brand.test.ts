@@ -1,9 +1,9 @@
 /**
- * Бренды, разнесённые по поддоменам.
+ * Brands spread across subdomains.
  *
- * Ключевое проверяемое утверждение мультибрендовой платформы — «токен бренда A
- * не работает на хосте бренда B». Чтобы его вообще задать, обращение должно
- * уходить на хост тенанта **объекта**, а не аккаунта. См. ADR-0013.
+ * The key claim to check on a multi-brand platform is "brand A's token does not
+ * work on brand B's host". To state it at all, the request has to go to the
+ * host of the **resource's** tenant, not the account's. See ADR-0013.
  */
 
 import { describe, expect, it } from "vitest";
@@ -44,11 +44,11 @@ function recordingClient(): { client: HttpClient; seen: HttpRequest[] } {
 
 const credentials = createCredentialProvider(
   DEFAULT_AUTH_SCHEME,
-  new Map([["op-a", "токен-бренда-a"]]),
+  new Map([["op-a", "brand-a-token"]]),
 );
 
-describe("адрес выбирается по тенанту объекта", () => {
-  it("шлёт токен бренда A на хост бренда B, когда объект принадлежит B", async () => {
+describe("the address is chosen by the resource's tenant", () => {
+  it("sends brand A's token to brand B's host when the resource belongs to B", async () => {
     const { client, seen } = recordingClient();
 
     await collectObservations({
@@ -63,16 +63,16 @@ describe("адрес выбирается по тенанту объекта", (
 
     const byUrl = seen.map((request) => request.url);
     expect(byUrl).toContain("https://a.example.test/v1/orders/1");
-    // Ровно то, ради чего вводился адрес на тенанта: чужой бренд опрашивается
-    // на своём хосте, а токен при этом остаётся токеном бренда A.
+    // Exactly what a per-tenant address was introduced for: the other brand is
+    // probed on its own host while the token stays brand A's token.
     expect(byUrl).toContain("https://b.example.test/v1/orders/2");
     for (const request of seen) {
-      expect(request.headers.authorization).toBe("Bearer токен-бренда-a");
+      expect(request.headers.authorization).toBe("Bearer brand-a-token");
     }
   });
 
-  /** Объекта нет — вопрос о собственной области аккаунта, значит его же хост. */
-  it("без объекта берёт адрес тенанта аккаунта", async () => {
+  /** With no resource the question is about the account's own scope, so its own host. */
+  it("takes the account tenant's address when there is no resource", async () => {
     const { client, seen } = recordingClient();
 
     await collectObservations({
@@ -88,11 +88,12 @@ describe("адрес выбирается по тенанту объекта", (
   });
 
   /**
-   * У аккаунта вне тенантов (анонимного) своего адреса нет и быть не может:
-   * выбирать его не по чему. Заглушка вместо тенанта здесь означала бы поиск
-   * по несуществующему имени — то же самое, но неявно.
+   * An account outside of tenants (an anonymous one) has no address of its own
+   * and cannot have one: there is nothing to choose it by. A placeholder tenant
+   * here would mean a lookup by a name that does not exist — the same thing,
+   * only implicit.
    */
-  it("аккаунт вне тенантов опрашивает общий адрес, а объект — адрес своего тенанта", async () => {
+  it("an account outside of tenants probes the common address, a resource its tenant's", async () => {
     const { client, seen } = recordingClient();
     const anonymous: readonly Account[] = [{ id: "anon", roleId: "anonymous" }];
 
@@ -107,14 +108,16 @@ describe("адрес выбирается по тенанту объекта", (
     });
 
     const byUrl = seen.map((request) => request.url);
-    // Ручка без объекта: тенанта у аккаунта нет — остаётся общий адрес.
+    // An endpoint with no resource: the account has no tenant, so the common
+    // address is what is left.
     expect(byUrl).toContain("https://api.example.test/v1/orders");
-    // Ручка с объектом: адрес по-прежнему выбирается по тенанту объекта.
+    // An endpoint with a resource: the address is still chosen by the
+    // resource's tenant.
     expect(byUrl).toContain("https://a.example.test/v1/orders/1");
     expect(byUrl).toContain("https://b.example.test/v1/orders/2");
   });
 
-  it("канарейка аккаунта вне тенантов идёт на общий адрес", async () => {
+  it("the canary of an account outside of tenants goes to the common address", async () => {
     const { client, seen } = recordingClient();
 
     await probeCanaries({
@@ -130,7 +133,7 @@ describe("адрес выбирается по тенанту объекта", (
     expect(seen[0]?.url).toBe("https://api.example.test/v1/orders");
   });
 
-  it("без объявленных адресов всё уходит на общий, как раньше", async () => {
+  it("with no declared addresses everything goes to the common one, as before", async () => {
     const { client, seen } = recordingClient();
 
     await collectObservations({
@@ -148,11 +151,11 @@ describe("адрес выбирается по тенанту объекта", (
   });
 
   /**
-   * Канарейка на разнесённой платформе обязана стучаться на хост своего бренда:
-   * обращение к общему адресу дало бы отказ, и прогон остановился бы ложной
-   * тревогой «токен не работает».
+   * On a platform spread across hosts a canary must knock on its own brand's
+   * host: a request to the common address would be denied, and the run would
+   * stop on the false alarm "the token does not work".
    */
-  it("канарейка идёт на хост своего бренда", async () => {
+  it("the canary goes to its own brand's host", async () => {
     const { client, seen } = recordingClient();
 
     await probeCanaries({

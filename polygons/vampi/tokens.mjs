@@ -1,40 +1,42 @@
 #!/usr/bin/env node
 
 /**
- * Подготовка полигона VAmPI и получение токенов.
+ * Preparing the VAmPI polygon and obtaining tokens.
  *
- * Инструмент токены не добывает: логин — это POST, а без `--unsafe-methods`
- * инструмент POST не выполняет (ADR-0008). Учётные данные добывает оператор,
- * то есть этот скрипт, и кладёт их в переменные окружения.
+ * The tool does not obtain tokens: a login is a POST, and without
+ * `--unsafe-methods` the tool does not perform POST (ADR-0008). The credentials are
+ * obtained by the operator, that is, by this script, which puts them into
+ * environment variables.
  *
- * Пароли генерируются случайно на каждый прогон и никуда не записываются:
- * ни в файл, ни в вывод. Наружу выходят только токены — их нельзя не выдать,
- * они и есть предмет работы.
+ * The passwords are generated at random on every run and are written nowhere:
+ * neither to a file nor to the output. Only the tokens go out — they cannot be
+ * withheld, they are the point of the work.
  *
- * Ноль зависимостей: только встроенные модули.
+ * Zero dependencies: built-in modules only.
  *
- * Использование:
- *   eval "$(node polygons/vampi/tokens.mjs)"          # выставить переменные
- *   node polygons/vampi/tokens.mjs --no-reset          # не пересоздавать базу
+ * Usage:
+ *   eval "$(node polygons/vampi/tokens.mjs)"          # set the variables
+ *   node polygons/vampi/tokens.mjs --no-reset          # do not recreate the database
  */
 
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 /**
- * Кого заводим на полигоне.
+ * Who is created on the polygon.
  *
- * Имена пользователей и названия книг обязаны совпадать со значениями
- * `params` в `barbican.run.yaml`: там объявлены объекты обращения, здесь они
- * создаются. `verify.mjs` сверяет два списка перед прогоном — разойдясь,
- * они дали бы 404 на каждое обращение и отчёт без единой находки.
+ * The user names and the book titles must match the `params` values in
+ * `barbican.run.yaml`: there the resources requests address are declared, here they
+ * are created. `verify.mjs` compares the two lists before the run — once they
+ * diverged, they would give a 404 on every request and a report without a single
+ * finding.
  */
 export const USERS = [
   { username: "alice", tokenEnv: "VAMPI_TOKEN_ALICE", book: "alice-secret-book" },
   { username: "bob", tokenEnv: "VAMPI_TOKEN_BOB", book: "bob-secret-book" },
 ];
 
-/** Обращения к полигону не должны висеть вечно: стенд поднимается в петле. */
+/** Requests to the polygon must not hang forever: the deployment lives on loopback. */
 const REQUEST_TIMEOUT_MS = 15_000;
 
 export class ProvisionError extends Error {
@@ -60,7 +62,7 @@ async function request(baseUrl, path, options = {}) {
   try {
     body = JSON.parse(text);
   } catch {
-    // VAmPI отвечает HTML на ошибках самого Flask — оставляем текст как есть.
+    // VAmPI answers with HTML on Flask's own errors — leave the text as it is.
     body = { raw: text };
   }
   return { status: response.status, body };
@@ -78,11 +80,11 @@ function postJson(baseUrl, path, payload, token) {
 }
 
 /**
- * Пересоздаёт базу полигона.
+ * Recreates the polygon's database.
  *
- * Нужно потому, что имя пользователя и название книги в VAmPI уникальны:
- * второй прогон подряд упёрся бы в «User already exists», и пароль от той
- * учётной записи был бы уже неизвестен — он случайный и не сохраняется.
+ * Needed because a user name and a book title are unique in VAmPI: a second run in a
+ * row would run into "User already exists", and the password of that account would
+ * already be unknown — it is random and is not saved.
  */
 export async function resetDatabase(baseUrl) {
   const { status, body } = await request(baseUrl, "/createdb");
@@ -93,7 +95,7 @@ export async function resetDatabase(baseUrl) {
 }
 
 /**
- * Заводит пользователей и их книги, возвращает карту «переменная окружения → токен».
+ * Creates the users and their books, returns the "environment variable → token" map.
  *
  * @param {{ baseUrl: string, reset?: boolean, log?: (message: string) => void }} options
  * @returns {Promise<Map<string, string>>}
@@ -106,7 +108,7 @@ export async function provision({ baseUrl, reset = true, log = () => {} }) {
 
   const tokens = new Map();
   for (const user of USERS) {
-    // Пароль живёт только в этой области видимости и только до конца прогона.
+    // The password lives in this scope only, and only until the run ends.
     const password = randomBytes(18).toString("base64url");
 
     const registered = await postJson(baseUrl, "/users/v1/register", {
@@ -114,13 +116,13 @@ export async function provision({ baseUrl, reset = true, log = () => {} }) {
       password,
       email: `${user.username}@vampi.invalid`,
     });
-    // VAmPI отвечает 200 и на отказ тоже — судить приходится по телу.
-    // Это ровно тот случай, ради которого инструмент не читает тела: здесь
-    // мы оператор, а не проверяющий.
+    // VAmPI answers 200 on a refusal as well — judging has to go by the body. This
+    // is exactly the case for whose sake the tool does not read bodies: here we are
+    // the operator, not the one doing the checking.
     if (registered.body?.status !== "success") {
-      // 500 на свежем контейнере означает «нет таблицы users»: образ приезжает
-      // без базы, и она создаётся только обращением к /createdb. Проверено:
-      // с `--no-reset` на только что поднятом стенде регистрация даёт ровно 500.
+      // A 500 on a fresh container means "there is no users table": the image arrives
+      // without a database, and it is created only by a request to /createdb. Tested:
+      // with `--no-reset` on a just-started deployment registration gives exactly 500.
       const hint =
         registered.status === 500 && !reset
           ? ". The database does not exist yet — run without --no-reset"
@@ -161,7 +163,7 @@ export async function provision({ baseUrl, reset = true, log = () => {} }) {
   return tokens;
 }
 
-/** Значение для `export`: токен — учётные данные, кавычки обязательны. */
+/** The value for `export`: a token is a credential, the quotes are mandatory. */
 function shellQuote(value) {
   if (value.includes("'")) {
     throw new ProvisionError("the token contains a single quote — shell escaping is unreliable");
@@ -179,7 +181,7 @@ async function main() {
     log: (message) => process.stderr.write(`tokens: ${message}\n`),
   });
 
-  // Токены — в stdout, чтобы работал `eval "$(...)"`; всё остальное — в stderr.
+  // The tokens go to stdout so that `eval "$(...)"` works; everything else to stderr.
   for (const [name, token] of tokens) {
     process.stdout.write(`export ${name}=${shellQuote(token)}\n`);
   }
@@ -189,7 +191,7 @@ async function main() {
   );
 }
 
-// Запуск как программы, а не импорт как модуля.
+// Run as a program, not imported as a module.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     await main();

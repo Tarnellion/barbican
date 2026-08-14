@@ -1,19 +1,22 @@
 /**
- * HTTP-клиент на встроенном global fetch.
+ * An HTTP client on the built-in global fetch.
  *
- * Отдельный undici не ставится: в Node 22 fetch и так работает поверх него,
- * а нам не нужны ни интерсепторы, ни пулы соединений.
+ * A separate undici is not installed: in Node 22 fetch already runs on top of
+ * it, and we need neither interceptors nor connection pools.
  *
- * Ограничения, встроенные в конструкцию, а не оставленные на дисциплину вызова:
+ * Limits built into the construction rather than left to call-site discipline:
  *
- * - Тело ответа **не читается никогда**. Поток отменяется, чтобы освободить
- *   соединение. В теле данные клиента, и путь, по которому они попали бы
- *   в отчёт, отсутствует физически.
- * - Обязательный allowlist хостов. Пустой список — ошибка, а не «разрешить всё».
- * - Редиректы не выполняются (`redirect: "manual"`). Переход по 3xx на другой
- *   хост увёл бы запрос за пределы allowlist — это SSRF в обход проверки.
- * - Без явного разрешения выполняются только методы из `SAFE_METHODS`.
- * - Чувствительные заголовки ответа редактируются по хардкод-списку.
+ * - The response body is **never read**. The stream is cancelled to free the
+ *   connection. The body holds client data, and the path by which it would reach
+ *   the report is physically absent.
+ * - A mandatory host allowlist. An empty list is an error, not "allow
+ *   everything".
+ * - Redirects are not followed (`redirect: "manual"`). Following a 3xx to
+ *   another host would take the request outside the allowlist — that is SSRF
+ *   around the check.
+ * - Without explicit permission only the methods from `SAFE_METHODS` are
+ *   performed.
+ * - Sensitive response headers are redacted by a hardcoded list.
  */
 
 import type { HttpMethod } from "../core/types.js";
@@ -25,15 +28,16 @@ import type { Clock } from "./throttle.js";
 import { systemClock } from "./throttle.js";
 
 /**
- * Заголовки ответа, значения которых сохраняются. **Всё остальное редактируется.**
+ * Response headers whose values are kept. **Everything else is redacted.**
  *
- * Именно allowlist, а не denylist. Состязательная проверка показала, что список
- * запрещённых имён неверен структурно: мимо него проходили `x-auth-token`,
- * `authentication-info`, `x-amz-security-token` и `x-user-email` с почтой клиента.
- * Перечислить все имена, которые когда-либо понесут секрет, нельзя — а перечислить
- * те немногие, что нужны для вердикта о доступе, можно.
+ * An allowlist, precisely, and not a denylist. Adversarial review showed that a
+ * list of forbidden names is wrong structurally: `x-auth-token`,
+ * `authentication-info`, `x-amz-security-token` and `x-user-email` with a
+ * client's mail address all walked past it. Every name that will ever carry a
+ * secret cannot be enumerated — but the few that are needed for a verdict about
+ * access can be.
  *
- * Список задаётся здесь и никогда не берётся из пользовательского ввода.
+ * The list is set here and is never taken from user input.
  */
 const VALUE_PRESERVED_HEADERS: ReadonlySet<string> = new Set([
   "content-type",
@@ -41,24 +45,26 @@ const VALUE_PRESERVED_HEADERS: ReadonlySet<string> = new Set([
   "allow",
   "retry-after",
   "www-authenticate",
-  // Добавлены по итогам холодного чтения отчёта. Оба не несут учётных данных,
-  // и оба редактировались зря — с прямым ущербом для разбора находки:
+  // Added after a cold read of the report. Neither carries credentials, and both
+  // were redacted for nothing — with direct damage to digging into a finding:
   //
-  // `cache-control` меняет ОЦЕНКУ УЩЕРБА межтенантной утечки: ответ с чужими
-  // данными и `public` размножается через CDN, и радиус поражения совсем иной.
-  // `date` — единственная зацепка, чтобы сопоставить находку с логом сервера.
+  // `cache-control` changes the DAMAGE ESTIMATE of a cross-tenant leak: a
+  // response with someone else's data and `public` is multiplied through a CDN,
+  // and the blast radius is quite different.
+  // `date` is the only handle for matching a finding against the server log.
   "cache-control",
   "date",
-  // Транспортный шум без секретов. Метка «отредактировано» на них создавала
-  // ложное впечатление, что там было что-то чувствительное, и подрывала
-  // доверие к списку целиком: если сюда попали эти, что ещё сюда попало?
+  // Transport noise with no secrets. The "redacted" mark on them created the
+  // false impression that something sensitive had been there, and undermined
+  // trust in the list as a whole: if these got in here, what else did?
   "connection",
   "keep-alive",
   "transfer-encoding",
-  // Корреляция с логами платформы. Идентификаторы обращения — не учётные
-  // данные: по ним ничего нельзя предъявить, зато без них находку нечем
-  // сопоставить с записью на стороне платформы, а это первое, что спросит
-  // команда, получившая тикет. Найдено третьим холодным чтением.
+  // Correlation with the platform's logs. Request identifiers are not
+  // credentials: nothing can be presented with them, yet without them there is
+  // nothing to match a finding against a record on the platform's side, and that
+  // is the first thing the team that receives the ticket will ask for. Found by
+  // the third cold read.
   "x-request-id",
   "x-correlation-id",
   "x-trace-id",
@@ -67,9 +73,9 @@ const VALUE_PRESERVED_HEADERS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * `location` полезен для разбора 3xx, но его query и фрагмент несут токены:
- * OAuth-редирект возвращает `access_token` именно во фрагменте. Сохраняем
- * только адрес без параметров.
+ * `location` is useful for digging into a 3xx, but its query and fragment carry
+ * tokens: an OAuth redirect returns `access_token` in the fragment precisely. We
+ * keep only the address without parameters.
  */
 function sanitizeLocation(value: string): string {
   try {
@@ -84,7 +90,7 @@ function sanitizeLocation(value: string): string {
 const REDACTED = "[REDACTED]";
 
 export interface RetryPolicy {
-  /** Всего попыток, включая первую. */
+  /** Attempts in total, the first one included. */
   readonly maxAttempts: number;
   readonly baseDelayMs: number;
   readonly maxDelayMs: number;
@@ -97,7 +103,7 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
 };
 
 export interface BreakerPolicy {
-  /** После скольких подряд неудачных ответов прогон останавливается. */
+  /** After how many consecutive failed responses the run stops. */
   readonly consecutiveFailures: number;
 }
 
@@ -157,10 +163,11 @@ export class CircuitOpenError extends Error {
 }
 
 /**
- * Убирает из адреса всё, что может нести секрет.
+ * Strips from the address everything that may carry a secret.
  *
- * Текст ошибки попадает в `failures[].reason`, то есть в JSON-отчёт. Полный URL
- * тащил туда query-параметры (`?api_key=…`) и учётные данные из userinfo.
+ * The text of the error lands in `failures[].reason`, that is, in the JSON
+ * report. A full URL dragged query parameters (`?api_key=…`) and credentials
+ * from userinfo in there.
  */
 function safeUrl(url: string): string {
   try {
@@ -182,7 +189,7 @@ export class RequestFailedError extends Error {
 }
 
 export interface HttpClientOptions {
-  /** Хосты, к которым разрешено обращаться. Пустой список отвергается. */
+  /** The hosts it is allowed to address. An empty list is rejected. */
   readonly allowedHosts: readonly string[];
   readonly throttle: Throttle;
   readonly allowUnsafeMethods?: boolean;
@@ -191,12 +198,12 @@ export interface HttpClientOptions {
   readonly timeoutMs?: number;
   readonly clock?: Clock;
   /**
-   * Вычислитель сигналов над телом. Тело читается только для тех обращений,
-   * где сигналы объявлены явно; во всех остальных поток отменяется
-   * непрочитанным, как было до ADR-0011.
+   * The extractor of signals over the body. The body is read only for those
+   * requests where signals are declared explicitly; in all the others the stream
+   * is cancelled unread, as it was before ADR-0011.
    */
   readonly signalExtractor?: SignalExtractor;
-  /** Источник случайности для джиттера. Отдельно — чтобы тесты были воспроизводимы. */
+  /** The source of randomness for the jitter. Separate, so that tests are reproducible. */
   readonly random?: () => number;
 }
 
@@ -206,7 +213,7 @@ function isRetryableStatus(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
-/** Разбирает `Retry-After`: и в секундах, и в виде HTTP-даты. */
+/** Parses `Retry-After`: both in seconds and as an HTTP date. */
 export function parseRetryAfter(value: string | null, now: number): number | undefined {
   if (value === null) {
     return undefined;
@@ -232,8 +239,8 @@ function toHttpResponse(response: Response): HttpResponse {
   const headers: Record<string, string> = {};
   response.headers.forEach((value, name) => {
     const key = name.toLowerCase();
-    // Имя сохраняется даже у отредактированных: факт присутствия заголовка —
-    // сигнал для разбора прогона, а его значение — нет.
+    // The name is kept even for redacted ones: the fact that a header is present
+    // is a signal for digging into the run, while its value is not.
     if (VALUE_PRESERVED_HEADERS.has(key)) {
       headers[key] = value;
     } else if (key === "location") {
@@ -272,9 +279,10 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       throw new UnsupportedProtocolError(url.protocol);
     }
-    // Запись с портом сверяется вместе с портом, без порта — только по имени.
-    // Так «api.test» по-прежнему разрешает любой порт, а «api.test:8443» —
-    // ровно один, и уточнить область можно, не ломая уже написанные конфигурации.
+    // An entry with a port is matched together with the port, one without a port
+    // by name only. So "api.test" still allows any port, while "api.test:8443"
+    // allows exactly one, and the scope can be narrowed without breaking already
+    // written configurations.
     const hostname = url.hostname.toLowerCase();
     const hostWithPort = url.host.toLowerCase();
     if (!allowedHosts.has(hostname) && !allowedHosts.has(hostWithPort)) {
@@ -285,7 +293,7 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
   function backoffFor(attempt: number): number {
     const exponential = retry.baseDelayMs * 2 ** (attempt - 1);
     const capped = Math.min(retry.maxDelayMs, exponential);
-    // Полный джиттер: без него параллельные попытки повторяются синхронно.
+    // Full jitter: without it parallel attempts retry in lockstep.
     return Math.round(capped * random());
   }
 
@@ -296,7 +304,8 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
     const response = await fetch(request.url, {
       method: request.method,
       headers: { ...request.headers },
-      // Редирект не выполняется: 3xx на чужой хост обошёл бы allowlist.
+      // The redirect is not followed: a 3xx to a foreign host would get around
+      // the allowlist.
       redirect: "manual",
       signal: composed,
     });
@@ -305,13 +314,14 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
 
     const specs = request.signals ?? [];
     if (specs.length === 0) {
-      // Тело не читается: там PII. Поток отменяется, чтобы освободить соединение.
+      // The body is not read: it holds PII. The stream is cancelled to free the
+      // connection.
       await response.body?.cancel();
       return result;
     }
 
-    // Тело читается транзитно и остаётся внутри вычислителя. Наружу уходят
-    // только скаляры: тип `SignalValue` физически не вмещает содержимое.
+    // The body is read in transit and stays inside the extractor. Only scalars
+    // go outward: the `SignalValue` type physically cannot hold the content.
     const signals = await signalExtractor.extract(response.body, specs);
     return { ...result, signals };
   }
@@ -326,12 +336,13 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
       let lastCause: unknown;
 
       /**
-       * Обращение считается неудачным один раз, а не на каждую попытку.
+       * A request counts as failed once, not on every attempt.
        *
-       * Раньше счётчик рос внутри цикла повторов, и при дефолтах
-       * (3 попытки, порог 5) прогон вставал после **двух** неудачных обращений
-       * вместо пяти. Порог описан как «неудачных ответов подряд» — значит
-       * считать надо ответы, а не наши собственные попытки их получить.
+       * The counter used to grow inside the retry loop, and with the defaults
+       * (3 attempts, threshold 5) the run stopped after **two** failed requests
+       * instead of five. The threshold is described as "consecutive failed
+       * responses" — which means responses must be counted, not our own attempts
+       * to get them.
        */
       function markFailure(): void {
         consecutiveFailures += 1;
@@ -368,10 +379,11 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
           response === undefined
             ? undefined
             : parseRetryAfter(response.headers["retry-after"] ?? null, clock.now());
-        // Указание сервера приоритетнее нашей формулы — но не выше нашего потолка.
-        // Без ограничения огромный Retry-After снимал выдержку целиком: setTimeout
-        // зажимает значения свыше 2^31-1 мс до одной миллисекунды, и три попытки
-        // проходили за считанные миллисекунды вместо экспоненциального backoff.
+        // The server's instruction outranks our formula — but not our own
+        // ceiling. Without that bound a huge Retry-After removed the delay
+        // entirely: setTimeout clamps values above 2^31-1 ms down to one
+        // millisecond, and three attempts went through in a matter of
+        // milliseconds instead of an exponential backoff.
         const retryAfter = advised === undefined ? undefined : Math.min(advised, retry.maxDelayMs);
         await clock.sleep(retryAfter ?? backoffFor(attempt));
       }

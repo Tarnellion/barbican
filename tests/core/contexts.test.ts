@@ -1,9 +1,10 @@
 /**
- * Тесты условий обращения — минимального полезного куска ABAC (ADR-0019).
+ * Tests for request conditions — the minimal useful piece of ABAC (ADR-0019).
  *
- * Проверяется главное свойство: условия — отдельное измерение ячейки, а не
- * пометка на аккаунте. Роль, тенант и объект в них те же самые, и «доступ
- * положен» с «доступ положен из этой страны» — разные утверждения.
+ * What is checked is the main property: conditions are a dimension of the cell,
+ * not a mark on the account. The role, the tenant and the resource in them are
+ * the very same, and "access is granted" and "access is granted from this
+ * country" are different claims.
  */
 
 import { describe, expect, it } from "vitest";
@@ -31,8 +32,8 @@ const POLICY = {
 
 function matrix(
   observations: AccessMatrix["observations"],
-  // По умолчанию одна ручка: `health` не наблюдается и дал бы «не пронаблюдено»
-  // на базовом аккаунте, зашумив утверждение теста.
+  // One endpoint by default: `health` is not observed and would give
+  // "not observed" on the base account, adding noise to the test's claim.
   endpoints: AccessMatrix["endpoints"] = [ENDPOINTS[0]],
 ): AccessMatrix {
   return {
@@ -52,13 +53,14 @@ function matrix(
   };
 }
 
-describe("условия как измерение ячейки", () => {
+describe("conditions as a dimension of the cell", () => {
   /**
-   * Та же роль, тот же тенант, та же ручка — и разный ожидаемый исход.
-   * Без отдельного измерения эти две ячейки неразличимы, и дефект гео-обхода
-   * невыразим: «alice видит свои заказы» верно в обоих случаях.
+   * The same role, the same tenant, the same endpoint — and a different
+   * expected outcome. Without a dimension of their own these two cells are
+   * indistinguishable, and a geo-bypass defect is inexpressible: "alice sees
+   * her own orders" is true in both cases.
    */
-  it("судит одну и ту же ячейку по-разному в разных условиях", () => {
+  it("judges the same cell differently under different conditions", () => {
     const findings = diffAccess(
       matrix([
         {
@@ -88,12 +90,12 @@ describe("условия как измерение ячейки", () => {
   });
 
   /**
-   * Правило без условий действует только в базовых. Иначе объявление новых
-   * условий молча распространило бы на них все прежние ожидания: платформа,
-   * законно закрывающая ручку из запрещённой страны, дала бы «неожиданный
-   * отказ» на каждой ячейке.
+   * A rule without conditions applies in baseline conditions only. Otherwise
+   * declaring new conditions would silently extend every previous expectation
+   * to them: a platform that lawfully closes an endpoint for a prohibited
+   * country would produce an unexpected denial on every cell.
    */
-  it("не переносит ожидания базовых условий на объявленные", () => {
+  it("does not carry baseline expectations over to declared conditions", () => {
     const findings = diffAccess(
       matrix([
         {
@@ -120,11 +122,12 @@ describe("условия как измерение ячейки", () => {
   });
 
   /**
-   * Условия объявляются на конкретных ручках, и на остальных ячейки не бывает.
-   * Иначе аккаунт в условиях дал бы «объявлено, но не пронаблюдено» на всей
-   * поверхности API — выдуманную дыру в покрытии.
+   * Conditions are declared on specific endpoints, and on the rest the cell
+   * does not exist. Otherwise an account under conditions would give "declared
+   * but not observed" across the whole API surface — an invented hole in
+   * coverage.
    */
-  it("не считает пропущенной ручку, на которой условия не объявлены", () => {
+  it("does not count an endpoint without declared conditions as missed", () => {
     const findings = diffAccess(
       matrix(
         [
@@ -162,16 +165,16 @@ describe("условия как измерение ячейки", () => {
   });
 });
 
-describe("тождество аккаунта в условиях", () => {
+describe("the identity of an account under conditions", () => {
   /**
-   * Найдено холодным чтением отчёта. Владельцем объекта записан `alice`,
-   * а строка матрицы называется `alice@geo-blocked`, и сверка по строке
-   * давала `same-tenant` вместо `own`: серьёзность поднималась с medium
-   * до high, а группа дефектов `own` пропадала из отчёта целиком.
+   * Found by a cold read of the report. The resource's owner is written as
+   * `alice` while the matrix row is called `alice@geo-blocked`, and matching by
+   * the row gave `same-tenant` instead of `own`: severity rose from medium to
+   * high, and the `own` defect group vanished from the report entirely.
    *
-   * Условия меняют обращение, а не того, кто его делает.
+   * Conditions change the request, not who makes it.
    */
-  it("не отменяет владение объектом", () => {
+  it("does not cancel ownership of a resource", () => {
     const own = { id: "order-1", tenantId: "tenant-a", ownerAccountId: "alice", params: {} };
     const inContext = {
       id: "alice@geo-blocked",
@@ -183,14 +186,14 @@ describe("тождество аккаунта в условиях", () => {
 
     expect(relationOf(inContext, own)).toBe("own");
     expect(principalOf(inContext)).toBe("alice");
-    // Без ссылки на исходный аккаунт — прежнее неверное поведение.
+    // Without the reference to the base account — the former wrong behaviour.
     expect(relationOf({ id: "alice@geo-blocked", roleId: "user", tenantId: "tenant-a" }, own)).toBe(
       "same-tenant",
     );
   });
 });
 
-describe("вердикты по ячейкам", () => {
+describe("verdicts per cell", () => {
   const observations = [
     {
       accountId: "alice",
@@ -211,9 +214,9 @@ describe("вердикты по ячейкам", () => {
   ] as const;
 
   /**
-   * С объектом — отдельная ветка обхода, и без неё тест был бы пустым:
-   * мутация «расхождение с объектом объявлено совпавшим» проходила зелёной,
-   * потому что в фикстуре не было ни одного объекта.
+   * A cell with a resource is a branch of its own in the walk, and without it
+   * the test would be empty: the mutation "a discrepancy with a resource is
+   * declared matched" passed green, because the fixture had no resources at all.
    */
   const WITH_RESOURCE: AccessMatrix = {
     endpoints: [{ id: "orders.read", method: "GET", path: "/v1/orders/{orderId}" }],
@@ -250,11 +253,12 @@ describe("вердикты по ячейкам", () => {
   } as const;
 
   /**
-   * Главный инвариант: расхождения — это ровно те же ячейки с `match: false`.
-   * Два независимых прохода разошлись бы, и отчёт утверждал бы «проверено
-   * и совпало» о ячейке, попавшей в находки. См. ADR-0020.
+   * The main invariant: the discrepancies are exactly the same cells with
+   * `match: false`. Two independent walks would drift apart, and the report
+   * would claim "tested and agreed" about a cell that landed in the findings.
+   * See ADR-0020.
    */
-  it("даёт те же расхождения, что и дифф, на ячейках с объектом", () => {
+  it("gives the same discrepancies as the diff on cells with a resource", () => {
     const cells = describeCells(WITH_RESOURCE, RESOURCE_POLICY);
     const findings = diffAccess(WITH_RESOURCE, RESOURCE_POLICY);
 
@@ -266,7 +270,7 @@ describe("вердикты по ячейкам", () => {
     expect(findings[0]?.resourceId).toBe("neighbour");
   });
 
-  it("даёт те же расхождения, что и дифф, ячейка в ячейку", () => {
+  it("gives the same discrepancies as the diff, cell for cell", () => {
     const built = matrix([...observations]);
     const cells = describeCells(built, POLICY);
     const findings = diffAccess(built, POLICY);
@@ -281,33 +285,34 @@ describe("вердикты по ячейкам", () => {
     ).toEqual(findings.map(key).sort());
   });
 
-  it("описывает и совпавшие ячейки, а не только расхождения", () => {
+  it("describes matched cells too, not only discrepancies", () => {
     const cells = describeCells(matrix([...observations]), POLICY);
 
     const matched = cells.find((cell) => cell.match);
     expect(matched?.accountId).toBe("alice");
     expect(matched?.expected).toBe("allowed");
-    // Правило, объявившее ожидание, названо и у совпавшей ячейки: иначе
-    // «проверено» нельзя оспорить, не перечитывая политику целиком.
+    // The rule that declared the expectation is named on a matched cell too:
+    // otherwise "tested" cannot be disputed without rereading the whole policy.
     expect(matched?.ruleIndex).toBe(0);
   });
 
-  it("не пропускает ни одной ячейки матрицы", () => {
+  it("misses no cell of the matrix", () => {
     const cells = describeCells(matrix([...observations]), POLICY);
 
-    // Две строки аккаунтов × одна ручка: аккаунт в условиях существует только
-    // на объявленных, поэтому ячеек ровно две.
+    // Two account rows x one endpoint: an account under conditions exists only
+    // on the declared endpoints, so there are exactly two cells.
     expect(cells).toHaveLength(2);
   });
 });
 
-describe("группировка дефектов", () => {
+describe("defect grouping", () => {
   /**
-   * Проверка страны и проверка прав — разные механизмы платформы: ломаются
-   * независимо и чинятся в разных местах. Схлопнув их в один дефект,
-   * отчёт сказал бы «дефект один», а починка закрыла бы половину.
+   * The country check and the permission check are different mechanisms in the
+   * platform: they break independently and are fixed in different places.
+   * Collapsing them into one defect, the report would say "there is one
+   * defect", and a fix would close half of it.
    */
-  it("не сливает расхождение в условиях с таким же в базовых", () => {
+  it("does not merge a discrepancy under conditions with the same one in baseline", () => {
     const groups = groupDefects([
       {
         accountId: "alice",

@@ -1,24 +1,26 @@
-# 0008. Формат конфигурации прогона
+# 0008. Run configuration format
 
-- **Статус:** принято
-- **Дата:** 2026-08-12
+- **Status:** accepted
+- **Date:** 2026-08-12
 
-## Контекст
+## Context
 
-ADR-0006 постановил, что ожидаемый доступ объявляется человеком, но не сказал, чем
-именно. Прогону нужны четыре вещи: где проверяемая система, какими аккаунтами
-обращаться, что этим аккаунтам положено и какая спецификация описывает эндпоинты.
+ADR-0006 ruled that expected access is declared by a human, but did not say what
+it is declared in. A run needs four things: where the system under test is, which
+accounts to make requests as, what those accounts are meant to get, and which
+specification describes the endpoints.
 
-Отдельная сложность: аккаунты требуют учётных данных, а декларация ожидаемого доступа
-по замыслу ADR-0006 — артефакт, который ревьюят и версионируют. Эти два свойства
-конфликтуют: файл с токенами в репозиторий не положишь.
+A separate difficulty: accounts need credentials, while the declaration of
+expected access is, by the intent of ADR-0006, an artifact that gets reviewed and
+versioned. These two properties conflict: a file with tokens in it cannot go into
+a repository.
 
-## Решение
+## Decision
 
-**Один файл конфигурации** в YAML или JSON — разбирает тот же `yaml`, что и
-спецификации (JSON — подмножество YAML 1.2), новых зависимостей не требуется.
-Спецификация передаётся отдельно: это документ проверяемой системы, а не наша
-конфигурация.
+**One configuration file** in YAML or JSON — parsed by the same `yaml` that parses
+specifications (JSON is a subset of YAML 1.2), and no new dependency is required.
+The specification is passed separately: it is a document of the system under test,
+not our configuration.
 
 ```yaml
 target:
@@ -39,44 +41,49 @@ policy:
       outcome: allowed
 ```
 
-**Учётные данные в файле не хранятся.** Аккаунт называет *имя переменной окружения*
-(`tokenEnv`), а не токен. Это прямо следует из конфликта выше: файл, не содержащий
-секретов, можно коммитить и ревьюить, а значит декларация остаётся тем проверяемым
-артефактом, ради которого её и заводили. Отсутствие переменной — ошибка на старте,
-а не пустой заголовок авторизации в середине прогона.
+**Credentials are not stored in the file.** An account names *the name of an
+environment variable* (`tokenEnv`), not the token. This follows directly from the
+conflict above: a file that holds no secrets can be committed and reviewed, and so
+the declaration stays the checkable artifact it was created to be. A missing
+variable is an error at startup, not an empty authorization header in the middle
+of a run.
 
-**`allowedHosts` объявляется явно**, и хост из `baseUrl` обязан в него входить.
-Автоматически доверять хосту из `baseUrl` нельзя: тогда опечатка в адресе молча
-расширяла бы область проверки. Совпадение проверяется при чтении конфигурации —
-чтобы прогон падал до первого запроса, а не на середине.
+**`allowedHosts` is declared explicitly**, and the host from `baseUrl` must be in
+it. Trusting the host from `baseUrl` automatically is not allowed: a typo in the
+address would then silently widen the scope. The match is checked when the
+configuration is read — so that the run fails before the first request, not halfway
+through.
 
-Схема проверяется через `zod` (4.4.3, ноль зависимостей). Конфигурация — недоверенный
-ввод, и сообщение вида «поле `accounts[1].role` отсутствует» стоит зависимости:
-самодельная проверка либо не даст такой точности, либо окажется длиннее схемы.
+The schema is validated with `zod` (4.4.3, zero dependencies). Configuration is
+untrusted input, and a message like "field `accounts[1].role` is missing" is worth
+the dependency: a hand-rolled check would either not reach that precision or turn
+out longer than the schema.
 
-## Альтернативы
+## Alternatives
 
-- **Токены прямо в файле.** Проще на один шаг, но делает конфигурацию несекретной
-  только на словах: её нельзя ни закоммитить, ни показать в ревью, ни приложить
-  к отчёту — то есть теряется весь смысл декларации как артефакта.
-- **Раздельные файлы под scope, аккаунты и политику.** Гибче для больших установок,
-  но для прогона против одного стенда даёт три файла вместо одного и три способа
-  рассинхронизировать их между собой.
-- **Только JSON.** Единообразно с форматом отчёта, но политику пишет человек, а YAML
-  для этого заметно приятнее — особенно комментарии, объясняющие, почему роли положен
-  доступ.
-- **Схема руками, без `zod`.** Экономит зависимость ценой худших сообщений об ошибке
-  в том месте, где ошибётся живой человек.
+- **Tokens directly in the file.** One step simpler, but it makes the configuration
+  non-secret in words only: it can neither be committed, nor shown in review, nor
+  attached to a report — that is, the whole point of the declaration as an artifact
+  is lost.
+- **Separate files for scope, accounts and policy.** More flexible for large
+  installations, but for a run against a single deployment it gives three files
+  instead of one and three ways to let them drift apart.
+- **JSON only.** Uniform with the report format, but the policy is written by a
+  human, and YAML is noticeably more pleasant for that — especially the comments
+  explaining why a role is meant to have access.
+- **A hand-written schema, without `zod`.** Saves a dependency at the cost of worse
+  error messages in the very place where a live human will make a mistake.
 
-## Последствия
+## Consequences
 
-Конфигурацию можно держать в репозитории проверяемой системы рядом с её кодом:
-изменение прав тогда видно в том же ревью, что и изменение политики доступа.
+The configuration can be kept in the repository of the system under test next to
+its code: a change of permissions is then visible in the same review as a change of
+the access policy.
 
-Расплата: перед прогоном нужно выставить переменные окружения, и их тем больше, чем
-больше аккаунтов. Для матрицы «роль × эндпоинт» это неизбежно — аккаунтов ровно
-столько, сколько ролей и тенантов требуется покрыть.
+The price: environment variables have to be set before a run, and the more accounts
+there are, the more of them. For a role × endpoint matrix this is unavoidable —
+there are exactly as many accounts as there are roles and tenants to cover.
 
-Пересмотреть, если появится потребность в нескольких целях в одном прогоне: тогда
-`target` станет списком, и правило «хост из `baseUrl` входит в `allowedHosts`»
-придётся формулировать для каждой цели отдельно.
+Revisit if a need appears for several targets in one run: `target` would then
+become a list, and the rule "the host from `baseUrl` is in `allowedHosts`" would
+have to be stated for each target separately.

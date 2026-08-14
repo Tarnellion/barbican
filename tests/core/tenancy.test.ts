@@ -1,9 +1,9 @@
 /**
- * Тесты принадлежности объектов и трёхмерной матрицы.
+ * Tests for resource ownership and the three-dimensional matrix.
  *
- * До этого `tenantId` был декорацией: читался из конфигурации и не участвовал
- * ни в запросе, ни в политике, ни в диффе. Здесь проверяется то, ради чего
- * проект называется инструментом проверки изоляции тенантов.
+ * Before this, `tenantId` was decoration: read from the configuration and used
+ * neither in the request, nor in the policy, nor in the diff. What is checked
+ * here is the reason the project calls itself a tenant isolation checker.
  */
 
 import { describe, expect, it } from "vitest";
@@ -45,25 +45,26 @@ const ownedByB: Resource = {
 const profile: Endpoint = { id: "profile.read", method: "GET", path: "/v1/players/{playerId}" };
 
 describe("relationOf", () => {
-  it("свой объект", () => {
+  it("an own resource", () => {
     expect(relationOf(playerA, ownedByA)).toBe("own");
   });
 
-  it("чужой объект своего тенанта — сюда попадает BOLA внутри тенанта", () => {
+  it("another account's resource in the same tenant — BOLA inside a tenant lands here", () => {
     expect(relationOf(playerA2, ownedByA)).toBe("same-tenant");
   });
 
-  it("объект чужого тенанта", () => {
+  it("a resource of a foreign tenant", () => {
     expect(relationOf(playerB, ownedByA)).toBe("foreign-tenant");
   });
 
-  // Разделение существенно: администратору обычно положено всё в своём тенанте
-  // и ничего в чужом, и одним признаком «не своё» это не выразить.
-  it("администратор своего тенанта видит чужой объект как same-tenant", () => {
+  // The distinction matters: an administrator is usually meant to get
+  // everything in their own tenant and nothing in a foreign one, and a single
+  // "not mine" flag cannot express that.
+  it("an administrator sees another account's resource in their tenant as same-tenant", () => {
     expect(relationOf(adminA, ownedByA)).toBe("same-tenant");
   });
 
-  it("объект без владельца в своём тенанте — same-tenant", () => {
+  it("an ownerless resource in one's own tenant is same-tenant", () => {
     const shared: Resource = { id: "s", tenantId: "tenant-a", params: {} };
 
     expect(relationOf(playerA, shared)).toBe("same-tenant");
@@ -71,23 +72,24 @@ describe("relationOf", () => {
 });
 
 /**
- * Аккаунт вне тенантов — это аноним. Поля `tenantId` у него нет вовсе, и это
- * утверждение, а не пропуск: служебное имя вроде `none` лежало бы в одном
- * пространстве значений с настоящими, и платформа с таким тенантом сделала бы
- * аноним его соседом молча.
+ * An account outside of tenants is an anonymous one. It has no `tenantId` field
+ * at all, and that is a statement rather than an omission: a reserved name like
+ * `none` would sit in the same value space as real ones, and on a platform with
+ * such a tenant the anonymous account would silently become its neighbor.
  */
-describe("relationOf для аккаунта вне тенантов", () => {
+describe("relationOf for an account outside of tenants", () => {
   const outsider: Account = { id: "anon", roleId: "anonymous" };
 
-  it("любой объект ему чужой", () => {
+  it("every resource is foreign to it", () => {
     expect(relationOf(outsider, ownedByA)).toBe("foreign-tenant");
     expect(relationOf(outsider, ownedByB)).toBe("foreign-tenant");
   });
 
-  // Владение — отношение внутри тенанта. Даже объявленный владельцем аккаунт
-  // вне тенантов своим объект не получает: иначе опечатка в `owner` открыла бы
-  // анониму доступ, объявленный законным.
-  it("не становится владельцем, даже будучи объявленным в owner", () => {
+  // Ownership is a relation inside a tenant. Even when declared as the owner,
+  // an account outside of tenants does not get the resource as its own:
+  // otherwise a typo in `owner` would grant an anonymous account access
+  // declared lawful.
+  it("does not become an owner even when declared in owner", () => {
     const claimed: Resource = {
       id: "claimed",
       tenantId: "tenant-a",
@@ -98,8 +100,8 @@ describe("relationOf для аккаунта вне тенантов", () => {
     expect(relationOf(outsider, claimed)).toBe("foreign-tenant");
   });
 
-  // Родство считается по дереву, а узла у такого аккаунта нет.
-  it("не приходится роднёй ни одному узлу дерева", () => {
+  // Kinship is computed over the tree, and such an account has no node.
+  it("is kin to no node of the tree", () => {
     const hierarchy = createTenantHierarchy([
       { id: "holding-1" },
       { id: "tenant-a", parentId: "holding-1" },
@@ -110,10 +112,11 @@ describe("relationOf для аккаунта вне тенантов", () => {
     expect(relationOf(outsider, ownedByA, hierarchy)).toBe("foreign-tenant");
   });
 
-  // Шестого значения не заводилось намеренно, и цена этого решения проверяется
-  // здесь: правило `scope: foreign-tenant` продолжает покрывать аноним, а его
-  // доступ к чужим данным остаётся critical, а не понижается до high.
-  it("остаётся под правилами со scope: foreign-tenant и сохраняет critical", () => {
+  // A sixth value was deliberately not introduced, and the price of that
+  // decision is checked here: a rule with `scope: foreign-tenant` keeps
+  // covering the anonymous account, and its access to someone else's data
+  // stays critical rather than dropping to high.
+  it("stays under rules with scope: foreign-tenant and keeps critical", () => {
     const policy: ResolvedAccessPolicy = {
       fallback: "allowed",
       rules: [{ roles: ANY, endpoints: ANY, scope: "foreign-tenant", outcome: "denied" }],
@@ -125,7 +128,7 @@ describe("relationOf для аккаунта вне тенантов", () => {
   });
 });
 
-describe("область действия правила", () => {
+describe("the scope of a rule", () => {
   const policy: ResolvedAccessPolicy = {
     fallback: "denied",
     rules: [
@@ -134,18 +137,18 @@ describe("область действия правила", () => {
     ],
   };
 
-  it("правило действует только при своём отношении", () => {
+  it("a rule applies only under its own relation", () => {
     expect(resolveExpected(policy, "player", "profile.read", "own")).toBe("allowed");
     expect(resolveExpected(policy, "player", "profile.read", "same-tenant")).toBe("denied");
     expect(resolveExpected(policy, "player", "profile.read", "foreign-tenant")).toBe("denied");
   });
 
-  it("администратору положено своё в тенанте и не положено чужое", () => {
+  it("an administrator gets their own tenant and not a foreign one", () => {
     expect(resolveExpected(policy, "admin", "profile.read", "same-tenant")).toBe("allowed");
     expect(resolveExpected(policy, "admin", "profile.read", "foreign-tenant")).toBe("denied");
   });
 
-  it("правило без области действует при любом отношении и без объекта", () => {
+  it("a rule without a scope applies under any relation and with no resource", () => {
     const wide: ResolvedAccessPolicy = {
       fallback: "denied",
       rules: [{ roles: ANY, endpoints: ["ping"], outcome: "allowed" }],
@@ -156,7 +159,7 @@ describe("область действия правила", () => {
   });
 });
 
-describe("дифф по тройкам", () => {
+describe("the diff over triples", () => {
   const policy: ResolvedAccessPolicy = {
     fallback: "denied",
     rules: [{ roles: ["player"], endpoints: ["profile.read"], scope: "own", outcome: "allowed" }],
@@ -177,7 +180,7 @@ describe("дифф по тройкам", () => {
   const accounts = [playerA, playerB];
   const resources = [ownedByA, ownedByB];
 
-  it("не находит ничего, когда изоляция соблюдена", () => {
+  it("finds nothing when isolation holds", () => {
     const matrix = buildAccessMatrix({
       endpoints: [profile],
       accounts,
@@ -193,14 +196,14 @@ describe("дифф по тройкам", () => {
     expect(diffAccess(matrix, policy)).toEqual([]);
   });
 
-  it("находит утечку между тенантами и указывает объект", () => {
+  it("finds a cross-tenant leak and names the resource", () => {
     const matrix = buildAccessMatrix({
       endpoints: [profile],
       accounts,
       resources,
       observations: [
         observe("player-a", "profile-a", "allowed"),
-        // Игрок тенанта A дотянулся до объекта тенанта B.
+        // A player of tenant A reached a resource of tenant B.
         observe("player-a", "profile-b", "allowed"),
         observe("player-b", "profile-a", "denied"),
         observe("player-b", "profile-b", "allowed"),
@@ -216,21 +219,22 @@ describe("дифф по тройкам", () => {
         expected: "denied",
         actual: "allowed",
         kind: "privilege-escalation",
-        // Утечка в чужой тенант — единственный случай, получающий critical:
-        // она тяжелее доступа к чужому объекту внутри своего же тенанта.
+        // A leak into a foreign tenant is the only case that gets critical: it
+        // is heavier than access to another account's resource inside one's own
+        // tenant.
         severity: "critical",
       },
     ]);
   });
 
-  it("различает утечку между тенантами и BOLA внутри тенанта", () => {
+  it("tells a cross-tenant leak apart from BOLA inside a tenant", () => {
     const matrix = buildAccessMatrix({
       endpoints: [profile],
       accounts: [playerA, playerA2],
       resources: [ownedByA],
       observations: [
         observe("player-a", "profile-a", "allowed"),
-        // Другой игрок того же тенанта — это BOLA, а не межтенантная утечка.
+        // Another player of the same tenant is BOLA, not a cross-tenant leak.
         observe("player-a2", "profile-a", "allowed"),
       ],
     });
@@ -242,7 +246,7 @@ describe("дифф по тройкам", () => {
     expect(findings[0]?.accountId).toBe("player-a2");
   });
 
-  it("не строит ячеек для объектов, не покрывающих параметры пути", () => {
+  it("builds no cells for resources that do not cover the path parameters", () => {
     const unrelated: Resource = { id: "other", tenantId: "tenant-a", params: { orderId: "7" } };
     const matrix = buildAccessMatrix({
       endpoints: [profile],
@@ -251,8 +255,8 @@ describe("дифф по тройкам", () => {
       observations: [observe("player-a", "profile-a", "allowed")],
     });
 
-    // У `other` нет playerId — ячейки с ним не существует, и «не наблюдалось»
-    // тоже быть не должно.
+    // `other` has no playerId — the cell with it does not exist, and there must
+    // be no "not observed" either.
     expect(diffAccess(matrix, policy)).toEqual([]);
   });
 });

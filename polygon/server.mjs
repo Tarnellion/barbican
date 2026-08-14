@@ -1,47 +1,50 @@
 #!/usr/bin/env node
 
 /**
- * Референс-платформа: минимальный мультитенантный API как оракул для barbican.
+ * The reference platform: a minimal multi-tenant API as an oracle for barbican.
  *
- * Зачем она есть. VAmPI и crAPI одноарендны — «чужого тенанта» там нет вовсе,
- * а переключатель уязвимостей VAmPI оказался бесполезен, потому что режимы
- * различались только телами ответов (ADR-0009). Инструмент тела не читает
- * принципиально, поэтому здесь действует жёсткое требование:
+ * Why it exists. VAmPI and crAPI are single-tenant — there is no "foreign tenant"
+ * in them at all — and VAmPI's vulnerability switch turned out to be useless,
+ * because its modes differed only by response bodies (ADR-0009). The tool does not
+ * read bodies on principle, so a hard requirement holds here:
  *
- *   **каждый дефект обязан проявляться в коде ответа.**
+ *   **every defect must show itself in the response status.**
  *
- * Разница, видимая только в JSON, для инструмента не существует и оракулом
- * быть не может.
+ * A difference visible only in the JSON does not exist for the tool and cannot
+ * serve as an oracle.
  *
- * Ноль рантайм-зависимостей: только встроенный `node:http`. Слушаем строго
- * 127.0.0.1 — стенд с намеренными дефектами не должен быть доступен извне.
+ * Zero runtime dependencies: the built-in `node:http` only. It listens strictly on
+ * 127.0.0.1 — a deployment with deliberate defects must not be reachable from
+ * outside.
  */
 
 import { createServer } from "node:http";
 
-/** Только петля. Не параметризуется намеренно. */
+/** Loopback only. Deliberately not parameterized. */
 const HOST = "127.0.0.1";
 
 const DEFAULT_PORT = 8787;
 
 /**
- * Тенанты платформы: два холдинга, под каждым по бренду, под одним из брендов —
- * аффилиат.
+ * The platform's tenants: two holdings, a brand under each, and under one of the
+ * brands an affiliate.
  *
- * Родство объявлено отдельным полем, а не закодировано в идентификаторе, — по той
- * же причине, что и в самом инструменте (ADR-0013): опечатка в разбираемом пути
- * молча переродняет тенанта, и «свой бренд» превращается в «чужой».
+ * Kinship is declared as a separate field rather than encoded in the identifier —
+ * for the same reason as in the tool itself (ADR-0013): a typo in a parsed path
+ * silently re-parents a tenant, and "my own brand" turns into "a foreign one".
  *
- * Второй холдинг нужен именно как **чужая ветвь**. Без него бренд `tenant-b` был
- * бы просто корнем, и «утечка в чужой холдинг» ничем не отличалась бы от «утечки
- * к тенанту без родни» — то есть новый дефект проверял бы старое отношение.
+ * The second holding is there precisely as a **foreign branch**. Without it the
+ * brand `tenant-b` would just be a root, and "a leak into a foreign holding" would
+ * be no different from "a leak to a tenant with no kinship" — that is, the new
+ * defect would be testing the old relation.
  *
- * Третий уровень нужен по родственной причине, но не про ширину дерева, а про его
- * **глубину**. Пока дерево двухуровневое, «прямой родитель» и «любой предок» для
- * каждого аккаунта — одно и то же множество из одного элемента, и реализация,
- * поднимающаяся на один шаг вместо всей цепочки, ведёт себя неотличимо от той,
- * что поднимается по цепочке. Различить их можно только там, где предков **два**:
- * у `affiliate-a1` это `tenant-a` (шаг) и `holding-1` (два шага).
+ * The third level is there for a related reason, but it is not about the tree's
+ * width, it is about its **depth**. While the tree is two-level, "the direct
+ * parent" and "any ancestor" are one and the same single-element set for every
+ * account, and an implementation that walks up one step instead of the whole chain
+ * behaves indistinguishably from one that walks the chain. They can be told apart
+ * only where there are **two** ancestors: for `affiliate-a1` these are `tenant-a`
+ * (one step) and `holding-1` (two).
  */
 const TENANTS = [
   { id: "holding-1", parent: undefined },
@@ -54,10 +57,11 @@ const TENANTS = [
 const PARENT_OF = new Map(TENANTS.map((tenant) => [tenant.id, tenant.parent]));
 
 /**
- * Тенант лежит строго ниже предка по дереву.
+ * The tenant lies strictly below the ancestor in the tree.
  *
- * Своя реализация, а не импорт из `src`: платформа — проверяемая система, и брать
- * у инструмента то, что он же на ней и проверяет, значит сверять его с самим собой.
+ * An implementation of its own rather than an import from `src`: the platform is
+ * the system under test, and taking from the tool the very thing it checks on the
+ * platform would mean comparing it against itself.
  */
 function isBelow(tenantId, ancestorId) {
   let current = PARENT_OF.get(tenantId);
@@ -71,48 +75,50 @@ function isBelow(tenantId, ancestorId) {
 }
 
 /**
- * Прямой родитель тенанта. `undefined` у корня.
+ * The direct parent of a tenant. `undefined` at a root.
  *
- * Отдельной функцией, а не параметром `isBelow`: разница между «родитель» и «любой
- * предок» — это ровно то, чем отличаются дефекты `ancestorLeak` и `parentLeak`,
- * и она должна быть видна в коде, а не спрятана в аргументе.
+ * A separate function rather than a parameter of `isBelow`: the difference between
+ * "the parent" and "any ancestor" is exactly what separates the `ancestorLeak` and
+ * `parentLeak` defects, and it must be visible in the code rather than hidden in
+ * an argument.
  */
 function parentOf(tenantId) {
   return PARENT_OF.get(tenantId);
 }
 
 /**
- * Аккаунты платформы.
+ * The platform's accounts.
  *
- * Два бренда по два пользователя: владелец объекта и другой пользователь того же
- * тенанта. Без второго нельзя отличить BOLA внутри тенанта от межтенантной утечки —
- * оба выглядели бы как «доступ к не своему».
+ * Two brands with two users each: the owner of a resource and another user of the
+ * same tenant. Without the second one there is no telling BOLA inside a tenant from
+ * a cross-tenant leak — both would look like "access to something not one's own".
  *
- * Сверх них — аккаунт уровня холдинга. Он сидит **на самом холдинге**, а не на одном
- * из его брендов: приписать его к бренду можно, но тогда собственный бренд холдинга
- * становится «чужим тенантом», и инструмент ошибается дважды — придирается к законному
- * чтению и пропускает настоящую межхолдинговую утечку. Это и есть случай, ради
- * которого писался ADR-0013.
+ * On top of them, a holding-level account. It sits **on the holding itself**, not
+ * on one of its brands: attributing it to a brand is possible, but then the
+ * holding's own brand becomes a "foreign tenant", and the tool is wrong twice — it
+ * picks on a lawful read and misses a real cross-holding leak. That is the very
+ * case ADR-0013 was written for.
  *
- * Ещё ниже — аккаунт аффилиата, приведённый под бренд. Он нужен ровно за тем,
- * за чем заведён третий уровень дерева: у него **два** предка, и только на нём
- * видно, поднимается реализация по всей цепочке или на один шаг. Аффилиату
- * положена своя статистика и не положено ничего из бренда — ни список заказов,
- * ни расчётный документ, — и тем более ничего с уровня холдинга.
+ * Lower still, an affiliate account brought under a brand. It is there for exactly
+ * what the third level of the tree is there for: it has **two** ancestors, and only
+ * on it can you see whether the implementation walks the whole chain or a single
+ * step. The affiliate is meant to get its own statistics and nothing of the
+ * brand's — neither the order list nor the settlement statement — and the holding
+ * level all the more so.
  *
- * Токены берутся из переменных окружения и в коде не хранятся. Имена переменных
- * совпадают с `tokenEnv` в `barbican.run.yaml`.
+ * Tokens come from environment variables and are not kept in the code. The variable
+ * names match `tokenEnv` in `barbican.run.yaml`.
  *
- * Поле `auth` — **контур**, а не украшение. На мультибрендовой платформе кабинет
- * аффилиата, операторская админка и клиентское API аутентифицируются по-разному,
- * и прогон, охватывающий их разом, обязан ходить в каждый по-своему. Здесь это
- * смоделировано буквально: клиентские аккаунты предъявляют Bearer, операторская
- * админка — сессионную куку, кабинет аффилиата — ключ в своём заголовке.
+ * The `auth` field is a **surface**, not decoration. On a multi-brand platform the
+ * affiliate cabinet, the operator console and the customer API authenticate
+ * differently, and a run that covers them all at once must knock on each in its own
+ * way. That is modelled here literally: customer accounts present Bearer, the
+ * operator console a session cookie, the affiliate cabinet a key in its own header.
  *
- * Токен, предъявленный **не тем** транспортом, платформа не принимает (см.
- * `authenticate`). Иначе проверка была бы бутафорской: инструмент, шлющий всё
- * Bearer-ом, проходил бы её насквозь, и полигон подтверждал бы работу того,
- * чего не делает.
+ * A token presented over the **wrong** transport is not accepted by the platform
+ * (see `authenticate`). Otherwise the check would be a stage prop: a tool that
+ * sends everything as Bearer would sail straight through it, and the polygon would
+ * be confirming that something works which the tool does not do.
  */
 const ACCOUNTS = [
   {
@@ -165,16 +171,17 @@ const ACCOUNTS = [
     auth: { kind: "header", name: "x-affiliate-key" },
   },
   /**
-   * Саппорт на двух брендах **разных холдингов** — аккаунт, который деревом
-   * не выражается (ADR-0017).
+   * Support over two brands of **different holdings** — an account a tree cannot
+   * express (ADR-0017).
    *
-   * Общего предка у `tenant-a` и `tenant-b` нет вовсе: холдинги разные, корня
-   * над ними на этой платформе не существует. Посадить такой аккаунт в один
-   * узел нельзя ни одним способом — второй бренд станет чужим, — а завести над
-   * холдингами общий корень значило бы отдать ему и всё остальное поддерево.
+   * `tenant-a` and `tenant-b` have no common ancestor at all: the holdings are
+   * different, and no root above them exists on this platform. Such an account
+   * cannot be seated in a single node in any way — the second brand would become
+   * foreign — while introducing a common root above the holdings would mean handing
+   * it the whole rest of the subtree as well.
    *
-   * Поле `tenants` вместо `tenant`, а не в дополнение к нему: один узел и набор
-   * узлов — взаимоисключающие утверждения.
+   * The field `tenants` instead of `tenant`, not in addition to it: a single node
+   * and a set of nodes are mutually exclusive claims.
    */
   {
     id: "sara-ac",
@@ -186,11 +193,11 @@ const ACCOUNTS = [
 ];
 
 /**
- * Заголовки, в которых платформа вообще смотрит ключи аффилиатского вида.
+ * The headers in which the platform looks for affiliate-style keys at all.
  *
- * Выводится из аккаунтов, а не пишется списком: разойдясь, список молча перестал
- * бы видеть предъявленный ключ, и аккаунт получал бы 401 — то есть законный
- * с виду отказ.
+ * Derived from the accounts rather than written out as a list: once the two
+ * diverged, the list would silently stop seeing the presented key, and the account
+ * would get a 401 — that is, a denial that looks lawful.
  */
 const CUSTOM_AUTH_HEADERS = new Set(
   ACCOUNTS.filter((account) => account.auth.kind === "header").map((account) =>
@@ -199,22 +206,24 @@ const CUSTOM_AUTH_HEADERS = new Set(
 );
 
 /**
- * Тенанты аккаунта одним списком.
+ * The account's tenants as a single list.
  *
- * У всех, кроме саппорта, он из одного элемента. Ветвление «есть набор или
- * нет» стоит здесь ровно один раз: дальше по коду разница между одним тенантом
- * и набором не должна быть видна вовсе — иначе каждое место авторизации
- * пришлось бы чинить отдельно, а забытое молча вело бы себя по-старому.
+ * For everyone but support it holds one element. The branch "is there a set or not"
+ * stands here exactly once: further down the code the difference between one tenant
+ * and a set must not be visible at all — otherwise every authorization site would
+ * have to be fixed separately, and a forgotten one would silently keep behaving the
+ * old way.
  */
 function tenantsOf(account) {
   return account.tenants ?? [account.tenant];
 }
 
 /**
- * Заказы — объекты обращения.
+ * Orders — the resources that requests address.
  *
- * Идентификаторы совпадают с `params.orderId` в конфигурации прогона: инструмент
- * подставляет их в шаблон пути, а владельца и тенанта объявляет человек (ADR-0010).
+ * The identifiers match `params.orderId` in the run configuration: the tool
+ * substitutes them into the path template, while the owner and the tenant are
+ * declared by a human (ADR-0010).
  */
 const ORDERS = [
   { id: "A-1001", tenant: "tenant-a", owner: "alice-a" },
@@ -224,25 +233,26 @@ const ORDERS = [
 ];
 
 /**
- * Сводные расчётные документы уровня тенанта: один холдинговый, один брендовый.
+ * Tenant-level summary settlement statements: one of the holding, one of the brand.
  *
- * Отдельная коллекция, а не заказ с пустым владельцем. Причина не в опрятности:
- * документ принадлежит **тенанту целиком**, владельца-пользователя у него нет
- * вовсе, и это ровно тот случай, ради которого `ownerAccountId` в инструменте
- * необязателен. Заказ без владельца был бы заказом, который никто не оформлял.
+ * A separate collection rather than an order with an empty owner. The reason is not
+ * tidiness: a statement belongs to the **tenant as a whole**, it has no user owner
+ * at all, and that is exactly the case for which `ownerAccountId` in the tool is
+ * optional. An order with no owner would be an order nobody placed.
  *
- * Ради него здесь и заведён этот тип объекта: без объекта уровня холдинга
- * отношение `ancestor-tenant` («бренд читает уровень своего холдинга»)
- * невыразимо, и из двух отношений, введённых ADR-0013, сквозным прогоном
- * проверялось только `descendant-tenant`.
+ * This kind of resource exists here for its sake: without a holding-level resource
+ * the relation `ancestor-tenant` ("a brand reads the level of its holding") is
+ * inexpressible, and of the two relations introduced by ADR-0013 only
+ * `descendant-tenant` was tested by an end-to-end run.
  *
- * Второй документ — брендовый. Он живёт на той же ручке намеренно, хотя по имени
- * («сводка по игрокам бренда») просился бы на свою. Своя ручка развела бы два
- * дефекта видимости по разным адресам, и они стали бы различимы по эндпоинту —
- * то есть проверка перестала бы быть проверкой **глубины дерева**, ради которой
- * она и заводится. Здесь же оба документа читаются одной функцией авторизации,
- * и единственное, чем отличается «один шаг вверх» от «всей цепочки», — это
- * ячейка `ivan-af1 × H1-0001`.
+ * The second statement is the brand's. It lives on the same endpoint deliberately,
+ * even though by its name ("the summary over the brand's players") it would ask for
+ * one of its own. A separate endpoint would spread the two disclosure defects
+ * across different addresses, and they would become distinguishable by endpoint —
+ * that is, the check would stop being a check of the **tree's depth**, which is
+ * what it exists for. Here both statements are read by one authorization function,
+ * and the only thing by which "one step up" differs from "the whole chain" is the
+ * cell `ivan-af1 × H1-0001`.
  */
 const STATEMENTS = [
   { id: "H1-0001", tenant: "holding-1" },
@@ -250,111 +260,120 @@ const STATEMENTS = [
 ];
 
 /**
- * Переключатели дефектов.
+ * The defect switches.
  *
- * Шесть из семи видны по статусу: 200 там, где корректная реализация отвечает 403.
- * Седьмой (`listNoFilter`) — принципиально другой: он не меняет ни одного статуса
- * и виден только через сигнал над телом (ADR-0011).
+ * Eight of the ten are visible in the status: 200 where a correct implementation
+ * answers 403 or 451. The other two are fundamentally different: `listNoFilter`
+ * and `scopeAllHonored` change no status at all and are visible only through a
+ * signal over the body (ADR-0011).
  *
- * Наборы ячеек не пересекаются — кроме пары `ancestorLeak` и `parentLeak`, где
- * второй целиком содержится в первом. Это исключение не побочный эффект,
- * а проверяемое утверждение: см. README, «Дефект, который ловится только глубиной».
+ * The sets of cells do not intersect — except for the pair `ancestorLeak` and
+ * `parentLeak`, where the second is wholly contained in the first. That exception
+ * is not a side effect but a testable claim: see README, "The defect that only
+ * depth catches".
  */
 const DEFECT_FLAGS = {
-  /** Нет фильтра по тенанту: объект чужого тенанта отдаётся 200 вместо 403. */
+  /** No tenant filter: a resource of a foreign tenant is served 200 instead of 403. */
   crossTenant: "POLYGON_DEFECT_CROSS_TENANT",
-  /** Не проверяется роль: обычный пользователь получает 200 на админской ручке. */
+  /** The role is not checked: an ordinary user gets 200 on the admin endpoint. */
   noRoleCheck: "POLYGON_DEFECT_NO_ROLE_CHECK",
-  /** IDOR внутри тенанта: чужой объект своего тенанта отдаётся 200 вместо 403. */
+  /** IDOR inside a tenant: another user's resource of one's own tenant is served 200 instead of 403. */
   idorSameTenant: "POLYGON_DEFECT_IDOR_SAME_TENANT",
   /**
-   * Нет фильтра по тенанту в списке: GET /v1/orders отдаёт заказы всех тенантов.
+   * No tenant filter in the list: GET /v1/orders serves the orders of all tenants.
    *
-   * Статус не меняется — 200 и с дефектом, и без него. Ровно тот класс, который
-   * до ADR-0011 был для инструмента невидим, и ради которого тела стали читаться.
+   * The status does not change — 200 both with the defect and without it. Exactly
+   * the class that was invisible to the tool before ADR-0011, and for whose sake
+   * bodies started being read.
    */
   listNoFilter: "POLYGON_DEFECT_LIST_NO_FILTER",
   /**
-   * Роллап холдинга не ограничен собственным поддеревом: холдингу отдаются
-   * объекты бренда чужого холдинга.
+   * The holding rollup is not limited to its own subtree: the holding is served
+   * resources of a brand of a foreign holding.
    *
-   * Отдельный флаг, а не частный случай `crossTenant`, потому что это отдельный
-   * путь в коде: «мои заказы» и «заказы моей группы» — разные запросы с разными
-   * фильтрами, и ломаются они независимо. Наборы ячеек у них тоже не пересекаются:
-   * `crossTenant` живёт на брендовых аккаунтах, этот — на холдинговых.
+   * A separate flag rather than a special case of `crossTenant`, because it is a
+   * separate path in the code: "my orders" and "my group's orders" are different
+   * queries with different filters, and they break independently. Their sets of
+   * cells do not intersect either: `crossTenant` lives on the brand accounts, this
+   * one on the holding accounts.
    */
   crossHolding: "POLYGON_DEFECT_CROSS_HOLDING",
   /**
-   * Область видимости сводных документов раскрывается **вверх** по дереву:
-   * бренд получает документ своего холдинга — 200 вместо 403.
+   * The visibility of the summary statements is disclosed **upwards** along the
+   * tree: a brand gets the statement of its holding — 200 instead of 403.
    *
-   * Зеркало `crossHolding`, и потому отдельный флаг. Тот ломает взгляд сверху
-   * вниз (холдинг видит чужую ветвь), этот — снизу вверх (бренд видит уровень
-   * группы). ADR-0013 разделяет `descendant-tenant` и `ancestor-tenant` ровно
-   * потому, что это разные дефекты с разной ценой; свести их в один флаг значило
-   * бы вернуть на полигон различие, которое инструмент научили делать.
+   * The mirror of `crossHolding`, and a separate flag for that reason. That one
+   * breaks the view top-down (the holding sees a foreign branch), this one
+   * bottom-up (a brand sees the level of its group). ADR-0013 separates
+   * `descendant-tenant` and `ancestor-tenant` precisely because these are different
+   * defects with different costs; merging them into one flag would put back on the
+   * polygon a distinction the tool was taught to make.
    *
-   * Чужой бренд этим флагом не задет: `holding-1` ему не предок. Так дефект
-   * остаётся утверждением об отношении, а не про «документ стал публичным», —
-   * и ячейки `carol-b`, `dave-b` работают контролем.
+   * The foreign brand is not hit by this flag: `holding-1` is not its ancestor. So
+   * the defect stays a claim about a relation rather than about "the statement
+   * became public" — and the cells of `carol-b` and `dave-b` work as a control.
    */
   ancestorLeak: "POLYGON_DEFECT_ANCESTOR_LEAK",
   /**
-   * То же раскрытие вверх, но **ровно на один уровень**: видимым становится
-   * документ прямого родителя, а не всей цепочки предков.
+   * The same upward disclosure, but **exactly one level**: what becomes visible is
+   * the statement of the direct parent, not that of the whole chain of ancestors.
    *
-   * Правдоподобие здесь не украшение, а условие: платформа берёт из токена
-   * денормализованное поле «родительский тенант» вместо обхода дерева. Так
-   * пишут чаще, чем рекурсию, — и именно поэтому такой дефект стоит уметь ловить.
+   * Plausibility here is not decoration but a condition: the platform takes a
+   * denormalized "parent tenant" field out of the token instead of walking the
+   * tree. That is written more often than recursion — and that is exactly why such
+   * a defect is worth being able to catch.
    *
-   * Единственный флаг, чей набор ячеек **пересекается** с чужим: на двухуровневой
-   * части дерева он совпадает с `ancestorLeak` ячейка в ячейку. Это не недосмотр,
-   * а само проверяемое утверждение — см. README, «Дефект, который ловится только
-   * глубиной».
+   * The only flag whose set of cells **intersects** another's: on the two-level part
+   * of the tree it matches `ancestorLeak` cell for cell. That is not an oversight
+   * but the testable claim itself — see README, "The defect that only depth
+   * catches".
    */
   parentLeak: "POLYGON_DEFECT_PARENT_LEAK",
   /**
-   * Платформа помнит у аккаунта только **первое** членство: набор тенантов
-   * схлопнут до «основного тенанта».
+   * The platform remembers only the **first** membership of an account: the set of
+   * tenants is collapsed to a "primary tenant".
    *
-   * Правдоподобие здесь такое же, как у `parentLeak`: в токене лежит одно поле
-   * `tenant_id`, потому что когда-то у всех аккаунтов тенант был один, — и набор
-   * членств до авторизации не доезжает. Саппорту двух брендов отдаётся первый
-   * и отказывается во втором.
+   * The plausibility here is the same as with `parentLeak`: the token carries a
+   * single `tenant_id` field because every account used to have one tenant — and
+   * the set of memberships never reaches authorization. Support over two brands is
+   * served the first and denied the second.
    *
-   * Единственный дефект платформы, который проявляется **отказом**, а не лишним
-   * доступом: 403 там, где человек объявил доступ положенным. До ADR-0017 такое
-   * утверждение было невыразимо — второй бренд объявить своим было нечем, —
-   * поэтому и дефект был бы неотличим от исправной работы.
+   * The only defect of the platform that shows itself as a **denial** rather than
+   * as excess access: 403 where a human declared access to be granted. Before
+   * ADR-0017 such a claim was inexpressible — there was nothing to declare the
+   * second brand one's own with — so the defect too would have been
+   * indistinguishable from correct behaviour.
    */
   primaryTenantOnly: "POLYGON_DEFECT_PRIMARY_TENANT_ONLY",
   /**
-   * Не проверяется юрисдикция обращения: заказы отдаются и из запрещённой
-   * страны — 200 вместо 451.
+   * The jurisdiction of the request is not checked: orders are served from a
+   * prohibited country too — 200 instead of 451.
    *
-   * Единственный дефект полигона, который **не виден по одним лишь правам**:
-   * ячейка «alice-a × orders.read × собственный заказ» законно даёт 200 в
-   * базовых условиях и обязана дать отказ, когда обращение помечено страной
-   * из запрета. Различить их можно, только объявив условия отдельным
-   * измерением (ADR-0019): роль, тенант и объект здесь одни и те же.
+   * The only defect of the polygon that is **not visible through permissions
+   * alone**: the cell "alice-a × orders.read × her own order" lawfully gives 200 in
+   * the base conditions and must give a denial when the request is tagged with a
+   * country from the prohibition. They can be told apart only by declaring
+   * conditions as a separate dimension (ADR-0019): the role, the tenant and the
+   * resource here are one and the same.
    *
-   * Правдоподобие: гео-ограничение живёт в CDN или на входном шлюзе, а не в
-   * основной авторизации, и «просочиться» мимо него — самый частый способ
-   * такое сломать.
+   * Plausibility: the geo restriction lives in the CDN or on the entry gateway
+   * rather than in the main authorization, and "slipping past" it is the most common
+   * way to break such a thing.
    */
   geoBypass: "POLYGON_DEFECT_GEO_BYPASS",
   /**
-   * Скрытый параметр запроса расширяет область выдачи: `?scope=all` снимает
-   * фильтр по тенанту в брендовом списке.
+   * A hidden query parameter widens the scope of the listing: `?scope=all` removes
+   * the tenant filter in the brand list.
    *
-   * Статус не меняется, как и у `listNoFilter`, но ломается тут другое: там
-   * фильтра нет вовсе, здесь он есть и снимается **атрибутом обращения**.
-   * Отсюда и разные наборы ячеек: этот флаг виден только в условиях, где
-   * параметр объявлен, и на базовых обращениях не проявляется никак.
+   * The status does not change, as with `listNoFilter`, but what breaks here is
+   * different: there the filter is absent altogether, here it is in place and is
+   * removed by a **context attribute**. Hence the different sets of cells: this flag
+   * is visible only under the conditions where the parameter is declared, and on
+   * base requests it does not show at all.
    *
-   * Правдоподобие: такие параметры заводят для внутренней админки или отладки,
-   * а проверку прав на них забывают — она осталась на роли, которой в запросе
-   * уже нет.
+   * Plausibility: such parameters are introduced for an internal admin panel or for
+   * debugging, and the permission check on them is forgotten — it stayed on a role
+   * that is no longer in the request.
    */
   scopeAllHonored: "POLYGON_DEFECT_SCOPE_ALL_HONORED",
 };
@@ -367,11 +386,11 @@ class ConfigurationError extends Error {
 }
 
 /**
- * Читает булев флаг из окружения.
+ * Reads a boolean flag from the environment.
  *
- * Незнакомое значение — ошибка, а не «выключено». Молча принятая опечатка вида
- * `POLYGON_DEFECT_CROSS_TENANT=yes` дала бы прогон без находок, неотличимый
- * от успешной проверки корректной платформы.
+ * An unfamiliar value is an error, not "off". A silently accepted typo of the form
+ * `POLYGON_DEFECT_CROSS_TENANT=yes` would give a run with no findings,
+ * indistinguishable from a successful check of a correct platform.
  */
 function readFlag(name) {
   const raw = process.env[name];
@@ -385,8 +404,8 @@ function readFlag(name) {
     return true;
   }
   throw new ConfigurationError(
-    `Переменная ${name} имеет значение "${raw}"; допустимы только 0, 1, false, true ` +
-      `или отсутствие переменной. Опечатка здесь молча выключила бы дефект.`,
+    `The variable ${name} has the value "${raw}"; only 0, 1, false, true ` +
+      `or the absence of the variable are allowed. A typo here would silently switch the defect off.`,
   );
 }
 
@@ -406,11 +425,11 @@ function readDefects() {
 }
 
 /**
- * Тенанты, которые платформа на самом деле учитывает для аккаунта.
+ * The tenants the platform actually counts for an account.
  *
- * Отдельно от `tenantsOf`: там объявленная принадлежность, здесь — то, что
- * от неё осталось после дефекта. Разделение не косметическое, оно и есть
- * содержание флага `primaryTenantOnly`.
+ * Separate from `tenantsOf`: there the declared membership, here what is left of it
+ * after the defect. The split is not cosmetic, it is the very substance of the
+ * `primaryTenantOnly` flag.
  */
 function visibleTenants(account, defects) {
   const declared = tenantsOf(account);
@@ -418,10 +437,10 @@ function visibleTenants(account, defects) {
 }
 
 /**
- * Строит карту «токен → аккаунт».
+ * Builds the "token → account" map.
  *
- * Отсутствующая переменная — отказ на старте. Пустой заголовок авторизации
- * посреди прогона выглядел бы как законный 401 и обесценил бы весь результат.
+ * A missing variable is a refusal at startup. An empty authorization header in the
+ * middle of a run would look like a lawful 401 and would devalue the whole result.
  */
 function readTokens() {
   const byToken = new Map();
@@ -429,14 +448,14 @@ function readTokens() {
     const value = process.env[account.tokenEnv];
     if (value === undefined || value.trim() === "") {
       throw new ConfigurationError(
-        `Не задана переменная ${account.tokenEnv} для аккаунта "${account.id}". ` +
-          `Токены передаются только через окружение и в репозитории не хранятся.`,
+        `The variable ${account.tokenEnv} for account "${account.id}" is not set. ` +
+          `Tokens are passed through the environment only and are not kept in the repository.`,
       );
     }
     if (byToken.has(value)) {
       throw new ConfigurationError(
-        `Токен аккаунта "${account.id}" совпадает с токеном другого аккаунта. ` +
-          `Тогда изоляция тенантов непроверяема: обращения неразличимы.`,
+        `The token of account "${account.id}" matches the token of another account. ` +
+          `Then tenant isolation is untestable: the requests are indistinguishable.`,
       );
     }
     byToken.set(value, account);
@@ -445,12 +464,12 @@ function readTokens() {
 }
 
 /**
- * Всё, что в запросе похоже на предъявленные учётные данные.
+ * Everything in the request that looks like presented credentials.
  *
- * Возвращает пары «транспорт → значение»: Bearer из `Authorization`, каждую куку
- * по имени и каждый известный заголовок-ключ. Разбор именно всех, а не первого
- * подошедшего: платформа обязана уметь сказать «токен верный, но предъявлен
- * не тем способом», а для этого нужно видеть, чем именно его предъявили.
+ * Returns "transport → value" pairs: the Bearer from `Authorization`, every cookie
+ * by name and every known key header. All of them are parsed rather than the first
+ * that fits: the platform must be able to say "the token is right, but it was
+ * presented the wrong way", and for that it has to see how exactly it was presented.
  */
 function presentedCredentials(headers) {
   const presented = [];
@@ -488,7 +507,7 @@ function presentedCredentials(headers) {
   return presented;
 }
 
-/** Предъявлено ли ровно так, как положено этому аккаунту. */
+/** Was it presented exactly the way this account is supposed to present it. */
 function matchesScheme(scheme, presented) {
   if (scheme.kind !== presented.kind) {
     return false;
@@ -496,19 +515,20 @@ function matchesScheme(scheme, presented) {
   if (scheme.kind === "bearer") {
     return true;
   }
-  // Имена заголовков Node приводит к нижнему регистру; куки регистрозависимы.
+  // Node lowercases header names; cookie names are case-sensitive.
   return scheme.kind === "header"
     ? scheme.name.toLowerCase() === presented.name
     : scheme.name === presented.name;
 }
 
 /**
- * Аккаунт по предъявленным учётным данным. `undefined` — аноним, неверный токен
- * либо верный токен, предъявленный не тем транспортом.
+ * The account behind the presented credentials. `undefined` — the anonymous
+ * account, a wrong token, or a right token presented over the wrong transport.
  *
- * Последний случай — не педантизм. Прими платформа операторскую куку ещё и
- * Bearer-ом, инструмент со схемой по умолчанию у всех аккаунтов прошёл бы прогон
- * насквозь, и полигон подтверждал бы работу переопределения, которого нет.
+ * The last case is not pedantry. Were the platform to accept the operator cookie as
+ * a Bearer as well, a tool with the default scheme on every account would sail
+ * straight through the run, and the polygon would be confirming that an override
+ * works which is not there.
  */
 function authenticate(headers, tokensByValue) {
   for (const presented of presentedCredentials(headers)) {
@@ -521,103 +541,106 @@ function authenticate(headers, tokensByValue) {
 }
 
 /**
- * Доступ к заказу.
+ * Access to an order.
  *
- * Ровно одна ветка на ячейку — поэтому включение любого флага меняет только
- * свой набор ячеек и не задевает соседние.
+ * Exactly one branch per cell — which is why switching any flag on changes only its
+ * own set of cells and does not touch the neighbouring ones.
  */
 function authorizeOrder(account, order, defects) {
   if (account.role === "affiliate") {
-    // Заказы бренда аффилиату не положены ни в каком режиме: у него свой контур
-    // (`/v1/affiliate/stats`), а игроки бренда — не его данные.
+    // The brand's orders are not for the affiliate in any mode: it has a surface of
+    // its own (`/v1/affiliate/stats`), and the brand's players are not its data.
     //
-    // Ветка стоит первой и не смотрит ни на один флаг. Это не перестраховка:
-    // без неё аффилиат провалился бы в брендовую ветку ниже, и `crossTenant`
-    // добавил бы ему четыре ячейки. Дефект «нет фильтра по тенанту у брендовых
-    // аккаунтов» стал бы утверждением и про аффилиатов заодно, а набор ячеек
-    // прежнего флага перестал бы быть прежним.
+    // The branch stands first and looks at no flag. This is not over-caution:
+    // without it the affiliate would fall through into the brand branch below, and
+    // `crossTenant` would add four cells to it. The defect "no tenant filter on the
+    // brand accounts" would become a claim about affiliates as well, and the set of
+    // cells of the previous flag would stop being what it was.
     return 403;
   }
 
   if (account.role === "support") {
-    // Саппорт видит заказы тех брендов, в которых состоит, — и только их.
-    // Ветка своя по той же причине, по какой она своя у аффилиата: брендовая
-    // ветка ниже спрашивает «тенант заказа равен тенанту аккаунта?», а у этого
-    // аккаунта тенант не один, и общая ветка либо отдала бы ему лишнее, либо
-    // отказала бы во втором бренде — то есть встроила бы дефект в исправный режим.
+    // Support sees the orders of the brands it belongs to — and only those.
+    // The branch is its own for the same reason the affiliate's is: the brand branch
+    // below asks "is the order's tenant equal to the account's tenant?", and this
+    // account does not have one tenant, so a shared branch would either serve it too
+    // much or deny it the second brand — that is, it would build a defect into the
+    // correct mode.
     return visibleTenants(account, defects).includes(order.tenant) ? 200 : 403;
   }
 
   if (account.role === "holding") {
-    // Холдинговый контур — отдельная ветка целиком, и брендовая ниже остаётся
-    // нетронутой. Это не стилистика: так набор ячеек `crossHolding` не может
-    // пересечься с набором `crossTenant`, а прежние комбинации обязаны дать
-    // ровно те же результаты, что и до появления холдингов.
+    // The holding surface is a separate branch in its entirety, and the brand one
+    // below stays untouched. This is not a matter of style: it is how the set of
+    // cells of `crossHolding` cannot intersect the set of `crossTenant`, while the
+    // previous combinations must give exactly the same results as they did before
+    // holdings appeared.
     if (isBelow(order.tenant, account.tenant)) {
-      // Свой бренд холдингу положен. Именно это отношение инструмент до ADR-0013
-      // выразить не мог и объявлял эскалацией.
+      // The holding's own brand is meant for it. This is exactly the relation the
+      // tool could not express before ADR-0013 and declared an escalation.
       return 200;
     }
     return defects.crossHolding ? 200 : 403;
   }
 
   if (order.tenant !== account.tenant) {
-    // Дефект №1: фильтр по тенанту отсутствует.
+    // Defect #1: the tenant filter is absent.
     return defects.crossTenant ? 200 : 403;
   }
   if (account.role === "admin") {
-    // Администратору тенанта положены все объекты его тенанта — это не дефект.
+    // The tenant's administrator is meant to have every resource of its tenant —
+    // this is not a defect.
     return 200;
   }
   if (order.owner === account.id) {
     return 200;
   }
-  // Дефект №3: IDOR внутри тенанта.
+  // Defect #3: IDOR inside a tenant.
   return defects.idorSameTenant ? 200 : 403;
 }
 
 /**
- * Доступ к сводному расчётному документу.
+ * Access to a summary settlement statement.
  *
- * Владельца-пользователя у документа нет, поэтому «своё» здесь означает ровно
- * совпадение тенантов — ни `own`, ни BOLA внутри тенанта тут не возникают.
+ * The statement has no user owner, so "one's own" here means exactly a match of
+ * tenants — neither `own` nor BOLA inside a tenant arises here.
  *
- * Отдельная функция, а не ветка в `authorizeOrder`: у заказов и у сводных
- * документов разные правила видимости, и ломаются они независимо. Побочный
- * и важный эффект — брендовая ветка заказов осталась нетронутой, поэтому ни
- * одна прежняя ячейка не могла сменить исход.
+ * A separate function rather than a branch in `authorizeOrder`: orders and summary
+ * statements have different visibility rules, and they break independently. A side
+ * effect, and an important one, is that the brand branch of the orders stayed
+ * untouched, so not one previous cell could change its outcome.
  *
- * Исправное правило — «свой уровень и всё, что ниже»: видимость идёт вниз
- * по дереву. Оба дефекта ломают её направление; отличаются они только тем,
- * насколько далеко вверх поднимаются.
+ * The correct rule is "my own level and everything below it": visibility goes down
+ * the tree. Both defects break its direction; they differ only in how far up they
+ * walk.
  */
 function authorizeStatement(account, statement, defects) {
-  // Здесь и ниже — обход по всем тенантам аккаунта. Отдельной ветки для
-  // саппорта нет намеренно: правило видимости документов у него то же самое,
-  // и своя ветка означала бы, что дефекты раскрытия вверх его не задевают, —
-  // утверждение, которого никто не проверял. Пусть задевают: тогда прогон
-  // проверяет и то, что предки считаются по каждому членству.
+  // Here and below — a walk over all the account's tenants. There is deliberately no
+  // separate branch for support: the statement visibility rule for it is the same
+  // one, and a branch of its own would mean that the upward-disclosure defects do
+  // not hit it — a claim nobody has tested. Let them hit it: then the run tests that
+  // the ancestors are computed per membership as well.
   const tenants = visibleTenants(account, defects);
   if (tenants.includes(statement.tenant)) {
     return 200;
   }
-  // Вниз по дереву — положено: холдинг обязан видеть расчётный документ своего
-  // бренда, иначе сводного взгляда у лицензиата не существует. Это исправное
-  // поведение, а не поблажка, и ни один флаг его не трогает.
+  // Down the tree — allowed: the holding must see the settlement statement of its
+  // brand, otherwise the licensee has no consolidated view at all. This is correct
+  // behaviour, not a concession, and no flag touches it.
   if (tenants.some((tenant) => isBelow(statement.tenant, tenant))) {
     return 200;
   }
-  // Дефект №6: фильтр раскрывается вверх по дереву вместо вниз. Реализация
-  // спрашивает «документ моего тенанта или любого его предка?» вместо «моего
-  // тенанта?» — и бренд получает документ уровня своей группы, а аффилиат —
-  // и документ бренда, и документ холдинга.
+  // Defect #6: the filter is disclosed up the tree instead of down. The
+  // implementation asks "a statement of my tenant or of any of its ancestors?"
+  // instead of "of my tenant?" — and a brand gets the statement of its group's
+  // level, while the affiliate gets both the brand's statement and the holding's.
   if (defects.ancestorLeak && tenants.some((tenant) => isBelow(tenant, statement.tenant))) {
     return 200;
   }
-  // Дефект №7: то же раскрытие вверх, но ровно на один шаг — «документ моего
-  // тенанта или моего родителя?». Аффилиат получает документ бренда и не получает
-  // документ холдинга; брендовые аккаунты не отличают этот дефект от предыдущего
-  // вовсе, потому что у них предок ровно один.
+  // Defect #7: the same upward disclosure, but exactly one step — "a statement of my
+  // tenant or of my parent?". The affiliate gets the brand's statement and does not
+  // get the holding's; the brand accounts do not tell this defect from the previous
+  // one at all, because they have exactly one ancestor.
   if (defects.parentLeak && tenants.some((tenant) => parentOf(tenant) === statement.tenant)) {
     return 200;
   }
@@ -625,19 +648,19 @@ function authorizeStatement(account, statement, defects) {
 }
 
 /**
- * Доступ к собственной статистике аффилиата.
+ * Access to the affiliate's own statistics.
  *
- * Ручка без объекта и без переключателей: она отвечает 200 только роли
- * `affiliate` и 403 всем остальным в любом режиме. Две работы сразу — канарейка
- * аффилиата (единственное место, где его токен обязан дать 200, поэтому неверный
- * токен остановит прогон, а не притворится законным отказом) и контроль: лишняя
- * находка на ней означала бы ложное срабатывание.
+ * An endpoint with no resource and no switches: it answers 200 to the `affiliate`
+ * role only and 403 to everyone else in any mode. Two jobs at once — the affiliate's
+ * canary (the one place where its token must give 200, so a wrong token will stop
+ * the run instead of passing itself off as a lawful denial) and a control: an extra
+ * finding on it would mean a false positive.
  */
 function authorizeAffiliateStats(account) {
   return account.role === "affiliate" ? 200 : 403;
 }
 
-/** Доступ к админской ручке. Дефект №2: проверка роли отключена. */
+/** Access to the admin endpoint. Defect #2: the role check is switched off. */
 function authorizeAdmin(account, defects) {
   if (account.role === "admin") {
     return 200;
@@ -650,31 +673,31 @@ function send(res, status, payload) {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(body),
-    // Кэш ответа исказил бы матрицу: одна ячейка ответила бы за другую.
+    // A cached response would distort the matrix: one cell would answer for another.
     "cache-control": "no-store",
   });
-  // Тело для HEAD Node отбрасывает сам; отдельная ветка не нужна.
+  // Node drops the body for HEAD itself; a separate branch is not needed.
   res.end(body);
 }
 
 const ORDER_PATH = /^\/v1\/orders\/([^/]+)$/;
 const STATEMENT_PATH = /^\/v1\/statements\/([^/]+)$/;
 
-/** Список ручек. Дублируется в `endpoints.yaml` — там это объявление человека. */
+/** The list of endpoints. Duplicated in `endpoints.yaml` — there it is the human's declaration. */
 /**
- * Запрещённая юрисдикция.
+ * The prohibited jurisdiction.
  *
- * `AQ` — Антарктида: настоящий код ISO, но заведомо не рынок. Ставить сюда
- * реальную страну в публичном репозитории незачем, а выдуманный код
- * не прошёл бы проверку у читателя, знающего стандарт.
+ * `AQ` is Antarctica: a real ISO code, but knowingly not a market. There is no
+ * reason to put a real country here in a public repository, while a made-up code
+ * would not pass with a reader who knows the standard.
  */
 const BLOCKED_COUNTRY = "AQ";
 
 /**
- * Гео-ограничение: заказы не отдаются из запрещённой юрисдикции.
+ * The geo restriction: orders are not served from the prohibited jurisdiction.
  *
- * Возвращается 451, а не 403: отказ здесь юридический, а не по правам, и
- * платформы так и отвечают. Для инструмента это тоже отказ — см. ADR-0019.
+ * It returns 451, not 403: the denial here is legal rather than by permissions, and
+ * that is how platforms answer. For the tool it is a denial too — see ADR-0019.
  */
 function geoBlocked(headers, defects) {
   if (defects.geoBypass) {
@@ -686,18 +709,18 @@ function geoBlocked(headers, defects) {
 
 function handle(req, res, context) {
   if (req.method !== "GET" && req.method !== "HEAD") {
-    // Небезопасные методы платформа не реализует: инструмент их и не шлёт
-    // без --unsafe-methods, а держать изменяющую состояние ручку на стенде,
-    // который гоняют в цикле, незачем.
+    // The platform does not implement unsafe methods: the tool does not send them
+    // without --unsafe-methods anyway, and there is no reason to keep a
+    // state-changing endpoint on a deployment that is run in a loop.
     send(res, 405, { error: "method_not_allowed" });
     return;
   }
 
   const { pathname, searchParams: query } = new URL(req.url ?? "/", `http://${HOST}`);
 
-  // Публичная ручка: отвечает всем, включая аноним. Нужна и как проба
-  // готовности для verify.mjs, и как контроль — она не меняется ни от одного
-  // флага, поэтому лишняя находка на ней означала бы ложное срабатывание.
+  // A public endpoint: it answers everyone, the anonymous account included. It is
+  // needed both as a readiness probe for verify.mjs and as a control — it is not
+  // changed by a single flag, so an extra finding on it would mean a false positive.
   if (pathname === "/v1/health") {
     send(res, 200, { status: "ok", defects: context.defects });
     return;
@@ -705,8 +728,8 @@ function handle(req, res, context) {
 
   const account = authenticate(req.headers, context.tokensByValue);
   if (account === undefined) {
-    // Аутентификация проверяется раньше авторизации, поэтому ни один флаг
-    // дефекта не открывает доступ анониму.
+    // Authentication is checked before authorization, so no defect flag opens
+    // access to the anonymous account.
     send(res, 401, { error: "unauthorized" });
     return;
   }
@@ -717,19 +740,20 @@ function handle(req, res, context) {
       return;
     }
     if (account.role === "affiliate") {
-      // Список заказов бренда аффилиату не положен. Ветка стоит до брендовой
-      // и до `listNoFilter`: иначе с этим дефектом аффилиат получил бы общий
-      // список, его тело совпало бы с телом чужого бренда, и у прежнего флага
-      // прибавилось бы пар — то есть набор ячеек перестал бы быть прежним.
+      // The brand's order list is not for the affiliate. The branch stands before
+      // the brand one and before `listNoFilter`: otherwise, with that defect, the
+      // affiliate would get the common list, its body would match the body of a
+      // foreign brand, and the previous flag would gain pairs — that is, its set of
+      // cells would stop being what it was.
       send(res, 403, { error: "forbidden" });
       return;
     }
 
     if (account.role === "support") {
-      // Список по своим брендам. Строки несут бренд по той же причине, что
-      // и у холдингового роллапа: список из двух брендов без атрибуции
-      // не читается. Побочный эффект тот же и такой же полезный — тело
-      // не совпадает с брендовым ни в одном режиме.
+      // The list over its own brands. The rows carry the brand for the same reason
+      // as in the holding rollup: a list of two brands cannot be read without
+      // attribution. The side effect is the same and just as useful — the body does
+      // not match a brand one in any mode.
       const visible = ORDERS.filter((order) =>
         visibleTenants(account, context.defects).includes(order.tenant),
       );
@@ -744,14 +768,17 @@ function handle(req, res, context) {
     }
 
     if (account.role === "holding") {
-      // Роллап по собственному поддереву. Каждая строка несёт бренд: роллап без
-      // атрибуции бесполезен — по нему нельзя понять, чей это заказ.
+      // The rollup over its own subtree. Every row carries the brand: a rollup
+      // without attribution is useless — there is no telling whose order it is.
       //
-      // Побочный эффект этой атрибуции важен и его стоит назвать вслух. Холдинг
-      // с единственным брендом видит ровно те же заказы, что и сам бренд, и без
-      // поля `tenant` тела совпали бы побайтово. Проверка
-      // `identical-response-across-tenants` о дереве не знает и сочла бы законный
-      // роллап утечкой — на чистой платформе. См. «Границы» в README.md.
+      // The side effect of this attribution matters and is worth naming out loud. A
+      // holding with a single brand sees exactly the same orders as the brand
+      // itself, and without the `tenant` field the bodies would match byte for byte.
+      // The `identical-response-across-tenants` check was later taught the tree and
+      // skips pairs in kinship — but the attribution is what makes the rollup body
+      // differ from a brand's in the first place, and the check only skips the
+      // holding-versus-its-own-brand pair, not every pair the rollup takes part in.
+      // See "Boundaries" in README.md.
       const rollup = ORDERS.filter((order) => isBelow(order.tenant, account.tenant));
       send(res, 200, {
         orders: rollup.map((order) => ({
@@ -763,12 +790,13 @@ function handle(req, res, context) {
       return;
     }
 
-    // Брендовый список. С дефектом отдаются заказы всех тенантов — и статус при
-    // этом остаётся 200, как у корректной реализации. Различить их можно только
-    // по телу: у корректной оно разное у разных тенантов, у дефектной одинаковое.
-    // Корректная реализация неизвестный параметр игнорирует. Дефектная —
-    // выполняет: `?scope=all` снимает фильтр по тенанту. Проверка прав на этот
-    // параметр не сделана вовсе, потому его и нет в условии.
+    // The brand list. With the defect the orders of all tenants are served — and the
+    // status stays 200 all the same, as in a correct implementation. They can be
+    // told apart only by the body: a correct one differs between tenants, a
+    // defective one is the same.
+    // A correct implementation ignores an unknown parameter. A defective one honours
+    // it: `?scope=all` removes the tenant filter. No permission check on this
+    // parameter was made at all, which is why there is none in the condition below.
     const wideScope = context.defects.scopeAllHonored && query.get("scope") === "all";
     const visible =
       context.defects.listNoFilter || wideScope
@@ -784,9 +812,9 @@ function handle(req, res, context) {
       send(res, status, { error: "forbidden" });
       return;
     }
-    // Тело здесь ничего не решает: для ручки не объявлен
-    // `responseMustDifferByTenant`, сигналы над ней не считаются, и дефект —
-    // если бы он тут был — был бы виден по статусу.
+    // The body decides nothing here: `responseMustDifferByTenant` is not declared
+    // for this endpoint, no signals are computed over it, and a defect — were there
+    // one here — would be visible in the status.
     send(res, 200, { affiliate: account.id, tenant: account.tenant });
     return;
   }
@@ -814,8 +842,8 @@ function handle(req, res, context) {
     const orderId = decodeURIComponent(orderMatch[1]);
     const order = ORDERS.find((entry) => entry.id === orderId);
     if (order === undefined) {
-      // Несуществующий объект — 404 для всех одинаково: маскировать отказ
-      // под «не найдено» здесь не нужно, дефекты и так видны по статусу.
+      // A non-existent resource — 404 for everyone alike: there is no need to mask a
+      // denial as "not found" here, the defects are visible in the status anyway.
       send(res, 404, { error: "not_found" });
       return;
     }
@@ -841,7 +869,7 @@ function handle(req, res, context) {
       send(res, status, { error: "forbidden" });
       return;
     }
-    // Владельца в теле нет: у документа холдинга его не существует.
+    // There is no owner in the body: the holding's statement does not have one.
     send(res, 200, { id: statement.id, tenant: statement.tenant });
     return;
   }
@@ -857,7 +885,7 @@ function main() {
   const rawPort = process.env.POLYGON_PORT;
   const port = rawPort === undefined || rawPort === "" ? DEFAULT_PORT : Number(rawPort);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new ConfigurationError(`POLYGON_PORT="${rawPort}" не является номером порта`);
+    throw new ConfigurationError(`POLYGON_PORT="${rawPort}" is not a port number`);
   }
   const verbose = readFlag("POLYGON_LOG");
 
@@ -865,15 +893,15 @@ function main() {
     try {
       handle(req, res, context);
     } catch (error) {
-      // Пятисотка ломает вердикт о доступе: инструмент считает её «судить нельзя».
-      // Поэтому она видна в логе, а не молча растворяется.
-      process.stderr.write(`polygon: сбой обработки: ${error}\n`);
+      // A 500 breaks the verdict about access: the tool reads it as "no conclusion
+      // can be drawn". So it is visible in the log rather than dissolving silently.
+      process.stderr.write(`polygon: request handling failed: ${error}\n`);
       send(res, 500, { error: "internal" });
     }
     if (verbose) {
-      // Заголовки не логируются намеренно: токен не должен попасть ни в логи,
-      // ни в отчёты — и это относится ко всем трём транспортам, а не только
-      // к `Authorization`.
+      // Headers are deliberately not logged: a token must reach neither the logs nor
+      // the reports — and that goes for all three transports, not only for
+      // `Authorization`.
       process.stderr.write(`polygon: ${req.method} ${req.url} -> ${res.statusCode}\n`);
     }
   });
@@ -883,7 +911,7 @@ function main() {
       .filter(([, on]) => on)
       .map(([name]) => name);
     process.stderr.write(
-      `polygon: http://${HOST}:${port} дефекты: ${enabled.length === 0 ? "нет" : enabled.join(", ")}\n`,
+      `polygon: http://${HOST}:${port} defects: ${enabled.length === 0 ? "none" : enabled.join(", ")}\n`,
     );
   });
 

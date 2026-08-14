@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
 
-# Минимальные права по умолчанию: расширять точечно и только там, где нужно.
+# Least privilege by default: widen it one job at a time, only where needed.
 permissions:
   contents: read
 
@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Не спрашивать подтверждения на скачивание менеджера пакетов из packageManager.
+  # Do not prompt before downloading the package manager named in packageManager.
   COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
 
 jobs:
@@ -24,10 +24,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 22 — версия разработки, 24 — верхняя граница заявленной поддержки.
+        # 22 is the development version, 24 the upper bound of declared support.
         node: [22, 24]
     steps:
-      # Actions запинены по SHA: тег можно передвинуть на другой коммит.
+      # Actions are pinned by SHA: a tag can be moved to another commit.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -39,7 +39,7 @@ jobs:
       - name: Enable pnpm via corepack
         run: corepack enable
 
-      # Установка строго по lockfile: без переразрешения версий.
+      # Install strictly from the lockfile: no version re-resolution.
       - name: Install
         run: pnpm install --frozen-lockfile
 
@@ -49,7 +49,8 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      # С покрытием: пороги в vitest.config.ts — часть гейта, а не отчёт для чтения.
+      # With coverage: the thresholds in vitest.config.ts are part of the gate,
+      # not a report to read.
       - name: Test
         run: pnpm run test:coverage
 
@@ -59,10 +60,11 @@ jobs:
   secrets:
     name: secret scan
     runs-on: ubuntu-latest
-    # Версия совпадает с локальной, чтобы CI и pre-commit не расходились в вердиктах.
-    # Бинарь ставится напрямую, а не через gitleaks-action: action считает диапазон
-    # коммитов от родителя первого коммита, которого не существует, и падает на
-    # первом пуше. Плюс он тянет свою, более старую версию gitleaks.
+    # The version matches the local one so that CI and pre-commit never differ in
+    # their verdicts. The binary is installed directly rather than through
+    # gitleaks-action: the action computes a commit range from the parent of the
+    # first commit, which does not exist, and fails on the first push. It also
+    # pulls its own, older version of gitleaks.
     env:
       GITLEAKS_VERSION: "8.30.1"
       GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
@@ -70,7 +72,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Полная история: pre-commit ловит только новое, здесь проверяем всё.
+          # Full history: pre-commit only catches what is new, here everything is checked.
           fetch-depth: 0
 
       - name: Install gitleaks
@@ -78,27 +80,29 @@ jobs:
           set -euo pipefail
           url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           curl -sSfL "$url" -o gitleaks.tar.gz
-          # Скачанный бинарь проверяется по закреплённой сумме: загрузка из сети
-          # без проверки — тот же класс риска, от которого защищает вся остальная политика.
+          # The downloaded binary is verified against a pinned checksum: fetching
+          # from the network without a check is the same class of risk the rest of
+          # this policy guards against.
           echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
           tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks version
 
-      # Дублирует pre-commit-хук: локальный хук обходится через --no-verify.
+      # Duplicates the pre-commit hook: the local hook can be skipped with --no-verify.
       - name: Scan full history
         run: ./gitleaks git --redact --no-banner .
 
   polygon:
     name: oracle (reference polygon, 25 combinations)
     runs-on: ubuntu-latest
-    # Самая сильная проверка правильности в проекте гонялась только на моей
-    # машине и только когда я о ней вспоминал. Стенд — чистый Node, без Docker:
-    # поднимается и гасится самим verify.mjs, около полутора минут на все
-    # двадцать пять комбинаций флагов.
+    # The strongest correctness check in the project used to run on one machine
+    # only, and only when its author remembered it. The deployment is plain Node,
+    # no Docker: verify.mjs brings it up and takes it down itself, about a minute
+    # and a half for all twenty-five combinations of flags.
     #
-    # Сверяются не числа в README, а находки ячейка в ячейку с рукописным
-    # оракулом. Расхождение означает либо регрессию инструмента, либо ошибку
-    # в оракуле — и то и другое надо знать до слияния, а не через неделю.
+    # What is compared is not the numbers in the README but the findings, cell by
+    # cell, against a hand-written oracle. A mismatch means either a regression in
+    # the tool or an error in the oracle — both are worth knowing before a merge,
+    # not a week later.
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -114,31 +118,31 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # Полигон гоняет собранный CLI, а не исходники: так проверяется ровно то,
-      # что уедет в пакет. Разошедшись, dist и src дали бы зелёную сверку
-      # на коде, которого пользователь не увидит.
+      # The polygon runs the built CLI rather than the sources: that way exactly
+      # what ships in the package is what gets tested. Had dist and src drifted
+      # apart, the verification would be green on code the user never sees.
       - name: Build
         run: pnpm run build
 
-      # `--check-readme` дополнительно сверяет таблицу результатов в README
-      # с этим самым прогоном: числа в документе разъезжались с кодом дважды,
-      # и оба раза этого никто не замечал неделями.
+      # `--check-readme` additionally compares the results table in the README
+      # against this very run: the numbers in the document drifted away from the
+      # code twice, and both times nobody noticed for weeks.
       - name: Verify against the hand-written oracle
         run: node polygon/verify.mjs --check-readme
 
   vulnerabilities:
     name: known vulnerabilities (OSV)
     runs-on: ubuntu-latest
-    # Второй слой поверх `pnpm audit`: OSV агрегирует источники, которых нет
-    # в реестре npm, — GHSA, CVE, базы дистрибутивов. Совпадение вердиктов
-    # ничего не стоит, расхождение стоит того, чтобы о нём узнать.
+    # A second layer on top of `pnpm audit`: OSV aggregates sources the npm
+    # registry does not carry — GHSA, CVE, distribution databases. Agreeing
+    # verdicts cost nothing; a disagreement is worth knowing about.
     #
-    # Бинарь ставится напрямую и сверяется по закреплённой сумме — та же
-    # причина, что у gitleaks: action тянет свою версию, и вердикты CI
-    # разъезжаются с локальными молча.
+    # The binary is installed directly and verified against a pinned checksum —
+    # the same reason as with gitleaks: an action pulls its own version, and CI
+    # verdicts drift away from local ones silently.
     #
-    # Версия на шаг позади свежей намеренно: v2.5.0 вышла неделю назад,
-    # а `minimumReleaseAge` в этом проекте — 7 суток не случайно.
+    # The version is deliberately one step behind the newest: v2.5.0 came out a
+    # week ago, and `minimumReleaseAge` in this project is 7 days for a reason.
     env:
       OSV_VERSION: "2.4.0"
       OSV_SHA256: "15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0"
@@ -155,7 +159,7 @@ jobs:
           chmod +x osv-scanner
           ./osv-scanner --version
 
-      # Сканируется lockfile, а не установленное дерево: так вердикт зависит
-      # от того, что объявлено, и воспроизводится без установки.
+      # The lockfile is scanned rather than the installed tree: that way the
+      # verdict depends on what is declared and reproduces without an install.
       - name: Scan lockfile
         run: ./osv-scanner scan source --lockfile=pnpm-lock.yaml

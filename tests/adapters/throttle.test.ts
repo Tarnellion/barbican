@@ -1,9 +1,10 @@
 /**
- * Тесты троттлинга.
+ * Throttling tests.
  *
- * Проверяют не наличие настроек, а фактическое поведение: сколько задач реально
- * шло одновременно и какие паузы были запрошены. Троттл, который «настроен», но
- * пропускает всплеск, положит чужой стенд ровно так же, как его отсутствие.
+ * They check actual behaviour rather than the presence of settings: how many
+ * tasks really ran at once and which pauses were requested. A throttle that is
+ * "configured" but lets a burst through will take down someone else's
+ * deployment exactly as its absence would.
  */
 
 import { readFile } from "node:fs/promises";
@@ -16,7 +17,7 @@ import {
 } from "../../src/adapters/throttle.js";
 import { createTestClock } from "../fixtures/clock.js";
 
-/** Задача, которая завершается по внешней команде. */
+/** A task that finishes on an external command. */
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve: () => void = () => undefined;
   const promise = new Promise<void>((r) => {
@@ -25,8 +26,8 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
-describe("дефолты", () => {
-  it("консервативны", () => {
+describe("the defaults", () => {
+  it("are conservative", () => {
     expect(DEFAULT_THROTTLE_LIMITS).toEqual({
       concurrency: 2,
       requestsPerSecond: 5,
@@ -34,7 +35,7 @@ describe("дефолты", () => {
     });
   });
 
-  it("отвергают ноль и отрицательные значения: режима «без лимитов» нет", () => {
+  it('reject zero and negative values: there is no "no limits" mode', () => {
     expect(() => createThrottle({ concurrency: 0 })).toThrow(InvalidThrottleLimitsError);
     expect(() => createThrottle({ requestsPerSecond: -1 })).toThrow(InvalidThrottleLimitsError);
     expect(() => createThrottle({ maxRequests: 0 })).toThrow(InvalidThrottleLimitsError);
@@ -44,8 +45,8 @@ describe("дефолты", () => {
   });
 });
 
-describe("ограничение конкурентности", () => {
-  it("никогда не превышает заданный предел", async () => {
+describe("the concurrency limit", () => {
+  it("never exceeds the configured limit", async () => {
     const clock = createTestClock();
     const throttle = createThrottle({ concurrency: 3, requestsPerSecond: 1000 }, clock);
 
@@ -62,12 +63,12 @@ describe("ограничение конкурентности", () => {
       }),
     );
 
-    // Полный оборот очереди задач: цепочка допуска успевает раздать все слоты.
+    // A full turn of the task queue: the admission chain hands out every slot.
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 0);
     });
 
-    // Занято ровно столько, сколько разрешено, — ни больше, ни меньше.
+    // Exactly as many slots are busy as are allowed — no more, no less.
     expect(active).toBe(3);
     expect(peak).toBe(3);
 
@@ -76,25 +77,25 @@ describe("ограничение конкурентности", () => {
     }
     await Promise.all(running);
 
-    // Всплеска на разблокировке тоже быть не должно.
+    // There must be no burst on release either.
     expect(peak).toBe(3);
     expect(active).toBe(0);
   });
 
-  it("освобождает слот даже если задача упала", async () => {
+  it("frees the slot even when the task threw", async () => {
     const throttle = createThrottle({ concurrency: 1, requestsPerSecond: 1000 });
 
-    await expect(throttle.run(() => Promise.reject(new Error("сбой обращения")))).rejects.toThrow(
-      "сбой обращения",
+    await expect(throttle.run(() => Promise.reject(new Error("request failure")))).rejects.toThrow(
+      "request failure",
     );
 
-    // Слот должен освободиться, иначе следующий вызов повиснет навсегда.
-    await expect(throttle.run(() => Promise.resolve("готово"))).resolves.toBe("готово");
+    // The slot must be freed, otherwise the next call hangs forever.
+    await expect(throttle.run(() => Promise.resolve("done"))).resolves.toBe("done");
   });
 });
 
-describe("ограничение частоты", () => {
-  it("выдерживает паузу, когда окно исчерпано", async () => {
+describe("the rate limit", () => {
+  it("waits when the window is used up", async () => {
     const clock = createTestClock();
     const throttle = createThrottle({ concurrency: 10, requestsPerSecond: 3 }, clock);
 
@@ -103,12 +104,12 @@ describe("ограничение частоты", () => {
     }
     expect(clock.sleeps).toEqual([]);
 
-    // Четвёртое обращение обязано подождать до конца скользящей секунды.
+    // The fourth request must wait until the sliding second is over.
     await throttle.run(() => Promise.resolve());
     expect(clock.sleeps).toEqual([1000]);
   });
 
-  it("не тормозит, когда окно успело сдвинуться", async () => {
+  it("does not slow down once the window has moved on", async () => {
     const clock = createTestClock();
     const throttle = createThrottle({ concurrency: 10, requestsPerSecond: 2 }, clock);
 
@@ -123,8 +124,8 @@ describe("ограничение частоты", () => {
   });
 });
 
-describe("потолок на прогон", () => {
-  it("отказывает после исчерпания бюджета", async () => {
+describe("the per-run ceiling", () => {
+  it("refuses once the budget is exhausted", async () => {
     const throttle = createThrottle({ concurrency: 5, requestsPerSecond: 1000, maxRequests: 3 });
 
     for (let i = 0; i < 3; i += 1) {
@@ -134,7 +135,7 @@ describe("потолок на прогон", () => {
     await expect(throttle.run(() => Promise.resolve())).rejects.toThrow(RunBudgetExhaustedError);
   });
 
-  it("не выполняет задачу, обращение к которой отклонено", async () => {
+  it("does not run a task whose request was refused", async () => {
     const throttle = createThrottle({ concurrency: 5, requestsPerSecond: 1000, maxRequests: 1 });
     await throttle.run(() => Promise.resolve());
 
@@ -151,13 +152,13 @@ describe("потолок на прогон", () => {
 });
 
 /**
- * Числа умолчаний напечатаны в README как обещание пользователю: «инструмент
- * бежит по чужому стенду вот так осторожно». Молчаливое расхождение обещания
- * с кодом — ровно тот класс, против которого написан весь проект, поэтому
- * таблица в README проверяется тестом, а не глазами.
+ * The default numbers are printed in the README as a promise to the user: "the
+ * tool runs across someone else's deployment this carefully". A silent drift
+ * between the promise and the code is exactly the class this whole project is
+ * written against, so the README table is checked by a test rather than by eye.
  */
-describe("умолчания названы в README", () => {
-  it("совпадают с таблицей «How much traffic it makes»", async () => {
+describe("the defaults named in the README", () => {
+  it('match the "How much traffic it makes" table', async () => {
     const readme = await readFile(new URL("../../README.md", import.meta.url), "utf8");
 
     expect(readme).toContain(`| Concurrent requests | ${DEFAULT_THROTTLE_LIMITS.concurrency} |`);

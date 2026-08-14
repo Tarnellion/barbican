@@ -1,13 +1,13 @@
 /**
- * Тесты признака недостоверного прогона.
+ * Tests for the untrustworthy-run signal.
  *
- * Сценарий, ради которого всё это существует: токен протух, обращения вернули
- * 401, 401 прочиталось как отказ, отказ совпал с ожиданием — и отчёт сказал
- * «эскалаций не найдено», не проверив ничего.
+ * The scenario all of this exists for: the token went stale, the requests came
+ * back 401, the 401 read as a denial, the denial matched the expectation — and
+ * the report said 'no escalations found' having checked nothing.
  *
- * Первая версия проверки требовала 401 на всех обращениях подряд и на живом
- * стенде промолчала: хватило одного публичного эндпоинта. Здесь закреплено
- * именно то поведение, которого не хватило.
+ * The first version of the check required a 401 on every single request and
+ * stayed silent against a live deployment: one public endpoint was enough. What
+ * is pinned here is exactly the behaviour that was missing.
  */
 
 import { describe, expect, it } from "vitest";
@@ -35,7 +35,7 @@ function observe(accountId: string, endpointId: string, status: number): AccessO
 }
 
 describe("findUnauthenticated", () => {
-  it("молчит, когда всё работает", () => {
+  it("stays silent when everything works", () => {
     const observations = [
       observe("user", "me", 200),
       observe("user", "users.list", 403),
@@ -46,9 +46,9 @@ describe("findUnauthenticated", () => {
     expect(findUnauthenticated(accounts, observations, policy)).toEqual([]);
   });
 
-  // Ровно тот случай, который проглядела первая версия: публичный эндпоинт
-  // отвечает 200 всем, поэтому «все обращения вернули 401» не выполняется.
-  it("замечает сломанную аутентификацию, даже если часть эндпоинтов открыта всем", () => {
+  // Exactly the case the first version missed: a public endpoint answers 200 to
+  // everyone, so "every request came back 401" does not hold.
+  it("spots broken authentication even when some endpoints are open to everyone", () => {
     const observations = [observe("user", "me", 401), observe("user", "users.list", 200)];
 
     expect(findUnauthenticated(accounts, observations, policy)).toEqual([
@@ -56,25 +56,26 @@ describe("findUnauthenticated", () => {
     ]);
   });
 
-  it("не поднимает тревогу на частичном отказе: это обычная находка", () => {
+  it("raises no alarm on a partial denial: that is an ordinary finding", () => {
     const observations = [observe("admin", "me", 401), observe("admin", "users.list", 200)];
 
-    // Половина объявленного доступна — значит вход состоялся, а расхождение
-    // разбирается как «неожиданный отказ».
+    // Half of what was declared is available, so the login did happen, and the
+    // discrepancy is worked through as an 'unexpected denial'.
     expect(findUnauthenticated(accounts, observations, policy)).toEqual([]);
   });
 
-  it("не судит об аккаунте, которому по политике ничего не положено", () => {
+  it("passes no judgement on an account the policy grants nothing to", () => {
     const closed: ResolvedAccessPolicy = { fallback: "denied", rules: [] };
     const observations = [observe("user", "me", 401)];
 
-    // Нет объявленного доступа — не с чем сравнивать, тревога была бы выдумкой.
+    // With no declared access there is nothing to compare against, and the
+    // alarm would be invented.
     expect(findUnauthenticated(accounts, observations, closed)).toEqual([]);
   });
 
-  // Разведка crAPI: identity-сервис отвечает 404 там, где workshop отвечает 401.
-  // Сплошные 404 — ещё и типичный признак неверного baseUrl или префикса пути.
-  it("замечает сплошные 404 так же, как сплошные 401", () => {
+  // Scouting crAPI: the identity service answers 404 where the workshop answers
+  // 401. A wall of 404s is also a typical sign of a wrong baseUrl or path prefix.
+  it("spots a wall of 404s just as it spots a wall of 401s", () => {
     const observations = [observe("user", "me", 404)];
 
     expect(findUnauthenticated(accounts, observations, policy)).toEqual([
@@ -82,7 +83,7 @@ describe("findUnauthenticated", () => {
     ]);
   });
 
-  it("подсказывает преобладающий статус отказа", () => {
+  it("reports the dominant denial status", () => {
     const wide: ResolvedAccessPolicy = {
       fallback: "denied",
       rules: [{ roles: ANY, endpoints: ANY, outcome: "allowed" }],
@@ -99,10 +100,10 @@ describe("findUnauthenticated", () => {
   });
 });
 
-// Регрессия, внесённая переходом на трёхмерную матрицу: правила со `scope`
-// не применялись без отношения, поэтому у политики в стиле ADR-0010 счётчик
-// объявленного доступа оставался нулевым и предохранитель молчал всегда.
-describe("политика с областью действия", () => {
+// A regression introduced by the move to a three-dimensional matrix: rules with
+// a `scope` did not apply without a relation, so on an ADR-0010 style policy the
+// counter of declared access stayed at zero and the safeguard was always silent.
+describe("a policy with a scope", () => {
   const scoped: ResolvedAccessPolicy = {
     fallback: "denied",
     rules: [{ roles: ANY, endpoints: ["profile"], scope: "own", outcome: "allowed" }],
@@ -122,13 +123,13 @@ describe("политика с областью действия", () => {
     };
   }
 
-  it("замечает сломанную аутентификацию и при политике целиком на scope", () => {
+  it("spots broken authentication even on a policy built entirely on scope", () => {
     expect(findUnauthenticated(accounts, [observeResource(401)], scoped, resources)).toEqual([
       { accountId: "u", expectedAllowed: 1, refused: 1, dominantStatus: 401 },
     ]);
   });
 
-  it("молчит, когда свой объект доступен", () => {
+  it("stays silent when the account's own resource is available", () => {
     expect(findUnauthenticated(accounts, [observeResource(200)], scoped, resources)).toEqual([]);
   });
 });

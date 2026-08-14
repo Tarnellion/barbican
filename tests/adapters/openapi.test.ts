@@ -1,12 +1,12 @@
 /**
- * Тесты-доказательства для парсера спецификаций.
+ * Proof tests for the specification parser.
  *
- * Инвариант из ADR-0005: внешние `$ref` не разрешаются ни по http, ни по
- * файловой системе. Эти тесты не проверяют «выбросилась ли ошибка» — они
- * проверяют, что обращения наружу **не произошло**: http-сервер не получил
- * ни одного запроса, содержимое файла не попало в результат.
+ * The invariant from ADR-0005: external `$ref`s are resolved neither over http
+ * nor through the file system. These tests do not check "was an error thrown" —
+ * they check that no request to the outside **happened**: the http server
+ * received no request at all, and the file's content never reached the result.
  *
- * Удалять или помечать `skip` нельзя.
+ * They must not be deleted or marked `skip`.
  */
 
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -41,8 +41,8 @@ paths:
       responses: { "204": { description: ok } }
 `;
 
-describe("разбор корректной спецификации", () => {
-  it("извлекает эндпоинты с методом и путём", async () => {
+describe("parsing a valid specification", () => {
+  it("extracts endpoints with a method and a path", async () => {
     const endpoints = await parser.parse(MINIMAL_SPEC);
 
     expect(endpoints).toEqual([
@@ -57,7 +57,7 @@ describe("разбор корректной спецификации", () => {
     ]);
   });
 
-  it("принимает JSON: он подмножество YAML", async () => {
+  it("accepts JSON: it is a subset of YAML", async () => {
     const json = JSON.stringify({
       openapi: "3.0.0",
       info: { title: "t", version: "1" },
@@ -69,7 +69,7 @@ describe("разбор корректной спецификации", () => {
     expect(endpoints).toEqual([{ id: "GET /ping", method: "GET", path: "/ping" }]);
   });
 
-  it("разрешает внутренние ссылки", async () => {
+  it("resolves internal references", async () => {
     const spec = `
 openapi: 3.0.0
 info: { title: t, version: "1" }
@@ -91,23 +91,23 @@ components:
     ]);
   });
 
-  it("возвращает пустой список для валидной спецификации без путей", async () => {
+  it("returns an empty list for a valid specification with no paths", async () => {
     const spec = 'openapi: "3.0.0"\ninfo: { title: t, version: "1" }\npaths: {}';
 
     await expect(parser.parse(spec)).resolves.toEqual([]);
   });
 
-  // Молча вернуть ноль эндпоинтов на невалидной спеке — значит выдать
-  // «расхождений нет» там, где проверка вообще не состоялась.
-  it("отвергает документ, не являющийся спецификацией, а не отдаёт пустой список", async () => {
+  // Silently returning zero endpoints on an invalid spec means reporting "no
+  // discrepancies" where no check took place at all.
+  it("rejects a document that is not a specification instead of returning an empty list", async () => {
     await expect(
       parser.parse('openapi: "3.0.0"\ninfo: { title: t, version: "1" }'),
     ).rejects.toThrow(SpecParseError);
-    await expect(parser.parse("просто: строка")).rejects.toThrow(SpecParseError);
+    await expect(parser.parse("just: a string")).rejects.toThrow(SpecParseError);
   });
 });
 
-describe("внешние $ref по http не разрешаются", () => {
+describe("external $refs are not resolved over http", () => {
   let hits = 0;
   let baseUrl = "";
   let server: ReturnType<typeof createServer>;
@@ -124,7 +124,7 @@ describe("внешние $ref по http не разрешаются", () => {
     });
     const address = server.address();
     if (address === null || typeof address === "string") {
-      throw new Error("не удалось поднять тестовый сервер");
+      throw new Error("could not start the test server");
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
   });
@@ -141,7 +141,7 @@ describe("внешние $ref по http не разрешаются", () => {
     });
   });
 
-  it("не выполняет ни одного запроса к адресу из $ref", async () => {
+  it("performs no request to the address in a $ref", async () => {
     const spec = `
 openapi: 3.0.0
 info: { title: t, version: "1" }
@@ -159,11 +159,11 @@ paths:
 
     await expect(parser.parse(spec)).rejects.toThrow(ExternalRefError);
 
-    // Главное утверждение: наружу не ушло ничего.
+    // The main claim: nothing went out.
     expect(hits).toBe(0);
   });
 
-  it("не ходит и по ссылке в корне документа", async () => {
+  it("does not follow a reference at the root of the document either", async () => {
     const spec = `
 openapi: 3.0.0
 info: { title: t, version: "1" }
@@ -175,7 +175,7 @@ paths:
     expect(hits).toBe(0);
   });
 
-  it("сообщает, какая именно ссылка отвергнута", async () => {
+  it("reports which reference exactly was rejected", async () => {
     const spec = `
 openapi: 3.0.0
 info: { title: t, version: "1" }
@@ -196,10 +196,10 @@ paths:
   });
 });
 
-describe("внешние $ref по файловой системе не разрешаются", () => {
+describe("external $refs are not resolved through the file system", () => {
   let directory = "";
   let secretPath = "";
-  const CANARY = "canary-6f2a1b9c-не-должно-утечь";
+  const CANARY = "canary-6f2a1b9c-must-not-leak";
 
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), "barbican-spec-"));
@@ -211,7 +211,7 @@ describe("внешние $ref по файловой системе не разр
     await rm(directory, { recursive: true, force: true });
   });
 
-  it("не читает файл по абсолютному пути и не пропускает его содержимое в результат", async () => {
+  it("does not read a file by absolute path and lets none of it into the result", async () => {
     const spec = `
 openapi: 3.0.0
 info: { title: t, version: "1" }
@@ -235,7 +235,7 @@ paths:
     );
   });
 
-  it("не разрешает обход каталогов через ../", async () => {
+  it("does not resolve directory traversal through ../", async () => {
     const spec = `
 openapi: 3.0.0
 info: { title: t, version: "1" }
@@ -254,7 +254,7 @@ paths:
     await expect(parser.parse(spec)).rejects.toThrow(ExternalRefError);
   });
 
-  it("не разрешает file://", async () => {
+  it("does not resolve file://", async () => {
     const spec = `
 openapi: 3.0.0
 info: { title: t, version: "1" }
@@ -274,8 +274,8 @@ paths:
   });
 });
 
-describe("пределы на размер и форму документа", () => {
-  it("отвергает YAML-бомбу до того, как она развернётся", async () => {
+describe("limits on the size and shape of a document", () => {
+  it("rejects a YAML bomb before it expands", async () => {
     const bomb = `
 openapi: 3.0.0
 info: { title: t, version: "1" }
@@ -290,13 +290,13 @@ paths: {}
     await expect(parser.parse(bomb)).rejects.toThrow(SpecParseError);
   });
 
-  it("отвергает документ больше предела", async () => {
+  it("rejects a document over the limit", async () => {
     const small = createOpenApiParser({ maxBytes: 64 });
 
     await expect(small.parse(MINIMAL_SPEC)).rejects.toThrow(SpecTooLargeError);
   });
 
-  it("отвергает слишком глубокую вложенность", async () => {
+  it("rejects nesting that is too deep", async () => {
     let nested = "1";
     for (let i = 0; i < DEFAULT_SPEC_LIMITS.maxDepth + 10; i += 1) {
       nested = `[${nested}]`;
@@ -305,7 +305,7 @@ paths: {}
     await expect(parser.parse(`{"paths":{},"deep":${nested}}`)).rejects.toThrow(SpecTooDeepError);
   });
 
-  it("не считает глубиной общие поддеревья от алиасов", async () => {
+  it("does not count subtrees shared through aliases as depth", async () => {
     const shared = `
 openapi: 3.0.0
 info: { title: t, version: "1" }
@@ -322,22 +322,23 @@ paths:
     await expect(parser.parse(shared)).resolves.toHaveLength(1);
   });
 
-  it("сообщает о неразбираемом документе, а не падает", async () => {
-    await expect(parser.parse("{ это: [не, закрыт")).rejects.toThrow(SpecParseError);
+  it("reports an unparseable document instead of crashing", async () => {
+    await expect(parser.parse("{ this: [is, unclosed")).rejects.toThrow(SpecParseError);
   });
 });
 
 /**
- * Найдено состязательной проверкой. Узлы с тегами `!!omap` и `!!set` парсер
- * даёт как Map и Set, а обход по `Object.values` в них не заходит: внешняя
- * ссылка под таким узлом проезжала мимо барьера, а `paths` под ним давал
- * **ноль эндпоинтов без единой ошибки** — сто процентов покрытия пустоты.
- * Psych такие документы эмитирует штатно, то есть случай не выдуманный.
+ * Found by adversarial review. The parser gives nodes tagged `!!omap` and
+ * `!!set` as Map and Set, and a walk over `Object.values` does not enter them:
+ * an external reference under such a node slipped past the barrier, and `paths`
+ * under one gave **zero endpoints with not a single error** — a hundred percent
+ * coverage of nothing. Psych emits such documents as a matter of course, so the
+ * case is not invented.
  */
-describe("узлы, невидимые обходу", () => {
+describe("nodes invisible to the walk", () => {
   const parser = createOpenApiParser();
 
-  it("отвергает внешнюю ссылку, спрятанную под !!omap", async () => {
+  it("rejects an external reference hidden under !!omap", async () => {
     await expect(
       parser.parse(`
 openapi: 3.0.0
@@ -352,7 +353,7 @@ paths:
     ).rejects.toThrow(UnsupportedYamlTagError);
   });
 
-  it("отвергает ручки, спрятанные под !!omap, вместо тихого нуля", async () => {
+  it("rejects endpoints hidden under !!omap instead of a silent zero", async () => {
     await expect(
       parser.parse(`
 openapi: 3.0.0
@@ -364,7 +365,7 @@ paths: !!omap
     ).rejects.toThrow(UnsupportedYamlTagError);
   });
 
-  it("отвергает и !!set", async () => {
+  it("rejects !!set as well", async () => {
     await expect(
       parser.parse(`
 openapi: 3.0.0

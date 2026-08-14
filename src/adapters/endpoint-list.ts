@@ -1,25 +1,28 @@
 /**
- * Ручной список эндпоинтов как источник для проверки.
+ * A manual list of endpoints as a source for the check.
  *
- * Нужен потому, что OpenAPI-спецификация есть далеко не у всякого API, а
- * проверять доступ надо и там. Список пишется человеком — это объявленное
- * намерение, ровно как и политика доступа (ADR-0006), а не знание, выведенное
- * из реализации проверяемой системы.
+ * Needed because far from every API has an OpenAPI specification, while access
+ * has to be checked there too. The list is written by a human — that is a
+ * declared intent, exactly like the access policy (ADR-0006), and not knowledge
+ * derived from the implementation of the system under test.
  *
- * Ограничения те же, что у парсера спецификаций, и по тем же причинам (ADR-0005):
+ * The limits are the same as those of the specification parser, and for the same
+ * reasons (ADR-0005):
  *
- * 1. На вход подаётся **текст документа**, а не путь. Адаптер не знает про
- *    файловую систему вовсе, поэтому не может стать примитивом path traversal:
- *    строка, похожая на путь, разбирается как YAML-скаляр и отвергается.
- * 2. Раскрытие YAML-алиасов ограничено: документ в пару килобайт разворачивается
- *    в гигабайты, если этого не сделать.
- * 3. Размер входа ограничен до разбора.
+ * 1. The input is the **text of the document**, not a path. The adapter knows
+ *    nothing about the file system at all, so it cannot become a path traversal
+ *    primitive: a string that looks like a path is parsed as a YAML scalar and
+ *    rejected.
+ * 2. YAML alias expansion is bounded: a document of a couple of kilobytes
+ *    expands into gigabytes if it is not.
+ * 3. The size of the input is bounded before parsing.
  *
- * Формат закрытый: неизвестные поля отвергаются, а не игнорируются. Молча
- * пропущенное поле — это невыполненное намерение автора списка, и узнать о нём
- * он смог бы только по итоговому отчёту, где проверка выглядит состоявшейся.
+ * The format is closed: unknown fields are rejected rather than ignored. A
+ * silently dropped field is an unfulfilled intent of the list's author, and they
+ * would learn about it only from the final report, where the check looks as if
+ * it took place.
  *
- * Формат входа:
+ * The input format:
  *
  * ```yaml
  * endpoints:
@@ -29,11 +32,11 @@
  *     path: /v1/players/{playerId}
  * ```
  *
- * Про фигурные скобки: в потоковом стиле (`{ ... }`) шаблонный путь нужно
- * закавычивать — `path: "/v1/players/{playerId}"`, иначе `{` откроет
- * вложенное отображение и документ не разберётся. В блочном стиле, как выше,
- * кавычки не нужны. Это свойство YAML, а не нашей проверки, но шаблонные пути
- * здесь — норма, поэтому оговорено явно.
+ * About curly braces: in flow style (`{ ... }`) a template path has to be
+ * quoted — `path: "/v1/players/{playerId}"` — otherwise `{` opens a nested
+ * mapping and the document will not parse. In block style, as above, quotes are
+ * not needed. This is a property of YAML rather than of our check, but template
+ * paths are the norm here, so it is stated explicitly.
  */
 
 import { parse as parseYaml } from "yaml";
@@ -41,13 +44,13 @@ import type { Endpoint, HttpMethod } from "../core/types.js";
 import type { SpecParser } from "./ports.js";
 
 export interface EndpointListLimits {
-  /** Предельный размер входного текста в байтах. */
+  /** The size limit of the input text in bytes. */
   readonly maxBytes: number;
   /**
-   * Предел раскрытия YAML-алиасов.
+   * The limit on YAML alias expansion.
    *
-   * Защита от billion laughs: библиотека `yaml` считает раскрытия и прерывает
-   * разбор сама, до того как документ развернётся в памяти.
+   * A defence against billion laughs: the `yaml` library counts expansions and
+   * aborts parsing itself, before the document unfolds in memory.
    */
   readonly maxAliasCount: number;
 }
@@ -72,22 +75,23 @@ export class EndpointListParseError extends Error {
 }
 
 /**
- * Пустой список — ошибка, а не вырожденный случай.
+ * An empty list is an error, not a degenerate case.
  *
- * Ноль эндпоинтов даёт отчёт «расхождений нет» при том, что не проверено
- * ничего. Такой результат неотличим от успешного и потому опаснее сбоя.
+ * Zero endpoints give a report saying "no discrepancies" while nothing at all
+ * was checked. Such a result is indistinguishable from a successful one and is
+ * therefore more dangerous than a failure.
  */
 export class EmptyEndpointListError extends Error {
   constructor() {
     super(
       "The endpoint list is empty. A run over an empty list produces a report with no " +
-        "findings, which reads as «nothing is broken» while nothing was tested at all.",
+        "findings, which reads as 'nothing is broken' while nothing was tested at all.",
     );
     this.name = "EmptyEndpointListError";
   }
 }
 
-/** Поле элемента, на котором споткнулась проверка. `entry` — сам элемент. */
+/** The field of the entry the check stumbled on. `entry` is the entry itself. */
 export type EndpointField = "entry" | "id" | "method" | "path";
 
 export class InvalidEndpointError extends Error {
@@ -117,11 +121,11 @@ export class DuplicateEndpointIdError extends Error {
 }
 
 /**
- * Допустимые методы.
+ * The allowed methods.
  *
- * Запись через `Record<HttpMethod, ...>`, а не через массив: тип обязывает
- * перечислить все методы домена, поэтому расширение `HttpMethod` не пройдёт
- * мимо этого списка молча.
+ * Written as `Record<HttpMethod, ...>` rather than as an array: the type forces
+ * every method of the domain to be listed, so an extension of `HttpMethod` will
+ * not slip past this list silently.
  */
 const KNOWN_METHODS: Readonly<Record<HttpMethod, true>> = {
   GET: true,
@@ -135,10 +139,10 @@ const KNOWN_METHODS: Readonly<Record<HttpMethod, true>> = {
 
 const METHOD_NAMES = Object.keys(KNOWN_METHODS).join(", ");
 
-/** Поля элемента списка. Всё остальное отвергается — см. комментарий к модулю. */
+/** The fields of a list entry. Everything else is rejected — see the module comment. */
 const ENDPOINT_FIELDS: ReadonlySet<string> = new Set(["id", "method", "path"]);
 
-/** Поля документа. Тоже закрытый набор, по той же причине. */
+/** The fields of the document. A closed set as well, for the same reason. */
 const DOCUMENT_FIELDS: ReadonlySet<string> = new Set(["endpoints"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -149,7 +153,7 @@ function describe(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-/** Метод приводится к верхнему регистру: в домене он всегда `GET`, а не `get`. */
+/** The method is upper-cased: in the domain it is always `GET`, never `get`. */
 function toMethod(value: string): HttpMethod | undefined {
   const upper = value.trim().toUpperCase();
   return Object.hasOwn(KNOWN_METHODS, upper) ? (upper as HttpMethod) : undefined;
@@ -204,9 +208,9 @@ function toEndpoint(entry: unknown, index: number): Endpoint {
       `path must be a string starting with a slash; got ${JSON.stringify(path)}`,
     );
   }
-  // `//host/x` — схемо-относительный URL: он адресует другой хост, а не путь
-  // на проверяемом. Область проверки задаётся allowlist'ом и не должна
-  // расширяться формой записи пути.
+  // `//host/x` is a scheme-relative URL: it addresses another host rather than a
+  // path on the one under test. The scope of the check is set by the allowlist
+  // and must not be widened by the form in which a path is written.
   if (path.startsWith("//")) {
     throw new InvalidEndpointError(
       index,
@@ -256,17 +260,18 @@ function toEndpoints(document: unknown): readonly Endpoint[] {
 }
 
 /**
- * Создаёт парсер ручного списка эндпоинтов.
+ * Creates the parser of a manual endpoint list.
  *
- * Пределы можно ужесточить, но не отключить: значения по умолчанию —
- * консервативные, а не рекомендательные.
+ * The limits can be tightened but not switched off: the default values are
+ * conservative, not advisory.
  */
 export function createEndpointListParser(limits: Partial<EndpointListLimits> = {}): SpecParser {
   const effective: EndpointListLimits = { ...DEFAULT_ENDPOINT_LIST_LIMITS, ...limits };
 
   return {
-    // Асинхронность — требование порта `SpecParser`. Здесь она заодно превращает
-    // любой отказ в отклонённый промис, а не в синхронное исключение.
+    // The asynchrony is a requirement of the `SpecParser` port. Here it also
+    // turns any refusal into a rejected promise rather than a synchronous
+    // exception.
     async parse(source: string): Promise<readonly Endpoint[]> {
       const bytes = Buffer.byteLength(source, "utf8");
       if (bytes > effective.maxBytes) {
@@ -275,7 +280,7 @@ export function createEndpointListParser(limits: Partial<EndpointListLimits> = {
 
       let document: unknown;
       try {
-        // JSON — подмножество YAML 1.2, поэтому один парсер покрывает оба формата.
+        // JSON is a subset of YAML 1.2, so one parser covers both formats.
         document = parseYaml(source, { maxAliasCount: effective.maxAliasCount });
       } catch (cause) {
         throw new EndpointListParseError(describe(cause), { cause });

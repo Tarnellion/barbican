@@ -1,162 +1,169 @@
-# Контуры доступа в мультибрендовых iGaming-платформах
+# Access contours in multi-brand iGaming platforms
 
-- **Статус:** исследование по публичным источникам, не решение
-- **Дата:** 2026-08-12
+- **Status:** research over public sources, not a decision
+- **Date:** 2026-08-12
 
-## Зачем
+## Why
 
-У `barbican` одна ось тенанта: `Account.tenantId`, `Resource.tenantId` и трёхзначное
-отношение `own | same-tenant | foreign-tenant` (ADR-0010). Модель принималась без
-привязки к конкретной предметной области. Этот документ проверяет, сколько контуров
-изоляции в мультибрендовом iGaming на самом деле и что из них в одну ось не влезает.
+`barbican` has one tenant axis: `Account.tenantId`, `Resource.tenantId` and the
+three-valued relation `own | same-tenant | foreign-tenant` (ADR-0010). The model was
+adopted without being tied to any particular domain. This document checks how many
+isolation contours multi-brand iGaming really has, and which of them do not fit on one
+axis.
 
-Практический выход — раздел [«Что из этого проверяемо по HTTP-ответам»](#что-из-этого-проверяемо-по-http-ответам):
-какие описанные дефекты инструмент в принципе способен увидеть, а какие нет и почему.
+The practical output is the section ["What of this is checkable by HTTP responses"](#what-of-this-is-checkable-by-http-responses):
+which of the defects described here the tool is capable of seeing at all, and which it
+is not, and why.
 
-## Об источниках
+## About the sources
 
-Использованы только публичные материалы. Они трёх разных сортов, и смешивать их
-нельзя:
+Only public materials were used. They are of three different kinds, and they must not
+be mixed:
 
-1. **Регуляторные документы и стандарты** (MGA, UKGC, GLI, N.J.A.C., GDPR) — говорят,
-   что *обязано* быть. Самый твёрдый сорт.
-2. **Публичная техническая документация интеграций** (Hub88, Praxis, Sumsub,
-   TheAffiliatePlatform) — говорит, как устроен *интерфейс между контурами*. Твёрдо
-   описывает формат и обязанности сторон; ничего не говорит о том, как это
-   реализовано у конкретного оператора.
-3. **Маркетинговые материалы вендоров платформ** — годятся только как свидетельство
-   о том, что продаётся под словом «мультитенантность». Помечены явно.
+1. **Regulatory documents and standards** (MGA, UKGC, GLI, N.J.A.C., GDPR) — they say
+   what *must* be. The hardest kind.
+2. **Public technical documentation of integrations** (Hub88, Praxis, Sumsub,
+   TheAffiliatePlatform) — it says how the *interface between contours* is arranged. It
+   describes the format and the duties of the parties firmly; it says nothing about how
+   any particular operator has implemented it.
+3. **Marketing materials from platform vendors** — good only as evidence of what is
+   sold under the word "multi-tenancy". Marked explicitly.
 
-Где утверждение не подтверждается источником, оно помечено как наблюдение общего
-характера. Внутренние источники работодателя не использовались — ни как источник
-фактов, ни как источник примеров.
+Where a claim is not confirmed by a source, it is marked as a general observation. No
+internal sources of the employer were used — neither as a source of facts nor as a
+source of examples.
 
 ---
 
-## 1. Контуры
+## 1. Contours
 
-### 1.1 Что подтверждается регулированием
+### 1.1 What the regulation confirms
 
-Регулятор режет отрасль не по тому же шву, что архитектор. Ключевое разделение —
-между тем, кто **держит лицензию и отвечает перед игроком**, и тем, кто **поставляет
-софт**.
+The regulator cuts the industry along a different seam than the architect does. The key
+split is between whoever **holds the licence and answers to the player** and whoever
+**supplies the software**.
 
-Мальта выдаёт два разных типа авторизации: B2C и B2B. B2B — это «critical gaming
-supply», лицензия на поставку и управление софтом, «to generate, capture, control or
-otherwise process any essential regulatory record»
+Malta issues two different types of authorization: B2C and B2B. B2B is "critical gaming
+supply", a licence to supply and manage software, "to generate, capture, control or
+otherwise process any essential regulatory record"
 ([MGA, B2B licences](https://www.mga.org.mt/licensee-hub/applications/b2b-licences/game-providers-and-back-office/)).
-То есть платформа (PAM, back office) и поставщик игр лицензируются отдельно от
-оператора, который принимает ставки от игрока.
+So the platform (PAM, back office) and the game supplier are licensed separately from
+the operator that takes bets from the player.
 
-Британия описывает мультибрендовость прямо и называет её white label: лицензиат
-предоставляет гемблинг под брендом третьей стороны, и «responsibility for compliance
-will always sit with the licence holder»
+Britain describes multi-brand operation directly and calls it white label: the licensee
+provides gambling under a third party's brand, and "responsibility for compliance
+will always sit with the licence holder"
 ([UKGC, Compliance and enforcement report 2019–20, White label partnerships](https://www.gamblingcommission.gov.uk/report/raising-standards-for-consumers-compliance-and-enforcement-report-2019-20/white-label-partnerships)).
-Из того же документа — перечень того, что у лицензиатов ломалось: передача
-ответственности партнёрам без надзора, отсутствие «live access to customer records»,
-неспособность отслеживать поведение игрока across all partners и обнаруживать
-«multiple accounts across all white label domains». Регулятор требует «a holistic
-view of customer activity» вместо подомённого.
+From the same document — a list of what broke at the licensees: responsibility handed
+to partners without oversight, no "live access to customer records",
+an inability to track a player's behaviour across all partners and to detect
+"multiple accounts across all white label domains". The regulator requires "a holistic
+view of customer activity" instead of a per-domain one.
 
-Это важнее, чем кажется: **владелец бренда в UK-модели вообще не лицензирован**, у него
-нет собственного регуляторного статуса, и весь его доступ к данным игрока — это
-делегирование от лицензиата.
+This matters more than it seems: **in the UK model the brand owner is not licensed at
+all**, it has no regulatory status of its own, and all of its access to player data is
+a delegation from the licensee.
 
-GLI-19, стандарт на interactive gaming systems, замечает мультибрендовость только
-в одном месте — при тестировании: «where testing is requested for a "white-label"
-version of the system, a specific configuration will be tested and reported»
+GLI-19, the standard for interactive gaming systems, notices multi-brand operation in
+one place only — in testing: "where testing is requested for a "white-label"
+version of the system, a specific configuration will be tested and reported"
 ([GLI-19 v3.0, §1.5.2](https://gaminglabs.com/wp-content/uploads/2024/06/GLI-19-Interactive-Gaming-Systems-v3.0.pdf)).
-Требований к изоляции *между брендами* в стандарте нет: он весь про один экземпляр
-системы. Это первый разрыв между отраслевым стандартом и реальной архитектурой.
+There are no requirements on isolation *between brands* in the standard: it is all about
+one instance of the system. This is the first gap between the industry standard and the
+real architecture.
 
-### 1.2 Разбивка контуров и что в ней уточняется
+### 1.2 The breakdown of contours, and what it clarifies
 
-| Контур | Кто это | Подтверждение |
+| Contour | Who this is | Confirmation |
 |---|---|---|
-| Поставщик платформы (PAM) | держатель счетов игроков, кошелёк, back office | [MGA B2B](https://www.mga.org.mt/licensee-hub/applications/b2b-licences/game-providers-and-back-office/), [GLI-19 §2.5](https://gaminglabs.com/wp-content/uploads/2024/06/GLI-19-Interactive-Gaming-Systems-v3.0.pdf) |
-| Агрегатор игр / поставщик контента | вызывает кошелёк оператора, не хранит счёт | [Hub88 Wallet API](https://docs.hub88.io/developer-docs/operator-api-reference/wallet-api) |
-| Платёжный шлюз | шлёт нотификации о пополнении/выводе | [Praxis Cashier, notification](https://doc.cashier-test.com/integration_docs/3.4/payment_api/notification) |
-| KYC-провайдер | хранит документы, шлёт вебхуки о статусе | [Sumsub, Webhook manager](https://docs.sumsub.com/docs/webhook-manager) |
-| Лицензиат (оператор) | отвечает за всё вышеперечисленное перед регулятором | [UKGC white label](https://www.gamblingcommission.gov.uk/report/raising-standards-for-consumers-compliance-and-enforcement-report-2019-20/white-label-partnerships) |
-| Бренд / skin / white label partner | торговая марка и домен, регуляторного статуса может не иметь | там же |
-| Аффилиат | приводит трафик, видит отчёт по «своим» игрокам | [TheAffiliatePlatform, Affiliate Account](https://help.theaffiliateplatform.com/affiliate-platform/affiliate-account) |
-| Игрок | свой счёт, своя история | [GLI-19 §2.5.2, §A.3](https://gaminglabs.com/wp-content/uploads/2024/06/GLI-19-Interactive-Gaming-Systems-v3.0.pdf) |
+| Platform supplier (PAM) | holder of the player accounts, the wallet, the back office | [MGA B2B](https://www.mga.org.mt/licensee-hub/applications/b2b-licences/game-providers-and-back-office/), [GLI-19 §2.5](https://gaminglabs.com/wp-content/uploads/2024/06/GLI-19-Interactive-Gaming-Systems-v3.0.pdf) |
+| Game aggregator / content supplier | calls the operator's wallet, holds no account | [Hub88 Wallet API](https://docs.hub88.io/developer-docs/operator-api-reference/wallet-api) |
+| Payment gateway | sends notifications about deposits and withdrawals | [Praxis Cashier, notification](https://doc.cashier-test.com/integration_docs/3.4/payment_api/notification) |
+| KYC provider | stores the documents, sends webhooks about the status | [Sumsub, Webhook manager](https://docs.sumsub.com/docs/webhook-manager) |
+| Licensee (operator) | answers to the regulator for everything above | [UKGC white label](https://www.gamblingcommission.gov.uk/report/raising-standards-for-consumers-compliance-and-enforcement-report-2019-20/white-label-partnerships) |
+| Brand / skin / white label partner | a trade mark and a domain, may have no regulatory status | the same |
+| Affiliate | brings traffic, sees a report on "its own" players | [TheAffiliatePlatform, Affiliate Account](https://help.theaffiliateplatform.com/affiliate-platform/affiliate-account) |
+| Player | own account, own history | [GLI-19 §2.5.2, §A.3](https://gaminglabs.com/wp-content/uploads/2024/06/GLI-19-Interactive-Gaming-Systems-v3.0.pdf) |
 
-Уточнения к исходной разбивке:
+Clarifications to the original breakdown:
 
-**«Платформа/софт-провайдер» — это два разных контура, а не один.** PAM держит счета,
-балансы и PII; агрегатор игр не держит ничего, он вызывает чужой кошелёк. У них
-противоположное направление вызова и, следовательно, противоположная модель доверия
-(см. §3.2). Объединять их в один контур — значит потерять именно ту границу, через
-которую идут деньги.
+**"Platform / software provider" is two different contours, not one.** The PAM holds the
+accounts, the balances and the PII; the game aggregator holds nothing, it calls someone
+else's wallet. Their direction of call is opposite and, therefore, so is their trust
+model (see §3.2). Merging them into one contour means losing exactly the boundary the
+money runs through.
 
-**Агрегатор и платёжный шлюз в один контур тоже не складываются.** Агрегатор — консьюмер
-API оператора (`POST /transaction/bet` реализует оператор), платёжный шлюз —
-наоборот, отправитель нотификаций в сторону оператора. Общее у них только то, что оба
-приходят снаружи без пользовательской сессии.
+**The aggregator and the payment gateway do not fold into one contour either.** The
+aggregator is a consumer of the operator's API (`POST /transaction/bet` is implemented
+by the operator); the payment gateway, on the contrary, is a sender of notifications
+towards the operator. All they have in common is that both arrive from the outside
+without a user session.
 
-**«Холдинг/группа брендов» — не регуляторная сущность.** Лицензия выдаётся юрлицу;
-группа может держать несколько лицензий, и регулятор их не сливает. Показательно
-дело William Hill (2023): рекордный пакет в £19,2 млн разложен по трём лицензиатам
-группы отдельно — WHG (International) £12,5 млн, Mr Green £3,7 млн, William Hill
-Organization £3 млн
+**"A holding / group of brands" is not a regulatory entity.** A licence is issued to a
+legal entity; a group can hold several licences, and the regulator does not merge them.
+The William Hill case (2023) is telling: the record package of £19.2 million was broken
+out across three licensees of the group separately — WHG (International) £12.5 million,
+Mr Green £3.7 million, William Hill Organization £3 million
 ([UKGC](https://www.gamblingcommission.gov.uk/news/article/william-hill-group-businesses-to-pay-record-gbp19-2m-for-failures)).
-Групповой контур существует в отчётности и в BI, но не как субъект права. Любой
-доступ группы к данным игроков конкретного лицензиата — это передача данных между
-контроллерами, а не «просмотр своего» (см. §4).
+The group contour exists in reporting and in BI, but not as a subject of law. Any access
+by the group to the player data of a particular licensee is a transfer of data between
+controllers, not "looking at one's own" (see §4).
 
-**Чего в разбивке нет, а в источниках есть:**
+**What the breakdown lacks and the sources have:**
 
-- **Юрисдикционный контур.** Одна и та же марка под разными лицензиями — это разные
-  контуры с несовместимыми требованиями. Нью-Джерси: «all servers utilized for
-  internet gaming … shall be located in Atlantic City», в restricted area
+- **The jurisdictional contour.** One and the same trade mark under different licences
+  is different contours with incompatible requirements. New Jersey: "all servers
+  utilized for internet gaming … shall be located in Atlantic City", in a restricted area
   ([N.J.A.C. 13:69O-1.2](https://www.law.cornell.edu/regulations/new-jersey/N-J-A-C-13-69O-1-2),
-  [текст главы 69O](https://www.nj.gov/oag/ge/docs/Regulations/CHAPTER69O.pdf)).
-  Мальта требует критические компоненты в Мальте/ЕЭЗ либо в юрисдикции, признанной
-  Authority, плюс живую реплику регуляторных данных в Мальте
+  [the text of chapter 69O](https://www.nj.gov/oag/ge/docs/Regulations/CHAPTER69O.pdf)).
+  Malta requires the critical components to be in Malta / the EEA or in a jurisdiction
+  recognized by the Authority, plus a live replica of the regulatory data in Malta
   ([MGA, Technical Infrastructure](https://www.mga.org.mt/app/uploads/Technical-Infrastructure-hosting-Gaming-and-Control-Systems-Remote-Gaming.pdf)).
-  Это ось изоляции, ортогональная бренду: два бренда одной юрисдикции могут делить
-  инфраструктуру, один бренд в двух юрисдикциях — нет.
-- **Регулятор как контур доступа.** MGA требует «immediate and unhindered access» к
-  реплике для инспекций, физически и электронно (там же). У регулятора есть свой
-  уровень доступа к продуктивным данным — это не абстракция, а учётная запись.
-- **Агентские сети.** Многоуровневые деревья агент → субагент → игрок с комиссиями по
-  уровням — стандартный продукт у вендоров платформ
+  This is an axis of isolation orthogonal to the brand: two brands of one jurisdiction
+  may share infrastructure, one brand in two jurisdictions may not.
+- **The regulator as an access contour.** MGA requires "immediate and unhindered access"
+  to the replica for inspections, physically and electronically (in the same place). The
+  regulator has an access level of its own to production data — that is not an
+  abstraction but an account.
+- **Agent networks.** Multi-tier trees of agent → sub-agent → player with commissions by
+  tier are a standard product from platform vendors
   ([PartnerMatrix, Agent Management System](https://partnermatrix.com/agent-system/),
-  вендорский материал). Это контур с рекурсивной вложенностью, которого нет ни у
-  брендов, ни у аффилиатов.
-- **Curaçao: домен как объект регулирования.** После LOK домены управляются через
-  портал CGA или через его API, а печать и сертификат привязаны к конкретному
-  авторизованному домену, с публичной проверкой вида `https://cert.cga.cw/certificate?id=DOMAIN_TOKEN`
+  vendor material). This is a contour with recursive nesting, which neither brands nor
+  affiliates have.
+- **Curaçao: the domain as an object of regulation.** Since the LOK, domains are managed
+  through the CGA portal or through its API, and the seal and the certificate are bound
+  to a specific authorized domain, with a public check of the form `https://cert.cga.cw/certificate?id=DOMAIN_TOKEN`
   ([CGA License Management Portal](https://portal.gamingcontrolcuracao.org/)).
-  Отображение «бренд → лицензия» здесь публично по замыслу — это, кстати, готовый
-  внешний источник для оракула, независимый от проверяемой системы.
+  The mapping "brand → licence" is public here by design — which, incidentally, is a
+  ready external source for an oracle, independent of the system under test.
 
-### 1.3 Терминология
+### 1.3 Terminology
 
-«Skin», «brand», «white label» и «turnkey» в отраслевых текстах взаимозаменяемы и
-означают разное по существу: у white label лицензия остаётся у провайдера, у turnkey
-оператор получает свою (различие описано в вендорских обзорах, напр.
+"Skin", "brand", "white label" and "turnkey" are interchangeable in industry texts and
+mean substantively different things: with white label the licence stays with the
+provider, with turnkey the operator gets its own (the difference is described in vendor
+surveys, e.g.
 [SOFTSWISS](https://www.softswiss.com/knowledge-base/what-is-white-label-solution/),
-маркетинговый материал). Для модели доступа существенно одно: **совпадает ли граница
-бренда с границей лицензии**. Если нет — граница данных проходит по лицензиату, а
-бренд остаётся лишь ярлыком в запросе.
+marketing material). Only one thing matters for the access model: **whether the boundary
+of the brand coincides with the boundary of the licence**. If it does not, the data
+boundary runs along the licensee, and the brand stays merely a label in the request.
 
-Слово «оператор» перегружено: у регулятора это лицензиат, в интеграционных API это
-сторона, реализующая кошелёк (`operator_id` у Hub88 — идентификатор интеграции,
-а не юрлица). Это не педантизм: если `operator_id` выдаётся на бренд, а лицензия одна
-на все бренды, то у двух «операторов» в терминах агрегатора один владелец данных —
-и наоборот.
+The word "operator" is overloaded: to the regulator it is the licensee, in integration
+APIs it is the party implementing the wallet (Hub88's `operator_id` is an identifier of
+an integration, not of a legal entity). This is not pedantry: if `operator_id` is issued
+per brand while one licence covers all the brands, then two "operators" in the
+aggregator's terms have one owner of the data — and the other way round as well.
 
 ---
 
-## 2. Изоляция между брендами
+## 2. Isolation between brands
 
-### 2.1 Модели
+### 2.1 Models
 
-Отраслевой словарь здесь не гемблинговый, а общий SaaS-овый: silo (стек на тенанта),
-pool (общие ресурсы, изоляция политиками), bridge (смесь). Существенны две вещи,
-сформулированные в AWS SaaS-документации точнее, чем в любом гемблинговом стандарте:
+The industry vocabulary here is not a gambling one but the general SaaS one: silo (a
+stack per tenant), pool (shared resources, isolation by policies), bridge (a mixture).
+Two things matter, stated in the AWS SaaS documentation more precisely than in any
+gambling standard:
 
 > Authentication and authorization are not equal to isolation … a user could be
 > authenticated and authorized, and still access the resources of another tenant.
@@ -167,423 +174,441 @@ pool (общие ресурсы, изоляция политиками), bridge 
 ([AWS, The isolation mindset](https://docs.aws.amazon.com/whitepapers/latest/saas-tenant-isolation-strategies/the-isolation-mindset.html),
 [AWS, Tenant isolation](https://docs.aws.amazon.com/whitepapers/latest/saas-architecture-fundamentals/tenant-isolation.html)).
 
-Это ровно тот тезис, ради которого существует `barbican`: RBAC и изоляция — разные
-свойства, и матрица «роль × эндпоинт» без третьего измерения проверяет только первое.
+That is exactly the thesis `barbican` exists for: RBAC and isolation are different
+properties, and a role × endpoint matrix without a third dimension checks only the first.
 
-Гемблинговое регулирование к теме подходит лишь с одной стороны — инфраструктурной.
-MGA: архитектура считается удовлетворяющей принципам, «when the critical components
+Gambling regulation approaches the topic from one side only — the infrastructural one.
+MGA: an architecture is deemed to satisfy the principles "when the critical components
 are hosted on a private cloud environment which is not shared with other tenants on
-the same cloud»; virtual private cloud допускается по результатам оценки рисков.
-В приложении к тому же документу перечислены риски, среди которых прямым текстом
-«isolation failure» и «malicious activities by other tenant(s) of the cloud»
+the same cloud"; a virtual private cloud is permitted subject to a risk assessment.
+An annex to the same document lists the risks, among them, in so many words,
+"isolation failure" and "malicious activities by other tenant(s) of the cloud"
 ([MGA, Technical Infrastructure](https://www.mga.org.mt/app/uploads/Technical-Infrastructure-hosting-Gaming-and-Control-Systems-Remote-Gaming.pdf)).
-Критическими компонентами MGA называет, среди прочего, player database servers,
-financial database servers и gaming database servers — то есть именно те хранилища,
-где живёт межбрендовая граница.
+Among the critical components MGA names player database servers, financial database
+servers and gaming database servers — that is, exactly the stores where the cross-brand
+boundary lives.
 
-Обратите внимание на асимметрию: регулятор нормирует изоляцию **платформы от чужих
-арендаторов облака** и молчит про изоляцию **бренда от бренда внутри платформы**.
-Второе — целиком на совести оператора и его поставщика.
+Note the asymmetry: the regulator regulates the isolation of **the platform from other
+tenants of the cloud** and is silent about the isolation of **one brand from another
+inside the platform**. The second is entirely on the conscience of the operator and its
+supplier.
 
-### 2.2 Как это выглядит в запросе
+### 2.2 What it looks like in the request
 
-Публично документированы три способа идентификации бренда, и все три встречаются
-в интеграционных API:
+Three ways of identifying a brand are publicly documented, and all three occur in
+integration APIs:
 
-- **Явный идентификатор в теле или параметрах.** `operator_id` у агрегатора игр
+- **An explicit identifier in the body or the parameters.** `operator_id` at the game
+  aggregator
   ([Hub88](https://docs.hub88.io/developer-docs/operator-api-reference/getting-started));
-  `merchant_id` («Merchant API client account identifier») плюс `application_key`
-  («Identifier of your application (website)») у платёжного шлюза
+  `merchant_id` ("Merchant API client account identifier") plus `application_key`
+  ("Identifier of your application (website)") at the payment gateway
   ([Praxis](https://doc.cashier-test.com/integration_docs/3.4/payment_api/notification)).
-  Показательно, что у Praxis идентификатор **сайта** отделён от идентификатора
-  мерчанта: бренд там первоклассная сущность, отдельная от юрлица.
-- **Домен/поддомен.** У Curaçao домен — регулируемая сущность, привязанная к
-  сертификату ([CGA portal](https://portal.gamingcontrolcuracao.org/)); у UKGC
-  надзор явно требует не ограничиваться подомённым взглядом
+  It is telling that at Praxis the identifier of the **site** is separated from the
+  identifier of the merchant: the brand there is a first-class entity, separate from the
+  legal entity.
+- **A domain / subdomain.** At Curaçao the domain is a regulated entity bound to a
+  certificate ([CGA portal](https://portal.gamingcontrolcuracao.org/)); at UKGC
+  supervision explicitly requires not stopping at a per-domain view
   ([white label partnerships](https://www.gamblingcommission.gov.uk/report/raising-standards-for-consumers-compliance-and-enforcement-report-2019-20/white-label-partnerships)).
-  Значит, домен маршрутизирует и одновременно несёт смысл контура.
-- **Наследование от учётной записи.** Игрок принадлежит бренду по факту регистрации;
-  GLI-19 требует «A player shall only be permitted to have one active player account
-  at a time unless specifically authorized by the regulatory body»
+  So the domain both routes and carries the meaning of the contour.
+- **Inheritance from the account.** A player belongs to a brand by the fact of
+  registration; GLI-19 requires "A player shall only be permitted to have one active
+  player account at a time unless specifically authorized by the regulatory body"
   ([GLI-19 v3.0, §2.5.2](https://gaminglabs.com/wp-content/uploads/2024/06/GLI-19-Interactive-Gaming-Systems-v3.0.pdf)),
-  но это про один экземпляр системы: в мультибрендовой платформе один человек
-  штатно имеет по счёту на бренд.
+  but that is about one instance of the system: on a multi-brand platform one person
+  normally has an account per brand.
 
-Отсюда типовой дефект, вытекающий из конструкции: **бренд берётся из запроса, а
-не из учётных данных.** Если `brand_id` — параметр, то надёжность изоляции равна
-надёжности проверки «этот `brand_id` тот же, что у токена», выполняемой в каждом
-обработчике. Это ровно тот случай, о котором AWS пишет «should not be left to service
-developers». Прямого публичного разбора такого дефекта именно в iGaming я не нашёл
-(см. §5), поэтому здесь это следствие из общих источников, а не документированный
-инцидент.
+Hence the typical defect that follows from the construction: **the brand is taken from
+the request, not from the credentials.** If `brand_id` is a parameter, then the
+reliability of isolation equals the reliability of the check "this `brand_id` is the same
+as the token's", performed in every handler. This is exactly the case AWS writes
+"should not be left to service developers" about. I found no direct public analysis of
+such a defect in iGaming specifically (see §5), so here this is a consequence drawn from
+general sources, not a documented incident.
 
-### 2.3 Где ломается: свидетельства
+### 2.3 Where it breaks: the evidence
 
-Публичное свидетельство того, что pool-модель применяется к брендам, есть, и
-неприятное: в январе 2019 исследователь Justin Paine обнаружил открытый ElasticSearch
-примерно со 108 млн записей о ставках, депозитах и выводах, с именами, адресами и
-телефонами; среди доменов в данных — `kahunacasino.com`, `azur-casino.com`,
-`easybet.com`, `viproomcasino.net`, принадлежавшие одной группе
+Public evidence that the pool model is applied to brands exists, and it is unpleasant:
+in January 2019 the researcher Justin Paine found an open ElasticSearch with roughly
+108 million records of bets, deposits and withdrawals, with names, addresses and phone
+numbers; among the domains in the data were `kahunacasino.com`, `azur-casino.com`,
+`easybet.com`, `viproomcasino.net`, which belonged to one group
 ([Security Affairs](https://securityaffairs.com/80173/data-breach/online-casinos-data-leak.html);
-первоисточник — заметка Catalin Cimpanu в ZDNet). Несколько брендов, один индекс,
-одна дырка. Само по себе это не дефект контроля доступа в API, но это прямое
-доказательство того, что данные брендов лежат вместе, — а значит, единственное, что
-их разделяет, это код.
+the primary source is Catalin Cimpanu's note in ZDNet). Several brands, one index, one
+hole. In itself this is not a defect of access control in an API, but it is direct proof
+that the brands' data sits together — and therefore that the only thing separating it is
+code.
 
-Второй, более редкий класс: **изоляция там, где её быть не должно**. В 2017 UKGC
-оштрафовала 888 на £7,8 млн; в формулировке комиссии — «over 7,000 customers who had
+The second and rarer class: **isolation where there should be none**. In 2017 the UKGC
+fined 888 £7.8 million; in the commission's wording — "over 7,000 customers who had
 chosen to self-exclude from their casino/poker/sport platform were still able to
-access their accounts on their bingo platform», из-за технической неисправности,
-не замеченной 13 месяцев
+access their accounts on their bingo platform", because of a technical fault that went
+unnoticed for 13 months
 ([UKGC](https://www.gamblingcommission.gov.uk/news/article/gambling-firm-888-to-pay-over-gbp7-8million-for-failing-vulnerable-customers)).
-Продуктовые силосы не обменивались состоянием самоисключения.
+The product silos did not exchange self-exclusion state.
 
-Это делает предметную область принципиально сложнее обычного SaaS: **граница
-ограничена с обеих сторон**. PII и коммерческие данные не должны течь между брендами;
-статус самоисключения, лимиты и признаки множественных аккаунтов — обязаны. LCCP
-требует от лицензиата процедур самоисключения и удаления из маркетинговых баз,
-используемых «by the company or group»
+This makes the domain fundamentally harder than ordinary SaaS: **the boundary is
+constrained from both sides**. PII and commercial data must not flow between brands;
+self-exclusion status, limits and signs of multiple accounts must. The LCCP requires the
+licensee to have procedures for self-exclusion and for removal from the marketing
+databases used "by the company or group"
 ([LCCP 3.5.3](https://www.gamblingcommission.gov.uk/licensees-and-businesses/lccp/condition/3-5-3-remote-sr-code)),
-а сверх того существует межоператорское самоисключение GAMSTOP
+and beyond that there is the cross-operator self-exclusion scheme GAMSTOP
 ([LCCP 3.5.5](https://www.gamblingcommission.gov.uk/licensees-and-businesses/lccp/condition/3-5-5-remote-multi-operator-sr-code)).
 
-Проектная ошибка здесь возможна в обе стороны, и вторая наказывается штрафом так же,
-как первая.
+A design error here is possible in both directions, and the second is punished with a
+fine just as the first is.
 
 ---
 
-## 3. Специфика домена
+## 3. What is specific to the domain
 
-### 3.1 Аффилиатские кабинеты
+### 3.1 Affiliate cabinets
 
-Аффилиат — внешнее лицо с доступом к отчётам о **чужих** игроках, приведённых им.
-Модель вознаграждения (CPA, RevShare, гибрид) определяет, какие поля ему нужны:
-RevShare требует показывать NGR и, значит, проигрыши игрока.
+An affiliate is an outside party with access to reports about **other people's**
+players, the ones it brought in. The reward model (CPA, RevShare, hybrid) determines
+which fields it needs: RevShare requires showing NGR and therefore the player's losses.
 
-Что кабинет реально показывает — видно из публичной документации. Отчёт по
-регистрациям в TheAffiliatePlatform содержит «External user ID, TAP user ID +
-Registration Date + Brand + Username (if sent to TAP by the platform) + Affiliate»,
-и прямо сказано: «The fields available to the affiliate in the registration report
-are controlled by the "additional permissions" list in the Affiliate Account»
+What the cabinet actually shows is visible from the public documentation. The
+registrations report in TheAffiliatePlatform contains "External user ID, TAP user ID +
+Registration Date + Brand + Username (if sent to TAP by the platform) + Affiliate",
+and it says directly: "The fields available to the affiliate in the registration report
+are controlled by the "additional permissions" list in the Affiliate Account"
 ([TAP, Reporting interfaces / BI](https://help.theaffiliateplatform.com/reporting/reporting-interfaces-bi.md),
 [TAP, Affiliate Account](https://help.theaffiliateplatform.com/affiliate-platform/affiliate-account)).
-Аналогично у Affilka: аффилиат видит только те поля, фильтры и группировки, которые
-ему открыли настройками видимости отчётов
-([Affilka, Features](https://affilka.com/features/), вендорский материал).
+The same at Affilka: an affiliate sees only those fields, filters and groupings that
+were opened to it by the report-visibility settings
+([Affilka, Features](https://affilka.com/features/), vendor material).
 
-Три следствия, каждое — потенциальный дефект:
+Three consequences, each of them a potential defect:
 
-1. **Видимость полей — это флаги, а не роль.** Набор колонок определяется списком
-   разрешений на конкретном аффилиатском аккаунте. Это буквально authorization на
-   уровне свойства объекта, то есть
+1. **Field visibility is flags, not a role.** The set of columns is determined by a list
+   of permissions on a particular affiliate account. This is literally authorization at
+   the level of an object's property, that is,
    [API3:2023 Broken Object Property Level Authorization](https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/)
-   по конструкции. Ошибка в одном флаге не меняет статус ответа — она добавляет
-   колонку.
-2. **`Brand` присутствует в отчёте аффилиата.** Аффилиат обычно работает с несколькими
-   брендами одной программы, и граница «его бренды» проходит внутри отчётной ручки,
-   а не по URL.
-3. **`Username` попадает наружу, если платформа его отдала.** Формулировка «if sent
-   to TAP by the platform» означает, что объём PII у аффилиата определяется настройкой
-   выгрузки на стороне оператора. GLI-19 на этот счёт категоричен: «Unauthorized
-   third-party service providers shall be prevented from viewing or altering PII and
-   other sensitive information», а при передаче PII третьим лицам требуются формальные
-   data processing agreements
+   by construction. An error in one flag does not change the status of the response — it
+   adds a column.
+2. **`Brand` is present in an affiliate's report.** An affiliate usually works with
+   several brands of one program, and the boundary "its brands" runs inside the
+   reporting endpoint, not along the URL.
+3. **`Username` goes outside if the platform handed it over.** The phrase "if sent
+   to TAP by the platform" means that the volume of PII at the affiliate is determined
+   by an export setting on the operator's side. GLI-19 is categorical about this:
+   "Unauthorized third-party service providers shall be prevented from viewing or
+   altering PII and other sensitive information", and when PII is passed to third
+   parties, formal data processing agreements are required
    ([GLI-19 v3.0, §B.5.3](https://gaminglabs.com/wp-content/uploads/2024/06/GLI-19-Interactive-Gaming-Systems-v3.0.pdf)).
 
-Чего аффилиат не должен видеть — из источников прямо не следует построчно; общая
-рамка это GDPR (минимизация) и §B.5.3 GLI-19. Утверждение «аффилиату не положены
-паспортные данные, платёжные реквизиты и переписка с поддержкой» — наблюдение общего
-характера, отдельным документом не подтверждено.
+What an affiliate must not see does not follow line by line from the sources; the
+general frame is GDPR (minimization) and §B.5.3 of GLI-19. The claim "an affiliate is
+not entitled to passport data, payment details and support correspondence" is a general
+observation, not confirmed by any separate document.
 
-### 3.2 Провайдеры игр и seamless wallet
+### 3.2 Game providers and the seamless wallet
 
-Направление вызова здесь обратное привычному, и это меняет всё. При seamless-модели
-**оператор реализует эндпоинты, а агрегатор их вызывает**: `/user/info`,
+The direction of the call here is the reverse of the usual one, and that changes
+everything. In the seamless model **the operator implements the endpoints and the
+aggregator calls them**: `/user/info`,
 `/user/balance`, `/transaction/bet`, `/transaction/win`, `/transaction/rollback`
 ([Hub88, Wallet API](https://docs.hub88.io/developer-docs/operator-api-reference/wallet-api)).
 
-Как это аутентифицируется: «RSA-SHA256 is used to sign the request body using the
+How it is authenticated: "RSA-SHA256 is used to sign the request body using the
 private key. The signature is validated using the public key associated with the
-provided `operator_id`», подпись передаётся в `X-Hub88-Signature` и проверяется по
-сырому телу, без десериализации
+provided `operator_id`", the signature is passed in `X-Hub88-Signature` and is verified
+against the raw body, without deserialization
 ([Hub88](https://docs.hub88.io/developer-docs/operator-api-reference/wallet-api)).
 
-Три особенности, критичные для модели доступа:
+Three features critical for the access model:
 
-- **Пользовательской сессии нет.** В запросе есть `user` («The unique User ID in the
-  Operator's system») и `token` («The game session token that was passed within
-  `/game/url` endpoint response»). То есть игрок идентифицируется идентификатором из
-  системы оператора, а его право на действие — токеном игровой сессии, который
-  оператор сам же и выдал. Документация явно вменяет оператору проверку валидности
-  токена и идемпотентности по `transaction_uuid`.
-- **Связка «токен ↔ игрок ↔ бренд» — обязанность оператора, и она не выражена в
-  протоколе.** Если оператор списывает по `user` из тела, не сверяя его с владельцем
-  `token`, получается BOLA с последствиями в деньгах. Это следует из структуры API;
-  публично задокументированного случая такой ошибки я не нашёл.
-- **Отказ дорого стоит.** При отсутствии 200 в течение таймаута транзакция считается
-  неуспешной и генерируется rollback (там же). Ошибка авторизации, отвечающая
-  неправильным кодом, превращается в финансовое расхождение, а не в 403 в логе.
+- **There is no user session.** The request carries `user` ("The unique User ID in the
+  Operator's system") and `token` ("The game session token that was passed within
+  `/game/url` endpoint response"). So the player is identified by an identifier from
+  the operator's system, and their right to act by the game session token that the
+  operator itself issued. The documentation explicitly makes the operator responsible
+  for checking the token's validity and idempotency by `transaction_uuid`.
+- **The binding "token ↔ player ↔ brand" is the operator's duty, and it is not
+  expressed in the protocol.** If the operator debits by the `user` from the body
+  without checking it against the owner of the `token`, the result is a BOLA with
+  consequences measured in money. This follows from the structure of the API; I found
+  no publicly documented case of such an error.
+- **A denial costs dearly.** If no 200 arrives within the timeout, the transaction is
+  deemed unsuccessful and a rollback is generated (in the same place). An authorization
+  error that answers with the wrong code turns into a financial discrepancy rather than
+  a 403 in the log.
 
-Второй режим — transfer wallet, когда баланс переносится к провайдеру и обратно
-([Hub88, TransferWallet API](https://docs.hub88.io/developer-docs/operator-api-reference/transferwallet-api)):
-контур тот же, но состояние временно живёт на чужой стороне.
+The second mode is the transfer wallet, where the balance is moved to the provider and
+back ([Hub88, TransferWallet API](https://docs.hub88.io/developer-docs/operator-api-reference/transferwallet-api)):
+the contour is the same, but the state temporarily lives on someone else's side.
 
-### 3.3 Платёжные колбэки
+### 3.3 Payment callbacks
 
-Устроены так же — входящий вызов без сессии, доверие на подписи. У Praxis
-нотификация несёт `merchant_id`, `application_key`, `pin` («Unique customer id in your
-system»), `trace_id`, `transaction_id`, `order_id`, статус и подпись; мерчанту
-предписано сверять подпись, дождаться финального статуса, проверять `charge_amount`
-и `charge_currency` (а не запрошенную сумму), сопоставлять `order_id` со своей
-записью и учитывать окно валидности
+Arranged the same way — an incoming call with no session, trust resting on a signature.
+At Praxis the notification carries `merchant_id`, `application_key`, `pin` ("Unique
+customer id in your system"), `trace_id`, `transaction_id`, `order_id`, a status and a
+signature; the merchant is instructed to verify the signature, wait for the final
+status, check `charge_amount` and `charge_currency` (rather than the amount requested),
+match `order_id` against its own record and take the validity window into account
 ([Praxis, notification](https://doc.cashier-test.com/integration_docs/3.4/payment_api/notification);
-актуальная документация переехала на [docs.praxis.tech](https://docs.praxis.tech/)).
+the current documentation has moved to [docs.praxis.tech](https://docs.praxis.tech/)).
 
-Здесь важно, что **бренд идентифицируется полем в подписанном теле**. Значит,
-изоляция между брендами на этом контуре держится на том, что ключ подписи привязан
-к мерчанту и что обработчик не берёт `application_key` как есть.
+What matters here is that **the brand is identified by a field in the signed body**. So
+isolation between brands on this contour rests on the signing key being bound to the
+merchant and on the handler not taking `application_key` at face value.
 
-### 3.4 KYC-провайдеры
+### 3.4 KYC providers
 
-Тот же паттерн, максимальная чувствительность данных. Sumsub подписывает вебхуки
-HMAC с секретом на вебхук; алгоритм передаётся в `X-Payload-Digest-Alg` (по умолчанию
-`HMAC_SHA256_HEX`), а получатель сверяет `x-payload-digest` с посчитанным дайджестом
+The same pattern, with data of the highest sensitivity. Sumsub signs webhooks with HMAC
+using a per-webhook secret; the algorithm is passed in `X-Payload-Digest-Alg`
+(`HMAC_SHA256_HEX` by default), and the recipient checks `x-payload-digest` against the
+digest it computed
 ([Sumsub, Webhook manager](https://docs.sumsub.com/docs/webhook-manager)).
 
-Особенность контура: документы игрока физически хранятся у процессора, а у оператора
-остаётся статус и идентификатор заявителя. Это хорошо для изоляции (PII не
-размазывается по брендам) и плохо для аудита: доступ сотрудников бренда к документам
-идёт через консоль провайдера, то есть **за пределами** матрицы доступа платформы —
-и, соответственно, за пределами любой проверки, которая ходит по API оператора.
+A feature of this contour: the player's documents are physically stored at the
+processor, while the operator keeps the status and the applicant's identifier. That is
+good for isolation (PII is not smeared across brands) and bad for auditing: brand staff
+access the documents through the provider's console, that is, **outside** the platform's
+access matrix — and therefore outside any check that walks the operator's API.
 
-### 3.5 Общее у трёх контуров
+### 3.5 What the three contours have in common
 
-Провайдер игр, платёжный шлюз и KYC приходят снаружи, без пользователя, POST-ом,
-с подписью, и их вызовы меняют состояние. Это отдельный класс поверхности, к которому
-модель «аккаунт с ролью и тенантом» неприменима в принципе: там нет аккаунта, есть
-ключ. Для инструмента, работающего от имени аккаунтов и по умолчанию только GET/HEAD,
-этот класс лежит вне области — и должен там оставаться (см. §6).
+The game provider, the payment gateway and KYC all arrive from the outside, without a
+user, by POST, with a signature, and their calls change state. This is a separate class
+of surface to which the model "an account with a role and a tenant" is inapplicable in
+principle: there is no account there, there is a key. For a tool that works on behalf of
+accounts and by default only with GET/HEAD, this class lies outside the scope — and
+should stay there (see §6).
 
 ---
 
-## 4. Регуляторика и доступ к PII между уровнями
+## 4. Regulation and access to PII between tiers
 
-### 4.1 Требования, которые подтверждаются
+### 4.1 The requirements that are confirmed
 
-- **Мальта.** Критические компоненты — RNG, jackpot, player/financial/gaming database
-  servers — размещаются в Мальте, ЕЭЗ или признанной третьей юрисдикции; уровень
-  информационной безопасности — ISO/IEC 27001, для платёжных данных PCI DSS Level 1;
-  требуется живая реплика регуляторных данных в Мальте с процедурой немедленного
-  доступа инспекторов. «Player Data» определяется предельно широко: «Any data which
-  contributes or may contribute to the identification of a player»
+- **Malta.** The critical components — RNG, jackpot, player/financial/gaming database
+  servers — are hosted in Malta, the EEA or a recognized third jurisdiction; the
+  information security level is ISO/IEC 27001, and PCI DSS Level 1 for payment data; a
+  live replica of the regulatory data is required in Malta, with a procedure for
+  immediate access by inspectors. "Player Data" is defined extremely broadly: "Any data
+  which contributes or may contribute to the identification of a player"
   ([MGA, Technical Infrastructure](https://www.mga.org.mt/app/uploads/Technical-Infrastructure-hosting-Gaming-and-Control-Systems-Remote-Gaming.pdf)).
-- **Британия.** Требования безопасности RTS — подмножество Annex A ISO/IEC 27001:2022,
-  и перечень контролей назван поимённо: 5.15 Access control, 5.16 Identity management,
-  5.17 Authentication information, 5.18 Access rights, 8.2 Privileged access rights,
-  8.15 Logging, 8.22 Segregation of networks, 8.24 Use of cryptography
+- **Britain.** The RTS security requirements are a subset of Annex A of ISO/IEC
+  27001:2022, and the controls are named one by one: 5.15 Access control, 5.16 Identity
+  management, 5.17 Authentication information, 5.18 Access rights, 8.2 Privileged access
+  rights, 8.15 Logging, 8.22 Segregation of networks, 8.24 Use of cryptography
   ([UKGC, RTS section 4](https://www.gamblingcommission.gov.uk/standards/remote-gambling-and-software-technical-standards/4-remote-gambling-and-software-technical-standards-rts-security-requirements)).
-  Это, пожалуй, самая полезная зацепка для будущего модуля 2: перечень пунктов, на
-  которые можно отображать проверки.
-- **GLI-19.** Логический контроль доступа (§B.2.3), политика доступа с принципом
-  наименьших привилегий и формальной регистрацией/дерегистрацией пользователей
-  (§C.2.3), запрет изменения учётных данных без supervised access controls
-  с логированием прежнего и нового значения (§B.3.2), запрет неавторизованным
-  третьим лицам видеть или менять PII (§B.5.3), обязательная регистрация значимых
-  событий по счёту игрока — корректировки баланса, «changes made to PII and other
-  sensitive information recorded in a player account», деактивация счёта (§2.8.8).
-  Отдельным приложением идёт
-  операционный аудит поставщиков услуг
+  This is probably the most useful handle for the future module 2: a list of items the
+  checks can be mapped onto.
+- **GLI-19.** Logical access control (§B.2.3), an access policy with the principle of
+  least privilege and formal registration/deregistration of users (§C.2.3), a
+  prohibition on changing credentials without supervised access controls that log the
+  previous and the new value (§B.3.2), a prohibition on unauthorized third parties
+  viewing or altering PII (§B.5.3), mandatory recording of significant events on a
+  player's account — balance adjustments, "changes made to PII and other sensitive
+  information recorded in a player account", deactivation of the account (§2.8.8).
+  A separate annex covers
+  the operational audit of service providers
   ([GLI-19 v3.0](https://gaminglabs.com/wp-content/uploads/2024/06/GLI-19-Interactive-Gaming-Systems-v3.0.pdf)).
-- **Нью-Джерси.** Серверы в Атлантик-Сити, в restricted area
+- **New Jersey.** Servers in Atlantic City, in a restricted area
   ([N.J.A.C. 13:69O-1.2](https://www.law.cornell.edu/regulations/new-jersey/N-J-A-C-13-69O-1-2)).
 
-### 4.2 Чего в источниках нет
+### 4.2 What the sources do not have
 
-**Я не нашёл гемблингового регулятора, который бы прямо предписывал: «холдинг видит
-агрегат, но не PII конкретного бренда».** Формулировка правдоподобна и, вероятно,
-описывает распространённую практику, но подтверждения регуляторным документом у меня
-нет. Ограничение приходит с другой стороны — из защиты данных:
+**I found no gambling regulator that directly prescribes "the holding sees the
+aggregate but not the PII of a particular brand".** The wording is plausible and
+probably describes common practice, but I have no confirmation of it in a regulatory
+document. The constraint comes from another side — from data protection:
 
-- У группы компаний нет привилегии доступа. GDPR лишь признаёт, что контроллеры
-  внутри группы «may have a legitimate interest in transmitting personal data within
-  the group of undertakings for internal administrative purposes»
-  ([Recital 48](https://gdpr-info.eu/recitals/no-48/)) — это основание, которое нужно
-  обосновывать и балансировать, а не разрешение по умолчанию.
-- Насколько это не формальность, видно по проекту межоператорского обмена данными
-  о вреде (single customer view / GamProtect): участники выбирали правовое основание
-  «законный интерес» и проходили отдельное согласование с ICO, прежде чем начать
-  обмен ([iGaming Business](https://igamingbusiness.com/sustainable-gambling/ico-greenlights-financial-data-sharing-with-operators/),
+- A group of companies has no access privilege. GDPR merely acknowledges that
+  controllers within a group "may have a legitimate interest in transmitting personal
+  data within the group of undertakings for internal administrative purposes"
+  ([Recital 48](https://gdpr-info.eu/recitals/no-48/)) — that is a basis that has to be
+  justified and balanced, not a default permission.
+- How far this is from a formality is visible in the cross-operator project for sharing
+  data about harm (single customer view / GamProtect): the participants chose
+  "legitimate interest" as the legal basis and went through a separate clearance with
+  the ICO before starting the exchange ([iGaming Business](https://igamingbusiness.com/sustainable-gambling/ico-greenlights-financial-data-sharing-with-operators/),
   [NEXT.io](https://next.io/news/technology/ico-approves-data-sharing-for-gambling/) —
-  отраслевая пресса, не первоисточник). Если сквозной обмен требует такой процедуры
-  между операторами, то и внутри группы он не бесплатен.
-- Что регулятор данных наказывает за нецелевые потоки, показывает выговор ICO в адрес
-  Sky Betting and Gaming (сентябрь 2024): рекламные cookie ставились до получения
-  согласия, и персональные данные уходили третьим лицам без законного основания
+  industry press, not a primary source). If end-to-end sharing requires such a procedure
+  between operators, then inside a group it is not free either.
+- That the data regulator punishes flows outside their purpose is shown by the ICO's
+  reprimand of Sky Betting and Gaming (September 2024): advertising cookies were set
+  before consent was obtained, and personal data went to third parties without a legal
+  basis
   ([ICO](https://ico.org.uk/about-the-ico/media-centre/news-and-blogs/2024/09/action-taken-against-sky-betting-and-gaming-for-using-cookies-without-consent/)).
 
-**Итого расстановка сил:** UKGC требует от лицензиата сквозного взгляда на игрока по
-всем его white label доменам; защита данных требует не расширять этот взгляд за
-пределы лицензиата без основания. Проектная граница проходит между **лицензиатом**
-и **группой**, а не между брендами. Разбивка, где холдинг стоит уровнем выше
-оператора и «видит агрегат», — разумная реализация этого, но не требование
-регулятора.
+**The resulting balance of forces:** the UKGC requires the licensee to have an
+end-to-end view of the player across all of its white label domains; data protection
+requires that this view not be extended beyond the licensee without a basis. The design
+boundary runs between the **licensee** and the **group**, not between brands. A
+breakdown where the holding stands one tier above the operator and "sees the aggregate"
+is a reasonable implementation of that, but not a requirement of the regulator.
 
 ---
 
-## 5. Публичные классы уязвимостей и инциденты
+## 5. Public vulnerability classes and incidents
 
-### 5.1 Классы
+### 5.1 Classes
 
-Специализированной таксономии для iGaming нет; всё описываемое — это
+There is no specialized taxonomy for iGaming; everything described is
 [OWASP API Security Top 10 2023](https://owasp.org/API-Security/editions/2023/en/0x11-t10/)
-в конкретных декорациях:
+in a particular setting:
 
-| Класс | Как выглядит в мультибрендовой платформе |
+| Class | What it looks like on a multi-brand platform |
 |---|---|
-| [API1:2023 BOLA](https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/) | подмена `brand_id`/`operator_id`/`player_id` в пути или query отчётной ручки |
-| [API3:2023 BOPLA](https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/) | лишние колонки в аффилиатском отчёте; PII в выгрузке, где нужны только суммы |
-| [API5:2023 BFLA](https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/) | аффилиатский аккаунт достаёт до административной ручки бренда |
+| [API1:2023 BOLA](https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/) | substituting `brand_id`/`operator_id`/`player_id` in the path or query of a reporting endpoint |
+| [API3:2023 BOPLA](https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/) | extra columns in an affiliate's report; PII in an export where only the amounts are needed |
+| [API5:2023 BFLA](https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/) | an affiliate account reaches a brand's administrative endpoint |
 
-BOLA в формулировке OWASP описывает ровно интересующий случай: доступ к самой ручке
-у пользователя есть по замыслу, а нарушение происходит на уровне объекта —
-манипуляцией идентификатором.
+BOLA in OWASP's wording describes exactly the case of interest: the user has access to
+the endpoint itself by design, and the violation happens at the level of the resource —
+by manipulating an identifier.
 
-### 5.2 Инциденты, подтверждённые публично
+### 5.2 Incidents confirmed publicly
 
-- **Группа брендов, один открытый индекс (январь 2019).** ~108 млн записей о ставках
-  и транзакциях с ФИО, адресами и телефонами; в данных фигурируют домены нескольких
-  казино одной группы
+- **A group of brands, one open index (January 2019).** ~108 million records of bets
+  and transactions with full names, addresses and phone numbers; the data features the
+  domains of several casinos of one group
   ([Security Affairs](https://securityaffairs.com/80173/data-breach/online-casinos-data-leak.html)).
-- **Бэкенд мобильного приложения казино без пароля (февраль 2024).** База с именами,
-  телефонами, адресами электронной почты и домашними адресами клиентов была доступна
-  из интернета без аутентификации
+- **The backend of a casino's mobile app with no password (February 2024).** A database
+  with customers' names, phone numbers, email addresses and home addresses was reachable
+  from the internet without authentication
   ([TechCrunch](https://techcrunch.com/2024/02/09/winstar-hotel-casino-app-exposed-customer-personal-data/)).
-- **Компрометация поставщика платформы (март 2020).** Ransomware у SBTech: компания
-  «immediately shut down its data centers», сервисы её клиентов-операторов были
-  прерваны; в рамках сделки с DEAC был создан эскроу на $30 млн под последствия
-  ([BleepingComputer, по документу SEC](https://www.bleepingcomputer.com/news/security/draftkings-discloses-sbtech-ransomware-attack-in-sec-filing/)).
-  Это не дефект контроля доступа, но точная иллюстрация радиуса поражения контура
-  платформы: один инцидент — недоступность у всех брендов сразу.
-- **Инцидент у B2B-поставщика (август 2025).** Bragg Gaming Group сообщила о вторжении
-  во внутренние ИТ-системы, заявив, что игровые сервисы не пострадали и PII, по данным
-  ранней экспертизы, не затронуты
+- **Compromise of a platform supplier (March 2020).** Ransomware at SBTech: the company
+  "immediately shut down its data centers", and the services of its operator clients
+  were interrupted; as part of the deal with DEAC a $30 million escrow was created
+  against the consequences
+  ([BleepingComputer, from an SEC filing](https://www.bleepingcomputer.com/news/security/draftkings-discloses-sbtech-ransomware-attack-in-sec-filing/)).
+  This is not an access-control defect, but it is an exact illustration of the blast
+  radius of the platform contour: one incident means unavailability at every brand at
+  once.
+- **An incident at a B2B supplier (August 2025).** Bragg Gaming Group reported an
+  intrusion into its internal IT systems, stating that the gaming services were
+  unaffected and that, according to early forensics, PII was not touched
   ([The Register](https://www.theregister.com/2025/08/19/bragg_attack/)).
-- **Изоляция вместо связности (август 2017).** 888: самоисключение не распространилось
-  с casino/poker/sport на bingo, 7 000+ игроков сохранили доступ, штраф £7,8 млн
+- **Isolation instead of connectedness (August 2017).** 888: self-exclusion did not
+  propagate from casino/poker/sport to bingo, 7,000+ players kept their access, a fine
+  of £7.8 million
   ([UKGC](https://www.gamblingcommission.gov.uk/news/article/gambling-firm-888-to-pay-over-gbp7-8million-for-failing-vulnerable-customers)).
-- **Надзорные находки по white label (2019–20).** Отсутствие живого доступа к записям
-  клиентов и неспособность обнаруживать множественные аккаунты по всем white label
-  доменам — публично зафиксированный дефект именно межбрендовой видимости
+- **Supervisory findings on white label (2019–20).** The absence of live access to
+  customer records and the inability to detect multiple accounts across all white label
+  domains — a publicly recorded defect of cross-brand visibility specifically
   ([UKGC](https://www.gamblingcommission.gov.uk/report/raising-standards-for-consumers-compliance-and-enforcement-report-2019-20/white-label-partnerships)).
 
-### 5.3 Чего найти не удалось
+### 5.3 What could not be found
 
-Честный отрицательный результат, потому что он определяет доверие к остальному:
+An honest negative result, because it determines how far the rest can be trusted:
 
-- **Публичного разбора BOLA по `brand_id` в iGaming-платформе — нет.** Ни в
-  disclosed-отчётах HackerOne, ни в CVE, ни в исследовательских публикациях по этим
-  запросам ничего не нашлось. Класс реален (OWASP), домен уязвим по конструкции
-  (§2.2), но конкретного публичного случая у меня нет.
-- **Публично задокументированной эскалации «аффилиат → оператор» — нет.** Ни одного
-  случая. Уязвимости в аффилиатских продуктах общего назначения (не iGaming) в CVE
-  есть — например, обход аутентификации с захватом учётной записи и повышением прав
-  в WordPress-плагине аффилиатской программы
+- **There is no public analysis of a BOLA on `brand_id` in an iGaming platform.**
+  Nothing turned up on these queries — not in HackerOne's disclosed reports, not in CVE,
+  not in research publications. The class is real (OWASP), the domain is vulnerable by
+  construction (§2.2), but I have no specific public case.
+- **There is no publicly documented "affiliate → operator" escalation.** Not a single
+  case. Vulnerabilities in general-purpose affiliate products (not iGaming) do exist in
+  CVE — for example, an authentication bypass with account takeover and privilege
+  escalation in a WordPress plugin for an affiliate program
   ([CVE-2024-9289](https://wpscan.com/vulnerability/20327eff-4132-4159-a96b-a2edab0f3776/)) —
-  но переносить это на iGaming-кабинеты как факт нельзя.
-- **Утечек через отчётные ручки как классифицированного инцидента — не нашёл.**
-  Известные утечки в отрасли — это открытые хранилища, а не сломанная авторизация
-  в API. Возможно, дело в наблюдаемости: открытый ElasticSearch находит сканер, а
-  BOLA в приватном кабинете — только тот, у кого есть учётная запись.
+  but carrying that over to iGaming cabinets as a fact is not permissible.
+- **I did not find leaks through reporting endpoints as a classified incident.** The
+  known leaks in the industry are open stores, not broken authorization in an API.
+  Perhaps it is a matter of observability: an open ElasticSearch is found by a scanner,
+  while a BOLA in a private cabinet is found only by someone who has an account.
 
 ---
 
-## Что из этого проверяемо по HTTP-ответам
+## What of this is checkable by HTTP responses
 
-Здесь и далее «инструмент» — `barbican` в его нынешней модели: аккаунты с ролью и
-тенантом, ресурсы с объявленным владельцем и тенантом (ADR-0010), наблюдение =
-статус + отфильтрованные заголовки + необратимые скаляры над телом (`digest`,
-`count`, `present` — ADR-0011), по умолчанию только GET и HEAD.
+From here on, "the tool" means `barbican` in its present model: accounts with a role and
+a tenant, resources with a declared owner and tenant (ADR-0010), an observation = the
+status + filtered headers + irreversible scalars over the body (`digest`,
+`count`, `present` — ADR-0011), by default GET and HEAD only.
 
-### Видно
+### Visible
 
-| Дефект | Чем виден |
+| Defect | How it is visible |
 |---|---|
-| Кабинет бренда A читает объект бренда B по идентификатору в пути или query | статус: `foreign-tenant` + `allowed` вместо `denied`; классический BOLA |
-| Аффилиатский аккаунт достаёт до административной ручки бренда (BFLA) | статус: правило политики `roles: [affiliate] → denied`, наблюдён 200 |
-| Отчётная ручка доступна без аутентификации | статус: анонимный аккаунт (`tokenEnv` необязателен, ADR-0010) |
-| Списочная ручка не фильтрует по бренду | `digest`: у двух аккаунтов разных тенантов совпал дайджест 200-го ответа на ручке из `responseMustDifferByTenant` — проверка `identical-response-across-tenants` |
-| Списочная ручка фильтрует не полностью | `count`: число элементов по объявленному пути одинаково у аккаунтов разных тенантов или заведомо больше ожидаемого |
-| Ручка, которой не должно быть в этом контуре вовсе | статус: 200 вместо 404/403 |
+| Brand A's cabinet reads a resource of brand B by an identifier in the path or query | the status: `foreign-tenant` + `allowed` instead of `denied`; a classic BOLA |
+| An affiliate account reaches a brand's administrative endpoint (BFLA) | the status: the policy rule `roles: [affiliate] → denied`, a 200 observed |
+| A reporting endpoint is reachable without authentication | the status: an anonymous account (`tokenEnv` is optional, ADR-0010) |
+| A list endpoint does not filter by brand | `digest`: two accounts of different tenants got a matching digest of the 200 response on an endpoint from `responseMustDifferByTenant` — the `identical-response-across-tenants` check |
+| A list endpoint filters incompletely | `count`: the number of elements at the declared path is the same for accounts of different tenants, or is plainly larger than expected |
+| An endpoint that should not exist in this contour at all | the status: 200 instead of 404/403 |
 
-Существенно, что четвёртая и пятая строки — единственный способ увидеть самый частый
-дефект изоляции. Корректная и дефектная реализации списка отвечают одинаковым 200,
-и без сигналов над телом разницы не существует (ADR-0011).
+It matters that the fourth and fifth rows are the only way to see the most frequent
+defect of isolation. A correct and a defective implementation of a list answer with the
+same 200, and without signals over the body the difference does not exist (ADR-0011).
 
-### Не видно, и почему
+### Not visible, and why
 
-1. **Контуры провайдера игр, платёжного шлюза и KYC — целиком.** Это POST-и, входящие
-   снаружи, аутентифицированные подписью, а не сессией, и меняющие баланс. Три
-   инварианта сразу против: safe-by-default (только GET/HEAD), отсутствие понятия
-   «ключ подписи» в модели аккаунта и запрет на действия с необратимыми последствиями.
-   Проверить, что оператор сверяет `user` с владельцем `token`, инструмент не может
-   и не должен: единственный способ это проверить — провести списание.
-2. **Правильность агрегата.** «Холдинг видит агрегат по бренду A вместо своего» —
-   200 и число в обоих случаях. `count` не спасает: агрегация схлопывает строки,
-   и число элементов не меняется. Принципиально невидимый класс.
-3. **Атрибуция утечки.** `digest` отвечает «одинаковые ли байты», а не «чьи данные
-   внутри». Инструмент способен утверждать «два тенанта увидели одно и то же»; вывод
-   «бренд A увидел игроков бренда B» делает человек.
-4. **Поле внутри элемента списка.** `present` разрешает путь только через объекты:
-   `resolvePath` возвращает `undefined`, как только встречает массив
-   (`src/adapters/signals.ts`). Значит «в аффилиатском отчёте появилась колонка
-   `email`» — а это ровно §3.1 и API3:2023 — сейчас не проверяется. Видно только
-   поле на верхнем уровне объекта ответа. Это ограничение реализации, не инварианта:
-   индексный сегмент пути расширения `SignalValue` не требует.
-5. **Пройденная ячейка почти ничего не доказывает.** 403 не отличает «отказано,
-   потому что чужой тенант» от «отказано, потому что роль не та» и от «такого объекта
-   нет». Формулировка для отчёта — «нарушений на объявленных объектах не обнаружено»,
-   а не «изоляция работает». Для будущего evidence-pack это разница между
-   свидетельством и его имитацией.
-6. **Всё, что про состояние во времени.** Распространение самоисключения между
-   брендами (§2.3), дедупликация аккаунтов по доменам, ретеншен — это не доступ,
-   а поведение системы после записи. Вне области инструмента по определению.
-7. **Доступ, идущий мимо API оператора.** Консоль KYC-провайдера, портал платёжного
-   шлюза, BI поверх реплики, доступ инспектора MGA к реплицированным данным. Матрица
-   доступа платформы про них ничего не знает.
+1. **The contours of the game provider, the payment gateway and KYC — entirely.** These
+   are POSTs, incoming from the outside, authenticated by a signature rather than a
+   session, and they change the balance. Three invariants are against it at once: safe
+   by default (GET/HEAD only), the absence of any notion of a "signing key" in the
+   account model, and the prohibition on actions with irreversible consequences. The
+   tool cannot check that the operator matches `user` against the owner of the `token`,
+   and must not: the only way to check it is to perform a debit.
+2. **The correctness of an aggregate.** "The holding sees the aggregate for brand A
+   instead of its own" — a 200 and a number in both cases. `count` does not save it:
+   aggregation collapses the rows, and the number of elements does not change. A
+   fundamentally invisible class.
+3. **Attribution of a leak.** `digest` answers "are the bytes the same", not "whose data
+   is inside". The tool is capable of stating "two tenants saw one and the same thing";
+   the conclusion "brand A saw brand B's players" is drawn by a human.
+4. **A field inside an element of a list.** `present` resolves a path through objects
+   only: `resolvePath` returns `undefined` as soon as it meets an array
+   (`src/adapters/signals.ts`). So "an `email` column appeared in the affiliate's
+   report" — which is exactly §3.1 and API3:2023 — is not checked today. Only a field at
+   the top level of the response object is visible. This is a limitation of the
+   implementation, not of an invariant: an index segment in the path does not require
+   extending `SignalValue`.
+5. **A cell that passed proves almost nothing.** A 403 does not distinguish "denied
+   because the tenant is foreign" from "denied because the role is wrong" and from
+   "there is no such resource". The wording for the report is "no violations were found
+   on the declared resources", not "isolation works". For a future evidence pack this is
+   the difference between evidence and an imitation of it.
+6. **Everything about state over time.** The propagation of self-exclusion between
+   brands (§2.3), deduplication of accounts across domains, retention — this is not
+   access but the behaviour of the system after a write. Outside the tool's scope by
+   definition.
+7. **Access that goes around the operator's API.** The KYC provider's console, the
+   payment gateway's portal, BI over the replica, an MGA inspector's access to the
+   replicated data. The platform's access matrix knows nothing about them.
 
-### Что предметная область говорит о модели инструмента
+### What the domain says about the tool's model
 
-Три расхождения, зафиксированных как наблюдения, — без предложения менять код.
+Three discrepancies, recorded as observations — with no proposal to change the code.
 
-**Контуры вложены, а ось тенанта одна.** `relationOf` сравнивает `tenantId` аккаунта
-и ресурса (`src/core/types.ts`), давая три значения. Реальная иерархия — группа →
-лицензиат → бренд → аффилиат → игрок, и роль «чужого» зависит от того, на каком
-уровне смотреть. Два аффилиата одного бренда — это `same-tenant`, а значит,
-`identical-response-across-tenants` на них не сработает, хотя утечка между аффилиатами
-не менее серьёзна, чем между брендами. Объявить аффилиата отдельным тенантом можно,
-но тогда пара «оператор бренда ↔ его аффилиат» станет `foreign-tenant`, что неверно:
-оператору его аффилиат положен. Одной осью предметная область не выражается —
-по крайней мере, без соглашения о том, какой именно контур считается тенантом
-в конкретном прогоне. Такое соглашение стоит записать явно, хотя бы в примерах.
+**The contours are nested, and the tenant axis is one.** `relationOf` compares the
+`tenantId` of the account and of the resource (`src/core/types.ts`), giving three
+values. The real hierarchy is group → licensee → brand → affiliate → player, and the
+role of "the foreign one" depends on which tier you look from. Two affiliates of one
+brand are `same-tenant`, which means `identical-response-across-tenants` will not fire
+on them, although a leak between affiliates is no less serious than one between brands.
+Declaring an affiliate a separate tenant is possible, but then the pair "a brand's
+operator ↔ its own affiliate" becomes `foreign-tenant`, which is wrong: the operator is
+entitled to its affiliate. One axis does not express the domain — at least not without a
+convention about which contour exactly counts as the tenant in a given run. Such a
+convention is worth writing down explicitly, at least in the examples.
 
-**Бренд часто определяется хостом, а цель одна.** В конфигурации один `target.baseUrl`
-и один список `allowedHosts` (ADR-0008, там же в последствиях: «пересмотреть, если
-появится потребность в нескольких целях в одном прогоне»). Между тем бренд по
-поддомену — типовой случай (§2.2), и самый интересный запрос — «токен бренда A,
-Host бренда B» — сейчас невыразим. Это, вероятно, самый дешёвый способ приблизить
-инструмент к предметной области: хост как часть описания ресурса, а не только цели.
+**A brand is often determined by the host, while the target is one.** The configuration
+has one `target.baseUrl` and one `allowedHosts` list (ADR-0008, in its consequences:
+"revisit if a need for several targets in one run appears"). Meanwhile a brand by
+subdomain is the typical case (§2.2), and the most interesting request — "brand A's
+token, brand B's Host" — is not expressible today. This is probably the cheapest way to
+bring the tool closer to the domain: the host as part of the description of a resource,
+not only of the target.
 
-**Отображение на пункты стандартов уже есть куда делать.** `CheckRegistry` требует
-у проверки маппинг на пункты внешних стандартов, и подходящий перечень найден:
-RTS section 4 называет контроли ISO/IEC 27001:2022 поимённо (5.15, 5.16, 5.17, 5.18,
-8.2, 8.15), а GLI-19 даёт §B.2.3, §C.2.3, §B.3.2, §B.5.3. Для модуля 2 это готовые
-якоря, не требующие покупки стандарта.
+**There is already somewhere to map onto items of standards.** `CheckRegistry` requires
+a check to carry a mapping onto items of external standards, and a suitable list has
+been found: RTS section 4 names the ISO/IEC 27001:2022 controls one by one (5.15, 5.16,
+5.17, 5.18, 8.2, 8.15), and GLI-19 gives §B.2.3, §C.2.3, §B.3.2, §B.5.3. For module 2
+these are ready anchors that do not require buying a standard.
 
 ---
 
-## Источники
+## Sources
 
-Регуляторы и стандарты:
+Regulators and standards:
 
 - [MGA — Technical Infrastructure hosting Gaming and Control Systems (Remote Gaming)](https://www.mga.org.mt/app/uploads/Technical-Infrastructure-hosting-Gaming-and-Control-Systems-Remote-Gaming.pdf)
 - [MGA — B2B licences: game providers and back office](https://www.mga.org.mt/licensee-hub/applications/b2b-licences/game-providers-and-back-office/)
@@ -596,28 +621,28 @@ RTS section 4 называет контроли ISO/IEC 27001:2022 поимён�
 - [GDPR Recital 48](https://gdpr-info.eu/recitals/no-48/)
 - [ICO — action against Sky Betting and Gaming (2024)](https://ico.org.uk/about-the-ico/media-centre/news-and-blogs/2024/09/action-taken-against-sky-betting-and-gaming-for-using-cookies-without-consent/)
 
-Техническая документация интеграций:
+Technical documentation of integrations:
 
 - [Hub88 — Wallet API](https://docs.hub88.io/developer-docs/operator-api-reference/wallet-api), [Getting started](https://docs.hub88.io/developer-docs/operator-api-reference/getting-started), [TransferWallet API](https://docs.hub88.io/developer-docs/operator-api-reference/transferwallet-api)
-- [Praxis Cashier — payment notification](https://doc.cashier-test.com/integration_docs/3.4/payment_api/notification), [актуальная документация](https://docs.praxis.tech/)
+- [Praxis Cashier — payment notification](https://doc.cashier-test.com/integration_docs/3.4/payment_api/notification), [current documentation](https://docs.praxis.tech/)
 - [Sumsub — Webhook manager](https://docs.sumsub.com/docs/webhook-manager)
 - [TheAffiliatePlatform — Reporting interfaces / BI](https://help.theaffiliateplatform.com/reporting/reporting-interfaces-bi.md), [Affiliate Account](https://help.theaffiliateplatform.com/affiliate-platform/affiliate-account)
 
-Модели изоляции:
+Isolation models:
 
 - [AWS — SaaS Tenant Isolation Strategies: the isolation mindset](https://docs.aws.amazon.com/whitepapers/latest/saas-tenant-isolation-strategies/the-isolation-mindset.html)
 - [AWS — SaaS Architecture Fundamentals: tenant isolation](https://docs.aws.amazon.com/whitepapers/latest/saas-architecture-fundamentals/tenant-isolation.html)
 - [OWASP API Security Top 10 2023](https://owasp.org/API-Security/editions/2023/en/0x11-t10/)
 
-Инциденты:
+Incidents:
 
-- [Security Affairs — утечка данных группы онлайн-казино (2019)](https://securityaffairs.com/80173/data-breach/online-casinos-data-leak.html)
-- [TechCrunch — открытая база приложения казино (2024)](https://techcrunch.com/2024/02/09/winstar-hotel-casino-app-exposed-customer-personal-data/)
-- [BleepingComputer — ransomware у SBTech по данным SEC-документа (2020)](https://www.bleepingcomputer.com/news/security/draftkings-discloses-sbtech-ransomware-attack-in-sec-filing/)
-- [The Register — инцидент у Bragg Gaming Group (2025)](https://www.theregister.com/2025/08/19/bragg_attack/)
-- [UKGC — штраф 888 (2017)](https://www.gamblingcommission.gov.uk/news/article/gambling-firm-888-to-pay-over-gbp7-8million-for-failing-vulnerable-customers), [штраф группе William Hill (2023)](https://www.gamblingcommission.gov.uk/news/article/william-hill-group-businesses-to-pay-record-gbp19-2m-for-failures)
+- [Security Affairs — data leak at a group of online casinos (2019)](https://securityaffairs.com/80173/data-breach/online-casinos-data-leak.html)
+- [TechCrunch — an open database of a casino app (2024)](https://techcrunch.com/2024/02/09/winstar-hotel-casino-app-exposed-customer-personal-data/)
+- [BleepingComputer — ransomware at SBTech, per an SEC filing (2020)](https://www.bleepingcomputer.com/news/security/draftkings-discloses-sbtech-ransomware-attack-in-sec-filing/)
+- [The Register — incident at Bragg Gaming Group (2025)](https://www.theregister.com/2025/08/19/bragg_attack/)
+- [UKGC — the 888 fine (2017)](https://www.gamblingcommission.gov.uk/news/article/gambling-firm-888-to-pay-over-gbp7-8million-for-failing-vulnerable-customers), [the fine on the William Hill group (2023)](https://www.gamblingcommission.gov.uk/news/article/william-hill-group-businesses-to-pay-record-gbp19-2m-for-failures)
 
-Вендорские материалы (маркетинг, не источник фактов о конкретных реализациях):
+Vendor materials (marketing, not a source of facts about particular implementations):
 
 - [SOFTSWISS — what is a white label solution](https://www.softswiss.com/knowledge-base/what-is-white-label-solution/)
 - [PartnerMatrix — agent management system](https://partnermatrix.com/agent-system/)

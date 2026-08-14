@@ -12,7 +12,7 @@ import { accounts, cleanObservations, endpoints, observe } from "../fixtures/sce
 const input = { endpoints, accounts, observations: cleanObservations };
 
 describe("buildAccessMatrix", () => {
-  it("собирает матрицу из корректного входа", () => {
+  it("builds a matrix from valid input", () => {
     const matrix = buildAccessMatrix(input);
 
     expect(matrix.endpoints).toHaveLength(4);
@@ -20,16 +20,16 @@ describe("buildAccessMatrix", () => {
     expect(matrix.observations).toHaveLength(16);
   });
 
-  it("отвергает дублирующийся id эндпоинта независимо от остальных полей", () => {
+  it("rejects a duplicate endpoint id regardless of the other fields", () => {
     expect(() => {
       buildAccessMatrix({
         ...input,
-        endpoints: [...endpoints, { id: "ep.profile.read", method: "HEAD", path: "/другой" }],
+        endpoints: [...endpoints, { id: "ep.profile.read", method: "HEAD", path: "/other" }],
       });
     }).toThrow(DuplicateIdError);
   });
 
-  it("отвергает дублирующийся id аккаунта независимо от роли и тенанта", () => {
+  it("rejects a duplicate account id regardless of role and tenant", () => {
     expect(() => {
       buildAccessMatrix({
         ...input,
@@ -38,7 +38,7 @@ describe("buildAccessMatrix", () => {
     }).toThrow(DuplicateIdError);
   });
 
-  it("отвергает наблюдение о неизвестном аккаунте", () => {
+  it("rejects an observation about an unknown account", () => {
     expect(() => {
       buildAccessMatrix({
         ...input,
@@ -47,7 +47,7 @@ describe("buildAccessMatrix", () => {
     }).toThrow(UnknownReferenceError);
   });
 
-  it("отвергает наблюдение о неизвестном эндпоинте", () => {
+  it("rejects an observation about an unknown endpoint", () => {
     expect(() => {
       buildAccessMatrix({
         ...input,
@@ -56,7 +56,7 @@ describe("buildAccessMatrix", () => {
     }).toThrow(UnknownReferenceError);
   });
 
-  it("отвергает два наблюдения для одной пары: вердикт был бы неопределённым", () => {
+  it("rejects two observations for one pair: the verdict would be undefined", () => {
     expect(() => {
       buildAccessMatrix({
         ...input,
@@ -67,14 +67,14 @@ describe("buildAccessMatrix", () => {
 });
 
 describe("indexObservations", () => {
-  it("находит наблюдение по паре «аккаунт × эндпоинт»", () => {
+  it("finds an observation by the account x endpoint pair", () => {
     const index = indexObservations(buildAccessMatrix(input));
 
     expect(findObservation(index, "acc.player.a", "ep.wallet.read")?.outcome).toBe("allowed");
     expect(findObservation(index, "acc.support.a", "ep.wallet.read")?.outcome).toBe("denied");
   });
 
-  it("возвращает undefined для непокрытой пары, а не выдумывает исход", () => {
+  it("returns undefined for an uncovered pair instead of inventing an outcome", () => {
     const index = indexObservations(
       buildAccessMatrix({
         ...input,
@@ -86,7 +86,7 @@ describe("indexObservations", () => {
     expect(findObservation(index, "acc.admin.a", "ep.profile.read")).toBeUndefined();
   });
 
-  it("не путает аккаунты с похожими идентификаторами", () => {
+  it("does not confuse accounts with similar identifiers", () => {
     const index = indexObservations(
       buildAccessMatrix({
         endpoints: [{ id: "ep.x", method: "GET", path: "/x" }],

@@ -1,45 +1,48 @@
-# Ручной список эндпоинтов референс-платформы.
+# The hand-written list of the reference platform's endpoints.
 #
-# Источник для `barbican run --endpoints`. Это объявление человека, а не выгрузка
-# из кода платформы: спецификация, порождённая из той же реализации, превратила бы
-# проверку в сверку реализации с самой собой (ADR-0006).
+# The source for `barbican run --endpoints`. This is a human's declaration, not a
+# dump from the platform's code: a specification generated from the same
+# implementation would turn the check into a comparison of the implementation with
+# itself (ADR-0006).
 endpoints:
-  # Публичная ручка. Контроль: её статус не меняет ни один флаг дефекта.
+  # A public endpoint. A control: its status is not changed by a single defect flag.
   - id: health
     method: GET
     path: /v1/health
 
-  # Список без параметров. Канарейка: отвечает 200 только с рабочим токеном.
+  # A list with no parameters. A canary: it answers 200 only with a working token.
   - id: orders.list
     method: GET
     path: /v1/orders
 
-  # Ручка с параметром пути — на ней живут BOLA и межтенантная утечка.
+  # An endpoint with a path parameter — BOLA and the cross-tenant leak live on it.
   - id: orders.read
     method: GET
     path: /v1/orders/{orderId}
 
-  # Сводные расчётные документы уровня тенанта. Единственное место, где возникает
-  # отношение `ancestor-tenant`: документ принадлежит тенанту целиком, поэтому для
-  # аккаунта, сидящего ниже, он лежит **выше** по дереву. Параметр называется иначе,
-  # чем у заказов, и это не косметика: объект привязывается к ручке по совпадению
-  # имён параметров, так что заказы сюда не подставляются, а документ — в заказы.
+  # Tenant-level summary settlement statements. The only place where the relation
+  # `ancestor-tenant` arises: a statement belongs to the tenant as a whole, so for an
+  # account sitting lower it lies **higher** up the tree. The parameter is named
+  # differently from the orders' one, and that is not cosmetic: a resource is bound
+  # to an endpoint by matching parameter names, so orders are not substituted in here,
+  # nor a statement into the orders.
   #
-  # Документов два — брендовый и холдинговый, — и оба на одной ручке намеренно:
-  # так «раскрытие на один уровень вверх» и «раскрытие на всю цепочку предков»
-  # различаются только глубиной дерева, а не адресом.
+  # There are two statements — the brand's and the holding's — and both are on one
+  # endpoint deliberately: that way "disclosure one level up" and "disclosure along
+  # the whole chain of ancestors" differ only by the depth of the tree, not by the
+  # address.
   - id: statements.read
     method: GET
     path: /v1/statements/{statementId}
 
-  # Собственная статистика аффилиата. Канарейка его аккаунта: единственная ручка,
-  # где его токен обязан дать 200. Без неё канарейкой пришлось бы делать `health`,
-  # который отвечает 200 и вовсе без токена, — то есть не проверяет ничего.
+  # The affiliate's own statistics. The canary of its account: the only endpoint
+  # where its token must give 200. Without it the canary would have to be `health`,
+  # which answers 200 without a token at all — that is, tests nothing.
   - id: affiliate.stats
     method: GET
     path: /v1/affiliate/stats
 
-  # Админская ручка: на ней виден дефект отключённой проверки роли.
+  # The admin endpoint: the defect of the switched-off role check is visible on it.
   - id: admin.accounts
     method: GET
     path: /v1/admin/accounts

@@ -1,8 +1,9 @@
 /**
- * Тесты разбора конфигурации.
+ * Configuration parsing tests.
  *
- * Отдельное внимание — тому, что токены не попадают в саму конфигурацию:
- * её сериализуют в отчёт, и утёкший туда токен пережил бы прогон.
+ * Special attention goes to keeping tokens out of the configuration itself:
+ * it is serialized into the report, and a token leaked there would outlive
+ * the run.
  */
 
 import { describe, expect, it } from "vitest";
@@ -52,8 +53,8 @@ policy:
     - { roles: [admin], endpoints: "*", outcome: allowed }
 `;
 
-describe("разбор корректной конфигурации", () => {
-  it("читает цель, аккаунты и политику", () => {
+describe("parsing a valid configuration", () => {
+  it("reads the target, the accounts and the policy", () => {
     const config = parseRunConfig(VALID);
 
     expect(config.target.baseUrl).toBe("https://staging.example.test/api");
@@ -63,7 +64,7 @@ describe("разбор корректной конфигурации", () => {
     expect(config.policy.rules).toHaveLength(2);
   });
 
-  it("принимает JSON наравне с YAML", () => {
+  it("accepts JSON on par with YAML", () => {
     const json = JSON.stringify({
       target: { baseUrl: "http://localhost:3000", allowedHosts: ["localhost"] },
       accounts: [{ id: "a", role: "player", tenant: "t", tokenEnv: "T" }],
@@ -73,7 +74,7 @@ describe("разбор корректной конфигурации", () => {
     expect(parseRunConfig(json).accounts).toHaveLength(1);
   });
 
-  it("приводит аккаунты к доменному типу ядра", () => {
+  it("converts accounts to the core's domain type", () => {
     expect(toAccounts(parseRunConfig(VALID)).accounts).toEqual([
       { id: "player-a", roleId: "player", tenantId: "tenant-a" },
       { id: "admin-a", roleId: "admin", tenantId: "tenant-a" },
@@ -81,14 +82,14 @@ describe("разбор корректной конфигурации", () => {
   });
 });
 
-describe("область проверки", () => {
-  it("отвергает baseUrl, хост которого не объявлен", () => {
+describe("the scope of the check", () => {
+  it("rejects a baseUrl whose host is not declared", () => {
     const config = VALID.replace("staging.example.test/api", "other.example.test/api");
 
     expect(() => parseRunConfig(config)).toThrow(HostOutsideScopeError);
   });
 
-  it("не даёт опечатке в адресе молча расширить область", () => {
+  it("does not let a typo in the address widen the scope silently", () => {
     const config = `
 target:
   baseUrl: https://stagng.example.test
@@ -100,21 +101,21 @@ policy: { fallback: denied, rules: [] }
     expect(() => parseRunConfig(config)).toThrow(HostOutsideScopeError);
   });
 
-  it("требует непустой allowedHosts", () => {
+  it("requires a non-empty allowedHosts", () => {
     const config = VALID.replace("allowedHosts: [staging.example.test]", "allowedHosts: []");
 
     expect(() => parseRunConfig(config)).toThrow(ConfigValidationError);
   });
 
-  it("отвергает протоколы кроме http и https", () => {
+  it("rejects protocols other than http and https", () => {
     const config = VALID.replace("https://staging.example.test/api", "ftp://staging.example.test");
 
     expect(() => parseRunConfig(config)).toThrow(ConfigValidationError);
   });
 });
 
-describe("проверка схемы", () => {
-  it("сообщает путь до отсутствующего поля", () => {
+describe("schema validation", () => {
+  it("reports the path to the missing field", () => {
     const config = `
 target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
 accounts: [{ id: a, tenant: t, tokenEnv: T }]
@@ -124,31 +125,31 @@ policy: { fallback: denied, rules: [] }
     expect(() => parseRunConfig(config)).toThrow(/accounts/);
   });
 
-  it("требует хотя бы один аккаунт: матрицу не построить ни от кого", () => {
+  it("requires at least one account: there is nobody to build the matrix from", () => {
     const config = VALID.replace(/accounts:[\s\S]*?policy:/, "accounts: []\npolicy:");
 
     expect(() => parseRunConfig(config)).toThrow(ConfigValidationError);
   });
 
-  it("отвергает неизвестный исход в политике", () => {
+  it("rejects an unknown outcome in the policy", () => {
     const config = VALID.replace("outcome: allowed", "outcome: maybe");
 
     expect(() => parseRunConfig(config)).toThrow(ConfigValidationError);
   });
 
-  it("отвергает повторяющийся id аккаунта", () => {
+  it("rejects a duplicate account id", () => {
     const config = VALID.replace("id: admin-a", "id: player-a");
 
     expect(() => parseRunConfig(config)).toThrow(DuplicateAccountIdError);
   });
 
-  it("сообщает о неразбираемом документе", () => {
-    expect(() => parseRunConfig("target: [не закрыт")).toThrow(ConfigParseError);
+  it("reports an unparseable document", () => {
+    expect(() => parseRunConfig("target: [unclosed")).toThrow(ConfigParseError);
   });
 });
 
-describe("учётные данные", () => {
-  it("берёт токены из окружения, а не из файла", () => {
+describe("credentials", () => {
+  it("takes tokens from the environment, not from the file", () => {
     const config = parseRunConfig(VALID);
 
     const tokens = resolveTokens(config, {
@@ -160,19 +161,19 @@ describe("учётные данные", () => {
     expect(tokens.get("admin-a")).toBe("admin-secret-token");
   });
 
-  it("не оставляет токен в самой конфигурации", () => {
+  it("leaves no token in the configuration itself", () => {
     const config = parseRunConfig(VALID);
     resolveTokens(config, {
       TOKEN_PLAYER_A: "player-secret-token",
       TOKEN_ADMIN_A: "admin-secret-token",
     });
 
-    // Конфигурация сериализуется в отчёт: токена в ней быть не должно.
+    // The configuration is serialized into the report: no token may be in it.
     expect(JSON.stringify(config)).not.toContain("player-secret-token");
     expect(JSON.stringify(config)).toContain("TOKEN_PLAYER_A");
   });
 
-  it("падает на старте, если переменная не задана", () => {
+  it("fails at startup when the variable is not set", () => {
     const config = parseRunConfig(VALID);
 
     expect(() => resolveTokens(config, { TOKEN_PLAYER_A: "present" })).toThrow(
@@ -180,20 +181,22 @@ describe("учётные данные", () => {
     );
   });
 
-  it("отвергает токен, непригодный как значение HTTP-заголовка", () => {
+  it("rejects a token unusable as an HTTP header value", () => {
     const config = parseRunConfig(VALID);
 
-    // Кириллица и переносы строк ломают заголовок. Падать надо на старте,
-    // а не десятками одинаковых сбоев посреди прогона.
-    expect(() =>
-      resolveTokens(config, { TOKEN_PLAYER_A: "кириллица", TOKEN_ADMIN_A: "ok" }),
-    ).toThrow(InvalidCredentialError);
+    // A value outside printable ASCII, and a line break, both break the header.
+    // It has to fail at startup, not as dozens of identical failures in the
+    // middle of the run. The fixture stays non-ASCII deliberately: replace it
+    // with a Latin string and the check proves nothing.
+    expect(() => resolveTokens(config, { TOKEN_PLAYER_A: "日本語", TOKEN_ADMIN_A: "ok" })).toThrow(
+      InvalidCredentialError,
+    );
     expect(() =>
       resolveTokens(config, { TOKEN_PLAYER_A: "with\nnewline", TOKEN_ADMIN_A: "ok" }),
     ).toThrow(InvalidCredentialError);
   });
 
-  it("считает пустую переменную отсутствующей", () => {
+  it("treats an empty variable as absent", () => {
     const config = parseRunConfig(VALID);
 
     expect(() =>
@@ -202,17 +205,19 @@ describe("учётные данные", () => {
   });
 });
 
-describe("scope принимает все отношения", () => {
+describe("scope accepts every relation", () => {
   /**
-   * Прямая защита от расхождения схемы с типом. Оно уже случилось: при вводе
-   * иерархии `ResourceRelation` вырос до пяти значений, а рукописное
-   * zod-перечисление осталось трёхзначным — и вся возможность оказалась
-   * недостижима через CLI, хотя ядро её понимало.
+   * Direct protection against the schema drifting from the type. That has
+   * already happened: when the hierarchy came in, `ResourceRelation` grew to
+   * five values while the hand-written zod enum stayed at three — and the
+   * whole feature became unreachable through the CLI, though the core
+   * understood it.
    *
-   * Юнит-тесты ядра этого не ловили: они собирают политику объектом на
-   * TypeScript, минуя zod. Путь «YAML → политика» не проверялся ничем.
+   * The core unit tests did not catch this: they build the policy as a
+   * TypeScript object, bypassing zod. Nothing checked the path
+   * "YAML -> policy".
    */
-  it.each(RESOURCE_RELATIONS)("принимает scope: %s", (relation) => {
+  it.each(RESOURCE_RELATIONS)("accepts scope: %s", (relation) => {
     const config = `
 target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
 accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
@@ -226,7 +231,7 @@ policy:
   });
 });
 
-describe("дерево тенантов", () => {
+describe("the tenant tree", () => {
   const HOLDINGS = `
 target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
 accounts:
@@ -239,7 +244,7 @@ tenants:
 policy: { fallback: denied, rules: [] }
 `;
 
-  it("читает родство из развёрнутой формы", () => {
+  it("reads kinship from the expanded form", () => {
     expect(parseRunConfig(HOLDINGS).tenants).toEqual([
       { id: "holding-1" },
       { id: "brand-a", parentId: "holding-1" },
@@ -248,8 +253,8 @@ policy: { fallback: denied, rules: [] }
     ]);
   });
 
-  /** Краткая форма означает лес из корней — поведение до ADR-0013. */
-  it("принимает прежнюю краткую форму", () => {
+  /** The short form means a forest of roots — the behaviour before ADR-0013. */
+  it("accepts the former short form", () => {
     const config = parseRunConfig(
       HOLDINGS.replace(/tenants:[\s\S]*?policy:/, "tenants: [holding-1]\npolicy:"),
     );
@@ -258,17 +263,17 @@ policy: { fallback: denied, rules: [] }
   });
 
   /**
-   * Опечатка в родителе делает тенанта отдельным корнем: «свой бренд»
-   * превращается в «чужой», правило перестаёт применяться, находка исчезает.
-   * Падать обязано на старте, а не молча менять смысл.
+   * A typo in the parent makes the tenant a root of its own: "our own brand"
+   * turns into "a foreign one", the rule stops applying, the finding vanishes.
+   * It must fail at startup instead of silently changing the meaning.
    */
-  it("отвергает опечатку в родителе до выхода в сеть", () => {
+  it("rejects a typo in the parent before going to the network", () => {
     expect(() =>
       parseRunConfig(HOLDINGS.replace("parent: holding-1", "parent: holding-l")),
     ).toThrow(UnknownParentTenantError);
   });
 
-  describe("свой адрес у тенанта", () => {
+  describe("a tenant with an address of its own", () => {
     const WITH_URLS = `
 target: { baseUrl: "https://api.example.test", allowedHosts: [api.example.test, a.example.test] }
 accounts:
@@ -278,27 +283,27 @@ tenants:
 policy: { fallback: denied, rules: [] }
 `;
 
-    it("читает адрес бренда", () => {
+    it("reads the brand's address", () => {
       expect(parseRunConfig(WITH_URLS).tenants).toEqual([
         { id: "brand-a", baseUrl: "https://a.example.test" },
       ]);
     });
 
-    /** Область проверки одна на прогон: объявление тенанта её не расширяет. */
-    it("отвергает адрес тенанта вне allowedHosts", () => {
+    /** The scope is one per run: declaring a tenant does not widen it. */
+    it("rejects a tenant address outside allowedHosts", () => {
       expect(() =>
         parseRunConfig(WITH_URLS.replace('https://a.example.test"', 'https://c.example.test"')),
       ).toThrow(HostOutsideScopeError);
     });
 
-    it("отвергает учётные данные в адресе тенанта", () => {
+    it("rejects credentials in a tenant address", () => {
       expect(() =>
         parseRunConfig(WITH_URLS.replace('https://a.example.test"', 'https://u:p@a.example.test"')),
       ).toThrow(CredentialsInUrlError);
     });
   });
 
-  it("отвергает цикл в дереве", () => {
+  it("rejects a cycle in the tree", () => {
     const cyclic = HOLDINGS.replace(
       "  - { id: holding-1 }",
       "  - { id: holding-1, parent: brand-a }",
@@ -308,7 +313,7 @@ policy: { fallback: denied, rules: [] }
   });
 });
 
-describe("объекты обращения", () => {
+describe("resources", () => {
   const WITH_RESOURCES = `
 target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
 accounts:
@@ -323,7 +328,7 @@ policy:
     - { roles: [player], endpoints: [profile], scope: own, outcome: allowed }
 `;
 
-  it("читает объекты с владельцем, параметрами и запросом", () => {
+  it("reads resources with an owner, parameters and a query", () => {
     const config = parseRunConfig(WITH_RESOURCES);
 
     expect(config.resources).toEqual([
@@ -338,38 +343,38 @@ policy:
     ]);
   });
 
-  it("читает область действия правила", () => {
+  it("reads the scope of a rule", () => {
     expect(parseRunConfig(WITH_RESOURCES).policy.rules[0]?.scope).toBe("own");
   });
 
-  it("отвергает неизвестное отношение", () => {
-    expect(() => parseRunConfig(WITH_RESOURCES.replace("scope: own", "scope: чужое"))).toThrow(
-      ConfigValidationError,
-    );
+  it("rejects an unknown relation", () => {
+    expect(() =>
+      parseRunConfig(WITH_RESOURCES.replace("scope: own", "scope: not-a-relation")),
+    ).toThrow(ConfigValidationError);
   });
 
-  // Иначе отношение «своё или чужое» стало бы неопределённым молча.
-  it("отвергает объект, объявленный принадлежащим несуществующему аккаунту", () => {
+  // Otherwise the relation "own or foreign" would become undefined silently.
+  it("rejects a resource declared to belong to a non-existent account", () => {
     expect(() =>
-      parseRunConfig(WITH_RESOURCES.replace("owner: player-a", "owner: нет-такого")),
+      parseRunConfig(WITH_RESOURCES.replace("owner: player-a", "owner: no-such-account")),
     ).toThrow(UnknownResourceOwnerError);
   });
 
-  // Найдено при сборке референс-платформы: дубль объекта сообщал про аккаунт
-  // и отправлял читателя не в ту секцию конфигурации.
-  it("отвергает повторяющийся id объекта и говорит именно об объекте", () => {
+  // Found while building the reference platform: a duplicate resource reported
+  // an account and sent the reader to the wrong section of the configuration.
+  it("rejects a duplicate resource id and says it is about a resource", () => {
     const broken = () => parseRunConfig(WITH_RESOURCES.replace("id: foreign", "id: mine"));
 
     expect(broken).toThrow(DuplicateResourceIdError);
     expect(broken).toThrow(/A resource with id/);
   });
 
-  it("без объектов список пуст, а не отсутствует", () => {
+  it("with no resources the list is empty, not absent", () => {
     expect(parseRunConfig(VALID).resources).toEqual([]);
   });
 });
 
-describe("анонимный аккаунт", () => {
+describe("the anonymous account", () => {
   const ANON = `
 target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
 accounts:
@@ -378,14 +383,14 @@ accounts:
 policy: { fallback: denied, rules: [] }
 `;
 
-  it("допускает аккаунт без переменной с токеном", () => {
+  it("allows an account without a token variable", () => {
     const config = parseRunConfig(ANON);
 
     expect(config.accounts[0]?.tokenEnv).toBeUndefined();
   });
 
-  // Без этого нельзя проверить утверждение «этот адрес не должен быть публичным».
-  it("не требует учётных данных для анонимного аккаунта", () => {
+  // Without it the claim "this address must not be public" cannot be checked.
+  it("requires no credentials for an anonymous account", () => {
     const tokens = resolveTokens(parseRunConfig(ANON), { TOK_A: "value" });
 
     expect(tokens.has("anon")).toBe(false);
@@ -393,11 +398,12 @@ policy: { fallback: denied, rules: [] }
   });
 
   /**
-   * Тенанта у анонима нет, и поле не подставляется заглушкой: служебное имя
-   * вроде `none` лежало бы в одном пространстве значений с настоящими именами,
-   * и платформа с тенантом `none` получила бы аноним в соседи — молча.
+   * An anonymous account has no tenant, and the field is not filled with a
+   * placeholder: a reserved name like `none` would sit in the same value space
+   * as real names, and on a platform with a tenant called `none` the anonymous
+   * account would become a neighbor inside it — silently.
    */
-  it("оставляет аккаунт без тенанта без поля tenantId", () => {
+  it("leaves an account without a tenant with no tenantId field", () => {
     expect(toAccounts(parseRunConfig(ANON)).accounts).toEqual([
       { id: "anon", roleId: "guest" },
       { id: "player-a", roleId: "player", tenantId: "tenant-a" },
@@ -405,9 +411,9 @@ policy: { fallback: denied, rules: [] }
     expect(toAccounts(parseRunConfig(ANON)).accounts[0]).not.toHaveProperty("tenantId");
   });
 
-  // Он объявлен вне тенантов, а не отнесён к какому-то из них: требовать для
-  // него строки в перечне значило бы вернуть сентинел через чёрный ход.
-  it("не требует записи в перечне tenants, оставляя сверку строгой для прочих", () => {
+  // It is declared outside of tenants, not assigned to one of them: requiring
+  // a line for it in the list would bring the sentinel back through a back door.
+  it("needs no entry in tenants while keeping the check strict for the rest", () => {
     const strict = `${ANON}tenants: [tenant-a]\n`;
 
     expect(() => parseRunConfig(strict)).not.toThrow();
@@ -417,7 +423,7 @@ policy: { fallback: denied, rules: [] }
   });
 });
 
-describe("сверка ссылок на эндпоинты", () => {
+describe("checking endpoint references", () => {
   const endpoints = [
     { id: "orders.read", method: "GET", path: "/v1/orders/{orderId}" },
     { id: "me", method: "GET", path: "/v1/me" },
@@ -435,13 +441,13 @@ policy:
     - { roles: [player], endpoints: [orders.read], scope: own, outcome: allowed }
 `;
 
-  it("пропускает корректные ссылки", () => {
+  it("lets valid references through", () => {
     expect(() => assertReferencesResolve(parseRunConfig(base), endpoints)).not.toThrow();
   });
 
-  // Найдено прогоном против crAPI: опечатка в ресурсе молча теряла четыре
-  // находки BOLA, а объект оставался в отчёте как объявленный.
-  it("отвергает опечатку в ссылке объекта", () => {
+  // Found by a run against crAPI: a typo in a resource silently lost four BOLA
+  // findings, while the resource stayed in the report as declared.
+  it("rejects a typo in a resource's reference", () => {
     const config = parseRunConfig(
       base.replace("endpoints: [orders.read]", "endpoints: [orders.raed]"),
     );
@@ -449,9 +455,9 @@ policy:
     expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnknownEndpointReferenceError);
   });
 
-  // Тот же прогон, обратный исход: опечатка в правиле ФАБРИКОВАЛА находки —
-  // чтение пользователем своего заказа объявлялось эскалацией привилегий.
-  it("отвергает опечатку в правиле политики", () => {
+  // The same run, the opposite outcome: a typo in a rule FABRICATED findings —
+  // a user reading their own order was declared a privilege escalation.
+  it("rejects a typo in a policy rule", () => {
     const config = parseRunConfig(
       base.replace("endpoints: [orders.read], scope", "endpoints: [orders_read], scope"),
     );
@@ -459,17 +465,18 @@ policy:
     expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnknownEndpointReferenceError);
   });
 
-  it("отвергает опечатку в канарейке", () => {
+  it("rejects a typo in a canary", () => {
     const config = parseRunConfig(base.replace("canary: me", "canary: mee"));
 
     expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnknownEndpointReferenceError);
   });
 
   /**
-   * Опечатка здесь отказывает молча и закрыто: тело не читается, проверка
-   * не срабатывает, отчёт выглядит чистым. Тот же класс, что опечатка в тенанте.
+   * A typo here fails silently and closed: the body is not read, the check
+   * does not fire, the report looks clean. The same class as a typo in a
+   * tenant name.
    */
-  it("отвергает опечатку в объявлении responseMustDifferByTenant", () => {
+  it("rejects a typo in a responseMustDifferByTenant declaration", () => {
     const config = parseRunConfig(
       `${base}bodySignals: { responseMustDifferByTenant: [orders.raed] }\n`,
     );
@@ -477,7 +484,7 @@ policy:
     expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnknownEndpointReferenceError);
   });
 
-  it("пропускает корректное объявление responseMustDifferByTenant", () => {
+  it("lets a valid responseMustDifferByTenant declaration through", () => {
     const config = parseRunConfig(
       `${base}bodySignals: { responseMustDifferByTenant: [orders.read] }\n`,
     );
@@ -486,14 +493,14 @@ policy:
     expect(() => assertReferencesResolve(config, endpoints)).not.toThrow();
   });
 
-  describe("объявленные скаляры", () => {
+  describe("declared scalars", () => {
     const withSignals = `${base}bodySignals:
   responseMustDifferByTenant: [orders.read]
   signals:
     - { name: orderCount, kind: count, path: orders, endpoints: [orders.read] }
 `;
 
-    it("читает объявленные сигналы", () => {
+    it("reads the declared signals", () => {
       const config = parseRunConfig(withSignals);
 
       expect(config.bodySignals?.signals).toEqual([
@@ -501,7 +508,7 @@ policy:
       ]);
     });
 
-    it("проставляет их эндпоинту вместе с объявлением", () => {
+    it("attaches them to the endpoint along with the declaration", () => {
       const config = parseRunConfig(withSignals);
 
       const marked = applyBodySignals(endpoints, config);
@@ -511,7 +518,7 @@ policy:
       expect(target?.signals).toEqual([{ name: "orderCount", kind: "count", path: "orders" }]);
     });
 
-    it("отвергает опечатку в эндпоинте сигнала", () => {
+    it("rejects a typo in a signal's endpoint", () => {
       const config = parseRunConfig(
         withSignals.replace("endpoints: [orders.read] }", "endpoints: [orders.raed] }"),
       );
@@ -521,8 +528,8 @@ policy:
       );
     });
 
-    /** Имена — ключи в наблюдении: повтор молча затирал бы предыдущий скаляр. */
-    it("отвергает повторяющееся имя сигнала", () => {
+    /** Names are keys in an observation: a repeat would silently overwrite the previous scalar. */
+    it("rejects a duplicate signal name", () => {
       const config = parseRunConfig(
         `${withSignals}    - { name: orderCount, kind: present, path: next, endpoints: [orders.read] }\n`,
       );
@@ -532,7 +539,7 @@ policy:
   });
 
   describe("applyBodySignals", () => {
-    it("проставляет объявление только перечисленным эндпоинтам", () => {
+    it("attaches the declaration only to the listed endpoints", () => {
       const config = parseRunConfig(
         `${base}bodySignals: { responseMustDifferByTenant: [orders.read] }\n`,
       );
@@ -547,8 +554,8 @@ policy:
       ).toHaveLength(1);
     });
 
-    /** Без секции тела не читаются нигде — это и есть «выключено по умолчанию». */
-    it("без секции bodySignals не трогает ничего", () => {
+    /** Without the section bodies are read nowhere — that is what "off by default" means. */
+    it("touches nothing without a bodySignals section", () => {
       const marked = applyBodySignals(endpoints, parseRunConfig(base));
 
       expect(marked).toBe(endpoints);
@@ -556,7 +563,7 @@ policy:
     });
   });
 
-  it("не придирается к правилу с «*»", () => {
+  it('does not nitpick a rule with "*"', () => {
     const config = parseRunConfig(
       base.replace("endpoints: [orders.read], scope: own", 'endpoints: "*"'),
     );
@@ -565,7 +572,7 @@ policy:
   });
 });
 
-describe("тенанты", () => {
+describe("tenants", () => {
   const WITH_TENANTS = `
 tenants: [tenant-a, tenant-b]
 target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
@@ -576,20 +583,20 @@ resources:
 policy: { fallback: denied, rules: [] }
 `;
 
-  it("принимает объявленные тенанты", () => {
+  it("accepts declared tenants", () => {
     expect(() => parseRunConfig(WITH_TENANTS)).not.toThrow();
   });
 
-  // Самое опасное: опечатка не ломает прогон, а ПРЯЧЕТ находку — объект уезжает
-  // в чужой тенант, правило со scope перестаёт применяться, утечка проваливается
-  // в fallback и не попадает в отчёт вовсе.
-  it("отвергает опечатку в тенанте объекта", () => {
+  // The most dangerous case: a typo does not break the run, it HIDES a finding —
+  // the resource moves into a foreign tenant, the rule with a scope stops
+  // applying, the leak falls through to fallback and never reaches the report.
+  it("rejects a typo in a resource's tenant", () => {
     expect(() =>
       parseRunConfig(WITH_TENANTS.replace("mine, tenant: tenant-a", "mine, tenant: tenant-c")),
     ).toThrow(UnknownTenantError);
   });
 
-  it("отвергает опечатку в тенанте аккаунта", () => {
+  it("rejects a typo in an account's tenant", () => {
     expect(() =>
       parseRunConfig(
         WITH_TENANTS.replace("tenant: tenant-a, tokenEnv", "tenant: tenant-x, tokenEnv"),
@@ -597,7 +604,7 @@ policy: { fallback: denied, rules: [] }
     ).toThrow(UnknownTenantError);
   });
 
-  it("срезает пробелы: «tenant-a » и «tenant-a» — один тенант", () => {
+  it('trims spaces: "tenant-a " and "tenant-a" are one tenant', () => {
     const config = parseRunConfig(
       WITH_TENANTS.replace("tenant: tenant-a, owner", 'tenant: "tenant-a ", owner'),
     );
@@ -606,7 +613,7 @@ policy: { fallback: denied, rules: [] }
     expect(toAccounts(config).accounts[0]?.tenantId).toBe("tenant-a");
   });
 
-  it("без объявленного перечня не придирается: объект чужого тенанта законен", () => {
+  it("does not nitpick without a declared list: a foreign tenant's resource is lawful", () => {
     const withoutList = WITH_TENANTS.replace("tenants: [tenant-a, tenant-b]\n", "");
 
     expect(() =>
@@ -615,7 +622,7 @@ policy: { fallback: denied, rules: [] }
   });
 });
 
-describe("схемы аутентификации на аккаунт", () => {
+describe("per-account authentication schemes", () => {
   const MULTI = `
 target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
 
@@ -633,7 +640,7 @@ accounts:
 policy: { fallback: denied, rules: [] }
 `;
 
-  it("разрешает ссылки в схемы, оставляя прочие аккаунты на схеме по умолчанию", () => {
+  it("resolves scheme references and leaves other accounts on the default scheme", () => {
     const config = parseRunConfig(MULTI);
 
     expect(config.auth).toEqual({ kind: "bearer" });
@@ -643,22 +650,22 @@ policy: { fallback: denied, rules: [] }
     ]);
   });
 
-  it("без переопределений карта пуста, а не отсутствует", () => {
-    // CLI передаёт её всегда; отсутствие потребовало бы ветки на вызове.
+  it("with no overrides the map is empty, not absent", () => {
+    // The CLI always passes it; an absent map would need a branch at the call.
     expect(parseRunConfig(VALID).accountAuth.size).toBe(0);
   });
 
-  // Главное утверждение: опечатка в ссылке обязана остановить прогон.
-  // Иначе аккаунт пошёл бы по схеме по умолчанию, получил бы сплошной 401,
-  // а сплошной отказ совпадает с политикой там, где доступ не положен, —
-  // и отчёт вышел бы чистым, ничего не проверив.
-  it("падает на опечатке в имени схемы", () => {
+  // The main claim: a typo in a reference must stop the run. Otherwise the
+  // account would go out with the default scheme, get a solid wall of 401, and
+  // a solid denial matches the policy everywhere access is not meant to be
+  // granted — so the report would come out clean having checked nothing.
+  it("fails on a typo in a scheme name", () => {
     expect(() =>
       parseRunConfig(MULTI.replace("authScheme: operator-console", "authScheme: operator-consol")),
     ).toThrow(UnknownAuthSchemeError);
   });
 
-  it("падает на ссылке, когда схем не объявлено вовсе", () => {
+  it("fails on a reference when no schemes are declared at all", () => {
     const noSchemes = `
 target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
 accounts: [{ id: u, role: r, tenant: t, tokenEnv: TOK, authScheme: operator-console }]
@@ -668,17 +675,19 @@ policy: { fallback: denied, rules: [] }
     expect(() => parseRunConfig(noSchemes)).toThrow(UnknownAuthSchemeError);
   });
 
-  it("не разрешает ссылку через унаследованное свойство объекта", () => {
-    // `authSchemes` приходит из недоверенного файла: индексация обычного объекта
-    // отдала бы `constructor` вместо `undefined`, и ссылка «разрешилась» бы.
+  it("does not resolve a reference through an inherited object property", () => {
+    // `authSchemes` comes from an untrusted file: indexing a plain object would
+    // return `constructor` instead of `undefined`, and the reference would
+    // "resolve".
     const inherited = MULTI.replace("authScheme: operator-console", "authScheme: constructor");
 
     expect(() => parseRunConfig(inherited)).toThrow(UnknownAuthSchemeError);
   });
 
-  it("падает на схеме, которой никто не пользуется", () => {
-    // Практически это забытый authScheme у аккаунта: он пойдёт по умолчанию
-    // и промолчит. Мёртвое объявление выглядит проверенным утверждением.
+  it("fails on a scheme nobody uses", () => {
+    // In practice this is a forgotten authScheme on an account: it goes out
+    // with the default and says nothing. A dead declaration looks like a
+    // checked claim.
     const forgotten = MULTI.replace(
       ", tokenEnv: TOK_AFFILIATE, authScheme: affiliate-cabinet",
       ", tokenEnv: TOK_AFFILIATE",
@@ -687,23 +696,24 @@ policy: { fallback: denied, rules: [] }
     expect(() => parseRunConfig(forgotten)).toThrow(UnusedAuthSchemeError);
   });
 
-  it("падает на схеме у аккаунта без токена", () => {
-    // Предъявлять по схеме нечего, а ссылка при этом «использует» схему —
-    // и настоящий забытый authScheme перестал бы быть виден.
+  it("fails on a scheme for an account without a token", () => {
+    // There is nothing to present with it, yet the reference "uses" the scheme —
+    // and a genuinely forgotten authScheme would stop being visible.
     const anonymous = MULTI.replace("tokenEnv: TOK_OPERATOR, ", "");
 
     expect(() => parseRunConfig(anonymous)).toThrow(AuthSchemeWithoutTokenError);
   });
 
-  it("отвергает негодное имя заголовка, называя схему", () => {
+  it("rejects an invalid header name and names the scheme", () => {
     const broken = MULTI.replace("header: X-Affiliate-Key", 'header: "X Affiliate Key"');
 
     expect(() => parseRunConfig(broken)).toThrow(/affiliate-cabinet/);
   });
 
-  it("отвергает значение секрета в схеме", () => {
-    // Единственный источник токена — переменная окружения (ADR-0008).
-    // Молча отброшенное поле оставило бы секрет в файле, который коммитят.
+  it("rejects a secret value inside a scheme", () => {
+    // The only source of a token is an environment variable (ADR-0008).
+    // A silently dropped field would leave a secret in a file that gets
+    // committed.
     const withSecret = MULTI.replace(
       "{ kind: cookie, name: opsid }",
       '{ kind: cookie, name: opsid, value: "s3cret" }',
@@ -713,8 +723,8 @@ policy: { fallback: denied, rules: [] }
   });
 });
 
-describe("набор тенантов у аккаунта", () => {
-  /** Саппорт на брендах двух разных холдингов — случай из ADR-0017. */
+describe("an account with a set of tenants", () => {
+  /** Support staff over brands of two different holdings — the case from ADR-0017. */
   const WITH_SET = `
 tenants:
   - { id: holding-1 }
@@ -729,43 +739,44 @@ resources:
 policy: { fallback: denied, rules: [] }
 `;
 
-  it("доводит набор до доменного типа ядра набором", () => {
+  it("carries the set through to the core's domain type as a set", () => {
     expect(toAccounts(parseRunConfig(WITH_SET)).accounts).toEqual([
       { id: "sam", roleId: "support", tenantIds: ["brand-a", "brand-c"] },
     ]);
   });
 
-  it("срезает пробелы в именах набора", () => {
+  it("trims spaces in the names of the set", () => {
     const config = parseRunConfig(WITH_SET.replace("[brand-a, brand-c]", '["brand-a ", brand-c]'));
 
     expect(toAccounts(config).accounts[0]?.tenantIds).toEqual(["brand-a", "brand-c"]);
   });
 
-  // Тот же класс, что опечатка в одиночном тенанте: она не ломает прогон,
-  // а прячет находку — членство уезжает в никуда, объект становится чужим.
-  it("отвергает опечатку внутри набора", () => {
+  // The same class as a typo in a single tenant: it does not break the run, it
+  // hides a finding — the membership goes nowhere, the resource turns foreign.
+  it("rejects a typo inside the set", () => {
     expect(() => parseRunConfig(WITH_SET.replace("brand-c]", "brand-x]"))).toThrow(
       UnknownTenantError,
     );
   });
 
-  // Вложенное членство переводит объекты бренда из descendant-tenant
-  // в same-tenant, и правило для взгляда сверху вниз молча перестаёт
-  // применяться. Смысл поменялся, отчёт на вид прежний.
-  it("отвергает набор, где одно членство лежит в поддереве другого", () => {
+  // A nested membership moves the brand's resources from descendant-tenant to
+  // same-tenant, and the rule written for the top-down view silently stops
+  // applying. The meaning changed, the report looks the same.
+  it("rejects a set where one membership sits in the subtree of another", () => {
     expect(() =>
       parseRunConfig(WITH_SET.replace("[brand-a, brand-c]", "[holding-1, brand-a]")),
     ).toThrow(SubsumedMembershipError);
   });
 
-  it("отвергает повтор внутри набора", () => {
+  it("rejects a repeat inside the set", () => {
     expect(() =>
       parseRunConfig(WITH_SET.replace("[brand-a, brand-c]", "[brand-a, brand-a]")),
     ).toThrow(DuplicateMembershipError);
   });
 
-  // Оба поля сразу — противоречие: непонятно, что считать членством.
-  it("отвергает tenant и tenants одновременно", () => {
+  // Both fields at once is a contradiction: it is unclear what counts as the
+  // membership.
+  it("rejects tenant and tenants at the same time", () => {
     expect(() =>
       parseRunConfig(
         WITH_SET.replace(
@@ -776,28 +787,28 @@ policy: { fallback: denied, rules: [] }
     ).toThrow(ConfigValidationError);
   });
 
-  // Набор из одного — это `tenant`. Две записи одного смысла разошлись бы
-  // в чтении конфигурации и в отчёте.
-  it("отвергает набор из одного тенанта", () => {
+  // A set of one is `tenant`. Two forms of the same meaning would drift apart
+  // between reading the configuration and the report.
+  it("rejects a set of a single tenant", () => {
     expect(() => parseRunConfig(WITH_SET.replace("[brand-a, brand-c]", "[brand-a]"))).toThrow(
       ConfigValidationError,
     );
   });
 });
 
-describe("учётные данные в адресе", () => {
-  it("отвергает логин и пароль в baseUrl", () => {
+describe("credentials in the address", () => {
+  it("rejects a login and a password in baseUrl", () => {
     const config = `
 target: { baseUrl: "https://svc:S3cret@a.test", allowedHosts: [a.test] }
 accounts: [{ id: u, role: r, tenant: t, tokenEnv: TOK }]
 policy: { fallback: denied, rules: [] }
 `;
 
-    // baseUrl копируется в отчёт дословно, а отчёт печатается в stdout.
+    // baseUrl is copied into the report verbatim, and the report goes to stdout.
     expect(() => parseRunConfig(config)).toThrow(CredentialsInUrlError);
   });
 
-  it("понимает запись allowedHosts с портом", () => {
+  it("understands an allowedHosts entry with a port", () => {
     const config = `
 target: { baseUrl: "https://a.test:8443/v1", allowedHosts: ["a.test:8443"] }
 accounts: [{ id: u, role: r, tenant: t, tokenEnv: TOK }]
@@ -809,14 +820,15 @@ policy: { fallback: denied, rules: [] }
 });
 
 /**
- * Найдено холодным чтением: два самых громких инварианта проекта отвечали
- * читателю сырым zod по-английски. «Обязательный allowlist» и «умолчания
- * у fallback нет намеренно» расписаны в руководстве целыми абзацами,
- * а `Invalid input: expected array, received undefined` читается как баг
- * в конфиге, а не как «вы пытаетесь сканировать чужую систему без области».
+ * Found by a cold read: the two loudest invariants of the project answered the
+ * reader with raw zod. "The allowlist is mandatory" and "`fallback` has no
+ * default on purpose" get whole paragraphs in the guide, while
+ * `Invalid input: expected array, received undefined` reads as a bug in the
+ * config rather than "you are about to scan someone else's system with no
+ * scope drawn".
  */
-describe("сообщения на обязательных полях", () => {
-  it("объясняет, зачем нужен allowlist, а не сообщает тип", () => {
+describe("messages on mandatory fields", () => {
+  it("explains why the allowlist is needed instead of reporting a type", () => {
     expect(() =>
       parseRunConfig(`
 target: { baseUrl: "https://a.test" }
@@ -826,7 +838,7 @@ policy: { fallback: denied, rules: [] }
     ).toThrow(/scanning someone else's system/);
   });
 
-  it("объясняет, почему у fallback нет умолчания", () => {
+  it("explains why fallback has no default", () => {
     expect(() =>
       parseRunConfig(`
 target: { baseUrl: "https://a.test", allowedHosts: [a.test] }

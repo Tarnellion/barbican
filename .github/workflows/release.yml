@@ -1,15 +1,15 @@
 name: Release
 
-# Публикация по тегу, а не по пушу в main: тег ставит человек, и это
-# единственное действие, которого достаточно для выпуска. Автопубликация
-# на каждый коммит превратила бы обычную опечатку в версию в реестре.
+# Publishing happens on a tag, not on a push to main: a human puts the tag there,
+# and that is the only action a release needs. Publishing on every commit would
+# turn an ordinary typo into a version in the registry.
 on:
   push:
     tags: ["v*"]
 
-# По умолчанию — только чтение. `id-token` нужен ровно одной работе и ровно
-# затем, чтобы npm выдал короткоживущие учётные данные через OIDC: долгоживущий
-# токен в секретах репозитория — то самое, от чего уходим.
+# Read-only by default. `id-token` is needed by exactly one job, and only so that
+# npm issues short-lived credentials over OIDC: a long-lived token in the
+# repository secrets is precisely what this moves away from.
 permissions:
   contents: read
 
@@ -24,20 +24,20 @@ jobs:
       contents: read
       id-token: write
     steps:
-      # Actions запинены по SHA: тег можно передвинуть на другой коммит.
+      # Actions are pinned by SHA: a tag can be moved to another commit.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          # 24 — верхняя граница заявленной поддержки. Собирать выпуск на ней,
-          # а не на нижней, значит проверять пакет там, где он новее всего.
+          # 24 is the upper bound of declared support. Building the release on it
+          # rather than on the lower bound tests the package where it is newest.
           node-version: 24
           registry-url: https://registry.npmjs.org
 
-      # Trusted publishing требует npm >= 11.5.1. Версия закреплена, а не
-      # `@latest`: выпуск не должен зависеть от того, что вышло сегодня утром.
+      # Trusted publishing requires npm >= 11.5.1. The version is pinned rather
+      # than `@latest`: a release must not depend on what came out this morning.
       - name: Pin npm
         run: |
           set -euo pipefail
@@ -50,25 +50,26 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # Тот же гейт, что в CI. Тег может быть поставлен на коммит, который
-      # CI не проходил, — а выпуск обязан проходить.
+      # The same gate as CI. A tag can be put on a commit that CI never ran on —
+      # and a release must have run it.
       - name: Check
         run: pnpm run check
 
-      # Версия пакета обязана совпадать с тегом. Иначе в реестр уедет не то,
-      # что помечено в истории, и сопоставить выпуск с коммитом станет нечем.
+      # The package version must match the tag. Otherwise the registry receives
+      # something other than what history marks, and there is no way left to tie
+      # a release to a commit.
       - name: Verify tag matches package version
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME#v}"
           pkg="$(node -p "require('./package.json').version")"
           if [ "$tag" != "$pkg" ]; then
-            echo "Тег v$tag не совпадает с версией пакета $pkg" >&2
+            echo "Tag v$tag does not match the package version $pkg" >&2
             exit 1
           fi
 
-      # Ни NODE_AUTH_TOKEN, ни NPM_TOKEN: учётные данные выдаёт OIDC, и живут
-      # они минуты. Provenance подписывается автоматически — она включена
-      # в publishConfig и здесь не дублируется флагом.
+      # Neither NODE_AUTH_TOKEN nor NPM_TOKEN: OIDC issues the credentials and
+      # they live for minutes. Provenance is signed automatically — it is enabled
+      # in publishConfig and is not duplicated by a flag here.
       - name: Publish
         run: npm publish

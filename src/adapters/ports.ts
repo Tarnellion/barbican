@@ -1,9 +1,9 @@
 /**
- * Порты адаптеров: только интерфейсы, без реализаций.
+ * Adapter ports: interfaces only, no implementations.
  *
- * Ядро зависит от этих типов, но никогда от конкретных HTTP-клиентов и парсеров.
- * Замена клиента или парсера не должна трогать src/core.
- * Реализации появятся в сессии 3.
+ * The core depends on these types, but never on concrete HTTP clients and
+ * parsers. Replacing the client or the parser must not touch src/core.
+ * The implementations will arrive in session 3.
  */
 
 import type { Endpoint, HttpMethod, SignalSpec, SignalValue } from "../core/types.js";
@@ -15,18 +15,18 @@ export interface HttpRequest {
   readonly url: string;
   readonly headers: Readonly<Record<string, string>>;
   /**
-   * Сигналы, ради которых тело будет прочитано. Пусто или отсутствует —
-   * поток отменяется непрочитанным, как было до ADR-0011.
+   * The signals for the sake of which the body will be read. Empty or absent —
+   * the stream is cancelled unread, as it was before ADR-0011.
    */
   readonly signals?: readonly SignalSpec[];
 }
 
 /**
- * Ответ без тела.
+ * A response without a body.
  *
- * Это не упущение: тела не сохраняются, потому что содержат PII. Порт не даёт
- * возможности «случайно» их протащить — поля для тела просто нет, а `signals`
- * по типу вмещает только скаляры.
+ * This is not an oversight: bodies are not stored, because they contain PII. The
+ * port gives no way to smuggle them through "by accident" — there simply is no
+ * field for a body, and `signals` by its type holds nothing but scalars.
  */
 export interface HttpResponse {
   readonly status: number;
@@ -40,57 +40,60 @@ export interface HttpClient {
 
 export interface SpecParser {
   /**
-   * Разбирает спецификацию в список эндпоинтов.
+   * Parses a specification into a list of endpoints.
    *
-   * `source` — **текст документа**, а не путь к файлу. Чтение файла остаётся
-   * за `src/io`: парсер, которому нечего открывать, не может стать примитивом
-   * для path traversal.
+   * `source` is the **text of the document**, not a path to a file. Reading the
+   * file stays with `src/io`: a parser with nothing to open cannot become a
+   * primitive for path traversal.
    *
-   * Реализация обязана отключить резолвинг внешних `$ref` — и по http, и по
-   * файловой системе. Это защита от SSRF и path traversal, а не оптимизация.
-   * Тест-доказательство этого поведения обязателен.
+   * The implementation must switch off the resolution of external `$ref`s —
+   * both over http and through the file system. That is a defence against SSRF
+   * and path traversal, not an optimization. A test that proves this behaviour
+   * is mandatory.
    */
   parse(source: string): Promise<readonly Endpoint[]>;
 }
 
 /**
- * Как аккаунт представляется проверяемой системе.
+ * How an account presents itself to the system under test.
  *
- * Порт, а не константа в коде: реальные платформы расходятся здесь
- * категорически — JWT в `Authorization`, ключ в своём заголовке, сессия
- * в куке, Basic. Привязка к одной схеме делала инструмент неприменимым
- * к большинству API.
+ * A port rather than a constant in the code: real platforms diverge here
+ * categorically — a JWT in `Authorization`, a key in a header of its own, a
+ * session in a cookie, Basic. Binding to a single scheme made the tool
+ * inapplicable to most APIs.
  */
 export interface CredentialProvider {
   /**
-   * Заголовки для обращения от имени аккаунта.
+   * The headers for a request made as the account.
    *
-   * Пустой набор — обращение без учётных данных, то есть анонимное.
+   * An empty set means a request without credentials, that is, an anonymous one.
    *
-   * `request` передаётся, потому что учётные данные не всегда статичны:
-   * подпись HMAC по методу и пути — норма для финтеха, и провайдер, знающий
-   * только идентификатор аккаунта, выразить её не может в принципе. Формат
-   * подписи платформо-специфичен (SigV4, Stripe-подобные, самописные),
-   * и общий его вид в конфигурации не описывается; но порт обязан **допускать**
-   * подпись, иначе она недостижима и потребителю библиотеки. См. ADR-0018.
+   * `request` is passed because credentials are not always static: an HMAC
+   * signature over the method and the path is the norm in fintech, and a
+   * provider that knows only the account identifier cannot express it in
+   * principle. The signature format is platform-specific (SigV4, Stripe-like,
+   * homegrown), and its general shape is not described in the configuration; but
+   * the port must **allow** a signature, otherwise it is unreachable for a
+   * consumer of the library as well. See ADR-0018.
    *
-   * Четыре встроенные схемы аргумент игнорируют: заголовок у них один и тот же
-   * на все обращения аккаунта.
+   * The four built-in schemes ignore the argument: their header is the same for
+   * every request of the account.
    */
   headersFor(accountId: string, request: SignedRequest): Readonly<Record<string, string>>;
 }
 
 /**
- * Что провайдер знает об обращении, для которого выдаёт заголовки.
+ * What the provider knows about the request it issues headers for.
  *
- * Тела здесь нет: инструмент их не отправляет. Появится отправка — тело сюда
- * добавится, и это будет отдельное решение, а не молчаливое расширение.
+ * There is no body here: the tool does not send them. Once sending appears, a
+ * body will be added here, and that will be a decision of its own, not a silent
+ * extension.
  */
 /**
- * Что адаптерам нужно знать об аккаунте в объявленных условиях обращения.
+ * What the adapters need to know about an account under declared request conditions.
  *
- * Ядру достаточно метки `contextId`; заголовки и параметры запроса живут
- * здесь, потому что ядро об HTTP не знает. См. ADR-0019.
+ * The core makes do with the `contextId` label; the headers and query parameters
+ * live here, because the core knows nothing about HTTP. See ADR-0019.
  */
 export interface ContextAttributes {
   readonly contextId: string;
@@ -100,19 +103,19 @@ export interface ContextAttributes {
 
 export interface SignedRequest {
   readonly method: string;
-  /** Полный адрес обращения, уже с подставленными параметрами пути. */
+  /** The full address of the request, with path parameters already substituted. */
   readonly url: string;
 }
 
 export interface Throttle {
-  /** Пропускает задачу через лимиты конкурентности и частоты. */
+  /** Lets a task through the concurrency and rate limits. */
   run<T>(task: () => Promise<T>): Promise<T>;
   /**
-   * Лимиты, которые реализация объявляет действующими.
+   * The limits the implementation declares to be in force.
    *
-   * Нужны отчёту: инвариант «троттлинг всегда включён» иначе приходится
-   * принимать на слово. Необязательны, потому что чужая реализация может
-   * считать иначе, — и тогда отсутствие честнее выдуманных чисел.
+   * The report needs them: otherwise the invariant "throttling is always on" has
+   * to be taken on trust. Optional, because someone else's implementation may
+   * count differently — and then absence is more honest than invented numbers.
    */
   readonly limits?: {
     readonly concurrency: number;

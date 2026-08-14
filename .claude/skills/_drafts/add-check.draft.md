@@ -1,43 +1,43 @@
 ---
 name: add-check
-description: Добавить новую проверку в реестр barbican — файл проверки, регистрация, фикстура, тест и маппинг на пункты внешних стандартов. Использовать, когда нужно завести новый детектор (privilege escalation, BOLA/IDOR, cross-tenant) или проверку для evidence-pack Модуля 2.
+description: Add a new check to the barbican registry — the check file, its registration, a fixture, a test and a mapping onto clauses of external standards. Use when a new detector is needed (privilege escalation, BOLA/IDOR, cross-tenant) or a check for the Module 2 evidence pack.
 ---
 
-**ЧЕРНОВИК — не активирован. Ревью и перенос вручную.**
+**DRAFT — not active. Review and move by hand.**
 
-# Добавление проверки
+# Adding a check
 
-Проверки — плагины (ADR-0003). Новая проверка не меняет ядро.
+Checks are plugins (ADR-0003). A new check does not change the core.
 
-## Шаги
+## Steps
 
-1. Создать `src/core/checks/<имя>.ts`, экспортирующий объект типа `Check`:
-   - `id` — стабильный, в формате `<область>.<что-проверяем>`, например `tenant.cross-read`.
-     Входит в публичный контракт: попадает в отчёты, переименование ломает сохранённые
-     прогоны и требует ADR.
-   - `description` — что именно детектирует, одной фразой.
-   - `severity` — из `Severity`.
-   - `standards` — список `StandardRef`. Заполнять сразу, даже если Модуль 2 ещё не
-     начат: маппинг, дописанный позже, разъезжается с кодом.
-   - `run(context)` — **синхронная и чистая**. Ни сети, ни файловой системы, ни `Date.now()`,
-     ни случайности. Только `context.matrix`.
+1. Create `src/core/checks/<name>.ts`, exporting an object of type `Check`:
+   - `id` — stable, in the form `<area>.<what-is-checked>`, for example `tenant.cross-read`.
+     It is part of the public contract: it goes into reports, renaming it breaks stored
+     runs and requires an ADR.
+   - `description` — what exactly it detects, in one phrase.
+   - `severity` — from `Severity`.
+   - `standards` — a list of `StandardRef`. Fill it in right away, even if Module 2 has not
+     started: a mapping added later drifts away from the code.
+   - `run(context)` — **synchronous and pure**. No network, no file system, no `Date.now()`,
+     no randomness. Only `context.matrix`.
 
-2. В `evidence` находки класть только скаляры и только неконфиденциальное: статусы,
-   флаги, идентификаторы эндпоинтов и аккаунтов. Тела ответов и заголовки авторизации —
-   никогда.
+2. Put only scalars into a finding's `evidence`, and only non-confidential ones: statuses,
+   flags, endpoint and account identifiers. Response bodies and authorization headers —
+   never.
 
-3. Фикстура в `tests/fixtures`: набор наблюдений, на котором проверка обязана сработать,
-   и набор, на котором она обязана промолчать. Второе важнее первого — ложные
-   срабатывания обесценивают инструмент.
+3. A fixture in `tests/fixtures`: a set of observations on which the check must fire,
+   and a set on which it must stay silent. The second matters more than the first — false
+   positives make the tool worthless.
 
-4. Тест: срабатывание, отсутствие срабатывания, граничный случай.
+4. A test: it fires, it does not fire, an edge case.
 
-5. Регистрация в месте сборки реестра. Проверить, что `id` не занят — повторная
-   регистрация бросает `DuplicateCheckIdError`.
+5. Registration where the registry is assembled. Check that the `id` is not taken — a repeat
+   registration throws `DuplicateCheckIdError`.
 
-## Проверить перед коммитом
+## Check before committing
 
-- `run` не обращается ни к чему за пределами аргумента.
-- Тест на отсутствие ложного срабатывания есть.
-- `standards` заполнен.
-- `pnpm run check` проходит.
+- `run` reaches for nothing outside its argument.
+- The test for the absence of a false positive exists.
+- `standards` is filled in.
+- `pnpm run check` passes.

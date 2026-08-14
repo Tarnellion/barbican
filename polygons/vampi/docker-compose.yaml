@@ -1,27 +1,28 @@
-# VAmPI как полигон: один экземпляр, режим задаётся переменной.
+# VAmPI as a polygon: one instance, the mode set by a variable.
 #
-# Один сервис, а не два (как в docker-compose самого VAmPI), потому что
-# конфигурация прогона называет ровно один `baseUrl`. Два экземпляра на разных
-# портах означали бы две конфигурации, которые разойдутся при первой же правке
-# политики, — а сравнивать режимы имеет смысл только одной и той же политикой.
+# One service rather than two (as in VAmPI's own docker-compose), because the run
+# configuration names exactly one `baseUrl`. Two instances on different ports would
+# mean two configurations, which will diverge with the very first edit of the policy —
+# and comparing the modes makes sense only under one and the same policy.
 
 services:
   vampi:
     image: erev0s/vampi:latest
     container_name: barbican-vampi
     ports:
-      # Только петля. Полигон намеренно уязвим: пароли всех пользователей
-      # отдаёт кто угодно без токена, а `GET /createdb` сбрасывает базу.
-      # `5002:5000` без адреса выставил бы это в локальную сеть.
+      # Loopback only. The polygon is deliberately vulnerable: anybody without a
+      # token is served the passwords of all users, and `GET /createdb` resets the
+      # database. `5002:5000` with no address would expose this to the local network.
       - "127.0.0.1:${VAMPI_PORT:-5002}:5000"
     environment:
-      # 1 — дефекты включены, 0 — «защищённый» режим. По статусу ответа режимы
-      # различаются ровно в одном месте (см. ground-truth.json, defect
-      # `bola-book-secret`), поэтому оба режима — не «есть находки / нет находок»,
-      # а два разных списка находок.
+      # 1 — the defects are on, 0 — the "secure" mode. By response status the modes
+      # differ in exactly one place (see ground-truth.json, defect
+      # `bola-book-secret`), so the two modes are not "there are findings / there are
+      # none" but two different lists of findings.
       - vulnerable=${VAMPI_VULNERABLE:-1}
-      # Время жизни токена. Дефолт VAmPI — 60 секунд: токен истекает посреди
-      # прогона, ответы становятся 401, отказ совпадает с политикой там, где
-      # доступ не положен, и отчёт выглядит чистым. Канарейка ловит это не всегда:
-      # она проверяется до прогона, когда токен ещё жив.
+      # The token's lifetime. VAmPI's default is 60 seconds: the token expires in the
+      # middle of a run, the responses become 401, the denial agrees with the policy
+      # wherever access is not meant to be granted, and the report looks clean. The
+      # canary does not always catch this: it is checked before the run, while the
+      # token is still alive.
       - tokentimetolive=${VAMPI_TOKEN_TTL:-3600}

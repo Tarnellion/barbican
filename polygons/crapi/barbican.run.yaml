@@ -1,20 +1,22 @@
-# Прогон barbican против crAPI (OWASP). Формат — ADR-0008.
+# A barbican run against crAPI (OWASP). The format — ADR-0008.
 #
-# crAPI одноарендна: понятия «тенант» в ней нет. Чтобы применить модель изоляции,
-# каждый пользователь объявлен собственным тенантом — тогда чужой заказ или чужая
-# машина становятся foreign-tenant, и BOLA виден как «200 там, где объявлен отказ».
+# crAPI is single-tenant: it has no notion of a "tenant" at all. To apply the
+# isolation model, every user is declared a tenant of its own — then another user's
+# order or another user's vehicle becomes foreign-tenant, and BOLA is visible as "200
+# where a denial is declared".
 #
-# Токенов здесь нет: аккаунт называет имя переменной окружения. Оператор логинится
-# вне инструмента (POST /identity/api/auth/login) и кладёт токены в env. Пароли
-# предзаведённых пользователей crAPI: <локальная-часть>!123 (Test!123, Admin!123).
+# There are no tokens here: an account names an environment variable. The operator
+# logs in outside the tool (POST /identity/api/auth/login) and puts the tokens into
+# the env. The passwords of crAPI's pre-seeded users: <local-part>!123 (Test!123,
+# Admin!123).
 target:
   baseUrl: http://127.0.0.1:8888
   allowedHosts: [127.0.0.1]
-  # Метка обязательна по той же причине, по какой она есть у своего полигона:
-  # без неё отчёт не называет проверенную систему, и заводить по нему тикет
-  # нельзя. Здесь она заодно говорит главное — это учебное приложение
-  # с намеренными уязвимостями, а не чей-то стенд.
-  label: OWASP crAPI (учебное приложение с намеренными уязвимостями)
+  # The label is mandatory for the same reason it is there on our own polygon:
+  # without it the report does not name the system under test, and a ticket cannot be
+  # filed from it. Here it also says the main thing — this is a training application
+  # with deliberate vulnerabilities, not somebody's deployment.
+  label: OWASP crAPI (a training application with deliberate vulnerabilities)
 tenants: [t-adam, t-pogba, t-admin, t-none]
 accounts:
   - id: adam
@@ -32,12 +34,12 @@ accounts:
     tenant: t-admin
     tokenEnv: CRAPI_TOKEN_ADMIN
     canary: get_vehicles
-  # Аноним: без токена. Проверяет утверждение «эта ручка не публична».
+  # The anonymous account: no token. It tests the claim "this endpoint is not public".
   - id: anonymous
     role: anonymous
     tenant: t-none
-# Объекты и владельцы (ADR-0010). Идентификаторы объявлены человеком: тела не читаются.
-# UUID машин и id заказов реальны — из seed crAPI.
+# The resources and their owners (ADR-0010). The identifiers are declared by a human:
+# bodies are not read. The vehicle UUIDs and the order ids are real — from crAPI's seed.
 resources:
   - id: vehicle-adam
     tenant: t-adam
@@ -59,8 +61,9 @@ resources:
     owner: pogba
     params:
       order_id: "2"
-  # Сервис-отчёт: идентификатор в query, поэтому эндпоинт указан явно (ADR-0010).
-  # Владельца среди аккаунтов нет — для всех это чужой тенант.
+  # A service report: the identifier is in the query, so the endpoint is named
+  # explicitly (ADR-0010). There is no owner among the accounts — for everyone this is
+  # a foreign tenant.
   - id: report-1
     tenant: t-none
     query:
@@ -69,8 +72,9 @@ resources:
 policy:
   fallback: denied
   rules:
-    # Списки и личные ручки, положенные любому аутентифицированному. Аноним сюда
-    # не попадает: у роли anonymous доступа нет, его 401/404 совпадёт с fallback.
+    # The lists and the personal endpoints meant for any authenticated account. The
+    # anonymous one does not get here: the anonymous role has no access, and its
+    # 401/404 will agree with the fallback.
     - roles: [user, admin]
       endpoints:
         - get_dashboard
@@ -81,34 +85,37 @@ policy:
         - get_mechanics
         - get_service_requests_for_mechanic
       outcome: allowed
-    # QR-код магазина положен аутентифицированному. Аноним — под fallback denied:
-    # ручка отдаёт 200 без токена, и это сломанная аутентификация (видно по статусу).
+    # The shop's QR code is meant for an authenticated account. The anonymous one is
+    # under fallback denied: the endpoint serves 200 without a token, and that is
+    # broken authentication (visible in the status).
     - roles: [user, admin]
       endpoints: [get_workshop_qr_code]
       outcome: allowed
-    # Список всех пользователей — только администратору. Обычному пользователю 200
-    # здесь — это BFLA.
+    # The list of all users — for the administrator only. A 200 to an ordinary user
+    # here is BFLA.
     - roles: [admin]
       endpoints: [get_workshop_users_all]
       outcome: allowed
-    # Свой заказ, своя машина, свой отчёт — владельцу. Чужие под fallback denied:
-    # crAPI не проверяет владение, отдаёт 200 — это BOLA, видно по статусу.
+    # One's own order, one's own vehicle, one's own report — for the owner. The others
+    # are under fallback denied: crAPI does not check ownership and serves 200 — that
+    # is BOLA, visible in the status.
     - roles: [user, admin]
       endpoints: [get_order_byID, get_location, get_report_byID]
       scope: own
       outcome: allowed
-# Списочные ручки, ответ которых ОБЯЗАН различаться между пользователями: у каждого
-# свои машины, заказы, свой дашборд. Совпадение дайджестов означало бы отсутствующий
-# фильтр — дефект без изменения статуса (ADR-0011). Тело читается только здесь.
-# Публичные get_recent_posts/get_products и BFLA get_workshop_users_all сюда НЕ
-# внесены намеренно: они законно одинаковы для всех, и пометка дала бы ложное
-# срабатывание.
+# The list endpoints whose response MUST differ between users: each has vehicles,
+# orders and a dashboard of its own. A match of digests would mean the filter is
+# absent — a defect that does not change the status (ADR-0011). The body is read here
+# only. The public get_recent_posts/get_products and the BFLA get_workshop_users_all
+# are deliberately NOT entered here: they are lawfully the same for everyone, and the
+# mark would give a false positive.
 bodySignals:
   responseMustDifferByTenant: [get_vehicles, get_orders, get_dashboard]
-# Запись, спрятанная за безопасным по букве методом. GET
-# /workshop/api/mechanic/receive_report называется в спецификации
-# create_service_report, описан как «Create and Assign a Service Report» и объявлен
-# без аутентификации. Безопасный режим его не остановит — метод-то GET, — поэтому
-# эндпоинт исключён поимённо. Без обязательных параметров он отвечает 400 и даёт
-# probe-error у каждого аккаунта; с параметрами создал бы отчёт в стенде.
+# A write hidden behind a method that is safe by the letter. GET
+# /workshop/api/mechanic/receive_report is called create_service_report in the
+# specification, is described as "Create and Assign a Service Report" and is declared
+# without authentication. The safe mode will not stop it — the method is a GET, after
+# all — so the endpoint is excluded by name. Without the mandatory parameters it
+# answers 400 and gives a probe-error on every account; with the parameters it would
+# create a report in the deployment.
 exclude: [create_service_report]

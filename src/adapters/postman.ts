@@ -1,37 +1,40 @@
 /**
- * Коллекция Postman (v2.1) как источник эндпоинтов.
+ * A Postman collection (v2.1) as a source of endpoints.
  *
- * Третий источник наравне с OpenAPI-спецификацией и ручным списком. Нужен
- * потому, что спецификации нет у множества команд, а коллекция ведётся руками
- * и оказывается единственным полным описанием API. В отличие от спеки, она не
- * порождается из проверяемого кода, поэтому и не наследует проблему ADR-0006:
- * коллекция — это тоже объявленное человеком намерение.
+ * A third source, on equal terms with an OpenAPI specification and a manual
+ * list. Needed because a great many teams have no specification, while the
+ * collection is maintained by hand and turns out to be the only complete
+ * description of the API. Unlike a spec, it is not generated from the code under
+ * test, so it does not inherit the problem of ADR-0006: a collection is a
+ * declared human intent too.
  *
- * Ограничения те же, что у соседних адаптеров, и по тем же причинам (ADR-0005):
+ * The limits are the same as those of the neighbouring adapters, and for the
+ * same reasons (ADR-0005):
  *
- * 1. На вход подаётся **текст документа**, а не путь. Адаптер не знает про
- *    файловую систему и сеть вовсе, поэтому не может стать примитивом path
- *    traversal или SSRF: строка, похожая на путь, разбирается как скаляр и
- *    отвергается.
- * 2. Размер входа ограничен до разбора, раскрытие YAML-алиасов — при разборе.
- * 3. Глубина вложенности папок ограничена: коллекция недоверенная, а обход по
- *    ней рекурсивный. Предел заодно обрывает циклы, которые YAML-якоря умеют
- *    строить (`&a [*a]`), — обход глубину только увеличивает, поэтому цикл
- *    упирается в предел, а не крутится вечно.
- * 4. Хост из коллекции отбрасывается целиком. Куда идут обращения, решают
- *    базовый URL прогона и allowlist, а не проверяемый документ; в `path`
- *    эндпоинта имени хоста не остаётся по построению.
+ * 1. The input is the **text of the document**, not a path. The adapter knows
+ *    nothing about the file system or the network at all, so it cannot become a
+ *    path traversal or SSRF primitive: a string that looks like a path is parsed
+ *    as a scalar and rejected.
+ * 2. The size of the input is bounded before parsing, YAML alias expansion
+ *    during it.
+ * 3. The depth of folder nesting is bounded: the collection is untrusted, and
+ *    the walk over it is recursive. The limit also cuts off the cycles that YAML
+ *    anchors can build (`&a [*a]`) — the walk only increases the depth, so a
+ *    cycle runs into the limit rather than spinning forever.
+ * 4. The host from the collection is discarded entirely. Where the requests go
+ *    is decided by the run's base URL and the allowlist, not by the document
+ *    under test; no host name is left in an endpoint's `path` by construction.
  *
- * **Неизвестные ключи игнорируются, неизвестные элементы — нет.** Это
- * расхождение с `endpoint-list.ts`, и оно намеренное. Ручной список пишется
- * человеком для barbican, поэтому неизвестный ключ там означает невыполненное
- * намерение автора. Коллекция же пишется для другого инструмента, и почти всё
- * в ней (`event`, `auth`, `response`, `body`, `protocolProfileBehavior`) к нам
- * не относится по построению — закрытый формат отверг бы каждый реальный
- * экспорт. Зато элемент `item`, который не удалось прочитать ни как папку, ни
- * как запрос, — это ошибка, а не повод его пропустить: молча пропущенный
- * запрос становится непроверенным эндпоинтом в отчёте, который читается как
- * «нарушений нет».
+ * **Unknown keys are ignored, unknown items are not.** This is a divergence from
+ * `endpoint-list.ts`, and it is deliberate. A manual list is written by a human
+ * for barbican, so an unknown key there means an unfulfilled intent of the
+ * author. A collection, on the other hand, is written for another tool, and
+ * almost everything in it (`event`, `auth`, `response`, `body`,
+ * `protocolProfileBehavior`) has nothing to do with us by construction — a
+ * closed format would reject every real export. But an `item` that could be read
+ * neither as a folder nor as a request is an error, not a reason to skip it: a
+ * silently skipped request becomes an unchecked endpoint in a report that reads
+ * as "no violations".
  */
 
 import { parse as parseYaml } from "yaml";
@@ -39,23 +42,24 @@ import type { Endpoint, HttpMethod } from "../core/types.js";
 import type { SpecParser } from "./ports.js";
 
 export interface PostmanCollectionLimits {
-  /** Предельный размер входного текста в байтах. */
+  /** The size limit of the input text in bytes. */
   readonly maxBytes: number;
   /**
-   * Предел раскрытия YAML-алиасов.
+   * The limit on YAML alias expansion.
    *
-   * Защита от billion laughs: библиотека `yaml` считает раскрытия и прерывает
-   * разбор сама, до того как документ развернётся в памяти. JSON алиасов не
-   * знает, но разбирается тем же парсером, поэтому предел нужен и здесь.
+   * A defence against billion laughs: the `yaml` library counts expansions and
+   * aborts parsing itself, before the document unfolds in memory. JSON knows no
+   * aliases, but it is parsed by the same parser, so the limit is needed here
+   * too.
    */
   readonly maxAliasCount: number;
-  /** Предельная глубина вложенности папок. */
+  /** The limit on the depth of folder nesting. */
   readonly maxFolderDepth: number;
 }
 
 export const DEFAULT_POSTMAN_LIMITS: PostmanCollectionLimits = {
-  // Коллекции хранят сохранённые примеры ответов и вырастают заметно больше
-  // ручного списка — предел взят как у спецификаций.
+  // Collections store saved example responses and grow noticeably larger than a
+  // manual list — the limit is taken to be the one for specifications.
   maxBytes: 5_000_000,
   maxAliasCount: 100,
   maxFolderDepth: 16,
@@ -97,26 +101,27 @@ export class UnsupportedPostmanSchemaError extends Error {
 }
 
 /**
- * Коллекция без запросов — ошибка, а не вырожденный случай.
+ * A collection with no requests is an error, not a degenerate case.
  *
- * Ноль эндпоинтов даёт отчёт «расхождений нет» при том, что не проверено
- * ничего. Такой результат неотличим от успешного и потому опаснее сбоя.
+ * Zero endpoints give a report saying "no discrepancies" while nothing at all
+ * was checked. Such a result is indistinguishable from a successful one and is
+ * therefore more dangerous than a failure.
  */
 export class EmptyPostmanCollectionError extends Error {
   constructor() {
     super(
       "The collection contains no requests. A run over an empty list produces a report " +
-        "with no findings, which reads as «nothing is broken» while nothing was tested.",
+        "with no findings, which reads as 'nothing is broken' while nothing was tested.",
     );
     this.name = "EmptyPostmanCollectionError";
   }
 }
 
-/** Поле элемента, на котором споткнулась проверка. */
+/** The field of the item the check stumbled on. */
 export type PostmanItemField = "item" | "name" | "request" | "method" | "url" | "path";
 
 export class InvalidPostmanItemError extends Error {
-  /** Путь до элемента в дереве папок — он же будущий id эндпоинта. */
+  /** The path to the item in the folder tree — the future endpoint id as well. */
   readonly location: string;
   readonly field: PostmanItemField;
 
@@ -143,11 +148,11 @@ export class DuplicatePostmanEndpointIdError extends Error {
 }
 
 /**
- * Допустимые методы.
+ * The allowed methods.
  *
- * Запись через `Record<HttpMethod, ...>`, а не через массив: тип обязывает
- * перечислить все методы домена, поэтому расширение `HttpMethod` не пройдёт
- * мимо этого списка молча.
+ * Written as `Record<HttpMethod, ...>` rather than as an array: the type forces
+ * every method of the domain to be listed, so an extension of `HttpMethod` will
+ * not slip past this list silently.
  */
 const KNOWN_METHODS: Readonly<Record<HttpMethod, true>> = {
   GET: true,
@@ -161,36 +166,36 @@ const KNOWN_METHODS: Readonly<Record<HttpMethod, true>> = {
 
 const METHOD_NAMES = Object.keys(KNOWN_METHODS).join(", ");
 
-/** Схемы, которые адаптер берётся читать. */
+/** The schemas the adapter undertakes to read. */
 const SUPPORTED_SCHEMA = /\/collection\/v2\.[01]\./;
 
-/** Имя параметра пути. Тот же набор символов, что у имён в OpenAPI. */
+/** The name of a path parameter. The same character set as for names in OpenAPI. */
 const PARAMETER_NAME = /^[A-Za-z0-9_.-]+$/;
 
 /**
- * Путь, в котором фигурные скобки встречаются только как `{имя}`.
+ * A path in which curly braces occur only as `{name}`.
  *
- * Незакрытая или пустая скобка означает, что переменную не удалось прочитать.
- * Пропустить её означало бы отправить в ядро параметр с именем, которого автор
- * не писал, — а такой параметр не покроет ни один объявленный объект.
+ * An unclosed or empty brace means the variable could not be read. Letting it
+ * through would mean sending the core a parameter with a name the author never
+ * wrote — and such a parameter will be covered by no declared resource.
  */
 const TEMPLATE_ONLY = /^(?:[^{}]|\{[A-Za-z0-9_.-]+\})*$/;
 
-/** Переменная Postman внутри пути. */
+/** A Postman variable inside a path. */
 const POSTMAN_VARIABLE = /\{\{([^{}]*)\}\}/g;
 
-/** Ведущие переменные Postman: `{{baseUrl}}`, `{{host}}{{basePath}}`. */
+/** Leading Postman variables: `{{baseUrl}}`, `{{host}}{{basePath}}`. */
 const LEADING_VARIABLES = /^(?:\{\{[^{}]*\}\})+/;
 
-/** `scheme://authority`, `://authority` и `//authority` одним выражением. */
+/** `scheme://authority`, `://authority` and `//authority` in one expression. */
 const ORIGIN_PREFIX = /^(?:[a-zA-Z][a-zA-Z0-9+.-]*)?:?\/\//;
 
 /**
- * База для проверки того, что путь остаётся в пределах цели.
+ * The base for checking that a path stays within the target.
  *
- * Настоящий базовый URL адаптеру неизвестен и не нужен: важно не куда именно
- * ведёт путь, а способен ли он вообще выбрать хост. Сравнение origin с любой
- * базой отвечает на этот вопрос.
+ * The real base URL is unknown to the adapter and is not needed: what matters is
+ * not where exactly the path leads, but whether it is able to choose a host at
+ * all. Comparing the origin against any base answers that question.
  */
 const PLACEHOLDER_BASE = "http://target.invalid/";
 
@@ -202,7 +207,7 @@ function describe(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-/** Метод приводится к верхнему регистру: в домене он всегда `GET`, а не `get`. */
+/** The method is upper-cased: in the domain it is always `GET`, never `get`. */
 function toMethod(value: string): HttpMethod | undefined {
   const upper = value.trim().toUpperCase();
   return Object.hasOwn(KNOWN_METHODS, upper) ? (upper as HttpMethod) : undefined;
@@ -213,30 +218,32 @@ function locationOf(trail: readonly string[]): string {
 }
 
 /**
- * Приводит сегмент пути к записи параметров ядра.
+ * Brings a path segment to the core's notation for parameters.
  *
- * Переменная Postman `{{playerId}}` — не то же самое, что параметр OpenAPI
- * `{playerId}`, но для barbican это один и тот же факт: значение сегмента
- * отложено и должно прийти извне. Поэтому обе записи, а вместе с ними и родная
- * постмановская `:playerId`, сводятся к `{playerId}`.
+ * The Postman variable `{{playerId}}` is not the same thing as the OpenAPI
+ * parameter `{playerId}`, but for barbican it is one and the same fact: the
+ * segment's value is deferred and must come from outside. So both notations, and
+ * with them Postman's native `:playerId`, are reduced to `{playerId}`.
  *
- * Оставить `{{playerId}}` как есть было нельзя. Ядро вычленяет параметры
- * выражением `/\{([^}]+)\}/`, и на `{{playerId}}` оно даёт параметр с именем
- * `{playerId` — имя, которого автор не писал и которое не покроет ни один
- * объявленный объект. Такой эндпоинт выпал бы из прогона, а подстановка в
- * `runner.substitute` собрала бы из него мусорный путь. Сведение к `{playerId}`
- * оставляет ровно два честных исхода: объект с этим параметром объявлен — и
- * эндпоинт проверяется; не объявлен — и он попадает в пропуски с причиной
- * `path-parameters`, то есть виден оператору, а не потерян.
+ * Leaving `{{playerId}}` as it is was not possible. The core extracts parameters
+ * with the expression `/\{([^}]+)\}/`, and on `{{playerId}}` it yields a
+ * parameter named `{playerId` — a name the author never wrote and which no
+ * declared resource will cover. Such an endpoint would drop out of the run,
+ * while substitution in `runner.substitute` would assemble a garbage path from
+ * it. Reducing it to `{playerId}` leaves exactly two honest outcomes: a resource
+ * with this parameter is declared — and the endpoint is checked; it is not
+ * declared — and the endpoint lands in the skips with the reason
+ * `path-parameters`, that is, visible to the operator rather than lost.
  *
- * Обратная сторона решения: `{{baseUrl}}` в середине пути тоже станет
- * параметром. Это верно по сути — сегмент с неизвестным значением проверять
- * нечем, — и заметно в отчёте, в отличие от молчаливой подстановки.
+ * The flip side of the decision: a `{{baseUrl}}` in the middle of a path will
+ * also become a parameter. That is true in substance — there is nothing to check
+ * in a segment with an unknown value — and it is visible in the report, unlike a
+ * silent substitution.
  */
 function toTemplateSegment(segment: string): string {
-  // `:playerId` — родная запись параметра пути в Postman. Сегмент, начинающийся
-  // с двоеточия, но не похожий на имя, остаётся литералом: двоеточие само по
-  // себе в пути допустимо.
+  // `:playerId` is Postman's native notation for a path parameter. A segment
+  // that starts with a colon but does not look like a name stays a literal: a
+  // colon by itself is allowed in a path.
   if (segment.startsWith(":") && PARAMETER_NAME.test(segment.slice(1))) {
     return `{${segment.slice(1)}}`;
   }
@@ -244,12 +251,12 @@ function toTemplateSegment(segment: string): string {
 }
 
 /**
- * Проверяет, что путь не способен выбрать хост.
+ * Checks that the path is unable to choose a host.
  *
- * Правило то же, что в прогоне (`runner.joinUrl`): склейка с базой обязана
- * остаться на её origin. Проверка здесь дублирует проверку там намеренно —
- * путь вида `/https://evil.test/x` формально начинается со слэша и мимо более
- * простых условий проходит.
+ * The rule is the same as in the run (`runner.joinUrl`): joining with the base
+ * must stay on its origin. The check here duplicates the check there on purpose
+ * — a path like `/https://evil.test/x` formally starts with a slash and gets
+ * past simpler conditions.
  */
 function assertStaysWithinTarget(path: string, location: string): void {
   const base = new URL(PLACEHOLDER_BASE);
@@ -273,19 +280,19 @@ function assertStaysWithinTarget(path: string, location: string): void {
 }
 
 /**
- * Доводит путь до вида, в котором его принимает ядро.
+ * Brings the path to the form in which the core accepts it.
  *
- * Ведущий слэш здесь не проверяется: каждый источник пути гарантирует его сам —
- * сегменты склеиваются через `/`, строковый путь дополняется, а из `raw` путь
- * без слэша не выпускается вовсе. Проверка, которую нечем нарушить, только
- * создавала бы видимость защиты.
+ * The leading slash is not checked here: every source of a path guarantees it
+ * itself — segments are joined with `/`, a string path is completed, and a path
+ * without a slash is not released from `raw` at all. A check that nothing can
+ * violate would only create the appearance of protection.
  */
 function normalizePath(path: string, location: string): string {
   const converted = path.split("/").map(toTemplateSegment).join("/");
 
-  // `//host/x` — схемо-относительный URL: он адресует другой хост, а не путь
-  // на проверяемом. Область проверки задаётся allowlist'ом и не должна
-  // расширяться формой записи пути.
+  // `//host/x` is a scheme-relative URL: it addresses another host rather than a
+  // path on the one under test. The scope of the check is set by the allowlist
+  // and must not be widened by the form in which a path is written.
   if (converted.startsWith("//")) {
     throw new InvalidPostmanItemError(
       location,
@@ -307,12 +314,13 @@ function normalizePath(path: string, location: string): string {
 }
 
 /**
- * Выделяет путь из `request.url.raw`.
+ * Extracts the path from `request.url.raw`.
  *
- * Хост, схема и порт отбрасываются, а не сверяются: цель прогона задаётся
- * конфигурацией, и документ не должен участвовать в выборе адресата. Строка
- * запроса и фрагмент тоже отбрасываются — эндпоинт здесь шаблон без значений,
- * а параметры запроса объявляет человек (`Resource.query`).
+ * The host, the scheme and the port are discarded rather than checked: the
+ * target of the run is set by the configuration, and the document must take no
+ * part in choosing the addressee. The query string and the fragment are
+ * discarded as well — an endpoint here is a template without values, and query
+ * parameters are declared by a human (`Resource.query`).
  */
 function pathFromRaw(raw: string, location: string): string {
   const withoutQuery = raw.trim().replace(/[?#][\s\S]*$/, "");
@@ -341,10 +349,10 @@ function pathFromRaw(raw: string, location: string): string {
 }
 
 /**
- * Собирает путь из `request.url.path`.
+ * Assembles the path from `request.url.path`.
  *
- * Возвращает `undefined`, если поля нет или оно пусто, — тогда путь берётся
- * из `raw`.
+ * Returns `undefined` if the field is missing or empty — then the path is taken
+ * from `raw`.
  */
 function pathFromSegments(segments: unknown, location: string): string | undefined {
   if (typeof segments === "string") {
@@ -406,10 +414,10 @@ function pathOf(url: unknown, location: string): string {
 function toEndpoint(request: unknown, trail: readonly string[]): Endpoint {
   const location = locationOf(trail);
 
-  // Сокращённая запись `"request": "https://..."` схемой допускается и читается
-  // как GET по умолчанию. Догадка о методе в инструменте, который без явного
-  // флага не выполняет ничего кроме GET и HEAD, слишком дорога: она тихо решает
-  // за автора, что именно проверяется.
+  // The short form `"request": "https://..."` is allowed by the schema and reads
+  // as GET by default. Guessing the method in a tool that performs nothing but
+  // GET and HEAD without an explicit flag is too expensive: it silently decides
+  // for the author what exactly is being checked.
   if (!isRecord(request)) {
     throw new InvalidPostmanItemError(
       location,
@@ -439,14 +447,15 @@ function toEndpoint(request: unknown, trail: readonly string[]): Endpoint {
 }
 
 /**
- * Обходит дерево элементов вглубь, сохраняя порядок объявления.
+ * Walks the tree of items depth-first, preserving the order of declaration.
  *
- * Идентификатор эндпоинта — путь по папкам плюс имя запроса. Одного лишь
- * `name` не хватает: одноимённые запросы в разных папках — обычное дело для
- * коллекции, а для политики доступа это два разных эндпоинта. Дописывать к
- * повторам порядковый номер было бы хуже отказа: номер зависит от порядка
- * элементов, и перестановка в коллекции молча переадресовала бы строку
- * политики на другой запрос.
+ * The endpoint identifier is the folder path plus the request name. The `name`
+ * alone is not enough: requests with the same name in different folders are an
+ * everyday thing in a collection, while for the access policy these are two
+ * different endpoints. Appending a sequence number to repeats would be worse
+ * than a refusal: the number depends on the order of the items, and a
+ * rearrangement in the collection would silently redirect a policy line to a
+ * different request.
  */
 function collectItems(
   items: readonly unknown[],
@@ -519,10 +528,10 @@ function assertUniqueIds(endpoints: readonly Endpoint[]): void {
 }
 
 /**
- * Создаёт парсер коллекций Postman.
+ * Creates the parser of Postman collections.
  *
- * Пределы можно ужесточить, но не отключить: значения по умолчанию —
- * консервативные, а не рекомендательные.
+ * The limits can be tightened but not switched off: the default values are
+ * conservative, not advisory.
  */
 export function createPostmanCollectionParser(
   limits: Partial<PostmanCollectionLimits> = {},
@@ -530,8 +539,9 @@ export function createPostmanCollectionParser(
   const effective: PostmanCollectionLimits = { ...DEFAULT_POSTMAN_LIMITS, ...limits };
 
   return {
-    // Асинхронность — требование порта `SpecParser`. Здесь она заодно превращает
-    // любой отказ в отклонённый промис, а не в синхронное исключение.
+    // The asynchrony is a requirement of the `SpecParser` port. Here it also
+    // turns any refusal into a rejected promise rather than a synchronous
+    // exception.
     async parse(source: string): Promise<readonly Endpoint[]> {
       const bytes = Buffer.byteLength(source, "utf8");
       if (bytes > effective.maxBytes) {
@@ -540,8 +550,8 @@ export function createPostmanCollectionParser(
 
       let document: unknown;
       try {
-        // Коллекции экспортируются в JSON, а JSON — подмножество YAML 1.2,
-        // поэтому отдельный парсер не нужен, а `maxAliasCount` достаётся даром.
+        // Collections are exported as JSON, and JSON is a subset of YAML 1.2, so
+        // a separate parser is not needed, and `maxAliasCount` comes for free.
         document = parseYaml(source, { maxAliasCount: effective.maxAliasCount });
       } catch (cause) {
         throw new PostmanCollectionParseError(describe(cause), { cause });

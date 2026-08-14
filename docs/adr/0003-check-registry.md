@@ -1,41 +1,43 @@
-# 0003. Проверки как плагины через реестр
+# 0003. Checks as plugins through a registry
 
-- **Статус:** принято
-- **Дата:** 2026-08-11
+- **Status:** accepted
+- **Date:** 2026-08-11
 
-## Контекст
+## Context
 
-Модуль 1 находит privilege escalation, BOLA/IDOR и cross-tenant утечки. Модуль 2 —
-evidence-pack, где те же и новые проверки должны быть замаплены на пункты внешних
-стандартов. Если детекторы захардкожены в конвейере, Модуль 2 потребует переписывания
-ядра, а маппинг на стандарты расползётся по отдельной таблице, которая рассинхронизируется
-с кодом.
+Module 1 finds privilege escalation, BOLA/IDOR and cross-tenant leaks. Module 2 is the
+evidence pack, where the same checks and new ones have to be mapped onto clauses of
+external standards. If the detectors are hardcoded into the pipeline, Module 2 will demand
+a rewrite of the core, and the mapping onto standards will spread out into a separate table
+that drifts out of sync with the code.
 
-## Решение
+## Decision
 
-Единый интерфейс `Check`: `id`, `description`, `severity`, `standards`, `run(context)`.
-Реестр `CheckRegistry` регистрирует проверки и отдаёт их по `id`; повторная регистрация
-того же `id` — ошибка `DuplicateCheckIdError`, а не молчаливая перезапись.
+One `Check` interface: `id`, `description`, `severity`, `standards`, `run(context)`. The
+`CheckRegistry` registers checks and hands them out by `id`; registering the same `id`
+twice is a `DuplicateCheckIdError`, not a silent overwrite.
 
-Маппинг на внешние стандарты (`StandardRef`) объявляется в самой проверке. Модуль 2
-добавляется регистрацией новых проверок и чтением их `standards`, а не изменением ядра.
+The mapping onto external standards (`StandardRef`) is declared in the check itself.
+Module 2 is added by registering new checks and reading their `standards`, not by changing
+the core.
 
-Находка (`Finding`) несёт `evidence` — словарь скаляров. Тела ответов и заголовки
-авторизации туда не попадают.
+A finding (`Finding`) carries `evidence` — a dictionary of scalars. Response bodies and
+authorization headers do not get in there.
 
-## Альтернативы
+## Alternatives
 
-- **Хардкод набора детекторов:** быстрее на старте, но Модуль 2 становится переписыванием.
-- **Отдельный файл маппинга «проверка → пункт стандарта»:** удобно читать целиком, но
-  расходится с кодом при любом переименовании `id`.
-- **Автозагрузка проверок из каталога:** меньше ручной регистрации, но неявные побочные
-  эффекты импорта и невозможность собрать реестр под конкретный прогон.
+- **Hardcode the set of detectors:** faster at the start, but Module 2 then becomes a
+  rewrite.
+- **A separate mapping file, "check → clause of a standard":** convenient to read as a
+  whole, but it diverges from the code on any rename of an `id`.
+- **Auto-loading checks from a directory:** less manual registration, but implicit side
+  effects on import and no way to assemble a registry for a particular run.
 
-## Последствия
+## Consequences
 
-Новая проверка — это новый файл плюс одна строка регистрации; ядро не меняется.
-Реестр можно собрать под конкретный прогон, а `DuplicateCheckIdError` не даёт потерять
-покрытие при копировании проверок.
+A new check is a new file plus one line of registration; the core does not change. A
+registry can be assembled for a particular run, and `DuplicateCheckIdError` keeps coverage
+from being lost when checks are copied.
 
-Расплата: `id` становится частью публичного контракта — переименование ломает
-сохранённые отчёты и маппинги, поэтому меняется только через ADR.
+The price: an `id` becomes part of the public contract — renaming one breaks stored reports
+and mappings, so it changes only through an ADR.

@@ -1,113 +1,122 @@
-# 0009. Оракул валидации — список известных дефектов, а не переключатель полигона
+# 0009. The validation oracle — a list of known defects, not the polygon's switch
 
-- **Статус:** принято
-- **Дата:** 2026-08-12
+- **Status:** accepted
+- **Date:** 2026-08-12
 
-## Контекст
+## Context
 
-Роадмап ставил VAmPI первым полигоном с обоснованием: у него есть глобальный
-переключатель уязвимостей (`vulnerable=0/1`), а значит есть оракул не только для
-пропусков, но и для ложных срабатываний — прогон с выключенными дефектами обязан
-дать пустой отчёт.
+The roadmap put VAmPI first as a polygon, with this reasoning: it has a global
+vulnerability switch (`vulnerable=0/1`), which means there is an oracle not only
+for misses but also for false positives — a run with the defects switched off must
+produce an empty report.
 
-Посылка проверена измерением и **оказалась неверной для нашего инструмента**.
+The premise was tested by measurement and **turned out to be wrong for our tool**.
 
-## Измерение
+## Measurement
 
-Подняты два экземпляра VAmPI: `vulnerable=1` и `vulnerable=0`. Сравнены статусы
-ответов по всем эндпоинтам, доступным инструменту.
+Two instances of VAmPI were brought up: `vulnerable=1` and `vulnerable=0`. Response
+statuses were compared across all endpoints available to the tool.
 
-| Запрос | `vulnerable=1` | `vulnerable=0` |
+| Request | `vulnerable=1` | `vulnerable=0` |
 |---|---|---|
 | `GET /`, `/books/v1`, `/users/v1`, `/users/v1/_debug` | 200 | 200 |
-| `GET /me` без токена | 401 | 401 |
-| `GET /users/v1/{username}` от чужого имени | 200 | 200 |
-| `PUT /users/v1/{username}/email` от чужого имени | **204** | **400** |
+| `GET /me` with no token | 401 | 401 |
+| `GET /users/v1/{username}` as another user | 200 | 200 |
+| `PUT /users/v1/{username}/email` as another user | **204** | **400** |
 
-Различие ровно одно, и оно на небезопасном методе и шаблонном пути — то есть
-в двух местах, куда инструмент не ходит: `PUT` требует `--unsafe-methods`,
-а подставить значение в `{username}` нечем.
+There is exactly one difference, and it sits on an unsafe method and a templated
+path — that is, in the two places the tool does not go: `PUT` requires
+`--unsafe-methods`, and there is nothing to substitute into `{username}`.
 
-Всё остальное различается **только телами ответов**: `/users/v1/_debug` отдаёт
-пароли всех пользователей в обоих режимах, `vulnerable=0` этого не чинит.
-Тела мы не читаем принципиально (ADR-0005), поэтому для нас режимы неразличимы.
+Everything else differs **only in response bodies**: `/users/v1/_debug` hands out
+the passwords of all users in both modes, and `vulnerable=0` does not fix that.
+We do not read bodies as a matter of principle (ADR-0005), so for us the modes are
+indistinguishable.
 
-Полные прогоны подтвердили: против обоих экземпляров инструмент выдаёт
-одинаковые три находки и одинаковый код возврата.
+Full runs confirmed it: against both instances the tool produces the same three
+findings and the same exit code.
 
-## Решение
+## Decision
 
-**Оракул — написанный вручную список известных дефектов полигона**, а не разница
-между его режимами. Валидация состоит из двух утверждений: инструмент находит
-перечисленные дефекты и не находит ничего сверх объявленной политики.
+**The oracle is a hand-written list of the polygon's known defects**, not the
+difference between its modes. Validation consists of two assertions: the tool finds
+the listed defects, and it finds nothing beyond the declared policy.
 
-«Ноль находок в защищённом режиме» как критерий отменяется: для нас он выполняется
-тривиально, потому что режимы неразличимы, — и потому ничего не доказывает.
-Критерий, который проходит даром, хуже отсутствующего: он создаёт видимость проверки.
+"Zero findings in protected mode" is dropped as a criterion: for us it holds
+trivially, because the modes are indistinguishable — and therefore it proves
+nothing. A criterion that passes for free is worse than a missing one: it creates
+the appearance of a check.
 
-## Альтернативы
+## Alternatives
 
-- **Читать тела ответов, чтобы видеть разницу режимов.** Отклонено: это прямой
-  отказ от инварианта «тела не сохраняются», ради чего инвариант и заводился.
-  Ценность полигона не оправдывает переноса PII клиента в отчёты.
-- **Считать VAmPI непригодным и сразу переходить к своей платформе.** Отклонено:
-  VAmPI и в таком виде даёт настоящие находки (см. ниже), а быстрая обратная связь
-  на реальном приложении дороже, чем чистота критерия.
-- **Сравнивать отчёты двух режимов между собой.** Отклонено по той же причине:
-  сравнивать нечего, отчёты совпадают побайтово по содержательной части.
+- **Read response bodies to see the difference between the modes.** Rejected: this
+  is a direct abandonment of the invariant "bodies are not stored", the very thing
+  the invariant was created for. The value of the polygon does not justify moving a
+  client's PII into reports.
+- **Declare VAmPI unusable and move straight to our own platform.** Rejected: even
+  in this shape VAmPI yields real findings (see below), and fast feedback on a real
+  application is worth more than the purity of a criterion.
+- **Compare the reports of the two modes against each other.** Rejected for the
+  same reason: there is nothing to compare, the reports match byte for byte in their
+  substantive part.
 
-## Последствия
+## Consequences
 
-VAmPI остаётся полезен: прогон нашёл три настоящих расхождения с объявленной
-политикой — `/users/v1/_debug` открыт обоим аккаунтам (задокументированная утечка
-паролей) и `/users/v1` доступен обычному пользователю (перечисление пользователей).
-Это истинно положительные находки на реальном приложении, а не на синтетике.
+VAmPI stays useful: the run found three real discrepancies with the declared
+policy — `/users/v1/_debug` is open to both accounts (a documented password leak)
+and `/users/v1` is available to an ordinary user (user enumeration). These are true
+positives on a real application, not on a synthetic one.
 
-Возрастает роль фазы 3. Своя референс-платформа теперь нужна не «для
-мультитенантности», а как **единственный источник переключаемых дефектов, видимых
-по статусу ответа**. Требование к ней уточняется: дефекты должны проявляться
-в кодах ответов, иначе платформа повторит бесполезность переключателя VAmPI.
+Phase 3 grows in importance. Our own reference platform is now needed not "for
+multi-tenancy" but as **the only source of switchable defects visible by response
+status**. The requirement on it is made more precise: defects must show up in
+response codes, otherwise the platform will repeat the uselessness of VAmPI's switch.
 
-Пересмотреть, если инструмент научится подставлять значения в шаблонные пути:
-тогда `PUT /users/v1/{username}/email` станет доступен, и переключатель VAmPI
-обретёт смысл — но уже как проверка одного конкретного дефекта, а не как общий оракул.
+Revisit if the tool learns to substitute values into templated paths:
+`PUT /users/v1/{username}/email` would then become reachable, and VAmPI's switch
+would acquire meaning — but as a check of one specific defect, not as a general
+oracle.
 
-## Уточнение от 2026-08-12: условие пересмотра сработало
+## Clarification of 2026-08-12: the revision condition fired
 
-Последний абзац выше назвал условие: «пересмотреть, если инструмент научится
-подставлять значения в шаблонные пути». После ADR-0010 научился. Условие сработало,
-и измерение, на котором стоял этот ADR, больше не верно.
+The last paragraph above named a condition: "revisit if the tool learns to
+substitute values into templated paths". After ADR-0010 it learned. The condition
+fired, and the measurement this ADR stood on is no longer true.
 
-**Что изменилось.** Режимы VAmPI различимы по статусу — ровно на одной ручке:
+**What changed.** VAmPI's modes are distinguishable by status — on exactly one
+endpoint:
 
 ```
-GET /books/v1/{book_title}, чужая книга
+GET /books/v1/{book_title}, someone else's book
   vulnerable=1 -> 200     vulnerable=0 -> 404
 ```
 
-Проверено воспроизводимым прогоном (`polygons/vampi/verify.mjs`), оба режима,
-оракул написан до прогона: уязвимый — 13 находок, защищённый — 11. Расходятся
-ровно две ячейки: `alice × books.read × book-bob` и `bob × books.read × book-alice`.
+Checked by a reproducible run (`polygons/vampi/verify.mjs`), both modes, with the
+oracle written before the run: vulnerable — 13 findings, protected — 11. Exactly
+two cells diverge: `alice × books.read × book-bob` and
+`bob × books.read × book-alice`.
 
-Прежнее измерение «отчёты совпадают побайтово» было верным **для инструмента
-того времени**: без подстановки в путь эта ручка не опрашивалась вовсе, и режимам
-негде было разойтись. Мерялась не неразличимость режимов VAmPI, а слепота
-инструмента к ним.
+The earlier measurement, "the reports match byte for byte", was true **for the tool
+of that time**: without substitution into the path, that endpoint was not probed at
+all, and the modes had nowhere to diverge. What was being measured was not the
+indistinguishability of VAmPI's modes but the tool's blindness to them.
 
-**Предсказание о том, какая именно ручка «обретёт смысл», не сбылось.** Названа
-была `PUT /users/v1/{username}/email` — но PUT небезопасен и не выполняется без
-явного разрешения, так что этой ручке смысла не прибавилось. Разошлись режимы
-на `GET /books/v1/{book_title}`, о которой абзац не говорил.
+**The prediction about which endpoint exactly would "acquire meaning" did not come
+true.** The one named was `PUT /users/v1/{username}/email` — but PUT is unsafe and
+is not performed without explicit permission, so that endpoint gained no meaning.
+The modes diverged on `GET /books/v1/{book_title}`, which the paragraph said
+nothing about.
 
-**Решение при этом остаётся в силе, и причина другая, чем прежде.** Переключатель
-режима по-прежнему не годится как оракул — но уже не потому, что он ничего не
-меняет, а потому, что меняет слишком мало: 2 ячейки из 13. В защищённом режиме
-остаётся 11 находок, включая три на `/users/v1/_debug`, который отдаёт пароли
-в обоих режимах. «Ноль находок в защищённом режиме» недостижим, а без этого
-критерия переключатель не отвечает на вопрос «нет ли ложных срабатываний».
+**The decision nevertheless stands, and for a different reason than before.** The
+mode switch is still no good as an oracle — but no longer because it changes
+nothing; rather because it changes too little: 2 cells out of 13. In protected mode
+11 findings remain, including three on `/users/v1/_debug`, which hands out
+passwords in both modes. "Zero findings in protected mode" is unreachable, and
+without that criterion the switch does not answer the question "are there any false
+positives".
 
-Оракул остаётся написанным вручную. Изменилась его форма: теперь это два списка,
-по одному на режим, а не один список известных дефектов.
+The oracle stays hand-written. Its shape has changed: it is now two lists, one per
+mode, rather than one list of known defects.
 
-Требование к своей референс-платформе (`polygon/`) не смягчается: там переключатель
-даёт настоящий ноль в чистом режиме, чего VAmPI не даёт ни в каком.
+The requirement on our own reference platform (`polygon/`) is not relaxed: there the
+switch gives a real zero in clean mode, which VAmPI gives in no mode at all.

@@ -1,26 +1,26 @@
 /**
- * Доменные типы ядра.
+ * Core domain types.
  *
- * Здесь только данные. Ни HTTP, ни файловой системы, ни глобального состояния —
- * см. docs/adr/0002-pure-core-and-json-source-of-truth.md.
+ * Data only. No HTTP, no file system, no global state —
+ * see docs/adr/0002-pure-core-and-json-source-of-truth.md.
  */
 
 import type { TenantHierarchy, TenantNode } from "./tenancy.js";
 import { FLAT_HIERARCHY } from "./tenancy.js";
 
-/** Идентификатор тенанта в проверяемой платформе. */
+/** Tenant identifier in the platform under test. */
 export type TenantId = string;
 
-/** Идентификатор роли в проверяемой платформе. */
+/** Role identifier in the platform under test. */
 export type RoleId = string;
 
 export type HttpMethod = "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
 
 /**
- * Методы, выполняемые без явного флага `--unsafe-methods`.
+ * The methods performed without the explicit `--unsafe-methods` flag.
  *
- * Инвариант безопасности: расширение этого списка меняет поведение инструмента
- * по умолчанию и требует записи в ADR.
+ * A security invariant: extending this list changes the tool's default behaviour
+ * and requires an entry in an ADR.
  */
 export const SAFE_METHODS = ["GET", "HEAD"] as const satisfies readonly HttpMethod[];
 
@@ -30,86 +30,90 @@ interface AccountIdentity {
   readonly id: string;
   readonly roleId: RoleId;
   /**
-   * Условия обращения, в которых существует этот аккаунт.
+   * The request conditions this account exists in.
    *
-   * Минимальный полезный кусок ABAC: тот же аккаунт с той же ролью, но
-   * обращение помечено атрибутами — адрес другой страны, устройство,
-   * непройденный KYC. Инструмент не моделирует логику решения платформы,
-   * он сравнивает **исходы** двух объявленных наборов условий.
+   * The minimal useful piece of ABAC: the same account with the same role, but
+   * the request is tagged with attributes — an address in another country, a
+   * device, KYC not passed. The tool does not model the platform's decision
+   * logic, it compares the **outcomes** of two declared sets of conditions.
    *
-   * В ядре это только метка: сами атрибуты — заголовки и параметры запроса —
-   * живут в адаптерах, потому что ядро об HTTP не знает. См. ADR-0019.
+   * In the core this is only a label: the attributes themselves — request
+   * headers and parameters — live in the adapters, because the core knows
+   * nothing about HTTP. See ADR-0019.
    *
-   * Отсутствие означает базовые условия: обращение без добавленных атрибутов.
+   * Absence means baseline conditions: a request with no added attributes.
    */
   readonly contextId?: string;
   /**
-   * Исходный аккаунт, если эта строка — он же в объявленных условиях.
+   * The original account, when this row is that same account under declared
+   * conditions.
    *
-   * Не украшение отчёта, а тождество: владение объектом сверяется по нему.
-   * Пока его не было, `order-a-1001` переставал быть **своим** для
-   * `alice-a@geo-blocked` — владельцем записан `alice-a`, — отношение уезжало
-   * в `same-tenant`, серьёзность поднималась с medium до high, а группа
-   * дефектов `own` пропадала целиком. Найдено холодным чтением отчёта.
+   * Not decoration for the report but identity: resource ownership is checked
+   * against it. While it was missing, `order-a-1001` stopped being **own** for
+   * `alice-a@geo-blocked` — the owner on record is `alice-a` — the relation
+   * drifted into `same-tenant`, severity rose from medium to high, and the `own`
+   * defect group vanished entirely. Found by a cold read of the report.
    */
   readonly baseAccountId?: string;
   /**
-   * Ручки, на которых аккаунт вообще существует. Отсутствие — все.
+   * The endpoints on which the account exists at all. Absence means all of them.
    *
-   * Нужно аккаунту в условиях: условия объявляются на конкретных ручках,
-   * и на остальных такой ячейки **не бывает**. Без этого поля они попали бы
-   * в отчёт как «объявлено политикой, но не пронаблюдено» — то есть дыра
-   * в покрытии там, где дыры нет.
+   * Needed by an account under conditions: conditions are declared on specific
+   * endpoints, and on the rest such a cell **does not exist**. Without this
+   * field they would land in the report as "declared by the policy but not
+   * observed" — that is, a hole in coverage where there is no hole.
    */
   readonly endpointIds?: readonly string[];
 }
 
-/** Аккаунт в одном узле дерева тенантов либо вне тенантов вовсе. */
+/** An account in a single node of the tenant tree, or outside tenants entirely. */
 export interface SingleTenantAccount extends AccountIdentity {
   /**
-   * Тенант аккаунта. **Отсутствие означает «аккаунт вне тенантов»** — это аноним.
+   * The account's tenant. **Absence means "the account is outside tenants"** —
+   * that is an anonymous account.
    *
-   * Обязательным это поле быть не может. Анониму пришлось бы выдумывать тенант,
-   * и служебное имя вроде `none` лежало бы в одном пространстве значений
-   * с настоящими: платформа с тенантом, который действительно так называется,
-   * молча сломала бы классификацию — аноним стал бы соседом по тенанту.
-   * Глубже: у анонима тенанта **нет**, и заставлять его участвовать в `relationOf`
-   * наравне с остальными неверно по существу, а не только по форме записи.
+   * This field cannot be mandatory. An anonymous account would have to invent a
+   * tenant, and a reserved name like `none` would sit in the same value space as
+   * the real ones: a platform with a tenant that really is called that would
+   * silently break the classification — the anonymous account would become a
+   * neighbor inside that tenant. Deeper still: an anonymous account has **no**
+   * tenant, and making it take part in `relationOf` on equal terms with the rest
+   * is wrong in substance, not only in notation.
    */
   readonly tenantId?: TenantId;
   readonly tenantIds?: undefined;
 }
 
 /**
- * Аккаунт, состоящий сразу в нескольких тенантах, не связанных поддеревом.
+ * An account that is a member of several tenants at once, not joined by a subtree.
  *
- * Саппорт на двух брендах разных холдингов, аффилиат на части брендов группы —
- * случай, который деревом не выражается: общего предка у таких тенантов нет,
- * кроме корня платформы, а посадив аккаунт в корень, ему отдают всё поддерево
- * целиком. Обоснование и эксперимент — ADR-0017.
+ * Support staff over two brands of different holdings, an affiliate over some of
+ * a group's brands — a case a tree cannot express: such tenants have no common
+ * ancestor other than the platform root, and by seating the account at the root
+ * you hand it the whole subtree. Reasoning and experiment — ADR-0017.
  */
 export interface MultiTenantAccount extends AccountIdentity {
   readonly tenantId?: undefined;
-  /** Членства. Порядок не значим; пересчёт отношения не зависит от него. */
+  /** Memberships. The order carries no meaning; computing the relation does not depend on it. */
   readonly tenantIds: readonly TenantId[];
 }
 
 /**
- * Учётная запись, от имени которой выполняется обращение.
+ * The account a request is made as.
  *
- * Union, а не два необязательных поля в одном типе: «один тенант» и «набор
- * тенантов» — взаимоисключающие утверждения, и запрет на их одновременную
- * запись держится компилятором, а не соглашением. Дубль, который нельзя
- * проверить компилятором, рано или поздно расходится — этим уже кончился
- * рукописный перечень отношений в схеме конфигурации.
+ * A union rather than two optional fields in one type: "one tenant" and "a set
+ * of tenants" are mutually exclusive statements, and the ban on writing both at
+ * once is held by the compiler, not by convention. A duplicate the compiler
+ * cannot check drifts apart sooner or later — that is exactly how the
+ * hand-written list of relations in the configuration schema ended.
  */
 export type Account = SingleTenantAccount | MultiTenantAccount;
 
 /**
- * Членства аккаунта одним списком.
+ * The account's memberships as a single list.
  *
- * Пустой список означает «вне тенантов»: у анонима членств нет, и это
- * утверждение, а не пропуск.
+ * An empty list means "outside tenants": an anonymous account has no
+ * memberships, and that is a statement, not an omission.
  */
 export function tenantIdsOf(account: Account): readonly TenantId[] {
   if (account.tenantIds !== undefined) {
@@ -118,131 +122,135 @@ export function tenantIdsOf(account: Account): readonly TenantId[] {
   return account.tenantId === undefined ? [] : [account.tenantId];
 }
 
-/** Эндпоинт как шаблон, без подставленных значений. */
+/** An endpoint as a template, with no values substituted. */
 export interface Endpoint {
   readonly id: string;
   readonly method: HttpMethod;
-  /** Шаблон пути, например `/v1/players/{playerId}`. */
+  /** The path template, for example `/v1/players/{playerId}`. */
   readonly path: string;
   readonly operationId?: string;
   /**
-   * Объявленное человеком ожидание: ответ этой ручки обязан различаться
-   * между тенантами.
+   * An expectation declared by a human: the response of this endpoint must
+   * differ between tenants.
    *
-   * Имя намеренно в повелительном наклонении. Прежнее `tenantScoped` читалось
-   * как свойство проверяемого API («ручка ограничена тенантом»), которого
-   * инструмент не знает и знать не может: у `orders.read` его не было, хотя
-   * по смыслу он тенант-скоупный и как раз тёк. Кодируется же здесь ожидание
-   * оператора — то же заявление о намерении, что и политика доступа (ADR-0006).
+   * The name is imperative on purpose. The former `tenantScoped` read as a
+   * property of the API under test ("the endpoint is scoped to a tenant"), which
+   * the tool does not know and cannot know: `orders.read` did not have it, even
+   * though it is tenant-scoped by its very nature and was exactly the one
+   * leaking. What is encoded here is the operator's expectation — the same claim
+   * of intent as the access policy (ADR-0006).
    *
-   * Никогда не выводится: `GET /v1/health`, отдающий всем одинаковое
-   * `{"status":"ok"}`, — законная одинаковость, а не утечка, и без явного
-   * объявления отличить одно от другого нельзя. См. ADR-0011.
+   * Never derived: `GET /v1/health`, which returns the same `{"status":"ok"}` to
+   * everyone, is legitimate sameness rather than a leak, and without an explicit
+   * declaration one cannot be told from the other. See ADR-0011.
    */
   readonly responseMustDifferByTenant?: boolean;
   /**
-   * Дополнительные скаляры, вычисляемые над телом этого эндпоинта.
+   * Extra scalars computed over the body of this endpoint.
    *
-   * Отдельно от `responseMustDifferByTenant`: то объявление само подразумевает
-   * дайджест, а здесь — то, что человек объявил ради разбора находки, а не ради
-   * самой находки.
+   * Separate from `responseMustDifferByTenant`: that declaration implies the
+   * digest by itself, while these are what a human declared for digging into a
+   * finding, not for the finding itself.
    */
   readonly signals?: readonly SignalSpec[];
 }
 
 /**
- * Значение сигнала над телом ответа.
+ * The value of a signal computed over a response body.
  *
- * Строкового варианта нет намеренно: строка вмещает тело целиком, и запрет
- * на PII в отчёте из конструктивного стал бы дисциплинарным. Расширение типа
- * требует отдельного ADR — см. ADR-0011.
+ * There is no string variant on purpose: a string holds the whole body, and the
+ * ban on PII in the report would turn from structural into disciplinary.
+ * Extending the type requires an ADR of its own — see ADR-0011.
  */
 export type SignalValue = number | boolean;
 
-/** Что вычислять над телом. Объявляется человеком, не выводится. */
+/** What to compute over the body. Declared by a human, not derived. */
 export type SignalSpec =
   | { readonly name: string; readonly kind: "digest" }
   | { readonly name: string; readonly kind: "count"; readonly path: string }
   | { readonly name: string; readonly kind: "present"; readonly path: string };
 
 /**
- * Объект, к которому обращаются: значения параметров плюс владелец.
+ * The resource being requested: parameter values plus the owner.
  *
- * Объявляется человеком, а не выуживается из ответов — обоснование в ADR-0010.
- * Утверждение «объект 1001 принадлежит игроку A» есть заявление о намерении,
- * ровно как и сама политика доступа.
+ * Declared by a human rather than fished out of responses — the reasoning is in
+ * ADR-0010. The statement "resource 1001 belongs to player A" is a claim of
+ * intent, exactly like the access policy itself.
  */
 export interface Resource {
   readonly id: string;
   readonly tenantId: TenantId;
-  /** Аккаунт-владелец. Отсутствует, если объект принадлежит тенанту целиком. */
+  /** The owning account. Absent when the resource belongs to the tenant as a whole. */
   readonly ownerAccountId?: string;
-  /** Значения для параметров пути по именам из шаблона. */
+  /** Values for the path parameters, by the names in the template. */
   readonly params: Readonly<Record<string, string>>;
-  /** Параметры строки запроса. */
+  /** Query string parameters. */
   readonly query?: Readonly<Record<string, string>>;
   /**
-   * Эндпоинты, к которым относится объект.
+   * The endpoints the resource applies to.
    *
-   * Нужно, когда идентификатор лежит в строке запроса, а не в пути: у такого
-   * эндпоинта нет параметров в шаблоне, и связать его с объектом по совпадению
-   * имён невозможно. Разведка crAPI показала, что так устроен целый BOLA
-   * (`mechanic_report?report_id=N`).
+   * Needed when the identifier sits in the query string rather than in the path:
+   * such an endpoint has no parameters in its template, and it cannot be tied to
+   * a resource by matching names. Recon on crAPI showed that a whole BOLA is
+   * built that way (`mechanic_report?report_id=N`).
    *
-   * Отсутствие означает «по совпадению параметров пути».
+   * Absence means "by matching path parameters".
    */
   readonly endpointIds?: readonly string[];
 }
 
 /**
- * Отношение аккаунта к объекту.
+ * The account's relation to the resource.
  *
- * Трёхзначно намеренно: администратору тенанта обычно положен доступ ко всем
- * объектам своего тенанта и не положен ни к одному чужому, и одним признаком
- * «не своё» это не выразить.
+ * Three-valued on purpose: a tenant administrator is usually meant to have
+ * access to every resource of their own tenant and to none of anyone else's,
+ * and a single "not own" flag cannot express that.
  */
 /**
- * Все отношения одним списком — **источник истины**.
+ * Every relation in one list — the **source of truth**.
  *
- * Тип выводится отсюда, а не объявляется отдельно. Причина конкретная: схема
- * разбора конфигурации держала рукописный дубль этого перечня, он разошёлся
- * с типом при вводе иерархии, и `scope: descendant-tenant` отвергался на старте —
- * то есть возможность существовала в ядре и была недостижима через CLI.
- * Дубль, который нельзя проверить компилятором, рано или поздно расходится.
+ * The type is derived from here rather than declared separately. The reason is
+ * concrete: the configuration parsing schema kept a hand-written duplicate of
+ * this list, it drifted from the type when the hierarchy was introduced, and
+ * `scope: descendant-tenant` was rejected at startup — that is, the capability
+ * existed in the core and was unreachable through the CLI. A duplicate the
+ * compiler cannot check drifts apart sooner or later.
  */
 export const RESOURCE_RELATIONS = [
-  /** Владелец объекта — сам аккаунт. */
+  /** The owner of the resource is the account itself. */
   "own",
-  /** Тот же тенант, но другой владелец: сюда попадает BOLA внутри тенанта. */
+  /** Same tenant, different owner: BOLA inside a tenant lands here. */
   "same-tenant",
-  /** Объект ниже по дереву: холдинг читает свой бренд. Обычно положено. */
+  /** The resource is lower in the tree: a holding reads its own brand. Usually allowed. */
   "descendant-tenant",
-  /** Объект выше по дереву: бренд читает уровень холдинга. Обычно не положено. */
+  /** The resource is higher in the tree: a brand reads the holding level. Usually not allowed. */
   "ancestor-tenant",
-  /** Родства нет вовсе: чужой холдинг. Не положено никогда. */
+  /** No kinship at all: a different holding. Never allowed. */
   "foreign-tenant",
 ] as const;
 
 export type ResourceRelation = (typeof RESOURCE_RELATIONS)[number];
 
 /**
- * Определяет отношение аккаунта к объекту.
+ * Determines the account's relation to the resource.
  *
- * Без дерева тенантов (`FLAT_HIERARCHY`) отвечает ровно так же, как до ADR-0013:
- * `descendant` и `ancestor` не возникают, любые разные тенанты — чужие.
+ * Without a tenant tree (`FLAT_HIERARCHY`) it answers exactly as it did before
+ * ADR-0013: `descendant` and `ancestor` never arise, and any two different
+ * tenants are foreign.
  *
- * У аккаунта с набором членств отношение считается по **каждому** членству,
- * и выигрывает самое близкое из полученных, в том же порядке, в каком стоят
- * проверки ниже. Шестого значения ADR-0017 не вводит намеренно: набор — это
- * свойство аккаунта, а не новый вид родства, и лишнее значение молча сузило бы
- * существующие правила (см. комментарий про аккаунт вне тенантов).
- * На наборе из одного элемента результат совпадает с прежним побайтово.
+ * For an account with a set of memberships the relation is computed for **every**
+ * membership, and the nearest of the results wins, in the same order as the
+ * checks below. ADR-0017 deliberately introduces no sixth value: a set is a
+ * property of the account, not a new kind of kinship, and an extra value would
+ * silently narrow the existing rules (see the comment about an account outside
+ * tenants). On a set of one element the result matches the previous one byte for
+ * byte.
  */
 /**
- * Кто на самом деле обращается: строка матрицы может быть аккаунтом в условиях.
+ * Who is really making the request: a matrix row can be an account under conditions.
  *
- * Отдельная функция, потому что спрашивают об этом из трёх мест — отношение,
- * учётные данные, отчёт, — и три `?? account.id` вразнобой разошлись бы.
+ * A function of its own, because three places ask this — the relation, the
+ * credentials, the report — and three `?? account.id` written apart would drift.
  */
 export function principalOf(account: Account): string {
   return account.baseAccountId ?? account.id;
@@ -253,32 +261,32 @@ export function relationOf(
   resource: Resource,
   hierarchy: TenantHierarchy = FLAT_HIERARCHY,
 ): ResourceRelation {
-  // Аккаунт вне тенантов (аноним) чужд любому объекту. Ни одно из остальных
-  // отношений ему не подходит по построению: владение — отношение внутри
-  // тенанта, соседство по тенанту требует тенанта, а родства по дереву нет,
-  // потому что нет узла, от которого его считать. Остаётся `foreign-tenant`,
-  // и он же определён в ADR-0013 как «родства нет вовсе» — аккаунт без тенанта
-  // удовлетворяет этому определению строже всех прочих, а не составляет
-  // исключение из него.
+  // An account outside tenants (anonymous) is foreign to every resource. None of
+  // the other relations fits it by construction: ownership is a relation inside
+  // a tenant, being a neighbor inside a tenant requires a tenant, and there is
+  // no kinship along the tree, because there is no node to count it from. That
+  // leaves `foreign-tenant`, which ADR-0013 defines as "no kinship at all" — an
+  // account without a tenant satisfies that definition more strictly than every
+  // other one, rather than being an exception to it.
   //
-  // Шестое значение (вида `no-tenant`) намеренно не заводится, и дело не только
-  // в том, что пять — уже пять способов промахнуться в политике. Оно молча
-  // сузило бы существующие правила: `scope: foreign-tenant`, написанное как
-  // «постороннему — нельзя», перестало бы покрывать аноним, ячейка ушла бы
-  // в `fallback`, а `severityOf` понизил бы неаутентифицированное чтение
-  // с `critical` до `high`. Это ровно тот способ спрятать находку, против
-  // которого написан ADR-0013.
+  // A sixth value (something like `no-tenant`) is deliberately not introduced,
+  // and not only because five is already five ways to miss in a policy. It would
+  // silently narrow the existing rules: `scope: foreign-tenant`, written to mean
+  // "an outsider must not", would stop covering the anonymous account, the cell
+  // would fall through to `fallback`, and `severityOf` would lower an
+  // unauthenticated read from `critical` to `high`. That is exactly the way of
+  // hiding a finding that ADR-0013 was written against.
   //
-  // Проверка стоит первой, до сверки владельца: аккаунт без тенанта не может
-  // быть владельцем объекта тенанта, и `own` не должно возникать здесь даже
-  // при опечатке в поле `owner`.
+  // The check comes first, before the owner comparison: an account without a
+  // tenant cannot own a resource of a tenant, and `own` must not arise here even
+  // when the `owner` field has a typo.
   const memberships = tenantIdsOf(account);
   if (memberships.length === 0) {
     return "foreign-tenant";
   }
   if (memberships.includes(resource.tenantId)) {
-    // По исходному аккаунту, а не по строке матрицы: условия обращения
-    // владения не отменяют — меняется запрос, а не тот, кто его делает.
+    // By the original account, not by the matrix row: request conditions do not
+    // cancel ownership — what changes is the request, not who makes it.
     return resource.ownerAccountId === principalOf(account) ? "own" : "same-tenant";
   }
   if (memberships.some((membership) => hierarchy.isAncestor(membership, resource.tenantId))) {
@@ -290,60 +298,62 @@ export function relationOf(
   return "foreign-tenant";
 }
 
-/** Чем закончилось обращение с точки зрения доступа. */
+/** How the request ended from the point of view of access. */
 export type AccessOutcome = "allowed" | "denied" | "not-found" | "error";
 
 /**
- * Наблюдённый результат одного обращения.
+ * The observed result of one request.
  *
- * Тело ответа отсутствует намеренно: там PII клиента. Вместо него — `signals`,
- * необратимые скаляры, вычисленные над телом и не позволяющие его восстановить.
- * Границы этого послабления заданы в ADR-0011; расширять `SignalValue` строкой
- * или объектом нельзя без отдельного ADR.
+ * The response body is absent on purpose: it holds client PII. In its place come
+ * `signals` — irreversible scalars computed over the body that do not allow it
+ * to be reconstructed. The bounds of that relaxation are set in ADR-0011;
+ * `SignalValue` must not be extended with a string or an object without an ADR
+ * of its own.
  */
 export interface AccessObservation {
   readonly endpointId: string;
   readonly accountId: string;
-  /** Объект обращения. Отсутствует у эндпоинтов без параметров. */
+  /** The resource being requested. Absent on endpoints without parameters. */
   readonly resourceId?: string;
   readonly status: number;
   readonly headers: Readonly<Record<string, string>>;
   readonly outcome: AccessOutcome;
   readonly durationMs: number;
   /**
-   * Момент обращения, ISO-8601.
+   * The moment of the request, ISO-8601.
    *
-   * Без него находку нечем сопоставить с логом платформы: у прогона есть
-   * начало и конец, а у ячейки — только длительность. Первое, что спросит
-   * команда, получившая тикет, — «когда это было». Найдено третьим холодным
-   * чтением отчёта.
+   * Without it there is nothing to match the finding against the platform's log:
+   * a run has a start and an end, while a cell has only a duration. The first
+   * thing the team that receives the ticket will ask is "when was this". Found
+   * by the third cold read of the report.
    */
   readonly at?: string;
   /**
-   * Что именно было отправлено: метод и адрес с подставленными значениями.
+   * What exactly was sent: the method and the address with values substituted.
    *
-   * Без этого находку нельзя воспроизвести: читателю приходится склеивать путь
-   * из эндпоинта, параметры из объекта и догадываться про базовый адрес.
-   * Учётных данных здесь нет — они запрещены в `baseUrl`, — а значения
-   * параметров объявлены человеком, а не взяты из ответа.
+   * Without this a finding cannot be reproduced: the reader has to glue the path
+   * together from the endpoint, the parameters from the resource, and guess at
+   * the base address. There are no credentials here — they are forbidden in
+   * `baseUrl` — and the parameter values were declared by a human rather than
+   * taken from a response.
    */
   readonly method?: HttpMethod;
   readonly url?: string;
   /**
-   * Скаляры, вычисленные над телом. Само тело не сохраняется нигде — ADR-0011.
+   * Scalars computed over the body. The body itself is stored nowhere — ADR-0011.
    */
   readonly signals?: Readonly<Record<string, SignalValue>>;
 }
 
-/** Фактическая матрица доступа: кто, куда и с каким результатом. */
+/** The observed access matrix: who went where and with what result. */
 export interface AccessMatrix {
   readonly endpoints: readonly Endpoint[];
   readonly accounts: readonly Account[];
   readonly resources: readonly Resource[];
   readonly observations: readonly AccessObservation[];
   /**
-   * Дерево тенантов. Отсутствие означает лес из корней без связей, то есть
-   * поведение до ADR-0013.
+   * The tenant tree. Absence means a forest of roots with no links, that is, the
+   * behaviour from before ADR-0013.
    */
   readonly tenants?: readonly TenantNode[];
 }
@@ -351,60 +361,69 @@ export interface AccessMatrix {
 export type Severity = "info" | "low" | "medium" | "high" | "critical";
 
 /**
- * Ожидаемый исход — бинарен.
+ * The expected outcome is binary.
  *
- * Фактический исход богаче (`not-found`, `error`), но декларировать «ожидаю 404»
- * бессмысленно: намерение состоит в том, доступ есть или его нет. Сведение
- * фактического к ожидаемому — задача диффа. См. ADR-0006.
+ * The observed outcome is richer (`not-found`, `error`), but declaring "I expect
+ * a 404" is meaningless: the intent is whether access exists or not. Reducing
+ * the observed one to the expected one is the diff's job. See ADR-0006.
  */
 export type ExpectedOutcome = "allowed" | "denied";
 
-/** Характер расхождения между намерением и реализацией. */
+/** The nature of the discrepancy between intent and implementation. */
 export type DiffKind =
-  /** Ожидался отказ, доступ получен. Основная находка инструмента. */
+  /** A denial was expected, access was granted. The tool's main finding. */
   | "privilege-escalation"
-  /** Ожидался доступ, получен отказ. Не уязвимость, но расхождение с намерением. */
+  /**
+   * Access was expected, a denial came back. Not a vulnerability, but a
+   * discrepancy with the intent.
+   */
   | "unexpected-denial"
-  /** Пара «аккаунт × эндпоинт» не покрыта наблюдениями — вывод сделать нельзя. */
+  /**
+   * The "account × endpoint" pair is not covered by observations — no conclusion
+   * can be drawn.
+   */
   | "not-observed"
-  /** Обращение завершилось ошибкой: судить о доступе нельзя. */
+  /** The request ended in an error: access cannot be judged. */
   | "probe-error";
 
-/** Расхождение между ожидаемым и фактическим доступом. */
+/** A discrepancy between expected and observed access. */
 export interface AccessDiff {
   readonly accountId: string;
   readonly endpointId: string;
   /**
-   * Условия обращения. Отсутствие — базовые, без добавленных атрибутов.
+   * The request conditions. Absence means baseline, with no added attributes.
    *
-   * Расхождение в условиях и оно же в базовых — разные находки: платформа
-   * может закрывать ручку правильно и ломаться только при подменённой стране.
+   * A discrepancy under conditions and the same one in the baseline are
+   * different findings: the platform may close an endpoint correctly and break
+   * only when the country is substituted.
    */
   readonly contextId?: string;
-  /** Объект обращения. Отсутствует у эндпоинтов без параметров. */
+  /** The resource being requested. Absent on endpoints without parameters. */
   readonly resourceId?: string;
-  /** Отношение аккаунта к объекту. Отсутствует вместе с объектом. */
+  /** The account's relation to the resource. Absent together with the resource. */
   readonly relation?: ResourceRelation;
   readonly expected: ExpectedOutcome;
-  /** Отсутствует, если наблюдения для пары нет. */
+  /** Absent when there is no observation for the pair. */
   readonly actual?: AccessOutcome;
   readonly kind: DiffKind;
   /**
-   * Правило политики, объявившее ожидание. Отсутствие означает `fallback`:
-   * ни одно правило не подошло, и это содержательный ответ, а не пропуск.
+   * The policy rule that declared the expectation. Absence means `fallback`: no
+   * rule matched, and that is a meaningful answer, not an omission.
    */
   readonly ruleIndex?: number;
   /**
-   * Вычисляется из вида расхождения и отношения, а не объявляется человеком.
+   * Computed from the kind of discrepancy and the relation, not declared by a
+   * human.
    *
-   * Человек объявляет ожидание — что положено, а что нет. Серьёзность же есть
-   * свойство уже найденного расхождения: утечка в чужой тенант заведомо тяжелее
-   * доступа к чужому объекту внутри своего. См. ADR-0014.
+   * A human declares the expectation — what is meant to be allowed and what is
+   * not. Severity is a property of the discrepancy already found: a leak into a
+   * foreign tenant is plainly heavier than access to someone else's resource
+   * inside one's own. See ADR-0014.
    */
   readonly severity: Severity;
 }
 
-/** Серьёзность расхождения. Таблица и обоснование — ADR-0014. */
+/** The severity of a discrepancy. The table and the reasoning — ADR-0014. */
 export function severityOf(kind: DiffKind, relation?: ResourceRelation): Severity {
   if (kind === "not-observed" || kind === "probe-error") {
     return "low";
@@ -415,9 +434,9 @@ export function severityOf(kind: DiffKind, relation?: ResourceRelation): Severit
   if (relation === "foreign-tenant") {
     return "critical";
   }
-  // Доступ к собственному объекту, объявленный запрещённым, — почти всегда
-  // ошибка в политике, а не дыра в платформе. Ложная тревога уровня high здесь
-  // обошлась бы дороже, чем понижение.
+  // Access to one's own resource, declared forbidden, is almost always a mistake
+  // in the policy rather than a hole in the platform. A false alarm at high here
+  // would cost more than lowering it.
   if (relation === "own") {
     return "medium";
   }

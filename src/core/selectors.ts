@@ -1,22 +1,24 @@
 /**
- * Отбор эндпоинтов по шаблону метода и пути.
+ * Selecting endpoints by a method-and-path pattern.
  *
- * Перечисление по `id` не масштабируется: на платформе в сотню ручек правило
- * «администратору положено всё под /v1/admin» превращается в список из тридцати
- * идентификаторов, который расходится с реальностью при первой же новой ручке —
- * причём молча, потому что непокрытая пара падает в `fallback`.
+ * Listing by `id` does not scale: on a platform with a hundred endpoints the
+ * rule "an administrator is meant to have everything under /v1/admin" turns into
+ * a list of thirty identifiers, which drifts from reality at the very first new
+ * endpoint — and silently, because an uncovered pair falls through to
+ * `fallback`.
  *
- * Шаблоны раскрываются в конкретные идентификаторы **до** диффа. Так разрешение
- * политики остаётся прежним, а шаблон, не совпавший ни с чем, ловится на старте:
- * это тот же класс ошибки, что опечатка в идентификаторе, и молчать о нём нельзя.
+ * Patterns are expanded into concrete identifiers **before** the diff. That
+ * keeps policy resolution as it was, and a pattern that matched nothing is
+ * caught at startup: it is the same class of mistake as a typo in an identifier,
+ * and staying silent about it is not allowed.
  */
 
 import type { Endpoint, HttpMethod } from "./types.js";
 
-/** Шаблон отбора. Метод необязателен: его отсутствие означает «любой». */
+/** A selection pattern. The method is optional: its absence means "any". */
 export interface EndpointPattern {
   readonly method?: HttpMethod | undefined;
-  /** Шаблон пути: `*` внутри сегмента, `**` через сегменты. */
+  /** The path pattern: `*` inside a segment, `**` across segments. */
   readonly path: string;
 }
 
@@ -35,16 +37,16 @@ export class UnmatchedPatternError extends Error {
 const REGEXP_SPECIAL = /[.+?^${}()|[\]\\]/g;
 
 /**
- * Превращает шаблон пути в регулярное выражение.
+ * Turns a path pattern into a regular expression.
  *
- * Сначала экранируется всё специальное — в шаблонных путях есть фигурные скобки
- * (`/v1/players/{playerId}`), и без экранирования они стали бы квантификатором.
- * Только потом раскрываются `*` и `**`.
+ * Everything special is escaped first — template paths contain curly braces
+ * (`/v1/players/{playerId}`), and without escaping they would become a
+ * quantifier. Only then are `*` and `**` expanded.
  */
 export function pathPatternToRegExp(pattern: string): RegExp {
   const escaped = pattern.replace(REGEXP_SPECIAL, "\\$&");
-  // Двойная звезда обрабатывается раньше одинарной: иначе `**` распалось бы
-  // на две одинарные и перестало пересекать границы сегментов.
+  // The double star is handled before the single one: otherwise `**` would fall
+  // apart into two single ones and stop crossing segment boundaries.
   const body = escaped
     .split("**")
     .map((chunk) => chunk.split("*").join("[^/]*"))
@@ -52,7 +54,10 @@ export function pathPatternToRegExp(pattern: string): RegExp {
   return new RegExp(`^${body}$`);
 }
 
-/** Подходит ли эндпоинт под шаблон. Сверяется шаблонный путь, а не подставленный. */
+/**
+ * Whether the endpoint matches the pattern. The template path is compared, not
+ * the substituted one.
+ */
 export function endpointMatches(endpoint: Endpoint, pattern: EndpointPattern): boolean {
   if (pattern.method !== undefined && pattern.method !== endpoint.method) {
     return false;
@@ -61,9 +66,9 @@ export function endpointMatches(endpoint: Endpoint, pattern: EndpointPattern): b
 }
 
 /**
- * Раскрывает шаблон в идентификаторы.
+ * Expands a pattern into identifiers.
  *
- * @throws {UnmatchedPatternError} если шаблон не совпал ни с чем.
+ * @throws {UnmatchedPatternError} if the pattern matched nothing.
  */
 export function expandPattern(
   pattern: EndpointPattern,

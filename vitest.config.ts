@@ -6,8 +6,8 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     coverage: {
       provider: "v8",
-      // cli.ts не включён: это разбор аргументов и печать, которые проверяются
-      // запуском собранного бинаря, а не юнит-тестами.
+      // cli.ts is not included: it is argument parsing and printing, checked by
+      // running the built binary rather than by unit tests.
       include: [
         "src/core/**/*.ts",
         "src/adapters/**/*.ts",
@@ -16,12 +16,12 @@ export default defineConfig({
         "src/runner.ts",
       ],
       reporter: ["text", "json-summary"],
-      // Пороги заданы отдельно по каталогам намеренно: общий порог позволил бы
-      // стопроцентному ядру замаскировать просадку в остальных слоях.
+      // The thresholds are set per directory on purpose: a single overall
+      // threshold would let a fully covered core mask a drop in the other layers.
       thresholds: {
         "src/core/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
-        // У адаптеров ниже порог по функциям: часть из них — обёртки над системным
-        // временем, которые в тестах намеренно подменяются.
+        // Adapters have a lower function threshold: some of them wrap the system
+        // clock and are deliberately substituted in tests.
         "src/adapters/**/*.ts": { statements: 95, branches: 90, functions: 90, lines: 95 },
         "src/io/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "src/report/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },

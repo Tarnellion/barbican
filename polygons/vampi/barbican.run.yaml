@@ -1,38 +1,39 @@
-# Конфигурация прогона против VAmPI (формат — ADR-0008).
+# The run configuration against VAmPI (the format — ADR-0008).
 #
-# Токенов здесь нет: аккаунт называет имя переменной окружения. Значения
-# выставляет `tokens.mjs` (регистрирует пользователей со случайными паролями
-# и логинится за них) либо оператор вручную — см. README.md.
+# There are no tokens here: an account names an environment variable. The values are
+# set by `tokens.mjs` (it registers users with random passwords and logs in as them)
+# or by the operator by hand — see README.md.
 #
-# Политика — объявление человека о том, как обязан вести себя корректный API,
-# а не пересказ поведения VAmPI (ADR-0006). Отсюда и находки: где объявленное
-# расходится с наблюдаемым, там дефект.
+# The policy is a human's declaration of how a correct API must behave, not a retelling
+# of VAmPI's behaviour (ADR-0006). That is where the findings come from: where the
+# declared diverges from the observed, there is a defect.
 
 target:
-  # Порт обязан совпадать с VAMPI_PORT в docker-compose.yaml. `verify.mjs`
-  # берёт порт отсюда и передаёт его compose — разойтись им негде.
+  # The port must match VAMPI_PORT in docker-compose.yaml. `verify.mjs` takes the port
+  # from here and passes it to compose — there is nowhere for them to diverge.
   baseUrl: http://127.0.0.1:5002
   allowedHosts: [127.0.0.1]
-  # Без метки отчёт не называет проверенную систему. Здесь она говорит и то,
-  # что это учебное приложение, и в каком режиме оно поднято: у VAmPI дефекты
-  # переключаются переменной окружения, и «чисто» без режима не читается.
-  label: VAmPI (учебное приложение с переключаемыми уязвимостями)
+  # Without a label the report does not name the system under test. Here it says both
+  # that this is a training application and in which mode it was brought up: VAmPI's
+  # defects are switched by an environment variable, and "clean" cannot be read
+  # without the mode.
+  label: VAmPI (a training application with switchable vulnerabilities)
 
-# Перечень обязателен не для красоты: опечатка в имени тенанта уводит объект
-# в foreign-tenant, правило со scope перестаёт применяться, и настоящая
-# находка проваливается в fallback: denied — то есть исчезает.
+# The list is mandatory not for the looks of it: a typo in a tenant name drives the
+# resource into foreign-tenant, the rule with a scope stops applying, and a real
+# finding falls through to fallback: denied — that is, disappears.
 tenants: [vampi, none]
 
 accounts:
-  # VAmPI одноарендна: тенант один на всех, и межтенантную утечку здесь
-  # не смоделировать. Проверяется другая половина — BOLA внутри тенанта,
-  # для чего и нужны двое равноправных пользователей.
+  # VAmPI is single-tenant: there is one tenant for everyone, and a cross-tenant leak
+  # cannot be modelled here. The other half is tested — BOLA inside a tenant, which is
+  # what two equal users are needed for.
   - id: alice
     role: user
     tenant: vampi
     tokenEnv: VAMPI_TOKEN_ALICE
-    # `/me` — единственная ручка, где VAmPI сам требует токен. Остальные
-    # ответили бы 200 и с неработающим токеном, то есть канарейкой быть не могут.
+    # `/me` is the only endpoint where VAmPI itself demands a token. The rest would
+    # answer 200 with a broken token too, that is, they cannot serve as canaries.
     canary: me
   - id: bob
     role: user
@@ -40,21 +41,22 @@ accounts:
     tokenEnv: VAMPI_TOKEN_BOB
     canary: me
 
-  # Аноним: без токена. Половина находок здесь — «эта ручка не должна быть
-  # публичной», и без такого аккаунта они недостижимы.
-  # Тенант `none` — служебный: любой объект для анонима foreign-tenant.
+  # The anonymous account: no token. Half the findings here are "this endpoint must
+  # not be public", and without such an account they are unreachable.
+  # The tenant `none` is a service one: any resource is foreign-tenant for the
+  # anonymous account.
   - id: anonymous
     role: anonymous
     tenant: none
 
-# Роль admin не заводится намеренно. В VAmPI она даёт ровно одно право —
-# `DELETE /users/v1/{username}`, то есть небезопасный метод, куда инструмент
-# не ходит. Аккаунт-администратор дал бы столбец матрицы, тождественный
-# пользовательскому, и создал бы видимость покрытия роли.
+# The admin role is deliberately not introduced. In VAmPI it grants exactly one
+# permission — `DELETE /users/v1/{username}`, that is, an unsafe method the tool does
+# not go to. An administrator account would give a column of the matrix identical to
+# the user's and would create the appearance of the role being covered.
 
-# Объекты обращения (ADR-0010). Идентификаторы объявлены, а не выужены
-# из ответов: тела мы не читаем. Пользователей и книги с этими именами
-# создаёт `tokens.mjs` перед прогоном.
+# The resources requests address (ADR-0010). The identifiers are declared rather than
+# fished out of the responses: we do not read bodies. The users and books with these
+# names are created by `tokens.mjs` before the run.
 resources:
   - id: user-alice
     tenant: vampi
@@ -65,7 +67,7 @@ resources:
     owner: bob
     params: { username: bob }
 
-  # Книга хранит «секрет», и по замыслу самого VAmPI его видит только владелец.
+  # A book holds a "secret", and by VAmPI's own design only the owner sees it.
   - id: book-alice
     tenant: vampi
     owner: alice
@@ -75,50 +77,50 @@ resources:
     owner: bob
     params: { book_title: bob-secret-book }
 
-# `GET /createdb` пересоздаёт базу с нуля. Метод безопасный, семантика — нет,
-# и `SAFE_METHODS` от этого не защищает: защита смотрит на метод, а не на смысл.
-# Обращение к нему посреди прогона стирает alice и bob вместе с их книгами,
-# после чего оставшаяся часть матрицы опрашивается против пустой базы.
-# Этот эндпоинт реально вызывался инструментом на первом прогоне против VAmPI —
-# из-за него список `exclude` и появился.
+# `GET /createdb` recreates the database from scratch. The method is safe, the
+# semantics are not, and `SAFE_METHODS` does not protect against that: the protection
+# looks at the method, not at the meaning. A request to it in the middle of a run
+# wipes alice and bob together with their books, after which the rest of the matrix is
+# probed against an empty database. This endpoint really was called by the tool on the
+# first run against VAmPI — the `exclude` list appeared because of it.
 exclude: [db.createdb]
 
 policy:
-  # Всё, что не объявлено, запрещено.
+  # Everything that is not declared is forbidden.
   fallback: denied
   rules:
-    # Баннер публичен по назначению.
+    # The banner is public by design.
     - roles: "*"
       endpoints: [home]
       outcome: allowed
 
-    # Кто ты — можно спрашивать про себя и только аутентифицированным.
+    # Who you are — you may ask about yourself, and only when authenticated.
     - roles: [user]
       endpoints: [me]
       outcome: allowed
 
-    # Список книг положен аутентифицированному пользователю: по замыслу VAmPI
-    # это его полка. Анониму — нет, поэтому правило не про `*`.
+    # The book list is meant for an authenticated user: by VAmPI's design it is his
+    # own shelf. Not for the anonymous account, which is why the rule is not about `*`.
     - roles: [user]
       endpoints: [books.list]
       outcome: allowed
 
-    # Свой профиль — можно. Чужой (same-tenant) и обращение без токена
-    # (foreign-tenant у анонима) остаются под fallback: denied. Email чужого
-    # пользователя не то, что раздают по идентификатору.
+    # One's own profile — allowed. Another user's (same-tenant) and a request with no
+    # token (foreign-tenant for the anonymous account) stay under fallback: denied.
+    # Another user's email is not something handed out by identifier.
     - roles: [user]
       endpoints: [users.read]
       scope: own
       outcome: allowed
 
-    # Секрет своей книги — можно. Чужой — нет: это прямая формулировка
-    # из README VAmPI, «only the owner of the book should be allowed to view
-    # the secret».
+    # The secret of one's own book — allowed. Another user's — not: this is the direct
+    # wording from VAmPI's README, "only the owner of the book should be allowed to
+    # view the secret".
     - roles: [user]
       endpoints: [books.read]
       scope: own
       outcome: allowed
 
-    # users.list и users.debug не объявлены нигде и потому запрещены всем.
-    # Перечень пользователей с адресами почты — не публичные данные, а отладочная
-    # ручка с паролями не должна быть доступна вообще никому.
+    # users.list and users.debug are declared nowhere and are therefore forbidden to
+    # everyone. A list of users with their email addresses is not public data, and a
+    # debug endpoint with passwords must not be available to anybody at all.

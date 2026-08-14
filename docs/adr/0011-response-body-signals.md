@@ -1,175 +1,187 @@
-# 0011. Сигналы над телом ответа
+# 0011. Signals over the response body
 
-- **Статус:** принято
-- **Дата:** 2026-08-12
+- **Status:** accepted
+- **Date:** 2026-08-12
 
-## Контекст
+## Context
 
-Целый класс дефектов инструменту сейчас недоступен принципиально, и это не пробел
-в реализации, а следствие сознательного инварианта: тело ответа не читается никогда.
+A whole class of defects is currently out of the tool's reach as a matter of
+principle, and that is not a gap in the implementation but a consequence of a
+deliberate invariant: the response body is never read.
 
-Граница проходит там, где отказ различим по статусу. «200 там, где объявлен отказ» —
-видно. «200 со списком, куда попали чужие заказы» — не видно: корректная и дефектная
-реализации отвечают одинаковым кодом, и разница целиком в теле.
+The boundary runs where a denial is distinguishable by status. "200 where a denial
+was declared" — visible. "200 with a list that someone else's orders got into" —
+not visible: a correct and a defective implementation answer with the same code, and
+the whole difference is in the body.
 
-Это не гипотетический случай. Он документирован дважды:
+This is not a hypothetical case. It is documented twice:
 
-- В [crAPI](../polygons/crapi.md) — «чего инструмент не найдёт никогда без чтения
-  тел»: избыточное раскрытие данных, атрибуция утечки, mass assignment.
-- В собственной референс-платформе `polygon/` на `GET /v1/orders` **намеренно не
-  заведён дефект**, с комментарием в коде: разница между тенантами видна только
-  в теле, то есть для инструмента её не существует.
+- In [crAPI](../polygons/crapi.md) — "what the tool will never find without reading
+  bodies": excessive data exposure, attribution of a leak, mass assignment.
+- In our own reference platform `polygon/`, on `GET /v1/orders` **no defect is set
+  up deliberately**, with a comment in the code: the difference between tenants is
+  visible only in the body, that is, for the tool it does not exist.
 
-Второе особенно неприятно. Отсутствующий фильтр по тенанту на списочной ручке —
-это не экзотика, а самый частый способ сломать изоляцию в мультитенантной платформе.
-Инструмент, который называется проверкой изоляции тенантов и не видит именно этого,
-проверяет не то, что заявляет.
+The second one is particularly unpleasant. A missing tenant filter on a list
+endpoint is not an exotic case but the most common way to break isolation in a
+multi-tenant platform. A tool that calls itself a check of tenant isolation and does
+not see exactly this checks something other than what it claims.
 
-Инвариант при этом несущий. На нём стоит половина остальных: отчёт не может
-содержать PII, потому что данные физически некуда положить — `HttpResponse` не имеет
-поля для тела, а поток отменяется, не читаясь. Убрать его целиком нельзя.
+The invariant is load-bearing, though. Half of the others stand on it: the report
+cannot contain PII because there is physically nowhere to put the data —
+`HttpResponse` has no field for a body, and the stream is cancelled without being
+read. It cannot be removed wholesale.
 
-## Решение
+## Decision
 
-Разрешить читать тело **внутри адаптера**, чтобы вычислить объявленные человеком
-**необратимые скалярные сигналы**, и сохранять только их. Само тело не сохраняется,
-не пересекает границу порта и не попадает в отчёт ни при каких условиях.
+Allow reading the body **inside the adapter** in order to compute the **irreversible
+scalar signals** declared by a human, and store only those. The body itself is not
+stored, does not cross the port boundary and does not get into the report under any
+circumstances.
 
-Инвариант не отменяется, а уточняется: было «тело не читается», стало **«тело не
-сохраняется»**. Читается транзитно, в памяти адаптера, и умирает там же.
+The invariant is not cancelled but made more precise: it was "the body is not read",
+it is now **"the body is not stored"**. It is read in transit, in the adapter's
+memory, and dies there.
 
-Ключевое — тип значения сигнала:
+The key part is the type of a signal's value:
 
 ```ts
 export type SignalValue = number | boolean;
 ```
 
-`string` в него не входит намеренно. Строка может унести тело целиком, и тогда
-гарантия держалась бы на дисциплине вызова, а не на конструкции. Здесь тело
-**структурно не помещается** — ровно тот же приём, которым исходный инвариант
-обеспечивался отсутствием поля.
+`string` is deliberately not in it. A string can carry away the whole body, and then
+the guarantee would rest on the discipline of the caller rather than on the
+construction. Here the body **structurally does not fit** — exactly the same device
+by which the original invariant was provided through the absence of a field.
 
-Отсюда следует форма дайджеста. Сравнение «получили ли два аккаунта одинаковый
-ответ» требует дайджеста, но hex-строка вернула бы строковый тип. Поэтому дайджест —
-это **первые 48 бит** `SHA-256(соль ‖ тело)` как число. 48 бит помещаются в
-безопасное целое JavaScript, а вероятность коллизии на прогоне в тысячу ответов
-порядка `10⁻⁹` — на три порядка меньше вероятности, что оператор ошибётся в
-конфигурации.
+From this the shape of the digest follows. Comparing "did two accounts get the same
+response" requires a digest, but a hex string would bring back the string type. So
+the digest is **the first 48 bits** of `SHA-256(salt ‖ body)` as a number. 48 bits
+fit into a JavaScript safe integer, and the probability of a collision over a run of
+a thousand responses is on the order of `10⁻⁹` — three orders of magnitude smaller
+than the probability that the operator makes a mistake in the configuration.
 
-Соль **случайна на каждый прогон**. Это не украшение: без неё дайджест ответа
-с предсказуемым телом (`{"error":"forbidden"}` и подобные) подбирается перебором,
-и отчёт начинает подтверждать догадки о содержимом. Со случайной солью дайджест
-осмыслен только внутри своего прогона — где он и нужен — и бесполезен снаружи.
+The salt is **random for every run**. This is not decoration: without it the digest
+of a response with a predictable body (`{"error":"forbidden"}` and the like) can be
+found by brute force, and the report starts confirming guesses about content. With a
+random salt the digest is meaningful only inside its own run — where it is needed —
+and useless outside it.
 
-Виды сигналов, все три — необратимые свёртки:
+The kinds of signal, all three irreversible reductions:
 
-| Вид | Значение | На какой вопрос отвечает |
+| Kind | Value | Which question it answers |
 |---|---|---|
-| `digest` | число, 48 бит с солью | Совпал ли ответ у двух аккаунтов — с точностью до коллизии 48 бит? |
-| `count` | число элементов массива по объявленному пути | Сколько записей увидел аккаунт? |
-| `present` | булево, есть ли путь | Присутствует ли поле в ответе? |
+| `digest` | a number, 48 bits with salt | Did the response match for two accounts — up to a 48-bit collision? |
+| `count` | the number of elements of the array at the declared path | How many records did the account see? |
+| `present` | boolean, whether the path exists | Is the field present in the response? |
 
-Вида, возвращающего содержимое, нет и не будет. `value` не добавляется: он
-превратил бы конфигурацию в средство выгрузки произвольных полей в отчёт.
+There is no kind that returns content, and there will not be. `value` is not added:
+it would turn the configuration into a means of dumping arbitrary fields into the
+report.
 
-**Выключено по умолчанию.** Без явной секции в конфигурации поток отменяется
-непрочитанным — поведение байт в байт нынешнее.
+**Off by default.** Without an explicit section in the configuration the stream is
+cancelled unread — behaviour byte for byte the same as today's.
 
-**Жёсткий потолок размера.** Читается не более `maxBodyBytes` (по умолчанию 256 КиБ).
-При превышении сигналы не вычисляются вовсе и помечаются недоступными. Считать
-дайджест по префиксу было бы хуже, чем не считать: два разных ответа с одинаковыми
-первыми 256 КиБ выглядели бы совпавшими, и инструмент утверждал бы совпадение,
-которого нет.
+**A hard size ceiling.** No more than `maxBodyBytes` is read (256 KiB by default).
+If it is exceeded, signals are not computed at all and are marked unavailable.
+Computing a digest over a prefix would be worse than not computing it: two different
+responses with the same first 256 KiB would look identical, and the tool would
+assert a match that does not exist.
 
-### Путь сигнала берётся из конфигурации — и это не противоречит правилу редакции
+### The signal path comes from the configuration — and that does not contradict the redaction rule
 
-Выглядит как нарушение инварианта «пути редакции чувствительных данных только
-хардкод, никогда из пользовательского ввода». Разница в **направлении отказа**.
+It looks like a violation of the invariant "redaction paths for sensitive data are
+hardcoded only, never from user input". The difference is in **the direction of
+failure**.
 
-Ошибочный путь редакции отказывает **открыто**: секрет не отредактирован и уехал
-в отчёт. Ошибочный путь сигнала отказывает **закрыто**: сигнал не вычислен,
-находки нет. Первое молча вредит, второе молча ничего не делает. Поэтому путь
-редакции остаётся хардкодом, а путь сигнала объявляется человеком — как и вся
-остальная ожидаемая картина по [ADR-0006](0006-expected-access-declaration.md).
+A wrong redaction path fails **open**: the secret is not redacted and travels into
+the report. A wrong signal path fails **closed**: the signal is not computed, there
+is no finding. The first silently does harm, the second silently does nothing. That
+is why the redaction path stays hardcoded while the signal path is declared by a
+human — like the rest of the expected picture under
+[ADR-0006](0006-expected-access-declaration.md).
 
-Синтаксис пути минимальный: сегменты через точку, без подстановок, без wildcard,
-без выражений. Полноценный JSONPath — это и новая зависимость, и вычислитель
-выражений над недоверенными данными; ни то, ни другое здесь не окупается.
+The path syntax is minimal: segments separated by dots, no substitutions, no
+wildcards, no expressions. A full JSONPath means both a new dependency and an
+evaluator of expressions over untrusted data; neither pays off here.
 
-### Проверка, которая этим пользуется
+### The check that uses this
 
-Одна, `identical-response-across-tenants`: у двух аккаунтов из **разных** тенантов
-совпал дайджест 200-го ответа на одной ручке.
+One, `identical-response-across-tenants`: two accounts from **different** tenants
+got the same digest of a 200 response on one endpoint.
 
-Проверка не выводится сама: для ручки человек должен объявить
-`responseMustDifferByTenant`. Иначе `GET /v1/health`, отдающий всем
-`{"status":"ok"}`, стал бы находкой — и инструмент, только что научившийся видеть
-настоящие утечки, начал бы тонуть в ложных срабатываниях. Это объявление —
-то же заявление об ожидании, что и политика доступа, и по той же причине
-делается человеком.
+The check does not derive itself: for an endpoint a human must declare
+`responseMustDifferByTenant`. Otherwise `GET /v1/health`, which hands out
+`{"status":"ok"}` to everyone, would become a finding — and the tool, having only
+just learned to see real leaks, would start drowning in false positives. This
+declaration is the same statement of expectation as the access policy, and it is
+made by a human for the same reason.
 
-## Альтернативы
+## Alternatives
 
-**Оставить как есть.** Честно очерченная область: «проверяем то, что видно по
-статусу». Отклонено — область оказывается уже, чем название инструмента. Самый
-частый дефект изоляции тенантов остаётся за ней.
+**Leave it as it is.** An honestly drawn scope: "we check what is visible by
+status". Rejected — the scope turns out narrower than the tool's name. The most
+common tenant isolation defect stays outside it.
 
-**Сохранять тело целиком с редакцией по хардкод-путям.** Даёт максимум информации.
-Отклонено: редакция по путям работает, пока структура ответа известна заранее.
-На чужой платформе она неизвестна, и любое поле, не попавшее в список, уезжает
-в отчёт как есть. Это ставит гарантию «в отчёте нет PII» в зависимость от полноты
-списка, которую нельзя обеспечить.
+**Store the whole body with redaction by hardcoded paths.** Gives the most
+information. Rejected: redaction by path works as long as the shape of the response
+is known in advance. On someone else's platform it is not known, and any field that
+did not make the list travels into the report as is. That makes the guarantee "there
+is no PII in the report" depend on the completeness of a list that cannot be ensured.
 
-**Хранить хеш тела без соли.** Проще. Отклонено: тела с малой энтропией
-восстанавливаются перебором, и отчёт становится оракулом для подтверждения
-догадок о содержимом.
+**Store a hash of the body without a salt.** Simpler. Rejected: bodies with low
+entropy are recovered by brute force, and the report becomes an oracle for
+confirming guesses about content.
 
-**Сравнивать длину тела вместо дайджеста.** Не требует чтения — `content-length`
-уже есть в разрешённых заголовках. Отклонено как самостоятельное решение: совпадение
-длин слишком часто случайно, а несовпадение ничего не говорит о том, чьи данные
-внутри. Как дополнительный дешёвый сигнал — возможно позже.
+**Compare the length of the body instead of a digest.** Requires no reading —
+`content-length` is already among the allowed headers. Rejected as a solution on its
+own: matching lengths are too often accidental, and a mismatch says nothing about
+whose data is inside. As an extra cheap signal — possibly later.
 
-**Полный JSONPath через библиотеку.** Отклонено: новая зависимость плюс вычислитель
-выражений над телом ответа с чужого стенда. Для `count` и `present` хватает пути
-из сегментов.
+**Full JSONPath through a library.** Rejected: a new dependency plus an evaluator of
+expressions over a response body from someone else's deployment. For `count` and
+`present` a path of segments is enough.
 
-## Последствия
+## Consequences
 
-Инструмент получает первый класс находок, невидимых по статусу. Соответственно
-`GET /v1/orders` в референс-платформе перестаёт быть эндпоинтом «без дефекта
-намеренно» и получает четвёртый переключаемый флаг — с расширением оракула.
+The tool gains its first class of findings invisible by status. Accordingly
+`GET /v1/orders` in the reference platform stops being an endpoint "deliberately
+without a defect" and gets a fourth switchable flag — with the oracle extended.
 
-Расплата — тело всё-таки читается, и это навсегда меняет характер риска: раньше
-утечка PII в отчёт была невозможна конструктивно, теперь она невозможна при
-условии, что тип значения сигнала не расширят строкой. Поэтому:
+The price is that the body is read after all, and that changes the nature of the
+risk for good: previously a PII leak into the report was impossible by construction,
+now it is impossible on the condition that the type of a signal's value is not
+extended with a string. Therefore:
 
-- расширение `SignalValue` строкой или объектом требует **отдельного ADR**,
-  а не правки по ходу задачи;
-- тест, доказывающий, что тело не появляется ни в `HttpResponse`, ни в отчёте,
-  обязателен и не может быть помечен `skip`.
+- extending `SignalValue` with a string or an object requires **a separate ADR**,
+  not an edit made in passing;
+- the test proving that the body appears neither in `HttpResponse` nor in the report
+  is mandatory and cannot be marked `skip`.
 
-Пересмотреть решение следует, если появится потребность в сигнале, который нельзя
-выразить необратимой свёрткой. Это будет означать, что задача вышла за рамки
-«проверить доступ» и переехала в «проверить содержимое» — другой инструмент
-с другими гарантиями хранения.
+The decision should be revisited if a need appears for a signal that cannot be
+expressed as an irreversible reduction. That would mean the task has gone beyond
+"check access" and moved into "check content" — a different tool with different
+storage guarantees.
 
-## Уточнение от 13 августа 2026: два имени
+## Clarification of 13 August 2026: two names
 
-Решение не менялось, изменились имена — оба обещали не то, что за ними стоит.
-Это ровно тот класс дефектов, который инструмент ищет у чужих платформ, и найден
-он был холодным чтением отчёта человеком без доступа к проекту.
+The decision did not change, the names did — both promised something other than what
+stands behind them. This is exactly the class of defect the tool looks for in other
+people's platforms, and it was found by a cold read of the report by a person with
+no access to the project.
 
-**`identicalBody` → `bodyDigestsEqual`** в обосновании находки. Сравнивались
-дайджесты, а не тела: тела не сохраняются, сравнить их нечем. Коллизия
-маловероятна, но отчёт ложится в основу инцидента, и «тела совпали» — заявление
-сильнее проверенного. По той же причине заголовок находки теперь говорит
-«дайджест ответа совпал», а не «ответ одинаков».
+**`identicalBody` → `bodyDigestsEqual`** in a finding's evidence. What was compared
+were digests, not bodies: bodies are not stored, there is nothing to compare them
+with. A collision is unlikely, but the report becomes the basis of an incident, and
+"the bodies matched" is a stronger claim than the one that was verified. For the same
+reason the finding's title now says "the response digest matched", not "the
+responses are identical".
 
-**`tenantScoped` → `responseMustDifferByTenant`** (и одноимённый ключ в
-`bodySignals`). Прежнее имя читалось как свойство проверяемого API — «ручка
-ограничена тенантом», — а кодировало настройку инструмента: «человек объявил,
-что здесь надо сравнивать тела». Расхождение было наглядным: у `orders.read`
-пометки не было, хотя он тенант-скоупный по смыслу и как раз тёк — просто
-его дефект виден по статусу и сравнения тел не требует. Новое имя — в
-повелительном наклонении, как и полагается объявленному ожиданию (ADR-0006):
-оно не описывает API, а заявляет требование к нему.
+**`tenantScoped` → `responseMustDifferByTenant`** (and the key of the same name in
+`bodySignals`). The old name read as a property of the API under test — "the
+endpoint is scoped to a tenant" — while it encoded a setting of the tool: "a human
+declared that bodies must be compared here". The discrepancy was plain to see:
+`orders.read` had no marker although it is tenant-scoped by its meaning and was in
+fact leaking — it is just that its defect is visible by status and needs no body
+comparison. The new name is in the imperative, as befits a declared expectation
+(ADR-0006): it does not describe the API, it states a requirement on it.

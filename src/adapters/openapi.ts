@@ -1,21 +1,24 @@
 /**
- * Разбор OpenAPI-спецификации в список эндпоинтов.
+ * Parsing an OpenAPI specification into a list of endpoints.
  *
- * Три барьера против недоверенного документа. Они закрывают разные проблемы —
- * это проверено экспериментом, а не выведено из общих соображений:
+ * Three barriers against an untrusted document. They close different problems —
+ * that is verified by experiment, not deduced from general reasoning:
  *
- * 1. Парсер не знает путей. На вход подаётся текст, а не путь к файлу, поэтому
- *    относительным `$ref` не от чего отсчитываться, а сам адаптер не открывает
- *    ничего в файловой системе.
- * 2. Внешние `$ref` отвергаются явной ошибкой до того, как документ попадёт
- *    в swagger-parser. Это защита не от SSRF, а от **тихой деградации**: при
- *    отключённом барьере 2 swagger-parser возвращает результат без ошибки,
- *    оставив ссылку неразрешённой. Инструмент продолжил бы работу на неполном
- *    списке эндпоинтов и выдал «расхождений нет» там, где проверка не состоялась.
- * 3. `resolve.external = false` — собственно защита от SSRF. Проверено отдельно:
- *    со снятым барьером 2 запрос к адресу из `$ref` всё равно не уходит.
+ * 1. The parser knows no paths. It is given text rather than a path to a file,
+ *    so a relative `$ref` has nothing to count from, and the adapter itself
+ *    opens nothing in the file system.
+ * 2. External `$ref`s are rejected with an explicit error before the document
+ *    reaches swagger-parser. This is a defence not against SSRF but against
+ *    **silent degradation**: with barrier 2 switched off, swagger-parser returns
+ *    a result without an error, leaving the reference unresolved. The tool would
+ *    carry on with an incomplete list of endpoints and report "no discrepancies"
+ *    where the check never happened.
+ * 3. `resolve.external = false` — the defence against SSRF proper. Verified
+ *    separately: with barrier 2 removed, a request to the address from the
+ *    `$ref` still does not go out.
  *
- * Обоснование — ADR-0005. Тесты-доказательства обязательны и не подлежат `skip`.
+ * The reasoning — ADR-0005. The tests that prove this are mandatory and must not
+ * be skipped.
  */
 
 import SwaggerParser from "@apidevtools/swagger-parser";
@@ -24,16 +27,16 @@ import type { Endpoint, HttpMethod } from "../core/types.js";
 import type { SpecParser } from "./ports.js";
 
 export interface SpecParserLimits {
-  /** Предельный размер входного текста в байтах. */
+  /** The size limit of the input text in bytes. */
   readonly maxBytes: number;
   /**
-   * Предел раскрытия YAML-алиасов.
+   * The limit on YAML alias expansion.
    *
-   * Защита от billion laughs: документ в несколько килобайт способен развернуться
-   * в гигабайты. Библиотека `yaml` считает раскрытия и бросает ошибку сама.
+   * A defence against billion laughs: a document of a few kilobytes can expand
+   * into gigabytes. The `yaml` library counts expansions and throws by itself.
    */
   readonly maxAliasCount: number;
-  /** Предельная глубина вложенности документа. */
+  /** The limit on the document's nesting depth. */
   readonly maxDepth: number;
 }
 
@@ -88,11 +91,11 @@ function describe(cause: unknown): string {
 }
 
 /**
- * Проверяет форму документа: глубину и отсутствие внешних `$ref`.
+ * Checks the shape of the document: the depth and the absence of external `$ref`s.
  *
- * Узлы, пройденные однажды, повторно не обходятся: YAML-алиасы порождают общие
- * поддеревья, и наивный обход по ним сам стал бы источником экспоненциального
- * разрастания. Раскрытие алиасов при этом уже ограничено `maxAliasCount`.
+ * Nodes already walked once are not walked again: YAML aliases produce shared
+ * subtrees, and a naive walk over them would itself become a source of
+ * exponential blowup. Alias expansion is already bounded by `maxAliasCount`.
  */
 export class UnsupportedYamlTagError extends Error {
   constructor(tag: string) {
@@ -119,16 +122,17 @@ function assertSafeShape(root: unknown, limits: SpecParserLimits): void {
     }
     seen.add(node);
 
-    // Узлы, которых не бывает в OpenAPI и которые обход не видит: YAML-теги
-    // `!!omap`, `!!set`, `!!pairs` дают Map и Set, а `Object.values` по ним
-    // не идёт. Найдено состязательной проверкой, и находка двойная: внешний
-    // `$ref` под таким тегом проезжал мимо барьера, а `paths` под ним давал
-    // **ноль эндпоинтов без единой ошибки** — покрытие 1/1, то есть 100%
-    // от пустоты. Psych такие документы эмитирует штатно.
+    // Nodes that do not occur in OpenAPI and that the walk does not see: the
+    // YAML tags `!!omap`, `!!set`, `!!pairs` produce a Map and a Set, and
+    // `Object.values` does not go over them. Found by adversarial review, and
+    // the finding is a double one: an external `$ref` under such a tag drove
+    // past the barrier, and `paths` under it gave **zero endpoints without a
+    // single error** — coverage 1/1, that is, 100% of nothing. Psych emits such
+    // documents as a matter of course.
     //
-    // Отвергается, а не обходится глубже: OpenAPI — это JSON-совместимая
-    // структура, и упорядоченная карта в ней означает либо ошибку выгрузки,
-    // либо попытку спрятать узел от разбора. Оба случая — повод остановиться.
+    // Rejected rather than walked deeper: OpenAPI is a JSON-compatible
+    // structure, and an ordered map in it means either an export bug or an
+    // attempt to hide a node from parsing. Both cases are a reason to stop.
     if (node instanceof Map || node instanceof Set) {
       throw new UnsupportedYamlTagError(node instanceof Map ? "!!omap" : "!!set");
     }
@@ -182,10 +186,10 @@ function toEndpoints(document: unknown): readonly Endpoint[] {
 }
 
 /**
- * Создаёт парсер спецификаций.
+ * Creates the specification parser.
  *
- * Пределы можно ужесточить, но не отключить: значения по умолчанию —
- * консервативные, а не рекомендательные.
+ * The limits can be tightened but not switched off: the default values are
+ * conservative, not advisory.
  */
 export function createOpenApiParser(limits: Partial<SpecParserLimits> = {}): SpecParser {
   const effective: SpecParserLimits = { ...DEFAULT_SPEC_LIMITS, ...limits };
@@ -199,7 +203,7 @@ export function createOpenApiParser(limits: Partial<SpecParserLimits> = {}): Spe
 
       let document: unknown;
       try {
-        // JSON — подмножество YAML 1.2, поэтому один парсер покрывает оба формата.
+        // JSON is a subset of YAML 1.2, so one parser covers both formats.
         document = parseYaml(source, { maxAliasCount: effective.maxAliasCount });
       } catch (cause) {
         throw new SpecParseError(describe(cause), { cause });
@@ -214,7 +218,7 @@ export function createOpenApiParser(limits: Partial<SpecParserLimits> = {}): Spe
           { resolve: { external: false } },
         );
       } catch (cause) {
-        // ExternalRefError сюда попасть не может: assertSafeShape отработал выше.
+        // ExternalRefError cannot get here: assertSafeShape ran above.
         throw new SpecParseError(describe(cause), { cause });
       }
 

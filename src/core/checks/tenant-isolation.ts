@@ -1,9 +1,9 @@
 /**
- * Проверка изоляции тенантов по сигналам над телом.
+ * Tenant isolation check over body signals.
  *
- * Закрывает класс дефектов, невидимый по статусу: списочная ручка без фильтра
- * по тенанту отвечает 200 всем, и корректная реализация отвечает так же.
- * Разница целиком в теле — см. ADR-0011.
+ * Closes a class of defects invisible by status: a list endpoint with no tenant
+ * filter answers 200 to everyone, and a correct implementation answers the same
+ * way. The difference is entirely in the body — see ADR-0011.
  */
 
 import type { TenantHierarchy } from "../tenancy.js";
@@ -14,7 +14,7 @@ import type { Check, CheckContext, Finding } from "./types.js";
 
 export const IDENTICAL_RESPONSE_CHECK_ID = "identical-response-across-tenants";
 
-/** Имя сигнала-дайджеста по умолчанию. Переопределяется при регистрации. */
+/** The default name of the digest signal. Overridden at registration. */
 export const DEFAULT_DIGEST_SIGNAL = "digest";
 
 export interface IdenticalResponseCheckOptions {
@@ -22,10 +22,10 @@ export interface IdenticalResponseCheckOptions {
 }
 
 /**
- * Прочие скаляры наблюдения — те, что человек объявил ради разбора.
+ * The other scalars of an observation — the ones a human declared for digging in.
  *
- * Попадают в доказательство под префиксом стороны: «alice видит 4 записи,
- * carol видит 4, а всего их 4» убеждает сильнее, чем «дайджесты совпали».
+ * They land in the evidence under a side prefix: "alice sees 4 records, carol
+ * sees 4, and there are 4 in total" convinces more than "the digests matched".
  */
 function scalarsOf(
   observation: AccessObservation,
@@ -47,11 +47,11 @@ function digestOf(observation: AccessObservation, name: string): number | undefi
 }
 
 /**
- * Как назвать принадлежность аккаунта в тексте находки.
+ * How to name an account's membership in the text of a finding.
  *
- * У аккаунта вне тенантов (анонимного) тенанта нет, и подставлять сюда
- * служебное имя нельзя: в отчёт вернулась бы строка-сентинел, неотличимая
- * от настоящего тенанта с таким же именем.
+ * An account outside tenants (an anonymous one) has no tenant, and a reserved
+ * name must not be substituted here: a sentinel string would come back into the
+ * report, indistinguishable from a real tenant with the same name.
  */
 function tenantLabel(account: Account): string {
   const tenants = tenantIdsOf(account);
@@ -62,22 +62,23 @@ function tenantLabel(account: Account): string {
 }
 
 /**
- * Есть ли у двух аккаунтов общий тенант.
+ * Whether two accounts have a tenant in common.
  *
- * Обобщение прежнего сравнения `leftTenant === rightTenant` на наборы: если
- * хоть один тенант общий, совпадение ответов законно и об изоляции ничего
- * не говорит — так же, как оно ничего не говорило про двух соседей по тенанту.
+ * A generalization of the former `leftTenant === rightTenant` comparison to
+ * sets: if even one tenant is shared, matching responses are legitimate and say
+ * nothing about isolation — just as they said nothing about two neighbors inside
+ * one tenant.
  */
 function shareTenant(left: readonly TenantId[], right: readonly TenantId[]): boolean {
   return left.some((tenant) => right.includes(tenant));
 }
 
 /**
- * Связаны ли наборы родством хоть одной парой.
+ * Whether the sets are related by kinship through at least one pair.
  *
- * Родство считается только между объявленными тенантами: у аккаунта вне
- * тенантов набор пуст, родни у него нет, и такая пара сравнивается — как
- * и прежде.
+ * Kinship is counted only between declared tenants: an account outside tenants
+ * has an empty set, it has no kin, and such a pair is compared — as it was
+ * before.
  */
 function related(
   left: readonly TenantId[],
@@ -90,16 +91,17 @@ function related(
 }
 
 /**
- * Сравнима ли пара аккаунтов.
+ * Whether a pair of accounts is comparable.
  *
- * Одно место на всю проверку: и сам обход, и пересчёт покрытия спрашивают
- * отсюда. Разведи их — и покрытие начнёт описывать не то, что происходит.
+ * One place for the whole check: both the walk itself and the coverage
+ * recomputation ask from here. Take them apart and coverage starts describing
+ * something other than what happens.
  */
 function comparable(left: Account, right: Account, hierarchy: TenantHierarchy): boolean {
-  // Разные условия обращения сравнивать нельзя: у пары менялись бы сразу две
-  // переменные — тенант и атрибуты, — и совпадение дайджестов не говорило бы
-  // ни о том, ни о другом. Утверждение проверки — «разным тенантам приходит
-  // разное при **прочих равных**». См. ADR-0019.
+  // Different request conditions must not be compared: two variables would
+  // change in such a pair at once — the tenant and the attributes — and matching
+  // digests would say nothing about either. What the check asserts is "different
+  // tenants get different responses **all else being equal**". See ADR-0019.
   if (left.contextId !== right.contextId) {
     return false;
   }
@@ -115,22 +117,24 @@ function comparable(left: Account, right: Account, hierarchy: TenantHierarchy): 
 }
 
 /**
- * У двух аккаунтов из разных тенантов совпал дайджест ответа.
+ * Two accounts from different tenants got the same response digest.
  *
- * Именно дайджест, а не тело: тела не сохраняются и сравнить их нечем
- * (ADR-0011). Отсюда и имя поля в обосновании — `bodyDigestsEqual`, а не
- * прежнее `identicalBody`: коллизия 48 бит маловероятна, но утверждение
- * о побайтовом совпадении инструмент не проверял и делать его не вправе.
+ * The digest, not the body: bodies are not stored and there is nothing to
+ * compare them with (ADR-0011). Hence the name of the field in the evidence —
+ * `bodyDigestsEqual` rather than the former `identicalBody`: a 48-bit collision
+ * is unlikely, but the tool never checked the claim of a byte-for-byte match and
+ * has no right to make it.
  *
- * Проверка срабатывает только на эндпоинтах, для которых человек объявил
- * `responseMustDifferByTenant`. Без объявления `GET /v1/health` с его
- * одинаковым для всех `{"status":"ok"}` стал бы находкой, и настоящие утечки
- * утонули бы в шуме.
+ * The check fires only on endpoints for which a human declared
+ * `responseMustDifferByTenant`. Without that declaration `GET /v1/health` with
+ * its `{"status":"ok"}`, the same for everyone, would become a finding, and real
+ * leaks would drown in the noise.
  *
- * Рассматриваются только обращения **без объекта**. Когда объект задан, оба
- * аккаунта читают одну и ту же запись, и одинаковый ответ — не признак дефекта,
- * а его следствие: сам факт доступа чужого тенанта к объекту уже виден по статусу
- * и попадает в дифф. Дублировать его здесь значит считать один дефект дважды.
+ * Only requests **without a resource** are considered. When a resource is given,
+ * both accounts read the very same record, and an identical response is not a
+ * sign of a defect but its consequence: the very fact that a foreign tenant
+ * reached the resource is already visible by status and lands in the diff.
+ * Duplicating it here means counting one defect twice.
  */
 export function createIdenticalResponseCheck(options: IdenticalResponseCheckOptions = {}): Check {
   const digestSignal = options.digestSignal ?? DEFAULT_DIGEST_SIGNAL;
@@ -143,12 +147,13 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
       "a missing tenant filter",
     severity: "high",
     /**
-     * API3 (property-level) убран намеренно: проверка ничего не знает о полях,
-     * она сравнивает ответ целиком. Числиться за находкой класса, который она
-     * не умеет находить, — это завышенная заявка о покрытии.
+     * API3 (property-level) was removed on purpose: the check knows nothing
+     * about fields, it compares the response as a whole. Being credited with a
+     * class of finding it cannot find is an inflated claim of coverage.
      *
-     * CWE-285, а не 862 или 863: снаружи «проверки нет» и «проверка есть,
-     * но неверна» дают неотличимый ответ, поэтому честен только класс-родитель.
+     * CWE-285, not 862 or 863: from the outside "there is no check" and "there
+     * is a check but it is wrong" give an indistinguishable answer, so only the
+     * parent class is honest.
      */
     standards: [
       { standard: "OWASP-API-2023", clause: "API1" },
@@ -171,10 +176,11 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
       const accountById = new Map<string, Account>(
         accounts.map((account) => [account.id, account]),
       );
-      // Пары, связанные родством, сравнивать нельзя. Холдинг видит объединение
-      // своих брендов; если бренд у него один, ответ законно совпадает с ответом
-      // этого бренда — и без учёта дерева проверка объявила бы утечкой роллап
-      // на исправной платформе. Найдено прогоном холдингового сценария.
+      // Pairs related by kinship must not be compared. A holding sees the union
+      // of its brands; if it has only one brand, its response legitimately
+      // matches that brand's — and without accounting for the tree the check
+      // would declare a rollup on a healthy platform a leak. Found by running
+      // the holding scenario.
       const hierarchy =
         context.matrix.tenants === undefined
           ? FLAT_HIERARCHY
@@ -205,12 +211,13 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
             if (leftAccount === undefined || rightAccount === undefined) {
               continue;
             }
-            // Пропуски: оба вне тенантов (разного тенанта у них нет);
-            // общий тенант (законная одинаковость, как у соседей, и у частично
-            // пересекающихся наборов тоже); родство по дереву (роллап холдинга
-            // законно совпадает с ответом его бренда). Пара «тенант против
-            // аккаунта вне тенантов» сравнивается — и должна: совпадение
-            // означает, что данные тенанта видны тому, кто в нём не состоит.
+            // Skips: both outside tenants (they have no different tenant); a
+            // shared tenant (legitimate sameness, as with neighbors, and with
+            // partially overlapping sets too); kinship along the tree (a
+            // holding's rollup legitimately matches the response of its brand).
+            // A pair of "a tenant against an account outside tenants" is
+            // compared — and must be: a match means the tenant's data is visible
+            // to someone who is not a member of it.
             if (!comparable(leftAccount, rightAccount, hierarchy)) {
               continue;
             }
@@ -222,45 +229,51 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
             findings.push({
               checkId: IDENTICAL_RESPONSE_CHECK_ID,
               severity: "high",
-              // Заголовок говорит о дайджесте, а не об ответе: тела не
-              // сохраняются, и сравнить их было нечем. См. `bodyDigestsEqual`.
+              // The title speaks of the digest, not of the response: bodies are
+              // not stored, and there was nothing to compare them with. See
+              // `bodyDigestsEqual`.
               title: `Response digest of ${endpointId} matched for ${tenantLabel(leftAccount)} and ${tenantLabel(rightAccount)}`,
               endpointId,
               accountId: leftAccount.id,
-              // Пара всегда в одних условиях — разные не сравниваются, — поэтому
-              // условия у находки одни, а не два поля. Без них находка в условиях
-              // и такая же в базовых сливались в одну группу дефектов, и отчёт
-              // объявлял две поломки одной. Найдено холодным чтением.
+              // A pair is always under the same conditions — different ones are
+              // not compared — so the finding has one set of conditions, not two
+              // fields. Without them a finding under conditions and the same one
+              // in the baseline merged into a single defect group, and the report
+              // declared two breakages one. Found by a cold read.
               ...(leftAccount.contextId === undefined ? {} : { contextId: leftAccount.contextId }),
               evidence: {
-                // Значения, а не только вердикт. «Дайджесты совпали» без самих
-                // дайджестов заставляет читателя идти в наблюдения и соединять
-                // вручную; самое убедительное число прогона — «сколько записей
-                // увидел каждый» — так и оставалось в стороне.
+                // The values, not only the verdict. "The digests matched"
+                // without the digests themselves forces the reader to go into
+                // the observations and join them by hand; the most convincing
+                // number of the run — "how many records each account saw" — was
+                // left aside.
                 digest: leftDigest,
                 ...scalarsOf(left, digestSignal, "own"),
                 ...scalarsOf(right, digestSignal, "other"),
                 otherAccountId: rightAccount.id,
-                // Ключ отсутствует, если тенанта нет: пустое место читается
-                // как «вне тенантов», а заглушка читалась бы как имя.
+                // The key is absent when there is no tenant: an empty spot reads
+                // as "outside tenants", while a placeholder would read as a name.
                 //
-                // У аккаунта с набором членств ключа тоже нет, и это та же
-                // причина, а не экономия. Склейка имён через запятую вернула бы
-                // в поле, где стоят настоящие идентификаторы, строку, которой
-                // ни один тенант не называется, — а прочитана она была бы как имя.
-                // Имена набора называет заголовок находки.
+                // For an account with a set of memberships there is no key
+                // either, and it is the same reason, not thrift. Gluing the
+                // names with commas would put into a field that holds real
+                // identifiers a string no tenant is called by — and it would be
+                // read as a name. The names of the set are given by the title of
+                // the finding.
                 ...(leftAccount.tenantId === undefined ? {} : { tenant: leftAccount.tenantId }),
                 ...(rightAccount.tenantId === undefined
                   ? {}
                   : { otherTenant: rightAccount.tenantId }),
                 status: left.status,
-                // Само значение дайджеста не выносится: оно осмыслено только
-                // внутри прогона (соль случайна), а читателю отчёта ничего
-                // не сообщает. Выносится факт равенства — и назван он тем,
-                // что проверено: совпали 48 бит SHA-256 с солью, а не тела.
-                // Коллизия маловероятна (порядка 10⁻⁹ на тысяче ответов,
-                // ADR-0011), но отчёт ложится в основу инцидента, и разница
-                // между «тела совпали» и «совпали дайджесты» там принципиальна.
+                // The digest value itself is not carried out: it is meaningful
+                // only inside a run (the salt is random) and tells the reader of
+                // the report nothing. What is carried out is the fact of
+                // equality — and it is named after what was checked: 48 bits of
+                // salted SHA-256 matched, not the bodies. A collision is
+                // unlikely (of the order of 10⁻⁹ over a thousand responses,
+                // ADR-0011), but the report becomes the basis of an incident, and
+                // there the difference between "the bodies matched" and "the
+                // digests matched" is fundamental.
                 bodyDigestsEqual: true,
               },
             });
@@ -273,34 +286,36 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
   };
 }
 
-/** Что проверка сравнивала на одном эндпоинте. */
+/** What the check compared on one endpoint. */
 export interface BodyComparisonCoverage {
   readonly endpointId: string;
-  /** Пар аккаунтов, чьи ответы действительно сравнивались. */
+  /** Pairs of accounts whose responses were actually compared. */
   readonly comparedPairs: number;
   /**
-   * Пар, пропущенных из-за родства тенантов.
+   * Pairs skipped because of tenant kinship.
    *
-   * Названо отдельно, потому что молчание отчёта об этих парах читается как
-   * «совпадений нет». На прогоне референс-платформы холдинг и саппорт с набором
-   * членств совпали дайджестом — законно, они в родстве, — и без этого числа
-   * отличить «пропустили» от «сравнили и разошлись» было нечем.
+   * Named separately, because the report's silence about these pairs reads as
+   * "there are no matches". On the reference-platform run the holding and the
+   * support account with a set of memberships matched by digest — legitimately,
+   * they are kin — and without this number there was nothing to tell "skipped"
+   * from "compared and differed".
    */
   readonly skippedRelatedPairs: number;
   /**
-   * Пары, пропущенные из-за разных условий обращения.
+   * Pairs skipped because of different request conditions.
    *
-   * Отдельно от родства: причины разные, и одно число на обе скрывало бы обе.
-   * Отсутствует, когда условия не объявлены вовсе.
+   * Separate from kinship: the reasons differ, and one number for both would
+   * hide both. Absent when no conditions are declared at all.
    */
   readonly skippedDifferentContextPairs?: number;
 }
 
 /**
- * Пересчитывает, что проверка сравнивала, не выполняя саму проверку.
+ * Recomputes what the check compared, without running the check itself.
  *
- * Живёт рядом с ней намеренно: правило пропуска пар описано здесь, и повторять
- * его в сборке отчёта значило бы завести дубль, который разойдётся.
+ * It lives next to the check on purpose: the pair-skipping rule is described
+ * there, and repeating it in report assembly would mean introducing a duplicate
+ * that will drift.
  */
 export function describeBodyComparison(
   context: CheckContext,
@@ -336,8 +351,9 @@ export function describeBodyComparison(
           if (comparable(left, right, hierarchy)) {
             compared += 1;
           } else if (left.contextId !== right.contextId) {
-            // Считается отдельно: «пропущено по родству» про эту пару неправда,
-            // а одно число на две разные причины скрывало бы обе.
+            // Counted separately: "skipped because of kinship" is untrue about
+            // this pair, and one number for two different reasons would hide
+            // both.
             skippedByContext += 1;
           } else {
             skipped += 1;

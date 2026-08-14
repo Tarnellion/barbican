@@ -1,27 +1,27 @@
-# Защита цепочки поставок. Обоснование: docs/adr/0004-supply-chain-hardening.md
+# Supply-chain hardening. Rationale: docs/adr/0004-supply-chain-hardening.md
 #
-# Не удалять и не ослаблять эти настройки без записи в ADR.
+# Do not remove or weaken these settings without an ADR.
 
-# Не устанавливать версии моложе 7 суток (10080 минут).
-# Скомпрометированные версии обычно отзывают в течение часов — cooldown это ловит.
+# Do not install versions younger than 7 days (10080 minutes).
+# Compromised versions are usually pulled within hours — the cooldown catches that.
 minimumReleaseAge: 10080
 
-# Экстренные патчи вносить сюда точечно, вида: pkg@1.2.3
+# Add emergency patches here one by one, in the form: pkg@1.2.3
 minimumReleaseAgeExclude: []
 
-# Падать при установке, если у зависимости есть lifecycle-скрипты,
-# которых нет в allowBuilds. Молчаливого выполнения быть не должно.
+# Fail the install when a dependency has lifecycle scripts that are not in
+# allowBuilds. Nothing may run silently.
 strictDepBuilds: true
 
-# Явный allowlist пакетов, которым разрешено выполнять скрипты сборки.
-# Пусто по умолчанию и должно таким остаться.
+# An explicit allowlist of packages permitted to run build scripts.
+# Empty by default, and it should stay that way.
 #
-# lefthook: его postinstall делает ровно одно — запускает `lefthook install -f`,
-# то есть пишет хуки в .git/hooks. Сети не трогает (get-exe.js резолвит бинарь
-# из optional-зависимости локально). Вместо разрешения скрипта тот же шаг
-# выполняется явно: `pnpm run hooks:install`.
+# lefthook: its postinstall does exactly one thing — runs `lefthook install -f`,
+# that is, writes hooks into .git/hooks. It does not touch the network (get-exe.js
+# resolves the binary from an optional dependency locally). Instead of permitting
+# the script, the same step is done explicitly: `pnpm run hooks:install`.
 allowBuilds:
   lefthook: false
 
-# Точные версии в package.json — без диапазонов.
+# Exact versions in package.json — no ranges.
 savePrefix: ''

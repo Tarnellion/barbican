@@ -1,31 +1,32 @@
 /**
- * Группировка расхождений по сигнатуре дефекта.
+ * Grouping discrepancies by defect signature.
  *
- * Один дефект платформы даёт столько строк, сколько ячеек он задел. Прогон
- * против crAPI дал шесть строк на три BOLA — те же три дефекта, увиденные
- * с точки пользователя и с точки администратора. На референс-платформе один
- * отсутствующий фильтр даёт десять строк. Читать такой отчёт нельзя: числа
- * говорят о размере матрицы, а не о количестве проблем.
+ * One defect in the platform gives as many rows as there are cells it touched. A
+ * run against crAPI gave six rows for three BOLAs — the same three defects, seen
+ * from a user's point of view and from an administrator's. On the reference
+ * platform one missing filter gives ten rows. Such a report cannot be read: the
+ * numbers speak of the size of the matrix, not of the number of problems.
  */
 
 import type { ResourceRelation, Severity } from "./types.js";
 
 /**
- * Минимум, нужный для группировки.
+ * The minimum needed for grouping.
  *
- * Структурный тип, а не `AccessDiff`: находки проверок группируются наравне
- * с расхождениями матрицы. У них нет ни `expected`, ни `actual`, но есть всё,
- * из чего складывается сигнатура, — и шесть клонов одной находки должны
- * схлопываться так же, как десять ячеек одного отсутствующего фильтра.
+ * A structural type rather than `AccessDiff`: findings from checks are grouped
+ * on equal terms with matrix discrepancies. They have neither `expected` nor
+ * `actual`, but they have everything the signature is made of — and six clones
+ * of one finding must collapse the same way ten cells of one missing filter do.
  */
 export interface GroupableFinding {
   readonly accountId: string;
   /**
-   * Вторая сторона находки, если она парная.
+   * The other side of the finding, when it is a pair.
    *
-   * У утечки по телу сторон две, а `accountId` называет одну. Группа
-   * без второй читалась как «данные тенанта-a видны кому-то» — кому именно,
-   * приходилось искать в `evidence` каждой строки. Найдено холодным чтением.
+   * A leak seen by body has two sides, and `accountId` names one. A group
+   * without the second read as "tenant-a's data is visible to somebody" — to
+   * whom exactly had to be looked up in the `evidence` of every row. Found by a
+   * cold read.
    */
   readonly counterpartAccountId?: string | undefined;
   readonly endpointId: string;
@@ -37,35 +38,38 @@ export interface GroupableFinding {
 }
 
 /**
- * Сигнатура: эндпоинт, вид расхождения, отношение к объекту и условия обращения.
+ * The signature: endpoint, kind of discrepancy, relation to the resource and
+ * request conditions.
  *
- * Роль в сигнатуру намеренно не входит. Если ручку открыли и пользователю,
- * и администратору, дефект один — отсутствующая проверка, — а не два.
+ * The role is deliberately not part of the signature. If an endpoint was opened
+ * to a user and to an administrator alike, the defect is one — a missing check —
+ * not two.
  *
- * Условия входят по той же причине, что и отношение: проверка страны и проверка
- * прав — разные механизмы платформы, ломаются независимо и чинятся в разных
- * местах, поэтому и дефекта здесь два, а не один.
+ * Conditions are part of it for the same reason as the relation: the country
+ * check and the permission check are different mechanisms of the platform, they
+ * break independently and are fixed in different places, so here too there are
+ * two defects, not one.
  */
 export interface DefectGroup {
   readonly endpointId: string;
-  /** Условия обращения. Отсутствуют у расхождений в базовых условиях. */
+  /** The request conditions. Absent on discrepancies in baseline conditions. */
   readonly contextId?: string;
-  /** Вид расхождения либо идентификатор проверки. */
+  /** The kind of discrepancy, or a check identifier. */
   readonly kind: string;
-  /** Отсутствует у расхождений без объекта — доступ к функции целиком. */
+  /** Absent on discrepancies with no resource — access to a whole function. */
   readonly relation?: ResourceRelation;
-  /** Наибольшая серьёзность среди наблюдений группы. */
+  /** The highest severity among the group's observations. */
   readonly severity: Severity;
-  /** Аккаунты, которых дефект касается — у парных находок обе стороны. */
+  /** The accounts the defect concerns — for paired findings, both sides. */
   readonly accountIds: readonly string[];
-  /** Объекты, на которых он наблюдался. Пусто у расхождений без объекта. */
+  /** The resources it was observed on. Empty on discrepancies with no resource. */
   readonly resourceIds: readonly string[];
   /**
-   * Сколько ячеек задето.
+   * How many cells were touched.
    *
-   * Названо `violations`, а не `observations`: верхнеуровневый `observations`
-   * означает «выполненных проб», и одно слово в двух смыслах читалось как
-   * «дефект наблюдался на 10 пробах из скольких-то».
+   * Named `violations` rather than `observations`: the top-level `observations`
+   * means "probes performed", and one word in two senses read as "the defect was
+   * observed on 10 probes out of however many".
    */
   readonly violations: number;
 }
@@ -79,29 +83,31 @@ const SEVERITY_ORDER: Readonly<Record<Severity, number>> = {
 };
 
 /**
- * Разделитель ключа: символ, которого не бывает в идентификаторах.
+ * The key separator: a character that never occurs in identifiers.
  *
- * Записан escape-последовательностью, а не сырым байтом. Байт в исходнике
- * делал файл бинарным для `grep`: поиск по репозиторию молча пропускал его
- * целиком, а «совпадений нет» здесь читалось бы как «этого кода нет».
+ * Written as an escape sequence rather than a raw byte. The byte in the source
+ * made the file binary to `grep`: a search across the repository silently
+ * skipped it entirely, and "no matches" here would read as "this code does not
+ * exist".
  */
 const SEPARATOR = "\u0000";
 
 function keyOf(diff: GroupableFinding): string {
-  // Разделитель, которого не бывает в идентификаторах: склейка через дефис
-  // допускала бы коллизию двух разных сигнатур в одну строку.
+  // A separator that never occurs in identifiers: gluing with a hyphen would
+  // admit a collision of two different signatures into one string.
   return [diff.endpointId, diff.kind, diff.relation ?? "", diff.contextId ?? ""].join(SEPARATOR);
 }
 
 /**
- * Сводит расхождения к сигнатурам.
+ * Reduces discrepancies to signatures.
  *
- * **Это нижняя граница числа дефектов, а не точное значение.** Две разные
- * ошибки в платформе, дающие одинаковую сигнатуру, снаружи неразличимы:
- * «список моих заказов» и «список заказов моей группы» — разные запросы
- * с разными фильтрами, но ответ 200 там, где ожидался отказ, выглядит
- * одинаково. Верхняя граница — число самих наблюдений; истина между ними,
- * и инструмент её не знает.
+ * **This is a lower bound on the number of defects, not an exact value.** Two
+ * different bugs in the platform that give the same signature are
+ * indistinguishable from the outside: "the list of my orders" and "the list of
+ * my group's orders" are different queries with different filters, but a 200
+ * where a denial was expected looks the same. The upper bound is the number of
+ * observations themselves; the truth is between them, and the tool does not know
+ * it.
  */
 export function groupDefects(diffs: readonly GroupableFinding[]): readonly DefectGroup[] {
   const groups = new Map<

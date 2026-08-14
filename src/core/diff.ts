@@ -1,7 +1,7 @@
 /**
- * Сравнение объявленного намерения с фактическим доступом.
+ * Comparison of the declared intent against observed access.
  *
- * Чистая функция: одинаковый вход всегда даёт одинаковый выход, включая порядок.
+ * A pure function: the same input always gives the same output, order included.
  */
 
 import type { ResolvedAccessPolicy } from "./expected.js";
@@ -19,12 +19,12 @@ import type {
 import { relationOf, severityOf } from "./types.js";
 
 /**
- * Сводит фактический исход к бинарному «доступ есть / доступа нет».
+ * Reduces the observed outcome to a binary "there is access / there is none".
  *
- * `not-found` считается отказом: доступ к ресурсу не получен. Различение
- * «404 вместо 403, чтобы скрыть существование» от «ресурса действительно нет»
- * требует знания о существовании ресурса и относится к отдельным проверкам,
- * а не к базовому диффу.
+ * `not-found` counts as a denial: access to the resource was not granted.
+ * Telling "404 instead of 403, to hide existence" from "the resource really is
+ * absent" requires knowing that the resource exists and belongs to separate
+ * checks, not to the base diff.
  */
 function toBinary(actual: Exclude<AccessOutcome, "error">): ExpectedOutcome {
   return actual === "allowed" ? "allowed" : "denied";
@@ -44,11 +44,11 @@ function classify(expected: ExpectedOutcome, actual: AccessOutcome | undefined):
 }
 
 /**
- * Вердикт по одной ячейке — включая совпавшие.
+ * The verdict on a single cell — the matching ones included.
  *
- * Заведён затем, что «здесь чисто» иначе нельзя ни показать, ни процитировать:
- * в отчёте была только сумма, и читатель, чтобы проверить одну ячейку,
- * переписывал этот файл на своём языке. См. ADR-0020.
+ * Introduced because "it is clean here" cannot otherwise be shown or quoted:
+ * the report held only the total, and a reader checking a single cell was
+ * rewriting this file in their own language. See ADR-0020.
  */
 export interface CellVerdict {
   readonly accountId: string;
@@ -58,18 +58,18 @@ export interface CellVerdict {
   readonly relation?: ResourceRelation;
   readonly expected: ExpectedOutcome;
   readonly actual?: AccessOutcome;
-  /** Правило, объявившее ожидание. Отсутствие означает `fallback`. */
+  /** The rule that declared the expectation. Absence means `fallback`. */
   readonly ruleIndex?: number;
-  /** Совпало ли наблюдаемое с объявленным. */
+  /** Whether the observed matched the declared. */
   readonly match: boolean;
 }
 
 /**
- * Вердикты по всем ячейкам матрицы, совпавшим и нет.
+ * Verdicts on every cell of the matrix, the matching ones and the rest.
  *
- * Один обход на оба ответа: расхождения — это те же ячейки, у которых
- * `match: false`. Два независимых прохода разошлись бы, и отчёт утверждал бы
- * «проверено и совпало» о ячейке, попавшей в находки.
+ * One walk for both answers: discrepancies are the same cells, the ones with
+ * `match: false`. Two independent passes would drift, and the report would claim
+ * "tested and agreed" about a cell that landed in the findings.
  */
 export function describeCells(
   matrix: AccessMatrix,
@@ -79,11 +79,11 @@ export function describeCells(
 }
 
 /**
- * Возвращает расхождения между политикой и наблюдениями.
+ * Returns the discrepancies between the policy and the observations.
  *
- * Совпадения не возвращаются: результат — список того, что требует внимания.
- * Порядок детерминирован — по аккаунтам, затем по эндпоинтам, в порядке их
- * объявления в матрице.
+ * Matches are not returned: the result is a list of what needs attention. The
+ * order is deterministic — by accounts, then by endpoints, in the order they are
+ * declared in the matrix.
  */
 export function diffAccess(
   matrix: AccessMatrix,
@@ -97,14 +97,14 @@ function walk(
   policy: ResolvedAccessPolicy,
 ): { readonly diffs: readonly AccessDiff[]; readonly cells: readonly CellVerdict[] } {
   const index = indexObservations(matrix);
-  // Дерево строится один раз на дифф: проверки целостности (неизвестный
-  // родитель, цикл) должны сработать до обхода, а не посреди него.
+  // The tree is built once per diff: the integrity checks (unknown parent,
+  // cycle) must fire before the walk, not in the middle of it.
   const hierarchy =
     matrix.tenants === undefined ? FLAT_HIERARCHY : createTenantHierarchy(matrix.tenants);
   const diffs: AccessDiff[] = [];
   const cells: CellVerdict[] = [];
 
-  /** Вердикт по ячейке пишется всегда, расхождение — только когда оно есть. */
+  /** A verdict on a cell is always written, a discrepancy only when there is one. */
   function verdictOf(
     accountId: string,
     endpointId: string,
@@ -146,9 +146,9 @@ function walk(
       expected,
       kind,
       severity: severityOf(kind, relation),
-      // Отсутствие означает `fallback`: ни одно правило не подошло.
+      // Absence means `fallback`: no rule matched.
       ...(ruleIndex === undefined ? {} : { ruleIndex }),
-      // Отсутствие означает базовые условия обращения.
+      // Absence means baseline request conditions.
       ...(contextId === undefined ? {} : { contextId }),
     };
     const withResource =
@@ -159,14 +159,16 @@ function walk(
   for (const account of matrix.accounts) {
     const byEndpoint = index.get(account.id);
     for (const endpoint of matrix.endpoints) {
-      // Аккаунт в условиях существует не на всей поверхности: там, где условия
-      // не объявлены, ячейки нет вовсе — и «не пронаблюдено» о ней сказать
-      // нельзя, это была бы выдуманная дыра в покрытии.
+      // An account under conditions does not exist across the whole surface:
+      // where the conditions are not declared there is no cell at all — and
+      // "not observed" cannot be said about it, that would be an invented hole
+      // in coverage.
       if (account.endpointIds !== undefined && !account.endpointIds.includes(endpoint.id)) {
         continue;
       }
-      // Эндпоинт с параметрами существует только вместе с объектом: без него
-      // подставлять нечего, и такая ячейка не координата, а пустое место.
+      // An endpoint with parameters exists only together with a resource:
+      // without one there is nothing to substitute, and such a cell is not a
+      // coordinate but an empty spot.
       const applicable = matrix.resources.filter((resource) => resourceApplies(endpoint, resource));
       if (applicable.length > 0) {
         for (const resource of applicable) {

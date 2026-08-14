@@ -1,38 +1,39 @@
 /**
- * Общий модуль сверки с машиночитаемым оракулом.
+ * The shared module for comparison against a machine-readable oracle.
  *
- * Формат описан в ADR-0012. До него у каждого полигона была своя форма и своя
- * сверка, общего кода не было ни строки, и каждый следующий полигон стоил как
- * первый.
+ * The format is described in ADR-0012. Before it every polygon had a shape and a
+ * comparison of its own, there was not a line of shared code, and every next polygon
+ * cost as much as the first.
  *
- * Живёт вне `src/`, потому что это оснастка проверки самого инструмента,
- * а не часть поставляемого пакета (`files: ["dist"]`).
+ * It lives outside `src/` because it is tooling for testing the tool itself, not
+ * part of the published package (`files: ["dist"]`).
  */
 
 /**
- * Виды видимости дефекта. Обоснование перечня — ADR-0012.
+ * The kinds of defect visibility. The rationale for the list — ADR-0012.
  *
- * Первые два означают «инструмент это находит», остальные — почему не находит.
- * Причины разведены намеренно: «живёт на POST», «эндпоинт трогать нельзя»
- * и «вопрос не про матрицу доступа» — три разных пробела с тремя разными
- * способами закрыть их, и один общий `invisible` стирал это различие.
+ * The first two mean "the tool finds this", the rest say why it does not. The
+ * reasons are held apart deliberately: "lives on POST", "the endpoint must not be
+ * touched" and "the question is not about the access matrix" are three different
+ * gaps with three different ways of closing them, and a single shared `invisible`
+ * erased that distinction.
  */
 export const VISIBILITIES = [
-  /** Виден по коду ответа. */
+  /** Visible in the response status. */
   "status",
-  /** Виден через необратимый скаляр над телом (ADR-0011). */
+  /** Visible through an irreversible scalar over the body (ADR-0011). */
   "body-signal",
-  /** Разница в теле, но невыразима объявленным скаляром: значения полей. */
+  /** A difference in the body, but inexpressible by a declared scalar: field values. */
   "body-only",
-  /** Живёт на методе записи: без `--unsafe-methods` эндпоинт не опрашивается. */
+  /** Lives on a write method: without `--unsafe-methods` the endpoint is not probed. */
   "unsafe-method",
-  /** Был бы виден, но эндпоинт исключён намеренно: обращение ломает стенд. */
+  /** Would be visible, but the endpoint is excluded deliberately: a request breaks the deployment. */
   "excluded",
-  /** Вне области модуля 1: вопрос не о матрице «роль × эндпоинт». */
+  /** Outside the area of module 1: the question is not about the "role × endpoint" matrix. */
   "out-of-scope",
 ];
 
-/** Виды, при которых дефект обязан обнаруживаться. */
+/** The kinds for which a defect must be detected. */
 export const DETECTABLE = ["status", "body-signal"];
 
 export class GroundTruthError extends Error {
@@ -50,11 +51,11 @@ function requireObject(value, where) {
 }
 
 /**
- * Разбирает и проверяет оракул.
+ * Parses and validates the oracle.
  *
- * Проверки не косметические. Находка, ссылающаяся на несуществующий дефект,
- * означает, что оракул рассинхронизирован с собственным перечнем дефектов, —
- * и сверка по нему подтвердит что угодно.
+ * The checks are not cosmetic. A finding that references a non-existent defect means
+ * the oracle has fallen out of sync with its own list of defects — and a
+ * verification against it will confirm anything at all.
  */
 export function loadGroundTruth(source) {
   let parsed;
@@ -122,13 +123,13 @@ export function loadGroundTruth(source) {
 }
 
 /**
- * Проверяет оракул на полноту.
+ * Checks the oracle for completeness.
  *
- * Отвечает не на вопрос «совпало ли», а на вопрос «а всё ли объявленное вообще
- * проверяется». Дефект, объявленный видимым и не встречающийся ни в одном
- * варианте, — это либо забытый вариант, либо неверная пометка видимости.
- * Дефект, объявленный недостижимым и при этом ожидаемый в находках, —
- * противоречие в самом оракуле.
+ * It answers not the question "did it match" but the question "is everything
+ * declared tested at all". A defect declared visible and occurring in no variant is
+ * either a forgotten variant or a wrong visibility mark. A defect declared
+ * unreachable and yet expected among the findings is a contradiction inside the
+ * oracle itself.
  */
 export function checkCoverage(groundTruth) {
   const used = new Set();
@@ -158,11 +159,12 @@ export function checkCoverage(groundTruth) {
 }
 
 /**
- * Ключ ячейки.
+ * The key of a cell.
  *
- * Понимает и расхождения матрицы, и находки проверок: у первых третья
- * координата — объект, у вторых — второй аккаунт пары, потому что дефект
- * списка проявляется не на объекте, а на совпадении двух ответов.
+ * It understands both matrix discrepancies and check findings: for the former the
+ * third coordinate is the resource, for the latter the second account of the pair,
+ * because a defect of a list shows itself not on a resource but on a match between
+ * two responses.
  */
 export function cellKey(finding) {
   const account = finding.account ?? finding.accountId;
@@ -178,16 +180,17 @@ export function cellKey(finding) {
 }
 
 /**
- * Сверяет отчёт инструмента с ожиданиями варианта.
+ * Compares the tool's report against the variant's expectations.
  *
- * Сравнение множествами в обе стороны: пропущенное и лишнее — разные ошибки.
- * Одного числа находок недостаточно, оно совпадает и при взаимной компенсации.
+ * A comparison over sets in both directions: what was missed and what was extra are
+ * different errors. The number of findings alone is not enough — it matches when the
+ * two cancel each other out as well.
  */
 export function compareVariant(variant, report, exitCode) {
   const expected = new Set(variant.findings.map(cellKey));
-  // Список находок один: способ обнаружения — поле `source`, а не отдельный
-  // массив. Прежний запасной `report.checks` держался на форме отчёта,
-  // которой больше нет, и молча ничего не добавлял.
+  // There is one list of findings: the means of detection is the `source` field, not
+  // a separate array. The former fallback to `report.checks` rested on a shape of the
+  // report that no longer exists, and silently added nothing.
   const actual = new Set(report.findings.map(cellKey));
 
   const missing = [...expected].filter((key) => !actual.has(key)).sort();
@@ -205,8 +208,8 @@ export function compareVariant(variant, report, exitCode) {
   if (exitCode !== variant.expectedExitCode) {
     problems.push(`exit code ${exitCode}, expected ${variant.expectedExitCode}`);
   }
-  // Признаки недостоверности прогона: находок может не быть просто потому,
-  // что до них не дошли.
+  // The signs of an untrustworthy run: there may be no findings simply because they
+  // were never reached.
   if (report.truncated === true) {
     problems.push("the run was cut short, the tail of the matrix was never tested");
   }

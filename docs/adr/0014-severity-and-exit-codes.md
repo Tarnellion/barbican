@@ -1,105 +1,114 @@
-# 0014. Серьёзность находок и семантика кодов возврата
+# 0014. Finding severity and exit code semantics
 
-- **Статус:** принято
-- **Дата:** 2026-08-12
+- **Status:** accepted
+- **Date:** 2026-08-12
 
-## Контекст
+## Context
 
-Две связанные проблемы, обе всплыли на прогонах.
+Two related problems, both of which surfaced on runs.
 
-**Все находки весят одинаково.** Прогон против crAPI дал 17 расхождений в одном
-списке: утечка чужого заказа стоит там рядом с публичным QR-кодом, в котором нет
-ничего чувствительного. Читателю отчёта неоткуда начать. Задача записана в план
-давно и формулировалась как «шкала серьёзности».
+**All findings weigh the same.** The run against crAPI gave 17 discrepancies in
+one list: a leak of someone else's order stands there next to a public QR code
+with nothing sensitive in it. The reader of the report has nowhere to start. The
+task was written into the plan long ago and was phrased as a "severity scale".
 
-**Неожиданный отказ не влияет на код возврата.** `unexpected-denial` описан как
-«не уязвимость, но расхождение с намерением», и код возврата его игнорирует.
-Это обнаружилось не рассуждением: при проверке оракула референс-платформы
-холдингу закрыли его собственный бренд — платформа сломана, объявленный доступ
-не работает, — и barbican вернул **0**. Прогон выглядел успешным.
+**An unexpected denial does not affect the exit code.** `unexpected-denial` is
+described as "not a vulnerability, but a discrepancy with intent", and the exit
+code ignores it. This was not discovered by reasoning: while checking the oracle
+of the reference platform, a holding was cut off from its own brand — the
+platform is broken, the declared access does not work — and barbican returned
+**0**. The run looked successful.
 
-Отраслевой разбор показал, что это не безобидно. В мультибрендовом гемблинге
-отсутствие сквозной видимости между брендами — регуляторное нарушение: UKGC
-оштрафовала 888 на £7,8 млн за то, что самоисключение **не** перешло между
-брендами (см. `docs/research/igaming-contours.md`). Избыточная изоляция там
-наказуема наравне с недостаточной.
+An industry review showed this is not harmless. In multi-brand gambling, the
+absence of end-to-end visibility between brands is a regulatory violation: the
+UKGC fined 888 £7.8m because self-exclusion did **not** carry over between
+brands (see `docs/research/igaming-contours.md`). Excessive isolation is
+punishable there just as much as insufficient isolation.
 
-## Решение
+## Decision
 
-### Серьёзность выводится из отношения, а не объявляется
+### Severity is derived from the relation, not declared
 
-`AccessDiff` получает поле `severity`. Значение вычисляется механически:
+`AccessDiff` gets a `severity` field. The value is computed mechanically:
 
-| Расхождение | Отношение | Серьёзность |
+| Discrepancy | Relation | Severity |
 |---|---|---|
 | `privilege-escalation` | `foreign-tenant` | **critical** |
 | `privilege-escalation` | `ancestor-tenant`, `same-tenant`, `descendant-tenant` | high |
-| `privilege-escalation` | без объекта (доступ к функции) | high |
+| `privilege-escalation` | no resource (access to a function) | high |
 | `privilege-escalation` | `own` | medium |
-| `unexpected-denial` | любое | medium |
+| `unexpected-denial` | any | medium |
 | `not-observed` | — | low |
 | `probe-error` | — | low |
 
-Это не противоречит [ADR-0006](0006-expected-access-declaration.md). Человек
-объявляет **ожидание** — что положено, а что нет. Серьёзность же есть свойство
-уже найденного расхождения и следует из модели механически: утечка в чужой
-тенант заведомо тяжелее, чем доступ к чужому объекту внутри своего. Никакого
-суждения о бизнес-последствиях здесь не делается, и делать его инструмент
-не должен.
+The scale has a fifth level, `info`, and the table above does not use it: a
+discrepancy of the matrix is never merely informational. It exists for checks
+from the registry, which assign severity themselves — a check may have something
+to say that changes nothing about access.
 
-`own` получает `medium` намеренно: доступ аккаунта к собственному объекту,
-объявленный запрещённым, — почти всегда ошибка в политике, а не дыра
-в платформе. Понижение здесь честнее, чем ложная тревога уровня high.
+This does not contradict [ADR-0006](0006-expected-access-declaration.md). A
+human declares the **expectation** — what is meant to be granted and what is
+not. Severity, on the other hand, is a property of a discrepancy that has
+already been found, and it follows from the model mechanically: a leak into a
+foreign tenant is plainly heavier than access to someone else's resource inside
+your own. No judgement about business consequences is made here, and the tool
+must not make one.
 
-### Код возврата 1 означает «реальность разошлась с объявленным»
+`own` gets `medium` deliberately: an account's access to its own resource,
+declared forbidden, is almost always a mistake in the policy, not a hole in the
+platform. Lowering it here is more honest than a false alarm at the high level.
 
-Любое расхождение — и эскалация, и неожиданный отказ — даёт **1**.
+### Exit code 1 means "reality diverged from what was declared"
 
-Прежняя логика молчаливо предполагала, что инструмент ищет уязвимости. Он ищет
-не их, а **расхождения между объявленным намерением и наблюдаемым поведением**;
-это записано в назначении с самого начала. Расхождение есть расхождение, куда бы
-оно ни было направлено. Инструмент вдобавок не может определить, что именно
-неверно — платформа или объявление, — а раз не может, то и молчать не вправе.
+Any discrepancy — an escalation and an unexpected denial alike — gives **1**.
 
-Смысл кодов остаётся трёхзначным:
+The old logic silently assumed the tool looks for vulnerabilities. It looks not
+for those but for **discrepancies between declared intent and observed
+behaviour**; that has been written into its purpose from the very start. A
+discrepancy is a discrepancy whichever way it points. On top of that, the tool
+cannot determine which side is wrong — the platform or the declaration — and
+since it cannot, it has no right to stay silent.
 
-- **0** — проверено, расхождений нет;
-- **1** — проверено, расхождения есть;
-- **2** — результату верить нельзя (нет наблюдений, прогон оборван, аккаунты
-  не аутентифицированы). Приоритет у двойки: непроверенное не бывает чистым.
+The meaning of the codes stays three-valued:
 
-`not-observed` и `probe-error` кода 1 не дают: это пробелы покрытия, а не
-расхождения. Они уже учтены двойкой, когда покрытия нет вовсе.
+- **0** — tested, no discrepancies;
+- **1** — tested, there are discrepancies;
+- **2** — the result cannot be trusted (no observations, the run was cut short,
+  the accounts did not authenticate). The 2 takes priority: what was not tested
+  is never clean.
 
-## Альтернативы
+`not-observed` and `probe-error` do not give code 1: these are gaps in coverage,
+not discrepancies. They are already accounted for by the 2 when there is no
+coverage at all.
 
-**Оставить `unexpected-denial` невлияющим и полагаться на сводку.** Отклонено:
-сводка читается человеком, код возврата — конвейером. Инструмент, зелёный в CI
-при сломанном объявленном доступе, ровно так и будет использоваться.
+## Alternatives
 
-**Отдельный флаг `--strict` для неожиданных отказов.** Отклонено: превращает
-честность в опцию. Умолчание, при котором расхождение не считается расхождением,
-неверно, а флаг лишь позволяет о нём не знать.
+**Leave `unexpected-denial` without effect and rely on the summary.** Rejected:
+the summary is read by a human, the exit code by a pipeline. A tool that stays
+green in CI while the declared access is broken will be used in exactly that way.
 
-**Дать серьёзность объявлять человеку в политике.** Отклонено как первый шаг:
-поле, которое надо заполнять руками на каждое правило, останется пустым. Если
-понадобится переопределение — добавить его поверх вычисленного значения, а не
-вместо.
+**A separate `--strict` flag for unexpected denials.** Rejected: it turns
+honesty into an option. A default under which a discrepancy does not count as a
+discrepancy is wrong, and the flag merely lets you not know about it.
 
-**Взять шкалу CVSS.** Отклонено: CVSS требует вектора, который снаружи не
-восстановить, и создаст видимость точности, которой нет. Пять уровней ровно
-столько, сколько инструмент способен различить.
+**Let a human declare severity in the policy.** Rejected as a first step: a
+field that has to be filled in by hand on every rule will stay empty. If an
+override is needed, add it on top of the computed value, not instead of it.
 
-## Последствия
+**Take the CVSS scale.** Rejected: CVSS requires a vector that cannot be
+reconstructed from the outside, and it would create an appearance of precision
+that does not exist. Five levels are exactly as many as the tool is able to tell
+apart.
 
-Отчёт становится сортируемым, и в нём появляется то, с чего читателю начинать.
-Прогон с неработающим объявленным доступом перестаёт быть зелёным.
+## Consequences
 
-Расплата — изменение контракта: конвейеры, где `unexpected-denial` считался
-допустимым, покраснеют. Это правильное направление, но об этом надо сказать
-в CHANGELOG при следующей публикации, а не оставить на самостоятельное
-обнаружение.
+The report becomes sortable, and it gains something for the reader to start
+from. A run with broken declared access stops being green.
 
-Пересмотреть, если появится потребность различать серьёзность внутри одного
-отношения — например, отделять чтение платёжных данных от чтения справочника.
-Это потребует объявления от человека и, значит, отдельного решения.
+The price is a change of contract: pipelines where `unexpected-denial` counted
+as acceptable will go red. That is the right direction, but it has to be said in
+the CHANGELOG at the next release, not left to be discovered on one's own.
+
+Revisit if a need appears to tell severities apart within one relation — for
+example, to separate reading payment data from reading a reference list. That
+would require a declaration from a human and therefore a separate decision.

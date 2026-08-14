@@ -1,13 +1,13 @@
 /**
- * Скалярные сигналы над телом ответа.
+ * Scalar signals over a response body.
  *
- * Тело читается транзитно, в памяти этого модуля, и здесь же умирает. Наружу
- * уходят только необратимые свёртки — число или булево. Обоснование и границы
- * решения: ADR-0011.
+ * The body is read in transit, in the memory of this module, and dies here. Only
+ * irreversible reductions go outward — a number or a boolean. The reasoning and
+ * the bounds of the decision: ADR-0011.
  *
- * Правило, которое легко нарушить незаметно: `SignalValue` не должен получить
- * строковый вариант. Строка вмещает тело целиком, и гарантия «в отчёте нет PII»
- * из конструктивной превратилась бы в дисциплинарную.
+ * A rule that is easy to break unnoticed: `SignalValue` must not gain a string
+ * variant. A string holds the whole body, and the guarantee "there is no PII in
+ * the report" would turn from structural into disciplinary.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -16,11 +16,11 @@ import type { SignalSpec, SignalValue } from "./ports.js";
 export const DEFAULT_MAX_BODY_BYTES = 256 * 1024;
 
 /**
- * Сколько байт дайджеста оставляем.
+ * How many bytes of the digest we keep.
  *
- * Шесть байт — 48 бит: помещается в безопасное целое JavaScript, что позволяет
- * держать `SignalValue` числовым. На прогоне в тысячу ответов вероятность
- * коллизии порядка 10⁻⁹.
+ * Six bytes — 48 bits: fits into a JavaScript safe integer, which lets
+ * `SignalValue` stay numeric. Over a run of a thousand responses the probability
+ * of a collision is of the order of 10⁻⁹.
  */
 const DIGEST_BYTES = 6;
 
@@ -32,11 +32,11 @@ export class InvalidSignalSpecError extends Error {
 }
 
 /**
- * Разбирает путь на сегменты.
+ * Parses a path into segments.
  *
- * Синтаксис намеренно минимален: сегменты через точку. Ни wildcard, ни выражений —
- * это вычислитель над данными с чужого стенда, и его поверхность должна быть
- * нулевой. Пустой путь означает корень.
+ * The syntax is deliberately minimal: segments separated by dots. No wildcards,
+ * no expressions — this is an evaluator over data from someone else's
+ * deployment, and its surface must be zero. An empty path means the root.
  */
 export function parseSignalPath(path: string): readonly string[] {
   if (path === "") {
@@ -50,11 +50,12 @@ export function parseSignalPath(path: string): readonly string[] {
 }
 
 /**
- * Идёт по пути внутри разобранного тела.
+ * Walks the path inside the parsed body.
  *
- * `Object.hasOwn`, а не проверка на `undefined`: тело приходит с чужого стенда,
- * и `{"constructor": …}` или `{"toString": …}` иначе находились бы через цепочку
- * прототипов. Та же ошибка уже была допущена в связывании объектов с эндпоинтами.
+ * `Object.hasOwn`, not a check against `undefined`: the body comes from someone
+ * else's deployment, and `{"constructor": …}` or `{"toString": …}` would
+ * otherwise be found through the prototype chain. The same mistake was already
+ * made in binding resources to endpoints.
  */
 const ARRAY_INDEX = /^(0|[1-9][0-9]*)$/;
 
@@ -65,10 +66,11 @@ function resolvePath(root: unknown, segments: readonly string[]): unknown {
       return undefined;
     }
     if (Array.isArray(current)) {
-      // Числовой сегмент индексирует список. Без этого `present` отвечал `false`
-      // на поле, которое в ответе есть, — а неверный сигнал неотличим от
-      // честного «поля нет». Целый класс BOPLA («в отчёте появилась колонка
-      // с почтой») из-за этого не проверялся. Расширения `SignalValue` не нужно.
+      // A numeric segment indexes a list. Without this `present` answered
+      // `false` for a field that is there in the response — and a wrong signal
+      // is indistinguishable from an honest "the field is absent". A whole class
+      // of BOPLA ("a column with an email address appeared in the report") went
+      // unchecked because of it. No extension of `SignalValue` is needed.
       if (!ARRAY_INDEX.test(segment)) {
         return undefined;
       }
@@ -84,11 +86,11 @@ function resolvePath(root: unknown, segments: readonly string[]): unknown {
 }
 
 /**
- * Читает тело не более чем `maxBodyBytes`.
+ * Reads no more than `maxBodyBytes` of the body.
  *
- * При превышении возвращает `undefined`, а не префикс. Дайджест по префиксу
- * утверждал бы совпадение двух ответов, различающихся за границей отсечки, —
- * это хуже, чем отсутствие сигнала.
+ * On overflow it returns `undefined` rather than a prefix. A digest over a
+ * prefix would claim a match between two responses that differ beyond the cutoff
+ * — that is worse than the absence of a signal.
  */
 async function readCapped(
   body: ReadableStream<Uint8Array>,
@@ -126,10 +128,10 @@ async function readCapped(
 
 export interface SignalExtractor {
   /**
-   * Вычисляет объявленные сигналы, читая тело.
+   * Computes the declared signals, reading the body.
    *
-   * Возвращает только скаляры. Тело не возвращается, не запоминается
-   * и не логируется ни при каком исходе.
+   * Returns scalars only. The body is not returned, not remembered and not
+   * logged under any outcome.
    */
   extract(
     body: ReadableStream<Uint8Array> | null,
@@ -140,11 +142,12 @@ export interface SignalExtractor {
 export interface SignalExtractorOptions {
   readonly maxBodyBytes?: number;
   /**
-   * Соль дайджеста. По умолчанию случайная на каждый прогон.
+   * The digest salt. Random for every run by default.
    *
-   * Без соли дайджест ответа с предсказуемым телом (`{"error":"forbidden"}`
-   * и подобных) подбирается перебором, и отчёт начинает подтверждать догадки
-   * о содержимом. Параметр существует ради воспроизводимости тестов.
+   * Without a salt the digest of a response with a predictable body
+   * (`{"error":"forbidden"}` and the like) is found by brute force, and the
+   * report starts confirming guesses about the content. The parameter exists for
+   * the sake of reproducible tests.
    */
   readonly salt?: Uint8Array;
 }
@@ -156,8 +159,8 @@ export function createSignalExtractor(options: SignalExtractorOptions = {}): Sig
   }
   const salt = options.salt ?? randomBytes(32);
 
-  // Пути разбираются заранее: ошибка в конфигурации должна падать на старте,
-  // а не на середине прогона против чужого стенда.
+  // Paths are parsed up front: a mistake in the configuration must fail at
+  // startup, not in the middle of a run against someone else's deployment.
   function segmentsFor(spec: SignalSpec): readonly string[] {
     return spec.kind === "digest" ? [] : parseSignalPath(spec.path);
   }
@@ -177,7 +180,8 @@ export function createSignalExtractor(options: SignalExtractorOptions = {}): Sig
 
       const bytes = await readCapped(body, maxBodyBytes);
       if (bytes === undefined) {
-        // Тело больше потолка: сигналы недоступны. Пустой набор, а не догадки.
+        // The body is over the ceiling: the signals are unavailable. An empty
+        // set, not guesses.
         return signals;
       }
 
@@ -189,7 +193,8 @@ export function createSignalExtractor(options: SignalExtractorOptions = {}): Sig
           parsed = JSON.parse(new TextDecoder().decode(bytes));
           parsedOk = true;
         } catch {
-          // Не JSON — сигналы по путям недоступны. Дайджест по байтам работает.
+          // Not JSON — signals by path are unavailable. The digest over the
+          // bytes works.
           parsedOk = false;
         }
       }
@@ -214,8 +219,8 @@ export function createSignalExtractor(options: SignalExtractorOptions = {}): Sig
           signals[spec.name] = target !== undefined;
           continue;
         }
-        // count: не массив — сигнала нет. Ноль был бы утверждением о пустоте,
-        // которого мы не делали.
+        // count: not an array — no signal. A zero would be a claim of emptiness
+        // that we never made.
         if (Array.isArray(target)) {
           signals[spec.name] = target.length;
         }

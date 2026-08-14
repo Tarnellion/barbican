@@ -1,27 +1,27 @@
 /**
- * Интерфейс проверки.
+ * The check interface.
  *
- * Проверки — плагины, а не хардкод: Модуль 2 (evidence-pack) добавляется
- * регистрацией новых проверок, а не переписыванием ядра.
- * См. docs/adr/0003-check-registry.md.
+ * Checks are plugins rather than hardcode: Module 2 (the evidence pack) is added
+ * by registering new checks, not by rewriting the core.
+ * See docs/adr/0003-check-registry.md.
  */
 
 import type { AccessMatrix, Severity } from "../types.js";
 
 /**
- * Ссылка на пункт внешнего стандарта.
+ * A reference to a clause of an external standard.
  *
- * Крючок для Модуля 2: маппинг проверок на пункты стандартов живёт
- * рядом с самой проверкой, а не в отдельной таблице, которая разъедется.
+ * A hook for Module 2: the mapping of checks onto standard clauses lives next to
+ * the check itself, not in a separate table that will drift.
  */
 export interface StandardRef {
-  /** Идентификатор стандарта, например `OWASP-API-2023`. */
+  /** The standard's identifier, for example `OWASP-API-2023`. */
   readonly standard: string;
-  /** Пункт внутри стандарта, например `API1`. */
+  /** The clause inside the standard, for example `API1`. */
   readonly clause: string;
 }
 
-/** Единичная находка проверки. */
+/** A single finding of a check. */
 export interface Finding {
   readonly checkId: string;
   readonly severity: Severity;
@@ -29,26 +29,27 @@ export interface Finding {
   readonly endpointId?: string;
   readonly accountId?: string;
   /**
-   * Условия обращения, в которых найдено.
+   * The request conditions the finding was made under.
    *
-   * Обязательны здесь ровно по той же причине, что и у расхождений матрицы:
-   * без них находка в условиях и такая же в базовых сливаются в одну группу
-   * дефектов, а отчёт объявляет их одной поломкой платформы.
+   * Mandatory here for exactly the same reason as on matrix discrepancies:
+   * without them a finding under conditions and the same one in the baseline
+   * merge into a single defect group, and the report declares them one breakage
+   * of the platform.
    */
   readonly contextId?: string;
   /**
-   * Машиночитаемое обоснование находки.
+   * Machine-readable evidence for the finding.
    *
-   * Только скаляры и только неконфиденциальные значения: статусы, флаги,
-   * идентификаторы. Тела ответов и заголовки авторизации сюда не попадают.
+   * Scalars only, and non-confidential values only: statuses, flags,
+   * identifiers. Response bodies and authorization headers do not get in here.
    */
   readonly evidence: Readonly<Record<string, string | number | boolean>>;
 }
 
 /**
- * Вход проверки.
+ * The input of a check.
  *
- * Только данные — проверка не ходит в сеть и не читает файлы.
+ * Data only — a check does not go to the network and does not read files.
  */
 export interface CheckContext {
   readonly matrix: AccessMatrix;
@@ -59,6 +60,6 @@ export interface Check {
   readonly description: string;
   readonly severity: Severity;
   readonly standards: readonly StandardRef[];
-  /** Синхронная и чистая: одинаковый вход всегда даёт одинаковый выход. */
+  /** Synchronous and pure: the same input always gives the same output. */
   run(context: CheckContext): readonly Finding[];
 }

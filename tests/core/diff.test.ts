@@ -21,11 +21,11 @@ function matrixWith(observations: Parameters<typeof buildAccessMatrix>[0]["obser
   return buildAccessMatrix({ endpoints, accounts, observations });
 }
 
-describe("серьёзность расхождения", () => {
+describe("the severity of a discrepancy", () => {
   /**
-   * Вычисляется из вида и отношения, а не объявляется человеком: человек
-   * объявляет ожидание, серьёзность же есть свойство найденного расхождения.
-   * Таблица — ADR-0014.
+   * It is computed from the kind and the relation, not declared by a human: a
+   * human declares the expectation, while severity is a property of the
+   * discrepancy that was found. The table is in ADR-0014.
    */
   it.each([
     ["privilege-escalation" as const, "foreign-tenant" as const, "critical"],
@@ -37,17 +37,17 @@ describe("серьёзность расхождения", () => {
     ["unexpected-denial" as const, "foreign-tenant" as const, "medium"],
     ["not-observed" as const, undefined, "low"],
     ["probe-error" as const, undefined, "low"],
-  ])("%s при отношении %s даёт %s", (kind, relation, expected) => {
+  ])("%s under relation %s gives %s", (kind, relation, expected) => {
     expect(severityOf(kind, relation)).toBe(expected);
   });
 });
 
-describe("ссылка на правило", () => {
+describe("the reference to a rule", () => {
   /**
-   * Политика в отчёте есть, но искать среди десятка правил то, которое объявило
-   * доступ запрещённым, — работа, которую инструмент может сделать сам.
+   * The policy is in the report, but hunting through a dozen rules for the one
+   * that declared access forbidden is work the tool can do itself.
    */
-  it("называет правило, давшее ожидание", () => {
+  it("names the rule that gave the expectation", () => {
     const policy: ResolvedAccessPolicy = {
       fallback: "denied",
       rules: [
@@ -63,17 +63,17 @@ describe("ссылка на правило", () => {
   });
 
   /**
-   * Отсутствие номера — содержательный ответ «ни одно правило не подошло»,
-   * а не пропуск поля.
+   * A missing index is a meaningful answer — "no rule matched" — not an omitted
+   * field.
    */
-  it("не называет правила, когда сработал fallback", () => {
+  it("names no rule when the fallback fired", () => {
     const policy: ResolvedAccessPolicy = { fallback: "denied", rules: [] };
 
     expect(resolveExpectedVerdict(policy, "player", "a")).toEqual({ outcome: "denied" });
   });
 
-  /** Побеждает последнее подошедшее — номер обязан указывать на него же. */
-  it("указывает на последнее подошедшее правило, а не на первое", () => {
+  /** The last rule that matched wins — the index must point at that one. */
+  it("points at the last rule that matched, not the first", () => {
     const policy: ResolvedAccessPolicy = {
       fallback: "denied",
       rules: [
@@ -87,13 +87,13 @@ describe("ссылка на правило", () => {
 });
 
 describe("diffAccess", () => {
-  // Главный тест набора. Инструмент, находящий несуществующее, теряет доверие
-  // быстрее, чем тот, который что-то пропускает.
-  it("не находит ничего, когда платформа ведёт себя как объявлено", () => {
+  // The main test of the suite. A tool that finds things which do not exist
+  // loses trust faster than one that misses something.
+  it("finds nothing when the platform behaves as declared", () => {
     expect(diffAccess(matrixWith(cleanObservations), policy)).toEqual([]);
   });
 
-  it("находит эскалацию привилегий: ожидался отказ, доступ получен", () => {
+  it("finds a privilege escalation: a denial was expected, access was granted", () => {
     const diffs = diffAccess(matrixWith(escalationObservations), policy);
 
     expect(diffs).toEqual([
@@ -108,7 +108,7 @@ describe("diffAccess", () => {
     ]);
   });
 
-  it("находит неожиданный отказ: ожидался доступ, получен отказ", () => {
+  it("finds an unexpected denial: access was expected, a denial came back", () => {
     const diffs = diffAccess(matrixWith(denialObservations), policy);
 
     expect(diffs).toEqual([
@@ -118,15 +118,15 @@ describe("diffAccess", () => {
         expected: "allowed",
         actual: "denied",
         kind: "unexpected-denial",
-        // Правило, объявившее доступ положенным. Находка называет его сама,
-        // чтобы читателю не искать среди десятка правил.
+        // The rule that declared access granted. The finding names it itself so
+        // the reader does not have to hunt through a dozen rules.
         ruleIndex: 2,
         severity: "medium",
       },
     ]);
   });
 
-  it("сообщает о непокрытой паре вместо того, чтобы додумать исход", () => {
+  it("reports an uncovered pair instead of inventing the outcome", () => {
     const partial = cleanObservations.filter(
       (o) => !(o.accountId === "acc.player.a" && o.endpointId === "ep.users.list"),
     );
@@ -144,7 +144,7 @@ describe("diffAccess", () => {
     ]);
   });
 
-  it("не делает вывода о доступе, если обращение завершилось ошибкой", () => {
+  it("draws no conclusion about access when the request ended in an error", () => {
     const withError = cleanObservations.map((o) =>
       o.accountId === "acc.player.a" && o.endpointId === "ep.users.list"
         ? observe(o.accountId, o.endpointId, "error")
@@ -165,7 +165,7 @@ describe("diffAccess", () => {
     ]);
   });
 
-  it("считает 404 отказом, а не отдельным расхождением", () => {
+  it("treats a 404 as a denial, not as a discrepancy of its own", () => {
     const withNotFound = cleanObservations.map((o) =>
       o.accountId === "acc.player.a" && o.endpointId === "ep.users.list"
         ? observe(o.accountId, o.endpointId, "not-found")
@@ -175,7 +175,7 @@ describe("diffAccess", () => {
     expect(diffAccess(matrixWith(withNotFound), policy)).toEqual([]);
   });
 
-  it("выдаёт расхождения в детерминированном порядке", () => {
+  it("produces discrepancies in a deterministic order", () => {
     const broken = cleanObservations.map((o) =>
       o.endpointId === "ep.users.list" && o.accountId !== "acc.admin.a"
         ? observe(o.accountId, o.endpointId, "allowed")

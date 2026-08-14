@@ -1,34 +1,36 @@
 /**
- * Способы представиться проверяемой системе.
+ * The ways of presenting oneself to the system under test.
  *
- * Схема — свойство **контура**, а не прогона: на мультибрендовой платформе
- * кабинет аффилиата, операторская админка и клиентское API аутентифицируются
- * по-разному, и прогон, охватывающий их разом, обязан уметь ходить в каждый
- * по-своему. Поэтому провайдер знает схему по умолчанию и переопределения
- * на аккаунт. См. ADR-0016.
+ * A scheme is a property of the **surface**, not of the run: on a multi-brand
+ * platform the affiliate cabinet, the operator console and the customer API
+ * authenticate differently, and a run covering them all at once must be able to
+ * knock on each in its own way. That is why the provider knows a default scheme
+ * and per-account overrides. See ADR-0016.
  *
- * Куки поддерживаются только в одну сторону: значение приходит из окружения,
- * из ответов оно не извлекается. Инвариант «тела и `set-cookie` не читаем»
- * это не трогает — мы лишь отправляем то, что нам дали.
+ * Cookies are supported in one direction only: the value comes from the
+ * environment, it is not extracted from responses. This does not touch the
+ * invariant "we do not read bodies and `set-cookie`" — we only send what we were
+ * given.
  */
 
 import type { CredentialProvider } from "./ports.js";
 
 /**
- * Подпись обращения встроенной схемой не выражается — и это решение, а не
- * недоделка: канонизация у каждой платформы своя, и общий формат, придуманный
- * без цели, дал бы конфигурацию, которая описывает подпись, но не совпадает
- * ни с одной настоящей. Своя схема реализуется поверх порта `CredentialProvider`,
- * который для этого и получает описание обращения. См. ADR-0018.
+ * Request signing is not expressible by a built-in scheme — and that is a
+ * decision, not an unfinished piece: canonicalization differs from platform to
+ * platform, and a common format invented without a target would give a
+ * configuration that describes a signature but matches no real one. A scheme of
+ * one's own is implemented on top of the `CredentialProvider` port, which is
+ * given a description of the request for exactly this purpose. See ADR-0018.
  */
 export type AuthScheme =
-  /** `Authorization: Bearer <токен>` — самая частая схема для JWT. */
+  /** `Authorization: Bearer <token>` — the most common scheme for JWTs. */
   | { readonly kind: "bearer" }
-  /** Произвольный заголовок целиком, например `X-API-Key: <токен>`. */
+  /** An arbitrary header as a whole, for example `X-API-Key: <token>`. */
   | { readonly kind: "header"; readonly header: string }
-  /** `Cookie: <имя>=<значение>` — сессионные платформы. */
+  /** `Cookie: <name>=<value>` — session-based platforms. */
   | { readonly kind: "cookie"; readonly name: string }
-  /** `Authorization: Basic <base64>`; в переменной лежит `логин:пароль`. */
+  /** `Authorization: Basic <base64>`; the variable holds `login:password`. */
   | { readonly kind: "basic" };
 
 export const DEFAULT_AUTH_SCHEME: AuthScheme = { kind: "bearer" };
@@ -40,15 +42,16 @@ export class InvalidAuthSchemeError extends Error {
   }
 }
 
-/** Имя заголовка по RFC 9110: только видимые ASCII без разделителей. */
+/** A header name per RFC 9110: visible ASCII only, no separators. */
 const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 /**
- * Проверяет, что схему вообще можно отправить.
+ * Checks that the scheme can be sent at all.
  *
- * Экспортируется, чтобы разбор конфигурации мог отвергнуть негодную схему там,
- * где известно её **имя**: «схема "operator-console"» полезнее для человека,
- * чем «схема аккаунта admin-a», — имя схемы он и правил.
+ * Exported so that configuration parsing can reject an unusable scheme where its
+ * **name** is known: 'the scheme "operator-console"' is more useful to a human
+ * than 'the scheme of account admin-a' — the name of the scheme is what they
+ * edited.
  *
  * @throws {InvalidAuthSchemeError}
  */
@@ -61,7 +64,7 @@ export function assertAuthSchemeIsSound(scheme: AuthScheme, where?: string): voi
   }
 }
 
-/** Заголовки, которыми предъявляется один токен по одной схеме. */
+/** The headers by which one token is presented under one scheme. */
 function headersFrom(scheme: AuthScheme, token: string): Readonly<Record<string, string>> {
   switch (scheme.kind) {
     case "bearer":
@@ -76,16 +79,16 @@ function headersFrom(scheme: AuthScheme, token: string): Readonly<Record<string,
 }
 
 /**
- * Создаёт поставщик учётных данных.
+ * Creates the credential provider.
  *
- * Токены передаются отдельной картой и не хранятся в конфигурации —
- * см. ADR-0008.
+ * Tokens are passed in a separate map and are not stored in the configuration —
+ * see ADR-0008.
  *
- * `schemesByAccount` переопределяет схему для названных аккаунтов; остальные
- * идут по `defaultScheme`. Карта, а не поле в аккаунте: провайдер о структуре
- * конфигурации не знает и знать не должен.
+ * `schemesByAccount` overrides the scheme for the named accounts; the rest go by
+ * `defaultScheme`. A map rather than a field on the account: the provider does
+ * not know the structure of the configuration and must not know it.
  *
- * @throws {InvalidAuthSchemeError} схема непригодна к отправке
+ * @throws {InvalidAuthSchemeError} the scheme is unusable for sending
  */
 export function createCredentialProvider(
   defaultScheme: AuthScheme,
@@ -93,9 +96,9 @@ export function createCredentialProvider(
   schemesByAccount: ReadonlyMap<string, AuthScheme> = new Map(),
 ): CredentialProvider {
   assertAuthSchemeIsSound(defaultScheme);
-  // Проверяются все, а не только применённые: негодная схема обязана падать
-  // при создании провайдера, а не при первом обращении от того аккаунта,
-  // до которого прогон дойдёт в середине матрицы.
+  // All of them are checked, not only the ones applied: an unusable scheme must
+  // fail when the provider is created, not on the first request from the account
+  // the run reaches in the middle of the matrix.
   for (const [accountId, scheme] of schemesByAccount) {
     assertAuthSchemeIsSound(scheme, `account "${accountId}"`);
   }
@@ -104,8 +107,8 @@ export function createCredentialProvider(
     headersFor(accountId: string): Readonly<Record<string, string>> {
       const token = tokens.get(accountId);
       if (token === undefined) {
-        // Анонимное обращение — законный случай: так проверяют,
-        // не открыт ли эндпоинт вообще всем.
+        // An anonymous request is a legitimate case: this is how one checks
+        // whether an endpoint is open to everyone at all.
         return {};
       }
 

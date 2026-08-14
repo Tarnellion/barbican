@@ -1,25 +1,25 @@
 #!/usr/bin/env node
 
 /**
- * Сверка инструмента с оракулом полигона VAmPI.
+ * Verification of the tool against the VAmPI polygon's oracle.
  *
- * Поднимает VAmPI в docker, заводит пользователей и книги, получает токены,
- * прогоняет собранный `dist/cli.js run` и сравнивает находки с `ground-truth.json`
- * в обе стороны — пропущенное и лишнее. Ложное срабатывание обесценивает
- * инструмент не меньше пропуска, поэтому «найдено сверх оракула» — такое же
- * расхождение, как «не найдено».
+ * Brings VAmPI up in docker, creates the users and the books, obtains the tokens,
+ * runs the built `dist/cli.js run` and compares the findings against
+ * `ground-truth.json` in both directions — what was missed and what was extra. A
+ * false positive devalues the tool no less than a miss, so "found beyond the oracle"
+ * is just as much a discrepancy as "not found".
  *
- * Режимов два: `vulnerable` и `secure`. Это не «есть дефекты / нет дефектов»:
- * по кодам ответов режимы различаются ровно одним дефектом (ADR-0009), поэтому
- * у каждого свой список находок, и защищённый режим — не проверка на ноль,
- * а проверка на другое непустое множество.
+ * There are two modes: `vulnerable` and `secure`. This is not "there are defects /
+ * there are none": by response status the modes differ by exactly one defect
+ * (ADR-0009), so each has a list of findings of its own, and the secure mode is not a
+ * check for zero but a check for a different non-empty set.
  *
- * Ноль зависимостей: только встроенные модули и docker.
+ * Zero dependencies: built-in modules and docker only.
  *
- * Использование:
- *   node polygons/vampi/verify.mjs                 # оба режима
- *   node polygons/vampi/verify.mjs vulnerable      # только названный
- *   node polygons/vampi/verify.mjs --keep          # не гасить стенд после прогона
+ * Usage:
+ *   node polygons/vampi/verify.mjs                 # both modes
+ *   node polygons/vampi/verify.mjs vulnerable      # only the named one
+ *   node polygons/vampi/verify.mjs --keep          # do not stop the deployment after the run
  */
 
 import { spawn } from "node:child_process";
@@ -38,22 +38,23 @@ const CONFIG = join(POLYGON_DIR, "barbican.run.yaml");
 const ENDPOINTS = join(POLYGON_DIR, "endpoints.yaml");
 const GROUND_TRUTH = join(POLYGON_DIR, "ground-truth.json");
 
-/** Образ проверяется до запуска: `compose up` иначе молча уходит в долгую тягу. */
+/** The image is checked before the launch: otherwise `compose up` silently goes off to pull it. */
 const IMAGE = "erev0s/vampi:latest";
 
 /**
- * Эндпоинт, обращение к которому разрушает стенд.
+ * The endpoint a request to which destroys the deployment.
  *
- * Проверяется отдельно: если он окажется опрошенным, все находки после него
- * получены против пустой базы, и совпадение с оракулом было бы случайным.
+ * Checked separately: should it turn out to have been probed, every finding after it
+ * was obtained against an empty database, and a match with the oracle would be
+ * accidental.
  */
 const DESTRUCTIVE_ENDPOINT = "db.createdb";
 
 /**
- * Локальная петля терпит частоту выше дефолтной.
+ * The local loopback tolerates a higher rate than the default.
  *
- * Дефолты инструмента (2 одновременно, 5 в секунду) рассчитаны на чужой стенд.
- * Здесь стенд свой и в контейнере на той же машине.
+ * The tool's defaults (2 at a time, 5 per second) are meant for someone else's
+ * deployment. Here the deployment is our own and in a container on the same machine.
  */
 const RUN_FLAGS = ["--rps", "25", "--concurrency", "4"];
 
@@ -79,10 +80,10 @@ function run(command, args, options = {}) {
 }
 
 /**
- * Достаёт baseUrl из конфигурации прогона.
+ * Pulls the baseUrl out of the run configuration.
  *
- * Регулярным выражением, а не YAML-разбором: у скрипта не должно быть
- * зависимостей. Значение нужно ровно одно, и формат файла мы контролируем.
+ * With a regular expression rather than by parsing YAML: the script must have no
+ * dependencies. Exactly one value is needed, and we control the file's format.
  */
 function readBaseUrl(configText) {
   const match = /^\s*baseUrl:\s*(\S+)\s*$/m.exec(configText);
@@ -101,11 +102,11 @@ function readTokenEnvNames(configText) {
 }
 
 /**
- * Сверяет, что скрипт заводит ровно тех, кого объявляет конфигурация.
+ * Checks that the script creates exactly those the configuration declares.
  *
- * Расхождение здесь не падает, а тихо портит прогон: несозданный пользователь
- * даёт 404 на каждое обращение, 404 читается как отказ, отказ совпадает
- * с политикой — и отчёт выходит чистым, не проверив ничего.
+ * A discrepancy here does not fail loudly, it quietly spoils the run: a user that was
+ * not created gives a 404 on every request, a 404 reads as a denial, a denial agrees
+ * with the policy — and the report comes out clean having tested nothing.
  */
 function assertProvisioningMatchesConfig(configText) {
   const declared = new Set(readTokenEnvNames(configText));
@@ -126,12 +127,12 @@ function assertProvisioningMatchesConfig(configText) {
 }
 
 /**
- * Проверяет оракул на внутреннюю согласованность и полноту.
+ * Checks the oracle for internal consistency and completeness.
  *
- * Разбор формата и связь «находка → дефект» проверяет общий модуль (ADR-0012).
- * Здесь остаётся то, что общий модуль знать не обязан: полнота — дефект,
- * объявленный видимым и не ожидаемый ни в одном варианте, есть либо забытый
- * вариант, либо неверная пометка видимости.
+ * Parsing the format and the "finding → defect" link is the shared module's job
+ * (ADR-0012). What is left here is what the shared module need not know: completeness
+ * — a defect declared visible and expected in no variant is either a forgotten
+ * variant or a wrong visibility mark.
  */
 function assertOracleIsSound(groundTruth) {
   const gaps = checkCoverage(groundTruth);
@@ -158,11 +159,12 @@ async function composeDown(environment) {
 }
 
 /**
- * Ждёт баннер `GET /` и возвращает его тело.
+ * Waits for the `GET /` banner and returns its body.
  *
- * Тело читает сверка, а не инструмент: в баннере VAmPI объявляет свой режим,
- * и это единственный способ убедиться, что стенд поднялся именно тем, каким
- * запрошен. Недолетевшая переменная иначе выглядела бы пропуском инструмента.
+ * The body is read by the verification, not by the tool: in the banner VAmPI declares
+ * its mode, and that is the only way to make sure the deployment came up exactly as
+ * requested. A variable that did not arrive would otherwise look like a miss by the
+ * tool.
  */
 async function waitForBanner(baseUrl, attempts = 120) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -172,7 +174,7 @@ async function waitForBanner(baseUrl, attempts = 120) {
         return await response.json();
       }
     } catch {
-      // Ещё не слушает — пробуем снова.
+      // Not listening yet — try again.
     }
     await new Promise((done) => setTimeout(done, 500));
   }
@@ -219,20 +221,21 @@ async function checkMode(mode, baseUrl, reportDir) {
   }
   const report = JSON.parse(await readFile(reportPath, "utf8"));
 
-  // Сравнение и проверки достоверности — общие для всех полигонов (ADR-0012).
+  // The comparison and the trustworthiness checks are shared by all polygons
+  // (ADR-0012).
   const { problems: shared } = compareVariant(mode, report, result.code);
   const problems = [...shared];
 
-  // Разрушающий эндпоинт обязан остаться нетронутым: опрошенный, он стирает
-  // пользователей и книги, и остаток матрицы проверяется против пустой базы.
+  // The destructive endpoint must stay untouched: once probed, it wipes the users and
+  // the books, and the rest of the matrix is tested against an empty database.
   const destructive = report.skipped.find((item) => item.endpointId === DESTRUCTIVE_ENDPOINT);
   if (destructive?.reason !== "excluded") {
     problems.push(
       `${DESTRUCTIVE_ENDPOINT} was not excluded from the run — the deployment may have been reset`,
     );
   }
-  // Признаки недостоверного прогона: находок может не быть просто потому,
-  // что до них не дошли.
+  // The signs of an untrustworthy run: there may be no findings simply because they
+  // were never reached.
   if (report.truncated) {
     problems.push("the run was cut short (truncated), the tail of the matrix was never tested");
   }
@@ -303,9 +306,10 @@ async function main() {
     try {
       matched = await checkMode(mode, baseUrl, reportDir);
     } catch (error) {
-      // Сорвавшаяся подготовка — не расхождение, а невозможность проверить.
-      // Стенд гасится в любом случае: оставить поднятым намеренно уязвимый API,
-      // отдающий пароли без токена, — плохой способ закончить сверку.
+      // A setup that fell through is not a discrepancy but an inability to test.
+      // The deployment is stopped in any case: leaving a deliberately vulnerable API
+      // running, one that serves passwords without a token, is a poor way to finish a
+      // verification.
       await composeDown(composeEnvironment(baseUrl.port, mode.selector.vulnerable));
       fail(`mode ${mode.id}: ${error.message}`);
     }

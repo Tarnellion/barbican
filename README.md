@@ -49,9 +49,10 @@ workarounds and what each of them gets wrong. See
 ## Documentation
 
 Everything the tool says and everything you read to use it is in English:
-this README, both guides, and every message the CLI prints. Design records
-in `docs/adr/` are still Russian — they explain decisions to whoever maintains
-the code, and translating them is in progress.
+this README, both guides, every polygon write-up, all twenty design records
+in `docs/adr/`, and every message the CLI prints. Working notes (`tasks.md`,
+`plan.md`) and comments inside the source stay Russian — they are addressed to
+whoever maintains the code, not to whoever runs it.
 
 - **[docs/guide.md](docs/guide.md)** — declaring accounts, tenants, resources and
   the access policy; running a scan; what the tool deliberately does not do.
@@ -199,8 +200,8 @@ When the budget runs out the run stops and the report says so: `truncated: true`
 and exit code 2, because the tail of the matrix was never tested and the absence
 of findings there means nothing. A run that ends this way is not a clean run.
 
-The effective limits are written into the report (`inputs.throttle`), so «the
-throttle was on» is not something you have to take on faith.
+The effective limits are written into the report (`inputs.throttle`), so "the
+throttle was on" is not something you have to take on faith.
 
 ## Releasing
 

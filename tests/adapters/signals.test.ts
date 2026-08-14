@@ -1,9 +1,10 @@
 /**
- * Тесты сигналов над телом ответа.
+ * Tests for signals over the response body.
  *
- * Главный из них — не про вычисление, а про то, что тело никуда не попадает.
- * ADR-0011 разрешил читать тело; цена этого разрешения в том, что запрет на PII
- * в отчёте теперь держится на типе значения сигнала, и это надо доказывать.
+ * The main one is not about computation but about the body going nowhere.
+ * ADR-0011 allowed reading the body; the price of that permission is that the
+ * ban on PII in the report now rests on the type of a signal value, and that
+ * has to be proven.
  */
 
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
@@ -24,7 +25,7 @@ const SALT = new Uint8Array([1, 2, 3, 4]);
 function streamOf(text: string): ReadableStream<Uint8Array> {
   const body = new Response(text).body;
   if (body === null) {
-    throw new Error("тестовый поток не создался");
+    throw new Error("the test stream was not created");
   }
   return body;
 }
@@ -38,18 +39,18 @@ async function digestOf(text: string, salt = SALT): Promise<number | boolean | u
 }
 
 describe("parseSignalPath", () => {
-  it("разбирает сегменты через точку, пустой путь — корень", () => {
+  it("splits segments on dots; an empty path is the root", () => {
     expect(parseSignalPath("")).toEqual([]);
     expect(parseSignalPath("data.items")).toEqual(["data", "items"]);
   });
 
-  it("отвергает пустой сегмент", () => {
+  it("rejects an empty segment", () => {
     expect(() => parseSignalPath("data..items")).toThrow(InvalidSignalSpecError);
   });
 });
 
-describe("дайджест", () => {
-  it("совпадает у одинаковых тел и расходится у разных", async () => {
+describe("the digest", () => {
+  it("matches for identical bodies and differs for different ones", async () => {
     const left = await digestOf('{"orders":[1,2]}');
     const right = await digestOf('{"orders":[1,2]}');
     const other = await digestOf('{"orders":[1,3]}');
@@ -58,7 +59,7 @@ describe("дайджест", () => {
     expect(left).not.toBe(other);
   });
 
-  it("помещается в безопасное целое", async () => {
+  it("fits in a safe integer", async () => {
     const value = await digestOf('{"orders":[1,2]}');
 
     expect(typeof value).toBe("number");
@@ -66,10 +67,10 @@ describe("дайджест", () => {
   });
 
   /**
-   * Соль — не украшение. Без неё дайджест предсказуемого тела подбирается
-   * перебором, и отчёт начинает подтверждать догадки о содержимом.
+   * The salt is not decoration. Without it the digest of a predictable body can
+   * be brute-forced, and the report starts confirming guesses about the content.
    */
-  it("зависит от соли: одно и то же тело даёт разные значения в разных прогонах", async () => {
+  it("depends on the salt: the same body gives different values in different runs", async () => {
     const first = await digestOf('{"error":"forbidden"}', new Uint8Array([9, 9]));
     const second = await digestOf('{"error":"forbidden"}', new Uint8Array([7, 7]));
 
@@ -77,11 +78,11 @@ describe("дайджест", () => {
   });
 
   /**
-   * Проверяет именно **умолчание**, а не переданную соль: тесты выше подставляют
-   * соль явно и потому не заметили бы, если бы умолчание стало константой.
-   * Мутация «соль по умолчанию пустая» их все проходила.
+   * This checks the **default**, not a salt that was passed in: the tests above
+   * supply the salt explicitly and so would not notice if the default became a
+   * constant. The mutation "the default salt is empty" passed all of them.
    */
-  it("по умолчанию солится случайно, поэтому дайджест не переносится между прогонами", async () => {
+  it("salts randomly by default, so a digest does not carry between runs", async () => {
     const body = '{"error":"forbidden"}';
     const first = await createSignalExtractor().extract(streamOf(body), DIGEST);
     const second = await createSignalExtractor().extract(streamOf(body), DIGEST);
@@ -90,20 +91,20 @@ describe("дайджест", () => {
     expect(first["digest"]).not.toBe(second["digest"]);
   });
 
-  it("вычисляется и для тела, которое не является JSON", async () => {
-    const value = await digestOf("не json вовсе");
+  it("is computed for a body that is not JSON too", async () => {
+    const value = await digestOf("not json at all");
 
     expect(typeof value).toBe("number");
   });
 });
 
-describe("count и present", () => {
+describe("count and present", () => {
   const specs: readonly SignalSpec[] = [
     { name: "orders", kind: "count", path: "data.orders" },
     { name: "hasNext", kind: "present", path: "next" },
   ];
 
-  it("считает элементы массива по пути и находит присутствие", async () => {
+  it("counts array elements at a path and detects presence", async () => {
     const extractor = createSignalExtractor({ salt: SALT });
 
     const signals = await extractor.extract(
@@ -116,10 +117,10 @@ describe("count и present", () => {
   });
 
   /**
-   * Ноль был бы утверждением о пустоте, которого мы не делали: путь мог указывать
-   * на объект, число или отсутствовать вовсе. Отсутствие сигнала честнее.
+   * A zero would be a claim of emptiness we never made: the path could point at
+   * an object, a number, or nothing at all. The absence of a signal is honest.
    */
-  it("не выдаёт count, если по пути не массив", async () => {
+  it("produces no count when the path does not hold an array", async () => {
     const extractor = createSignalExtractor({ salt: SALT });
 
     const signals = await extractor.extract(streamOf('{"data":{"orders":42}}'), specs);
@@ -129,11 +130,11 @@ describe("count и present", () => {
   });
 
   /**
-   * Тело приходит с чужого стенда. Без `Object.hasOwn` путь `constructor`
-   * находился бы через цепочку прототипов у любого объекта — та же ошибка,
-   * что уже была допущена в связывании объектов с эндпоинтами.
+   * The body comes from someone else's deployment. Without `Object.hasOwn` the
+   * path `constructor` would be found through the prototype chain on any object
+   * — the same mistake already made in binding resources to endpoints.
    */
-  it("не находит унаследованные свойства через прототип", async () => {
+  it("does not find inherited properties through the prototype", async () => {
     const extractor = createSignalExtractor({ salt: SALT });
     const probes: readonly SignalSpec[] = [
       { name: "ctor", kind: "present", path: "constructor" },
@@ -147,14 +148,16 @@ describe("count и present", () => {
   });
 
   /**
-   * Найдено ресерчем по аффилиатским кабинетам: видимость полей там задаётся
-   * флагами на аккаунте, поэтому лишняя колонка не меняет статус ответа —
-   * это BOPLA по конструкции. Проверять её нечем, пока путь не входит в список.
+   * Found by research into affiliate cabinets: field visibility there is driven
+   * by flags on the account, so an extra column does not change the response
+   * status — that is BOPLA by construction. There is nothing to check it with
+   * until the path can descend into a list.
    *
-   * Прежнее поведение было не просто пробелом: `present` отвечал `false` для
-   * поля, которое в ответе ЕСТЬ, и такой сигнал неотличим от честного «нет».
+   * The former behaviour was not merely a gap: `present` answered `false` for a
+   * field that IS in the response, and such a signal is indistinguishable from
+   * an honest "no".
    */
-  it("видит поле внутри элемента списка по числовому индексу", async () => {
+  it("sees a field inside a list element by numeric index", async () => {
     const extractor = createSignalExtractor({ salt: SALT });
     const probes: readonly SignalSpec[] = [
       { name: "emailCol", kind: "present", path: "rows.0.email" },
@@ -171,15 +174,15 @@ describe("count и present", () => {
   });
 
   /**
-   * Индексом считается только запись из десятичных цифр.
+   * Only a run of decimal digits counts as an index.
    *
-   * Первая версия этого теста брала сегмент `email` и не проверяла ничего:
-   * `Number("email")` — это `NaN`, обращение по `NaN` тоже даёт `undefined`,
-   * и результат совпадал при снятой проверке. Мутация «индексировать любым
-   * сегментом» её проходила. Разница видна только там, где строка численно
-   * приводится: `Number("1e0")` — это 1, `Number(" 0 ")` — это 0.
+   * The first version of this test used the segment `email` and checked
+   * nothing: `Number("email")` is `NaN`, indexing by `NaN` also gives
+   * `undefined`, and the result matched with the check removed. The mutation
+   * "index by any segment" passed it. The difference shows only where a string
+   * does coerce numerically: `Number("1e0")` is 1, `Number(" 0 ")` is 0.
    */
-  it("не индексирует список сегментом, который лишь приводится к числу", async () => {
+  it("does not index a list by a segment that merely coerces to a number", async () => {
     const extractor = createSignalExtractor({ salt: SALT });
     const probes: readonly SignalSpec[] = [
       { name: "sci", kind: "present", path: "rows.1e0.email" },
@@ -196,7 +199,7 @@ describe("count и present", () => {
     expect(signals["word"]).toBe(false);
   });
 
-  it("за границей списка сигнала нет, а не ложное присутствие", async () => {
+  it("past the end of a list there is no signal, not a false presence", async () => {
     const extractor = createSignalExtractor({ salt: SALT });
     const probes: readonly SignalSpec[] = [{ name: "x", kind: "present", path: "rows.7.email" }];
 
@@ -205,23 +208,26 @@ describe("count и present", () => {
     expect(signals["x"]).toBe(false);
   });
 
-  it("не выдаёт сигналы по путям, если тело не разбирается как JSON", async () => {
+  it("produces no path signals when the body does not parse as JSON", async () => {
     const extractor = createSignalExtractor({ salt: SALT });
 
-    const signals = await extractor.extract(streamOf("<html>сервер отдал страницу</html>"), specs);
+    const signals = await extractor.extract(
+      streamOf("<html>the server returned a page</html>"),
+      specs,
+    );
 
     expect(signals["orders"]).toBeUndefined();
     expect(signals["hasNext"]).toBeUndefined();
   });
 });
 
-describe("потолок размера", () => {
+describe("the size ceiling", () => {
   /**
-   * Префикс не годится: два ответа, различающихся за границей отсечки,
-   * дали бы одинаковый дайджест, и инструмент утверждал бы совпадение,
-   * которого нет. Отсутствие сигнала лучше неверного.
+   * A prefix will not do: two responses differing past the cut-off would give
+   * the same digest, and the tool would claim a match that does not exist. The
+   * absence of a signal beats a wrong one.
    */
-  it("не вычисляет ничего, если тело больше потолка", async () => {
+  it("computes nothing when the body is over the ceiling", async () => {
     const extractor = createSignalExtractor({ salt: SALT, maxBodyBytes: 16 });
 
     const signals = await extractor.extract(streamOf("x".repeat(64)), DIGEST);
@@ -229,7 +235,7 @@ describe("потолок размера", () => {
     expect(signals).toEqual({});
   });
 
-  it("вычисляет, если тело ровно по потолку", async () => {
+  it("computes when the body is exactly at the ceiling", async () => {
     const extractor = createSignalExtractor({ salt: SALT, maxBodyBytes: 16 });
 
     const signals = await extractor.extract(streamOf("x".repeat(16)), DIGEST);
@@ -237,12 +243,12 @@ describe("потолок размера", () => {
     expect(typeof signals["digest"]).toBe("number");
   });
 
-  it("отвергает неположительный потолок", () => {
+  it("rejects a non-positive ceiling", () => {
     expect(() => createSignalExtractor({ maxBodyBytes: 0 })).toThrow(InvalidSignalSpecError);
   });
 });
 
-describe("HTTP-клиент и тела", () => {
+describe("the HTTP client and bodies", () => {
   async function startServer(
     handler: (request: IncomingMessage, response: ServerResponse) => void,
   ): Promise<{ port: number; close(): Promise<void> }> {
@@ -252,7 +258,7 @@ describe("HTTP-клиент и тела", () => {
     });
     const address = server.address();
     if (address === null || typeof address === "string") {
-      throw new Error("не удалось поднять тестовый сервер");
+      throw new Error("could not start the test server");
     }
     return {
       port: address.port,
@@ -276,10 +282,11 @@ describe("HTTP-клиент и тела", () => {
   const SECRET = '{"orders":[{"email":"klient@example.com","card":"4111111111111111"}]}';
 
   /**
-   * Несущий тест ADR-0011. Тело прочитано, сигнал вычислен — и при этом
-   * ни одного байта содержимого в ответе порта нет. Помечать `skip` нельзя.
+   * The load-bearing test of ADR-0011. The body was read, the signal computed —
+   * and not a byte of the content is in the port's response. It must not be
+   * marked `skip`.
    */
-  it("не проносит содержимое тела в HttpResponse даже когда читает его", async () => {
+  it("carries no body content into HttpResponse even while reading it", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(SECRET);
@@ -303,7 +310,8 @@ describe("HTTP-клиент и тела", () => {
       expect(serialized).not.toContain("klient@example.com");
       expect(serialized).not.toContain("4111111111111111");
       expect(serialized).not.toContain('orders":[{');
-      // Значения сигналов — только скаляры: строке, вмещающей тело, взяться неоткуда.
+      // Signal values are scalars only: a string that could hold the body has
+      // nowhere to come from.
       for (const value of Object.values(response.signals ?? {})) {
         expect(["number", "boolean"]).toContain(typeof value);
       }
@@ -312,7 +320,7 @@ describe("HTTP-клиент и тела", () => {
     }
   });
 
-  it("без объявленных сигналов тело не читается и сигналов нет", async () => {
+  it("with no declared signals the body is not read and there are no signals", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(SECRET);

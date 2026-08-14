@@ -1,9 +1,9 @@
 /**
- * Тесты отбора эндпоинтов по шаблону.
+ * Tests for selecting endpoints by pattern.
  *
- * Задача висела с самой первой сессии: на сотне ручек перечисление по `id`
- * неподдерживаемо, а расходится оно с реальностью молча — непокрытая пара
- * уходит в `fallback`, и отчёт остаётся чистым.
+ * The task had been open since the very first session: on a hundred endpoints
+ * listing them by `id` is unmaintainable, and it drifts from reality silently —
+ * an uncovered pair falls through to `fallback`, and the report stays clean.
  */
 
 import { describe, expect, it } from "vitest";
@@ -27,29 +27,29 @@ const ENDPOINTS: readonly Endpoint[] = [
 
 describe("pathPatternToRegExp", () => {
   /**
-   * Шаблонные пути несут фигурные скобки. Без экранирования `{orderId}` стало бы
-   * квантификатором регулярного выражения, и шаблон совпал бы не с тем.
+   * Templated paths carry braces. Without escaping, `{orderId}` would become a
+   * regular expression quantifier and the pattern would match the wrong thing.
    */
-  it("экранирует фигурные скобки шаблонного пути", () => {
+  it("escapes the braces of a templated path", () => {
     expect(pathPatternToRegExp("/v1/orders/{orderId}").test("/v1/orders/{orderId}")).toBe(true);
     expect(pathPatternToRegExp("/v1/orders/{orderId}").test("/v1/orders/x")).toBe(false);
   });
 
-  it("одинарная звезда не пересекает границу сегмента", () => {
+  it("a single star does not cross a segment boundary", () => {
     const pattern = pathPatternToRegExp("/v1/admin/*");
 
     expect(pattern.test("/v1/admin/users")).toBe(true);
     expect(pattern.test("/v1/admin/audit/log")).toBe(false);
   });
 
-  it("двойная звезда пересекает границы сегментов", () => {
+  it("a double star crosses segment boundaries", () => {
     const pattern = pathPatternToRegExp("/v1/admin/**");
 
     expect(pattern.test("/v1/admin/users")).toBe(true);
     expect(pattern.test("/v1/admin/audit/log")).toBe(true);
   });
 
-  it("совпадает целиком, а не подстрокой", () => {
+  it("matches the whole path, not a substring", () => {
     expect(pathPatternToRegExp("/v1/admin").test("/v1/admin/users")).toBe(false);
     expect(pathPatternToRegExp("admin").test("/v1/admin")).toBe(false);
   });
@@ -59,19 +59,19 @@ describe("endpointMatches", () => {
   const users = ENDPOINTS[0] as Endpoint;
   const purge = ENDPOINTS[2] as Endpoint;
 
-  it("без метода подходит любой метод", () => {
+  it("with no method any method matches", () => {
     expect(endpointMatches(users, { path: "/v1/admin/*" })).toBe(true);
     expect(endpointMatches(purge, { path: "/v1/admin/*" })).toBe(true);
   });
 
-  it("с методом различает одинаковые пути", () => {
+  it("with a method it tells identical paths apart", () => {
     expect(endpointMatches(users, { method: "GET", path: "/v1/admin/users" })).toBe(true);
     expect(endpointMatches(purge, { method: "GET", path: "/v1/admin/users" })).toBe(false);
   });
 });
 
 describe("expandPattern", () => {
-  it("раскрывает шаблон в идентификаторы", () => {
+  it("expands a pattern into identifiers", () => {
     expect(expandPattern({ path: "/v1/admin/**" }, ENDPOINTS)).toEqual([
       "admin.users",
       "admin.audit",
@@ -80,17 +80,17 @@ describe("expandPattern", () => {
   });
 
   /**
-   * Шаблон, не совпавший ни с чем, — тот же класс ошибки, что опечатка
-   * в идентификаторе: правило не применится ни разу, пары уйдут в `fallback`,
-   * и отчёт останется чистым. Молчать нельзя.
+   * A pattern that matched nothing is the same class of error as a typo in an
+   * identifier: the rule never applies, the pairs fall through to `fallback`,
+   * and the report stays clean. Staying silent is not an option.
    */
-  it("отвергает шаблон, не совпавший ни с одним эндпоинтом", () => {
-    expect(() => expandPattern({ path: "/v1/админка/*" }, ENDPOINTS)).toThrow(
+  it("rejects a pattern that matched no endpoint", () => {
+    expect(() => expandPattern({ path: "/v1/no-such-area/*" }, ENDPOINTS)).toThrow(
       UnmatchedPatternError,
     );
   });
 
-  it("отвергает шаблон, совпавший по пути, но не по методу", () => {
+  it("rejects a pattern that matched by path but not by method", () => {
     expect(() => expandPattern({ method: "POST", path: "/v1/health" }, ENDPOINTS)).toThrow(
       UnmatchedPatternError,
     );
@@ -98,7 +98,7 @@ describe("expandPattern", () => {
 });
 
 describe("expandPolicy", () => {
-  it("заменяет шаблоны идентификаторами, оставляя явные как есть", () => {
+  it("replaces patterns with identifiers and leaves explicit ones as they are", () => {
     const expanded = expandPolicy(
       {
         fallback: "denied",
@@ -116,7 +116,7 @@ describe("expandPolicy", () => {
     expect(expanded.rules[0]?.endpoints).toEqual(["health", "admin.users", "admin.audit"]);
   });
 
-  it("не трогает правило со звёздочкой", () => {
+  it("leaves a rule with a star alone", () => {
     const expanded = expandPolicy(
       { fallback: "denied", rules: [{ roles: ANY, endpoints: ANY, outcome: "allowed" }] },
       ENDPOINTS,
@@ -125,8 +125,8 @@ describe("expandPolicy", () => {
     expect(expanded.rules[0]?.endpoints).toBe(ANY);
   });
 
-  /** Один эндпоинт мог подойти и по идентификатору, и под шаблон. */
-  it("не дублирует эндпоинт, попавший дважды", () => {
+  /** One endpoint could match both by identifier and by pattern. */
+  it("does not duplicate an endpoint that matched twice", () => {
     const expanded = expandPolicy(
       {
         fallback: "denied",
@@ -144,7 +144,7 @@ describe("expandPolicy", () => {
     expect(expanded.rules[0]?.endpoints).toEqual(["admin.users", "admin.purge"]);
   });
 
-  it("раскрытая политика годится там, где нужна раскрытая", () => {
+  it("an expanded policy fits where an expanded one is required", () => {
     const expanded: ResolvedAccessPolicy = expandPolicy(
       {
         fallback: "denied",

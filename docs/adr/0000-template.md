@@ -1,21 +1,21 @@
-# NNNN. Заголовок решения
+# NNNN. Decision title
 
-- **Статус:** предложено | принято | заменено ADR-NNNN
-- **Дата:** ГГГГ-ММ-ДД
+- **Status:** proposed | accepted | superseded by ADR-NNNN
+- **Date:** YYYY-MM-DD
 
-## Контекст
+## Context
 
-Что заставило принимать решение. Факты и ограничения, без пересказа очевидного.
+What forced the decision. Facts and constraints, without restating the obvious.
 
-## Решение
+## Decision
 
-Что именно решено. Одним-двумя абзацами.
+What exactly was decided. In one or two paragraphs.
 
-## Альтернативы
+## Alternatives
 
-Что ещё рассматривали и почему отклонили.
+What else was considered and why it was rejected.
 
-## Последствия
+## Consequences
 
-Что это даёт и чем придётся расплачиваться. Условия, при которых решение
-следует пересмотреть.
+What this gives and what it costs. The conditions under which the decision should
+be revisited.

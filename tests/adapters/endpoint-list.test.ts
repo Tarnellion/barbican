@@ -1,10 +1,10 @@
 /**
- * Тесты разбора ручного списка эндпоинтов.
+ * Tests for parsing a manual endpoint list.
  *
- * Проверяется поведение: какие эндпоинты получились и что именно отвергнуто,
- * а не то, что «функция вызвалась». Отдельно доказывается, что парсер не
- * обращается к файловой системе: путь к существующему файлу для него —
- * обычный текст, а содержимое файла в результат не попадает.
+ * These check behaviour: which endpoints came out and what exactly was
+ * rejected, not that "the function was called". They also prove the parser
+ * does not touch the file system: a path to an existing file is plain text to
+ * it, and the file's content never reaches the result.
  */
 
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -29,8 +29,8 @@ endpoints:
   - { id: profile.read, method: GET, path: "/v1/players/{playerId}" }
 `;
 
-describe("разбор корректного списка", () => {
-  it("извлекает эндпоинты в порядке объявления", async () => {
+describe("parsing a valid list", () => {
+  it("extracts endpoints in declaration order", async () => {
     const endpoints = await parser.parse(MINIMAL_LIST);
 
     expect(endpoints).toEqual([
@@ -40,11 +40,11 @@ describe("разбор корректного списка", () => {
     ]);
   });
 
-  // Шаблонные пути — норма для этого инструмента, а фигурная скобка в YAML
-  // открывает flow-отображение. В блочном стиле она безопасна, в потоковом
-  // её приходится закавычивать; тест фиксирует оба варианта, чтобы разница
-  // не всплыла на чужом списке.
-  it("принимает шаблонный путь в блочном стиле без кавычек", async () => {
+  // Templated paths are the norm for this tool, and a brace opens a flow
+  // mapping in YAML. In block style it is safe, in flow style it has to be
+  // quoted; the test pins both forms so the difference does not surface on
+  // someone else's list.
+  it("accepts a templated path in block style without quotes", async () => {
     const list = `
 endpoints:
   - id: profile.read
@@ -57,7 +57,7 @@ endpoints:
     ]);
   });
 
-  it("принимает JSON: он подмножество YAML", async () => {
+  it("accepts JSON: it is a subset of YAML", async () => {
     const json = JSON.stringify({
       endpoints: [{ id: "ping", method: "GET", path: "/ping" }],
     });
@@ -67,7 +67,7 @@ endpoints:
     ]);
   });
 
-  it("принимает все методы домена и приводит регистр к верхнему", async () => {
+  it("accepts every method of the domain and upper-cases it", async () => {
     const list = `
 endpoints:
   - { id: a, method: get, path: /a }
@@ -92,54 +92,55 @@ endpoints:
     ]);
   });
 
-  it("не добавляет operationId: в ручном списке его нет", async () => {
+  it("adds no operationId: a manual list has none", async () => {
     const [endpoint] = await parser.parse("endpoints: [{ id: a, method: GET, path: /a }]");
 
     expect(endpoint).toBeDefined();
     expect(Object.keys(endpoint ?? {})).toEqual(["id", "method", "path"]);
   });
 
-  it("разворачивает алиасы: проверка идёт по раскрытому документу", async () => {
+  it("expands aliases: validation runs over the expanded document", async () => {
     const list = `
 endpoints:
   - &first { id: a, method: GET, path: /a }
   - *first
 `;
 
-    // Алиас раскрыт, значит id повторился — и уникальность ловит это так же,
-    // как повтор, набранный руками.
+    // The alias is expanded, so the id repeats — and the uniqueness check
+    // catches it just as it catches a repeat typed by hand.
     await expect(parser.parse(list)).rejects.toThrow(DuplicateEndpointIdError);
   });
 });
 
-describe("документ не той формы", () => {
-  it("отвергает пустой вход", async () => {
+describe("a document of the wrong shape", () => {
+  it("rejects empty input", async () => {
     await expect(parser.parse("")).rejects.toThrow(EndpointListParseError);
   });
 
-  it("отвергает скаляр вместо документа", async () => {
-    await expect(parser.parse("просто строка")).rejects.toThrow(EndpointListParseError);
+  it("rejects a scalar instead of a document", async () => {
+    await expect(parser.parse("just a string")).rejects.toThrow(EndpointListParseError);
   });
 
-  it("отвергает список без обёртки endpoints", async () => {
+  it("rejects a list without the endpoints wrapper", async () => {
     await expect(parser.parse("- { id: a, method: GET, path: /a }")).rejects.toThrow(
       EndpointListParseError,
     );
   });
 
-  it("отвергает документ без ключа endpoints", async () => {
+  it("rejects a document without an endpoints key", async () => {
     await expect(parser.parse("endpoints: null")).rejects.toThrow(
       /"endpoints" key is missing or is not a list/,
     );
   });
 
-  it("отвергает endpoints, не являющийся списком", async () => {
+  it("rejects endpoints that is not a list", async () => {
     await expect(parser.parse("endpoints: { id: a }")).rejects.toThrow(EndpointListParseError);
   });
 
-  // Неизвестный ключ — это невыполненное намерение автора: он рассчитывал
-  // на поведение, которого не будет, и молчание об этом хуже отказа.
-  it("отвергает неизвестный ключ документа, а не игнорирует его", async () => {
+  // An unknown key is an intention of the author that will not be carried out:
+  // they counted on behaviour that will not happen, and staying silent about
+  // that is worse than refusing.
+  it("rejects an unknown document key instead of ignoring it", async () => {
     const list = `
 version: 2
 endpoints:
@@ -149,19 +150,19 @@ endpoints:
     await expect(parser.parse(list)).rejects.toThrow(/unknown document key "version"/);
   });
 
-  it("отвергает неразбираемый YAML", async () => {
-    await expect(parser.parse("endpoints: [{ это: не закрыт")).rejects.toThrow(
+  it("rejects unparseable YAML", async () => {
+    await expect(parser.parse("endpoints: [{ this: is unclosed")).rejects.toThrow(
       EndpointListParseError,
     );
   });
 
-  it("отвергает пустой список отдельной ошибкой", async () => {
+  it("rejects an empty list with an error of its own", async () => {
     await expect(parser.parse("endpoints: []")).rejects.toThrow(EmptyEndpointListError);
   });
 });
 
-describe("элемент списка не проходит проверку", () => {
-  it("отвергает элемент, не являющийся объектом", async () => {
+describe("a list entry fails validation", () => {
+  it("rejects an entry that is not an object", async () => {
     await expect(parser.parse("endpoints: [ /v1/users ]")).rejects.toMatchObject({
       name: "InvalidEndpointError",
       index: 0,
@@ -169,31 +170,31 @@ describe("элемент списка не проходит проверку", (
     });
   });
 
-  it("отвергает вложенный список вместо объекта", async () => {
+  it("rejects a nested list instead of an object", async () => {
     await expect(parser.parse("endpoints: [ [GET, /a] ]")).rejects.toThrow(InvalidEndpointError);
   });
 
-  it("отвергает неизвестное поле элемента", async () => {
+  it("rejects an unknown field on an entry", async () => {
     const list = "endpoints: [{ id: a, method: GET, path: /a, tenant: acme }]";
 
     await expect(parser.parse(list)).rejects.toThrow(/unknown field "tenant"/);
   });
 
-  // $ref здесь не поддерживается вовсе: разрешать нечего и некуда ходить.
-  it("не знает про $ref и отвергает его как неизвестное поле", async () => {
+  // $ref is not supported here at all: nothing to resolve and nowhere to go.
+  it("knows nothing of $ref and rejects it as an unknown field", async () => {
     const list = 'endpoints: [{ $ref: "http://127.0.0.1:1/evil.yaml" }]';
 
     await expect(parser.parse(list)).rejects.toThrow(/unknown field "\$ref"/);
   });
 
-  it("отвергает отсутствующий id", async () => {
+  it("rejects a missing id", async () => {
     await expect(parser.parse("endpoints: [{ method: GET, path: /a }]")).rejects.toMatchObject({
       index: 0,
       field: "id",
     });
   });
 
-  it("отвергает пустой и пробельный id", async () => {
+  it("rejects an empty and a blank id", async () => {
     await expect(parser.parse('endpoints: [{ id: "", method: GET, path: /a }]')).rejects.toThrow(
       InvalidEndpointError,
     );
@@ -202,13 +203,13 @@ describe("элемент списка не проходит проверку", (
     );
   });
 
-  it("отвергает id, не являющийся строкой", async () => {
+  it("rejects an id that is not a string", async () => {
     await expect(parser.parse("endpoints: [{ id: 42, method: GET, path: /a }]")).rejects.toThrow(
       InvalidEndpointError,
     );
   });
 
-  it("отвергает метод вне набора HttpMethod", async () => {
+  it("rejects a method outside the HttpMethod set", async () => {
     await expect(parser.parse("endpoints: [{ id: a, method: TRACE, path: /a }]")).rejects.toThrow(
       /method "TRACE" is not supported/,
     );
@@ -217,40 +218,40 @@ describe("элемент списка не проходит проверку", (
     );
   });
 
-  it("отвергает метод, не являющийся строкой", async () => {
+  it("rejects a method that is not a string", async () => {
     await expect(
       parser.parse("endpoints: [{ id: a, method: 200, path: /a }]"),
     ).rejects.toMatchObject({ index: 0, field: "method" });
   });
 
-  it("отвергает путь без ведущего слэша", async () => {
+  it("rejects a path without a leading slash", async () => {
     await expect(
       parser.parse("endpoints: [{ id: a, method: GET, path: v1/users }]"),
     ).rejects.toThrow(/must be a string starting with a slash/);
   });
 
-  it("отвергает абсолютный URL вместо пути", async () => {
+  it("rejects an absolute URL instead of a path", async () => {
     const list = 'endpoints: [{ id: a, method: GET, path: "https://example.test/v1/users" }]';
 
     await expect(parser.parse(list)).rejects.toMatchObject({ index: 0, field: "path" });
   });
 
-  // `//host/x` при склейке с базой адресовал бы чужой хост, а не путь
-  // на проверяемом: область проверки не должна расширяться формой записи.
-  it("отвергает схемо-относительный URL", async () => {
+  // Joined with the base, `//host/x` would address someone else's host instead
+  // of a path on the target: the scope must not widen through a notation.
+  it("rejects a scheme-relative URL", async () => {
     const list = 'endpoints: [{ id: a, method: GET, path: "//evil.test/v1/users" }]';
 
     await expect(parser.parse(list)).rejects.toThrow(/addresses another host/);
   });
 
-  it("отвергает отсутствующий путь", async () => {
+  it("rejects a missing path", async () => {
     await expect(parser.parse("endpoints: [{ id: a, method: GET }]")).rejects.toMatchObject({
       index: 0,
       field: "path",
     });
   });
 
-  it("указывает номер сбойного элемента, а не только факт ошибки", async () => {
+  it("points at the index of the failing entry, not only at the error", async () => {
     const list = `
 endpoints:
   - { id: a, method: GET, path: /a }
@@ -262,8 +263,8 @@ endpoints:
   });
 });
 
-describe("уникальность идентификаторов", () => {
-  it("отвергает повторяющийся id и называет обе позиции", async () => {
+describe("identifier uniqueness", () => {
+  it("rejects a duplicate id and names both positions", async () => {
     const list = `
 endpoints:
   - { id: users.list, method: GET, path: /v1/users }
@@ -278,7 +279,7 @@ endpoints:
     await expect(attempt).rejects.toThrow(/#0 and #2/);
   });
 
-  it("различает id по регистру: это разные эндпоинты", async () => {
+  it("tells ids apart by case: these are different endpoints", async () => {
     const list = `
 endpoints:
   - { id: users.list, method: GET, path: /v1/users }
@@ -288,7 +289,7 @@ endpoints:
     await expect(parser.parse(list)).resolves.toHaveLength(2);
   });
 
-  it("допускает один путь под разными методами", async () => {
+  it("allows one path under different methods", async () => {
     const list = `
 endpoints:
   - { id: users.list, method: GET, path: /v1/users }
@@ -299,8 +300,8 @@ endpoints:
   });
 });
 
-describe("пределы на вход", () => {
-  it("отвергает YAML-бомбу до того, как она развернётся", async () => {
+describe("limits on the input", () => {
+  it("rejects a YAML bomb before it expands", async () => {
     const bomb = `
 a: &a ["x","x","x","x","x","x","x","x","x"]
 b: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a]
@@ -312,7 +313,7 @@ endpoints: [*d,*d,*d,*d,*d,*d,*d,*d,*d]
     await expect(parser.parse(bomb)).rejects.toThrow(EndpointListParseError);
   });
 
-  it("считает алиасы по своему пределу, а не по чужому", async () => {
+  it("counts aliases against its own limit, not someone else's", async () => {
     const strict = createEndpointListParser({ maxAliasCount: 1 });
     const list = `
 endpoints:
@@ -324,7 +325,7 @@ endpoints:
     await expect(strict.parse(list)).rejects.toThrow(EndpointListParseError);
   });
 
-  it("отвергает документ больше предела и называет фактический размер", async () => {
+  it("rejects a document over the limit and names the actual size", async () => {
     const small = createEndpointListParser({ maxBytes: 32 });
 
     const attempt = small.parse(MINIMAL_LIST);
@@ -335,16 +336,17 @@ endpoints:
     );
   });
 
-  it("измеряет размер в байтах, а не в символах", async () => {
-    // Кириллица в UTF-8 занимает два байта на символ: предел, заданный
-    // в байтах, нельзя проверять длиной строки.
+  it("measures the size in bytes, not in characters", async () => {
+    // Characters outside ASCII take two bytes in UTF-8: a limit set in bytes
+    // cannot be checked against the string length.
     const parserWithLimit = createEndpointListParser({ maxBytes: 20 });
-    const source = "«".repeat(11);
+    // A character outside ASCII: two bytes in UTF-8, one in length.
+    const source = "é".repeat(11);
 
     await expect(parserWithLimit.parse(source)).rejects.toThrow(EndpointListTooLargeError);
   });
 
-  it("пропускает документ ровно на пределе", async () => {
+  it("lets through a document exactly at the limit", async () => {
     const source = "endpoints: [{ id: a, method: GET, path: /a }]";
     const exact = createEndpointListParser({ maxBytes: Buffer.byteLength(source, "utf8") });
 
@@ -352,10 +354,10 @@ endpoints:
   });
 });
 
-describe("парсер не обращается к файловой системе", () => {
+describe("the parser does not touch the file system", () => {
   let directory = "";
   let listPath = "";
-  const CANARY = "canary-3d7be-не-должно-утечь";
+  const CANARY = "canary-3d7be-must-not-leak";
 
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), "barbican-endpoints-"));
@@ -367,9 +369,9 @@ describe("парсер не обращается к файловой систе�
     await rm(directory, { recursive: true, force: true });
   });
 
-  // На вход подаётся текст документа, а не путь. Парсер, который умеет
-  // открывать файлы, был бы примитивом path traversal.
-  it("не читает файл, путь к которому подан как источник", async () => {
+  // The input is the text of the document, not a path. A parser that could
+  // open files would be a path traversal primitive.
+  it("does not read a file whose path is passed as the source", async () => {
     const attempt = parser.parse(listPath);
 
     await expect(attempt).rejects.toThrow(EndpointListParseError);
@@ -378,10 +380,10 @@ describe("парсер не обращается к файловой систе�
     ).resolves.not.toContain(CANARY);
   });
 
-  it("не читает файл, путь к которому оказался в поле path", async () => {
+  it("does not read a file whose path ended up in the path field", async () => {
     const list = `endpoints: [{ id: a, method: GET, path: "${listPath}" }]`;
 
-    // Путь остаётся просто путём: содержимое файла в результат не подмешивается.
+    // The path stays a path: the file's content is not mixed into the result.
     await expect(parser.parse(list)).resolves.toEqual([{ id: "a", method: "GET", path: listPath }]);
   });
 });

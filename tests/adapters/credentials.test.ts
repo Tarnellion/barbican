@@ -1,9 +1,9 @@
 /**
- * Тесты схем аутентификации.
+ * Authentication scheme tests.
  *
- * Проверяют ровно то, что уходит в заголовках: инструмент, который «настроен»
- * на нужную схему, но шлёт не то, даёт картину сплошных отказов и молчаливо
- * отчитывается, что доступа нигде нет.
+ * They check exactly what goes out in the headers: a tool "configured" for the
+ * right scheme that sends the wrong thing gives a picture of solid denials and
+ * silently reports there is no access anywhere.
  */
 
 import { describe, expect, it } from "vitest";
@@ -15,11 +15,11 @@ import {
 
 const tokens = new Map([["acc", "s3cret-token"]]);
 
-/** Встроенные схемы обращение игнорируют: заголовок у них один на все ячейки. */
+/** The built-in schemes ignore the request: their header is the same for every cell. */
 const ANY_REQUEST = { method: "GET", url: "https://api.test/v1/orders" };
 
-describe("схемы аутентификации", () => {
-  it("bearer кладёт токен в Authorization с префиксом", () => {
+describe("authentication schemes", () => {
+  it("bearer puts the token in Authorization with a prefix", () => {
     const provider = createCredentialProvider({ kind: "bearer" }, tokens);
 
     expect(provider.headersFor("acc", ANY_REQUEST)).toEqual({
@@ -27,19 +27,19 @@ describe("схемы аутентификации", () => {
     });
   });
 
-  it("header кладёт токен в указанный заголовок целиком, без префикса", () => {
+  it("header puts the token in the named header whole, with no prefix", () => {
     const provider = createCredentialProvider({ kind: "header", header: "X-API-Key" }, tokens);
 
     expect(provider.headersFor("acc", ANY_REQUEST)).toEqual({ "x-api-key": "s3cret-token" });
   });
 
-  it("cookie собирает пару имя-значение", () => {
+  it("cookie assembles a name-value pair", () => {
     const provider = createCredentialProvider({ kind: "cookie", name: "session" }, tokens);
 
     expect(provider.headersFor("acc", ANY_REQUEST)).toEqual({ cookie: "session=s3cret-token" });
   });
 
-  it("basic кодирует логин и пароль в base64", () => {
+  it("basic encodes the login and the password in base64", () => {
     const provider = createCredentialProvider({ kind: "basic" }, new Map([["acc", "user:pass"]]));
 
     expect(provider.headersFor("acc", ANY_REQUEST)).toEqual({
@@ -47,24 +47,24 @@ describe("схемы аутентификации", () => {
     });
   });
 
-  it("по умолчанию используется bearer", () => {
+  it("bearer is the default", () => {
     expect(DEFAULT_AUTH_SCHEME).toEqual({ kind: "bearer" });
   });
 });
 
-describe("анонимное обращение", () => {
-  // Законный случай: так проверяют, не открыт ли эндпоинт вообще всем.
-  it("аккаунт без токена обращается без заголовков", () => {
+describe("an anonymous request", () => {
+  // A lawful case: this is how you check whether an endpoint is open to everyone.
+  it("an account without a token makes the request with no headers", () => {
     const provider = createCredentialProvider({ kind: "bearer" }, tokens);
 
-    expect(provider.headersFor("неизвестный", ANY_REQUEST)).toEqual({});
+    expect(provider.headersFor("unknown-account", ANY_REQUEST)).toEqual({});
   });
 });
 
-describe("схема на аккаунт", () => {
-  // Ради этого переопределение и заводилось: на мультибрендовой платформе
-  // клиентское API, операторская админка и кабинет аффилиата аутентифицируются
-  // по-разному, а прогон обязан охватывать их одним заходом.
+describe("a per-account scheme", () => {
+  // The override exists for exactly this: on a multi-brand platform the
+  // customer API, the operator console and the affiliate cabinet authenticate
+  // differently, and one run has to cover them all at once.
   const many = new Map([
     ["player", "player-token"],
     ["operator", "operator-token"],
@@ -80,7 +80,7 @@ describe("схема на аккаунт", () => {
     ]),
   );
 
-  it("аккаунт со своей схемой идёт по ней", () => {
+  it("an account with a scheme of its own goes out with it", () => {
     expect(provider.headersFor("operator", ANY_REQUEST)).toEqual({
       cookie: "opsid=operator-token",
     });
@@ -89,15 +89,15 @@ describe("схема на аккаунт", () => {
     });
   });
 
-  it("аккаунт без своей схемы идёт по схеме по умолчанию", () => {
+  it("an account without one goes out with the default scheme", () => {
     expect(provider.headersFor("player", ANY_REQUEST)).toEqual({
       authorization: "Bearer player-token",
     });
   });
 
-  it("переопределение не даёт заголовков аккаунту без токена", () => {
-    // Иначе анонимный аккаунт перестал бы быть анонимным, и утверждение
-    // «эта ручка не публична» проверялось бы не тем обращением.
+  it("an override gives no headers to an account without a token", () => {
+    // Otherwise an anonymous account would stop being anonymous, and the claim
+    // "this endpoint is not public" would be checked by the wrong request.
     const anonymous = createCredentialProvider(
       DEFAULT_AUTH_SCHEME,
       new Map(),
@@ -108,8 +108,8 @@ describe("схема на аккаунт", () => {
   });
 });
 
-describe("проверка схемы", () => {
-  it("отвергает имя заголовка с недопустимыми символами", () => {
+describe("scheme validation", () => {
+  it("rejects a header name with forbidden characters", () => {
     expect(() => createCredentialProvider({ kind: "header", header: "X Api Key" }, tokens)).toThrow(
       InvalidAuthSchemeError,
     );
@@ -118,22 +118,22 @@ describe("проверка схемы", () => {
     ).toThrow(InvalidAuthSchemeError);
   });
 
-  it("отвергает имя куки с недопустимыми символами", () => {
+  it("rejects a cookie name with forbidden characters", () => {
     expect(() => createCredentialProvider({ kind: "cookie", name: "sess ion" }, tokens)).toThrow(
       InvalidAuthSchemeError,
     );
   });
 
-  it("проверяет схему при создании, а не при первом запросе", () => {
-    // Иначе ошибка конфигурации всплыла бы посреди прогона.
+  it("validates the scheme on creation, not on the first request", () => {
+    // Otherwise a configuration error would surface in the middle of the run.
     expect(() => createCredentialProvider({ kind: "header", header: "" }, tokens)).toThrow(
       InvalidAuthSchemeError,
     );
   });
 
-  it("проверяет и переопределения, а не только схему по умолчанию", () => {
-    // Непроверенное переопределение всплыло бы на том обращении, до которого
-    // прогон дойдёт в середине матрицы, — то есть уже после канареек.
+  it("validates the overrides too, not only the default scheme", () => {
+    // An unvalidated override would surface on whichever request the run
+    // reaches in the middle of the matrix — that is, after the canaries.
     expect(() =>
       createCredentialProvider(
         DEFAULT_AUTH_SCHEME,
@@ -143,7 +143,7 @@ describe("проверка схемы", () => {
     ).toThrow(InvalidAuthSchemeError);
   });
 
-  it("называет аккаунт в сообщении о негодном переопределении", () => {
+  it("names the account in the message about an invalid override", () => {
     expect(() =>
       createCredentialProvider(
         DEFAULT_AUTH_SCHEME,

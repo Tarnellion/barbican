@@ -1,9 +1,9 @@
 /**
- * Тесты группировки расхождений по сигнатуре.
+ * Tests for grouping discrepancies by signature.
  *
- * Задача пришла с прогонов: три BOLA в crAPI дали шесть строк, один
- * отсутствующий фильтр на референс-платформе — десять. Числа в отчёте
- * говорили о размере матрицы, а не о количестве проблем.
+ * The task came from real runs: three BOLAs in crAPI gave six rows, one missing
+ * filter on the reference platform gave ten. The numbers in the report spoke
+ * about the size of the matrix, not about the number of problems.
  */
 
 import { describe, expect, it } from "vitest";
@@ -27,8 +27,8 @@ function escalation(
 }
 
 describe("groupDefects", () => {
-  /** Ровно случай crAPI: один дефект, увиденный пользователем и админом. */
-  it("сводит наблюдения одного дефекта с разных точек в одну сигнатуру", () => {
+  /** Exactly the crAPI case: one defect seen by a user and by an admin. */
+  it("collapses observations of one defect from different angles into one signature", () => {
     const groups = groupDefects([
       escalation("user", "orders.read", { resourceId: "o-1", relation: "foreign-tenant" }),
       escalation("admin", "orders.read", { resourceId: "o-1", relation: "foreign-tenant" }),
@@ -40,10 +40,10 @@ describe("groupDefects", () => {
   });
 
   /**
-   * Разные отношения — разные дефекты: BOLA внутри тенанта и межтенантная
-   * утечка живут на одной ручке, но ломаются независимо.
+   * Different relations are different defects: BOLA inside a tenant and a
+   * cross-tenant leak live on the same endpoint but break independently.
    */
-  it("не смешивает разные отношения на одном эндпоинте", () => {
+  it("does not mix different relations on one endpoint", () => {
     const groups = groupDefects([
       escalation("a", "orders.read", { resourceId: "o-1", relation: "foreign-tenant" }),
       escalation("a", "orders.read", { resourceId: "o-2", relation: "same-tenant" }),
@@ -52,7 +52,7 @@ describe("groupDefects", () => {
     expect(groups).toHaveLength(2);
   });
 
-  it("не смешивает разные эндпоинты и разные виды расхождений", () => {
+  it("does not mix different endpoints or different kinds of discrepancy", () => {
     const groups = groupDefects([
       escalation("a", "orders.read"),
       escalation("a", "users.list"),
@@ -62,8 +62,8 @@ describe("groupDefects", () => {
     expect(groups).toHaveLength(3);
   });
 
-  /** Роль в сигнатуру не входит: открытая всем ручка — один дефект, не два. */
-  it("собирает объекты и аккаунты группы", () => {
+  /** Role is not part of the signature: an endpoint open to all is one defect, not two. */
+  it("collects the resources and the accounts of a group", () => {
     const groups = groupDefects([
       escalation("a", "orders.read", { resourceId: "o-1", relation: "foreign-tenant" }),
       escalation("b", "orders.read", { resourceId: "o-2", relation: "foreign-tenant" }),
@@ -74,7 +74,7 @@ describe("groupDefects", () => {
     expect(groups[0]?.violations).toBe(2);
   });
 
-  it("берёт наибольшую серьёзность группы", () => {
+  it("takes the highest severity of the group", () => {
     const groups = groupDefects([
       escalation("a", "orders.read", { relation: "foreign-tenant", severity: "high" }),
       escalation("b", "orders.read", { relation: "foreign-tenant", severity: "critical" }),
@@ -83,7 +83,7 @@ describe("groupDefects", () => {
     expect(groups[0]?.severity).toBe("critical");
   });
 
-  it("ставит критические выше и не зависит от порядка входа", () => {
+  it("puts critical ones first and does not depend on input order", () => {
     const low = escalation("a", "aaa", { kind: "not-observed", severity: "low" });
     const critical = escalation("b", "zzz", { relation: "foreign-tenant", severity: "critical" });
 
@@ -94,7 +94,7 @@ describe("groupDefects", () => {
     expect(groupDefects([critical, low])).toEqual(groupDefects([low, critical]));
   });
 
-  it("на пустом входе не выдумывает групп", () => {
+  it("invents no groups on empty input", () => {
     expect(groupDefects([])).toEqual([]);
   });
 });

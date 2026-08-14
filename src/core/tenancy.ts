@@ -1,17 +1,17 @@
 /**
- * Дерево тенантов.
+ * The tenant tree.
  *
- * Связь «родитель — потомок» объявляется явным полем и никогда не выводится
- * из вида идентификатора: идентификаторы приходят из конфигурации, написанной
- * человеком, и опечатка в разбираемом пути молча переродняла бы тенанта.
- * Обоснование — ADR-0013.
+ * The "parent — child" link is declared by an explicit field and never derived
+ * from the shape of an identifier: identifiers come from a configuration written
+ * by a human, and a typo in a parsed path would silently make one tenant kin to
+ * another. The reasoning — ADR-0013.
  */
 
 import type { TenantId } from "./types.js";
 
 export interface TenantNode {
   readonly id: TenantId;
-  /** Родитель. Отсутствие означает корень. */
+  /** The parent. Absence means a root. */
   readonly parentId?: TenantId;
 }
 
@@ -19,8 +19,8 @@ export class UnknownParentTenantError extends Error {
   constructor(id: TenantId, parentId: TenantId) {
     super(
       `Tenant "${id}" is declared a child of "${parentId}", which is not in the list. ` +
-        `A typo in the parent makes the tenant a separate root and turns «our own brand» ` +
-        `into «someone else's» — that is, it hides a finding.`,
+        `A typo in the parent makes the tenant a separate root and turns 'our own brand' ` +
+        `into 'someone else's' — that is, it hides a finding.`,
     );
     this.name = "UnknownParentTenantError";
   }
@@ -66,19 +66,19 @@ export class SubsumedMembershipError extends Error {
 }
 
 export interface TenantHierarchy {
-  /** Строго выше по дереву: тенант сам себе предком не считается. */
+  /** Strictly higher in the tree: a tenant is not considered its own ancestor. */
   isAncestor(ancestor: TenantId, descendant: TenantId): boolean;
 }
 
 /**
- * Проверяет набор членств аккаунта на повторы и на вложенность.
+ * Checks an account's set of memberships for repeats and for nesting.
  *
- * Вложенность отвергается не из чистоплюйства. Отношение считается по самому
- * близкому членству, поэтому добавление бренда к уже объявленному холдингу
- * переводит объекты бренда из `descendant-tenant` в `same-tenant` — и правило,
- * написанное для взгляда сверху вниз, перестаёт применяться, ничем этого
- * не обозначив. Это тот же класс, что опечатка в имени тенанта: смысл поменялся,
- * отчёт остался прежним на вид.
+ * Nesting is rejected for a reason, not out of fastidiousness. The relation is
+ * computed by the nearest membership, so adding a brand to an already declared
+ * holding moves the brand's resources from `descendant-tenant` into
+ * `same-tenant` — and a rule written for the top-down view stops applying,
+ * marking that in no way at all. This is the same class as a typo in a tenant
+ * name: the meaning changed, the report looks the same.
  *
  * @throws {DuplicateMembershipError}
  * @throws {SubsumedMembershipError}
@@ -105,10 +105,10 @@ export function assertIndependentMemberships(
 }
 
 /**
- * Лес без связей: любые два разных тенанта чужие друг другу.
+ * A forest with no links: any two different tenants are foreign to each other.
  *
- * Поведение до ADR-0013. Используется, когда связи не объявлены, — поэтому
- * существующие конфигурации работают в точности как раньше.
+ * The behaviour from before ADR-0013. Used when no links are declared — which is
+ * why existing configurations work exactly as they did.
  */
 export const FLAT_HIERARCHY: TenantHierarchy = {
   isAncestor: () => false,
@@ -129,8 +129,9 @@ export function createTenantHierarchy(nodes: readonly TenantNode[]): TenantHiera
     }
   }
 
-  // Цикл ищется на старте: иначе подъём по дереву во время диффа зациклился бы,
-  // а прогон против чужого стенда — не место для бесконечного цикла.
+  // The cycle is looked for at startup: otherwise the walk up the tree during
+  // the diff would loop forever, and a run against someone else's deployment is
+  // no place for an infinite loop.
   for (const node of nodes) {
     const seen = new Set<TenantId>([node.id]);
     let current = node.parentId;
@@ -145,9 +146,9 @@ export function createTenantHierarchy(nodes: readonly TenantNode[]): TenantHiera
 
   return {
     isAncestor(ancestor, descendant) {
-      // Быстрый путь, а не защита: цикл отвергнут при построении, поэтому
-      // тенант не попадает в собственную цепочку предков и без этой строки.
-      // Проверено мутацией — её снятие тесты не роняет.
+      // A fast path, not a guard: a cycle is rejected at construction time, so a
+      // tenant does not end up in its own ancestor chain even without this line.
+      // Verified by mutation — removing it does not break the tests.
       if (ancestor === descendant) {
         return false;
       }

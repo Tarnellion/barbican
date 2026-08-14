@@ -1,15 +1,15 @@
 /**
- * Признак недостоверного прогона.
+ * The sign of an untrustworthy run.
  *
- * Отдельный слой, потому что вывод требует знания политики: сам по себе 401
- * неотличим от законного отказа. Опасен он только там, где доступ **объявлен**:
- * если каждый эндпоинт, положенный аккаунту, ответил 401, значит мы не вошли,
- * а не что доступ отобрали.
+ * A separate layer, because the conclusion requires knowing the policy: a 401 on
+ * its own is indistinguishable from a lawful denial. It is dangerous only where
+ * access is **declared**: if every endpoint the account is meant to have answered
+ * 401, then we did not get in — not that access was taken away.
  *
- * Первая версия проверки жила в прогоне и требовала 401 на всех обращениях
- * подряд. Проверка на живом стенде показала, что этого мало: одного публичного
- * эндпоинта хватало, чтобы условие не выполнилось и сломанная аутентификация
- * прошла незамеченной.
+ * The first version of the check lived in the run and required a 401 on every
+ * request in a row. A run against a live deployment showed that this is not
+ * enough: a single public endpoint was enough for the condition to fail, and
+ * broken authentication went unnoticed.
  */
 
 import type {
@@ -28,27 +28,28 @@ import {
 
 export interface AuthenticitySuspicion {
   readonly accountId: string;
-  /** Сколько эндпоинтов политика считает доступными этому аккаунту. */
+  /** How many endpoints the policy considers accessible to this account. */
   readonly expectedAllowed: number;
-  /** Из них не дали доступа. */
+  /** Of those, how many refused access. */
   readonly refused: number;
-  /** Самый частый статус среди отказов — подсказка, куда смотреть. */
+  /** The most frequent status among the denials — a hint about where to look. */
   readonly dominantStatus: number;
 }
 
 /**
- * Находит аккаунты, у которых **ни один** объявленный доступным эндпоинт
- * не дал доступа.
+ * Finds accounts where **not a single** endpoint declared accessible granted
+ * access.
  *
- * Проверка не привязана к 401 намеренно. Разведка crAPI показала, что отказы
- * бывают неоднородны даже внутри одного продукта: сервис на Java отвечает 404
- * там, где сервис на Django отвечает 401. А сплошные 404 — ещё и типичный
- * признак неверного `baseUrl` или префикса пути. Во всех этих случаях
- * результату верить нельзя одинаково, поэтому смотрим на сам факт: человек
- * объявил доступ, доступа нет нигде.
+ * The check is deliberately not tied to 401. Reconnaissance of crAPI showed that
+ * denials can be non-uniform even inside one product: the Java service answers
+ * 404 where the Django service answers 401. And a wall of 404s is also a typical
+ * sign of a wrong `baseUrl` or path prefix. In all of these cases the result is
+ * equally untrustworthy, so we look at the bare fact: a human declared access,
+ * and there is no access anywhere.
  *
- * Порог намеренно строгий: частичные отказы — обычная находка «неожиданный
- * отказ», и тревога по ним приучила бы к ложным срабатываниям.
+ * The threshold is strict on purpose: partial denials are the ordinary
+ * 'unexpected denial' finding, and raising an alarm over them would train the
+ * reader to expect false alarms.
  */
 export function findUnauthenticated(
   accounts: readonly Account[],
@@ -56,9 +57,9 @@ export function findUnauthenticated(
   policy: ResolvedAccessPolicy,
   resources: readonly Resource[] = [],
   /**
-   * Дерево тенантов. Пропустить его — значит повторить регрессию, случившуюся
-   * при вводе `scope`: отношение считалось неверно, `expectedAllowed` всегда
-   * выходил нулём, и предохранитель не срабатывал ни разу.
+   * The tenant tree. Leaving it out repeats the regression that happened when
+   * `scope` was introduced: the relation was computed wrongly, `expectedAllowed`
+   * always came out zero, and the safeguard never fired once.
    */
   tenants?: readonly TenantNode[],
 ): readonly AuthenticitySuspicion[] {
@@ -75,18 +76,19 @@ export function findUnauthenticated(
       if (observation.accountId !== account.id) {
         continue;
       }
-      // Отношение обязательно: правила со `scope` без него не применяются вовсе,
-      // и для политики в стиле ADR-0010 счётчик оставался бы нулевым — то есть
-      // предохранитель молчал бы именно на том стиле, который рекомендован.
+      // The relation is required: rules with a `scope` do not apply at all without
+      // it, and for a policy in the ADR-0010 style the counter would stay zero —
+      // that is, the safeguard would stay silent on exactly the style that is
+      // recommended.
       const resource =
         observation.resourceId === undefined ? undefined : byId.get(observation.resourceId);
       const relation =
         resource === undefined ? undefined : relationOf(account, resource, hierarchy);
-      // Условия обязательны ровно по той же причине, что и отношение строкой
-      // выше: без них аккаунт в условиях сверялся бы с базовыми ожиданиями.
-      // Там, где условия объявлены запрещающими, «доступа нет нигде» — это
-      // объявленный результат, а не признак неработающих учётных данных,
-      // и предохранитель объявлял бы недостоверным исправный прогон.
+      // The conditions are required for exactly the same reason as the relation a
+      // line above: without them an account under conditions would be compared
+      // against the baseline expectations. Where the conditions are declared as
+      // denying, 'no access anywhere' is the declared result, not a sign of broken
+      // credentials, and the safeguard would call a healthy run untrustworthy.
       if (
         resolveExpected(
           policy,

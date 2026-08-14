@@ -1,12 +1,13 @@
 /**
- * Сборка отчёта.
+ * Building the report.
  *
- * JSON — единственный источник истины (ADR-0002). Человекочитаемые формы
- * рендерятся из него отдельным шагом, а не собираются по ходу прогона.
+ * JSON is the single source of truth (ADR-0002). Human-readable forms are
+ * rendered from it in a separate step, not assembled as the run goes.
  *
- * Токенов в отчёте нет по конструкции, а не по итогу вычистки: они живут
- * в отдельной карте и не входят ни в конфигурацию, ни в наблюдения. Заголовки
- * ответа приходят уже отредактированными из HTTP-клиента.
+ * There are no tokens in the report by construction, not as the result of a
+ * clean-up pass: they live in a separate map and belong to neither the
+ * configuration nor the observations. Response headers arrive from the HTTP
+ * client already redacted.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -41,7 +42,7 @@ import type {
 import type { ProbeFailure, SkippedEndpoint } from "../runner.js";
 
 /**
- * Версия формы отчёта. Поднимается при несовместимом изменении структуры.
+ * The version of the report's shape. Bumped on an incompatible change of structure.
  */
 export const REPORT_SCHEMA_VERSION = "1";
 
@@ -49,11 +50,12 @@ export interface ReportSummary {
   readonly endpoints: number;
   readonly accounts: number;
   /**
-   * Строк матрицы: объявленные аккаунты плюс они же в объявленных условиях.
+   * Matrix rows: the declared accounts plus the same accounts under the declared
+   * conditions.
    *
-   * Отдельное число, потому что `accounts` — про объявление, а ячейки считаются
-   * по строкам. Читатель, проверявший арифметику по `accounts`, получал 9 × 6,
-   * что с 135 ячейками не сходится никак. Найдено холодным чтением.
+   * A number of its own, because `accounts` is about the declaration while cells
+   * are counted by rows. A reader checking the arithmetic by `accounts` got 9 × 6,
+   * which does not add up to 135 cells in any way. Found by a cold read.
    */
   readonly accountRows: number;
   readonly resources: number;
@@ -62,30 +64,31 @@ export interface ReportSummary {
   readonly failures: number;
   readonly findings: number;
   /**
-   * По виду. Ключи — виды расхождений матрицы и идентификаторы проверок:
-   * после слияния списков сюда попадает всё, и дашборд по нему полон.
+   * By kind. The keys are kinds of matrix discrepancy and check identifiers: after
+   * the lists were merged everything lands here, so a dashboard built on it is
+   * complete.
    */
   readonly byKind: Readonly<Record<string, number>>;
-  /** Расхождения по серьёзности — с чего читателю начинать. См. ADR-0014. */
+  /** Discrepancies by severity — where the reader starts. See ADR-0014. */
   readonly bySeverity: Readonly<Record<Severity, number>>;
   /**
-   * По серьёзности, но считая **дефекты**, а не строки.
+   * By severity, but counting **defects** rather than rows.
    *
-   * `critical: 10` в `bySeverity` — это один отсутствующий фильтр, задевший
-   * десять ячеек, а читается как десять проблем. Число рядом снимает вопрос.
+   * `critical: 10` in `bySeverity` is one missing filter that touched ten cells,
+   * yet it reads as ten problems. The number next to it settles the question.
    */
   readonly defectsBySeverity: Readonly<Record<Severity, number>>;
   /**
-   * Различных сигнатур дефекта. **Нижняя граница** числа проблем: две разные
-   * ошибки с одинаковой сигнатурой снаружи неразличимы. Верхняя граница —
-   * `findings`.
+   * Distinct defect signatures. A **lower bound** on the number of problems: two
+   * different bugs with the same signature are indistinguishable from the outside.
+   * The upper bound is `findings`.
    */
   readonly defectGroups: number;
-  /** Находки проверок-плагинов. Считаются отдельно: у них своя природа. */
+  /** Findings from plugin checks. Counted apart: they are of a different nature. */
   readonly checkFindings: number;
 }
 
-/** Итог одной канарейки: кто, где и подтвердилась ли аутентификация. */
+/** The outcome of one canary: who, where, and whether authentication held. */
 export interface CanaryOutcome {
   readonly accountId: string;
   readonly endpointId: string;
@@ -94,29 +97,30 @@ export interface CanaryOutcome {
 }
 
 /**
- * Находка с приложенным запросом.
+ * A finding with the request attached.
  *
- * Ядро о адресах не знает и знать не должно — соединение делается здесь,
- * при сборке отчёта, по тройке «аккаунт × эндпоинт × объект».
+ * The core does not know about addresses and must not — the join happens here,
+ * while the report is built, on the triple 'account × endpoint × resource'.
  */
 /**
- * Находка отчёта — одна на оба способа обнаружения.
+ * A report finding — one for both means of detection.
  *
- * Раньше списков было два: расхождения матрицы в осях `kind`/`expected`/
- * `actual`/`relation` и находки проверок в осях `checkId`/`title`/`evidence`.
- * Одна и та же межтенантная утечка попадала в разный список в зависимости
- * от того, видна она по статусу или по телу, — то есть различие **способа
- * обнаружения** выдавалось за различие природы находки.
+ * There used to be two lists: matrix discrepancies along the axes `kind`/
+ * `expected`/`actual`/`relation`, and check findings along the axes `checkId`/
+ * `title`/`evidence`. One and the same cross-tenant leak landed in a different
+ * list depending on whether it was visible by status or by body — that is, a
+ * difference in the **means of detection** was passed off as a difference in the
+ * nature of the finding.
  *
- * Цена этого разделения была не эстетической. `bySeverity` считала только
- * первый список и показывала вдвое меньше; `byKind` не считал второй вовсе;
- * группировка по сигнатуре на проверки не распространялась, и шесть клонов
- * одной находки завышали картину вшестеро. Три симптома, одна причина.
+ * The cost of that split was not aesthetic. `bySeverity` counted only the first
+ * list and showed half the number; `byKind` did not count the second at all;
+ * grouping by signature did not extend to checks, and six clones of one finding
+ * inflated the picture sixfold. Three symptoms, one cause.
  */
 export interface ReportFinding {
-  /** Вид расхождения либо идентификатор проверки. */
+  /** The kind of discrepancy, or the check's identifier. */
   readonly kind: string;
-  /** Чем найдено: сравнением матрицы или проверкой из реестра. */
+  /** How it was found: by comparing the matrix, or by a check from the registry. */
   readonly source: "matrix" | "check";
   readonly severity: Severity;
   readonly accountId: string;
@@ -124,70 +128,74 @@ export interface ReportFinding {
   readonly resourceId?: string;
   readonly relation?: ResourceRelation;
   /**
-   * Условия обращения. Отсутствие — базовые, без добавленных атрибутов.
+   * The request conditions. Absent means baseline, with no attributes added.
    *
-   * Без этого поля находка «доступ есть там, где не положен» не отличалась бы
-   * от находки «доступ есть при подменённой стране»: аккаунт в отчёте разный,
-   * но чем он отличается, читателю взять негде.
+   * Without this field the finding 'there is access where none is meant to be'
+   * would not differ from the finding 'there is access with the country
+   * substituted': the account in the report differs, but the reader has nowhere to
+   * learn how.
    */
   readonly contextId?: string;
   readonly expected?: ExpectedOutcome;
   readonly actual?: AccessOutcome;
-  /** Только у находок проверок: человекочитаемое описание и обоснование. */
+  /** Only on check findings: a human-readable description and the grounds for it. */
   readonly title?: string;
   readonly evidence?: Readonly<Record<string, string | number | boolean>>;
   /**
-   * Чем воспроизвести и что ответила платформа.
+   * What to reproduce it with, and what the platform answered.
    *
-   * Код нужен прямо здесь: `actual: "allowed"` означает «2xx», а какой именно —
-   * приходилось искать в наблюдениях и соединять вручную по тройке.
+   * The code is needed right here: `actual: "allowed"` means '2xx', and which one
+   * exactly had to be looked up in the observations and joined by hand on the
+   * triple.
    */
   readonly request?: RequestRecord;
   /**
-   * Второе обращение парной находки.
+   * The second request of a paired finding.
    *
-   * У утечки по телу запросов было два, а печатался один: на платформе
-   * с адресами по тенантам читатель собирал второй сам — и собирал неверно,
-   * потому что хост у другого бренда другой. Найдено третьим холодным чтением.
+   * A leak found by body had two requests, and one was printed: on a platform with
+   * per-tenant addresses the reader put the second one together himself — and put
+   * it together wrongly, because the other brand's host is different. Found by a
+   * third cold read.
    */
   readonly relatedRequest?: RequestRecord;
   readonly status?: number;
 }
 
 /**
- * Вводные, на которых стоят выводы.
+ * The inputs the conclusions rest on.
  *
- * Без них находку нельзя ни завести в тикет, ни оспорить: каждое `expected`
- * держится на политике, которой в отчёте не было, а `foreign-tenant` и
- * `ancestor-tenant` — на дереве тенантов, которое читателю приходилось
- * восстанавливать по узору отказов.
+ * Without them a finding can neither be filed as a ticket nor disputed: every
+ * `expected` rests on a policy the report did not carry, and `foreign-tenant` and
+ * `ancestor-tenant` rest on a tenant tree the reader had to reconstruct from the
+ * pattern of denials.
  */
 /**
- * Чем воспроизвести находку.
+ * What to reproduce a finding with.
  *
- * Учётных заголовков здесь нет и быть не может: они приходят из окружения,
- * и место им только там. `contextHeaders` — объявленные человеком атрибуты
- * условий обращения, без которых строка воспроизводит базовый случай вместо
- * найденного.
+ * There are no credential headers here and there cannot be: they come from the
+ * environment, and that is the only place for them. `contextHeaders` are the
+ * request-condition attributes declared by a human, without which the line
+ * reproduces the baseline case instead of the one that was found.
  */
 export interface RequestRecord {
   readonly method: HttpMethod;
   readonly url: string;
   /**
-   * Атрибуты условий в объявленной форме: строка либо `{ env: ИМЯ }`.
+   * The context attributes in their declared form: a string or `{ env: NAME }`.
    *
-   * Именно объявленной, а не разрешённой: значение из окружения в отчёт
-   * не попадает никогда — там остаётся имя переменной, ровно как у `tokenEnv`.
+   * Declared, not resolved: a value from the environment never lands in the
+   * report — the variable's name stays there, exactly as with `tokenEnv`.
    */
   readonly contextHeaders?: Readonly<Record<string, ContextAttributeValue>>;
 }
 
 /**
- * Наблюдение вместе с вердиктом по его ячейке.
+ * An observation together with the verdict on its cell.
  *
- * `match: true` — «проверено и совпало с объявленным»; это единственное место
- * отчёта, где положительный результат виден поячеечно, а не суммой.
- * Вердикт приходит из того же обхода, что и расхождения (ADR-0020).
+ * `match: true` means 'tested and agreed with what was declared'; this is the only
+ * place in the report where a positive result is visible cell by cell rather than
+ * as a total. The verdict comes from the same walk as the discrepancies
+ * (ADR-0020).
  */
 export interface ReportedObservation extends AccessObservation {
   readonly expected?: ExpectedOutcome;
@@ -197,35 +205,37 @@ export interface ReportedObservation extends AccessObservation {
 }
 
 export interface RunInputs {
-  /** Политика с раскрытыми шаблонами — ровно та, что выносила вердикты. */
+  /** The policy with patterns expanded — exactly the one that gave the verdicts. */
   readonly policy: ResolvedAccessPolicy;
-  /** Дерево тенантов. Пусто, если иерархия не объявлена. */
+  /** The tenant tree. Empty when no hierarchy is declared. */
   readonly tenants: readonly TenantNode[];
   /**
-   * Чем инструмент представлялся: вид схемы и имя заголовка или куки.
-   * Значений здесь нет и быть не может — они живут только в окружении.
+   * How the tool presented itself: the kind of scheme and the name of the header
+   * or the cookie. There are no values here and cannot be — they live only in the
+   * environment.
    */
   readonly auth: AuthScheme;
   /**
-   * Объявленные условия обращения вместе с атрибутами.
+   * The declared request conditions together with their attributes.
    *
-   * Атрибуты печатаются: без них «доступ при context: geo-blocked» —
-   * утверждение, которое нечем ни воспроизвести, ни оспорить. Значения задаёт
-   * человек, и секретам там не место — ровно как в остальной конфигурации.
+   * The attributes are printed: without them 'access under context: geo-blocked'
+   * is a claim that can be neither reproduced nor disputed. A human sets the
+   * values, and secrets have no place there — exactly as in the rest of the
+   * configuration.
    */
   readonly contexts: readonly ReportedContext[];
   /**
-   * Эндпоинты, исключённые оператором вручную.
+   * Endpoints the operator excluded by hand.
    *
-   * Молчание здесь читалось как «исключений не было»: оператор мог убрать
-   * ручку из прогона, и отчёт об этом не говорил ничего.
+   * Saying nothing here read as 'nothing was excluded': the operator could take an
+   * endpoint out of the run, and the report said nothing about it.
    */
   readonly exclude: readonly string[];
   /**
-   * Действовавшие лимиты обращений.
+   * The request limits that were in force.
    *
-   * Инвариант «троттлинг всегда включён» по отчёту иначе не проверить —
-   * приходится верить на слово.
+   * There is no other way to check the invariant 'throttling is always on' from
+   * the report — it has to be taken on trust.
    */
   readonly throttle?: ThrottleLimits;
 }
@@ -233,93 +243,98 @@ export interface RunInputs {
 export interface ReportedContext {
   readonly id: string;
   readonly description?: string;
-  /** Объявленная форма: строка либо `{ env: ИМЯ }`. Значений из окружения тут нет. */
+  /** The declared form: a string or `{ env: NAME }`. No environment values here. */
   readonly headers: Readonly<Record<string, ContextAttributeValue>>;
   readonly query: Readonly<Record<string, ContextAttributeValue>>;
   readonly endpointIds: readonly string[];
-  /** Аккаунты, к которым применялись. Пусто — ко всем. */
+  /** The accounts they applied to. Empty means all of them. */
   readonly accountIds: readonly string[];
 }
 
 /**
- * Что именно проверено, а что нет.
+ * What exactly was tested and what was not.
  *
- * Отвечает на вопрос, которого в отчёте не хватало больше всего: «шесть
- * эндпоинтов — это сколько процентов поверхности?». Без знаменателя число
- * опрошенного не значит ничего, а отсутствие находки на непроверенном
- * читается как «чисто».
+ * Answers the question the report was missing most: 'six endpoints — what
+ * percentage of the surface is that?'. Without a denominator the count of what was
+ * probed means nothing, and the absence of a finding on what was not tested reads
+ * as 'clean'.
  */
 export interface Coverage {
-  /** Сколько эндпоинтов дал источник — спецификация, список или коллекция. */
+  /** How many endpoints the source gave — a specification, a list or a collection. */
   readonly endpointsTotal: number;
-  /** Сколько из них действительно опрашивались. */
+  /** How many of them were actually probed. */
   readonly endpointsProbed: number;
   readonly cellsObserved: number;
-  /** Ячейки, объявленные политикой, но не пронаблюдённые. */
+  /** Cells the policy declared but which were not observed. */
   readonly cellsNotObserved: number;
-  /** Почему эндпоинты не опрашивались, по причинам. */
+  /** Why endpoints were not probed, by reason. */
   readonly notProbed: Readonly<Record<string, number>>;
   /**
-   * Ручки, на которых сравнивались тела.
+   * The endpoints on which bodies were compared.
    *
-   * Названы поимённо намеренно: на всех остальных отсутствие находки означает
-   * «не сравнивали», а не «совпадений нет». Разницу иначе не увидеть.
+   * Named one by one on purpose: on every other one the absence of a finding means
+   * 'no comparison was made', not 'nothing matched'. There is no other way to see
+   * the difference.
    */
   readonly bodiesComparedOn: readonly string[];
-  /** Выполнялись ли методы, изменяющие состояние. */
+  /** Whether methods that change state were performed. */
   readonly writeMethodsProbed: boolean;
   /**
-   * Проверки, которые действительно выполнялись.
+   * The checks that actually ran.
    *
-   * Перечисляются все, включая ничего не нашедшие. Иначе проверка, которую
-   * забыли зарегистрировать или которая упала, даёт отчёт, неотличимый
-   * от чистого: в `byKind` её ключ появляется только при находке.
+   * All of them are listed, the ones that found nothing included. Otherwise a
+   * check that someone forgot to register, or that crashed, gives a report
+   * indistinguishable from a clean one: its key shows up in `byKind` only once it
+   * has found something.
    */
   readonly checksRun: readonly string[];
   /**
-   * Что именно сравнивалось по телу на каждой объявленной ручке.
+   * What exactly was compared by body on each declared endpoint.
    *
-   * `bodiesComparedOn` называет ручки, но молчание про конкретную пару читается
-   * как «совпадений нет». На прогоне референс-платформы холдинг и саппорт
-   * с набором членств совпали дайджестом законно — они в родстве, — и отличить
-   * «пропустили» от «сравнили и разошлись» без этого числа было нечем.
+   * `bodiesComparedOn` names the endpoints, but saying nothing about a particular
+   * pair reads as 'nothing matched'. On the run against the reference platform the
+   * holding and the support account with a set of memberships matched by digest
+   * lawfully — they are related — and without this number there was nothing to
+   * tell 'it was skipped' from 'it was compared and they differed'.
    */
   readonly bodyComparison: readonly BodyComparisonCoverage[];
   /**
-   * Сколько ячеек пронаблюдено в каждых объявленных условиях.
+   * How many cells were observed under each declared set of conditions.
    *
-   * Ноль здесь означает «условия объявлены, но не проверены»: их ручки могли
-   * попасть в `skipped`, а отсутствие находок читалось бы как «под этими
-   * условиями всё в порядке». Ключ есть у каждых объявленных условий,
-   * в том числе с нулём, — молчания об условиях быть не должно.
+   * A zero here means 'the conditions are declared but were not tested': their
+   * endpoints may have landed in `skipped`, and the absence of findings would read
+   * as 'everything is in order under these conditions'. Every declared set of
+   * conditions has a key, a zero one included — there must be no silence about
+   * conditions.
    */
   readonly contextsProbed: Readonly<Record<string, number>>;
   /**
-   * Ячеек пронаблюдено и совпало с ожиданием.
+   * How many cells were observed and agreed with the expectation.
    *
-   * `cellsObserved − findings` читатель считал сам, и «проверено и чисто»
-   * существовало в отчёте только как вычитание. Числом оно проверяемо:
-   * сумма с расхождениями обязана дать `cellsObserved`.
+   * The reader computed `cellsObserved − findings` himself, and 'tested and clean'
+   * existed in the report only as a subtraction. As a number it is checkable: its
+   * sum with the discrepancies must give `cellsObserved`.
    */
   readonly cellsMatched?: number;
 }
 
 export interface RunReport {
   /**
-   * Версия формы отчёта.
+   * The version of the report's shape.
    *
-   * Без неё парсер ломается молча при первом же изменении структуры —
-   * а структура менялась уже трижды.
+   * Without it a parser breaks silently at the first change of structure — and the
+   * structure has changed three times already.
    */
   readonly schemaVersion: string;
-  /** Идентификатор прогона: два отчёта иначе не отличить друг от друга. */
+  /** The run's identifier: otherwise two reports cannot be told apart. */
   readonly runId: string;
   /**
-   * Отпечаток конфигурации.
+   * The configuration's fingerprint.
    *
-   * Считается по разобранной конфигурации, а не по тексту файла: комментарии
-   * и форматирование на результат прогона не влияют, а на хеш влияли бы.
-   * Нужен, чтобы отличить «платформа изменилась» от «мы поменяли объявление».
+   * Computed over the parsed configuration, not over the text of the file:
+   * comments and formatting do not affect the result of a run, while they would
+   * affect a hash. It is there to tell 'the platform changed' from 'we changed the
+   * declaration'.
    */
   readonly configDigest: string;
   readonly tool: { readonly name: string; readonly version: string };
@@ -329,94 +344,100 @@ export interface RunReport {
     readonly baseUrl: string;
     readonly allowedHosts: readonly string[];
     /**
-     * Опознание проверяемой системы, объявленное человеком.
+     * What the system under test is called, declared by a human.
      *
-     * Отсутствие значимо: отчёт не называет платформу, и читатель не может
-     * отличить прогон против прод-подобного стенда от прогона демо-полигона.
-     * Заводить по такому артефакту тикет на платформу нельзя.
+     * Its absence is meaningful: the report does not name the platform, and the
+     * reader cannot tell a run against a production-like deployment from a run
+     * against a demo polygon. No ticket against the platform can be filed from
+     * such an artefact.
      */
     readonly label?: string;
   };
   readonly accounts: readonly {
     readonly id: string;
     readonly role: string;
-    /** Набор членств, если аккаунт состоит сразу в нескольких тенантах. */
+    /** The set of memberships, when the account sits in several tenants at once. */
     readonly tenants?: readonly string[] | undefined;
-    /** Объявлен без учётных данных: обращается анонимно. */
+    /** Declared without credentials: it makes its requests anonymously. */
     readonly anonymous?: boolean;
     /**
-     * Имя переменной окружения с токеном — **имя, а не значение**.
+     * The name of the environment variable holding the token — **the name, not
+     * the value**.
      *
-     * Без него находку нечем воспроизвести: «добавьте заголовок аутентификации
-     * аккаунта alice-a» не говорит, где этот токен взять.
+     * Without it there is nothing to reproduce a finding with: 'add the
+     * authentication header of account alice-a' does not say where to get that
+     * token.
      */
     readonly tokenEnv?: string;
     /**
-     * Исходный аккаунт, если строка — он же в условиях обращения.
+     * The original account, when this row is that same account under request
+     * conditions.
      *
-     * Без него суффикс `@` остаётся единственным носителем структуры, а
-     * читается он как «пользователь в области» — то есть как другой аккаунт.
+     * Without it the `@` suffix stays the only carrier of the structure, and it
+     * reads as 'a user at a domain' — that is, as a different account.
      */
     readonly baseAccountId?: string;
     /**
-     * Условия обращения, в которых существует эта строка.
+     * The request conditions this row exists under.
      *
-     * Тот же аккаунт с теми же учётными данными: меняется не он, а обращение.
-     * Отсутствие означает базовые условия.
+     * The same account with the same credentials: what changes is the request, not
+     * the account. Absent means baseline conditions.
      */
     readonly contextId?: string;
     /**
-     * Схема, которой аккаунт представлялся. Только вид и имена, без значений.
-     * У анонимного аккаунта не значит ничего — предъявлять нечего.
+     * The scheme the account presented itself with. Only the kind and the names,
+     * no values. On an anonymous account it means nothing — there is nothing to
+     * present.
      */
     readonly auth?: AuthScheme;
-    /** Отсутствует у аккаунта вне тенантов: в JSON ключа просто нет. */
+    /** Absent on an account outside of tenants: the key is simply not in the JSON. */
     readonly tenant?: string | undefined;
   }[];
   readonly endpoints: readonly Endpoint[];
   /**
-   * Объекты обращения. Без них находка о нарушении изоляции непроверяема:
-   * непонятно, к какому объекту относился доступ.
+   * The resources requested. Without them a finding about broken isolation cannot
+   * be verified: it is unclear which resource the access was to.
    */
   readonly resources: readonly Resource[];
   readonly skipped: readonly SkippedEndpoint[];
   readonly failures: readonly ProbeFailure[];
   /**
-   * Аккаунты, у которых все обращения вернули 401.
+   * Accounts whose every request came back 401.
    *
-   * Непустой список означает, что находкам верить нельзя: скорее всего
-   * не сработала аутентификация, а не политика.
+   * A non-empty list means the findings cannot be trusted: most likely it is
+   * authentication that did not work, not the policy.
    */
   readonly unauthenticated: readonly string[];
   /**
-   * Сколько канареек проверено перед прогоном.
+   * How many canaries were checked before the run.
    *
-   * Ноль означает, что аутентификация не подтверждалась. В JSON это должно быть
-   * видно: иначе отчёт непроверенного прогона побайтово совпадает с отчётом
-   * успешного, и разница остаётся только в предупреждении на stderr.
+   * A zero means authentication was never confirmed. That has to be visible in the
+   * JSON: otherwise the report of an unverified run matches the report of a
+   * successful one byte for byte, and the only difference left is a warning on
+   * stderr.
    */
   readonly canariesChecked: number;
   /**
-   * Результат каждой канарейки поимённо.
+   * The result of every canary by name.
    *
-   * Счётчик без вердикта бесполезен: отчёт с «проверено 7» и нулём находок
-   * неотличим от отчёта, где канарейки молча провалились.
+   * A counter with no verdict is useless: a report saying '7 checked' with zero
+   * findings is indistinguishable from one where the canaries failed silently.
    */
   readonly canaries: readonly CanaryOutcome[];
-  /** Прогон оборвался, не дойдя до конца матрицы. */
+  /** The run was cut short before it reached the end of the matrix. */
   readonly truncated: boolean;
   readonly observations: readonly ReportedObservation[];
   readonly findings: readonly ReportFinding[];
 
-  /** Вводные, на которых стоят выводы. */
+  /** The inputs the conclusions rest on. */
   readonly inputs: RunInputs;
-  /** Что проверено и что нет. */
+  /** What was tested and what was not. */
   readonly coverage: Coverage;
   /**
-   * Расхождения, сведённые к сигнатурам «эндпоинт × вид × отношение».
+   * Discrepancies collapsed to the signatures 'endpoint × kind × relation'.
    *
-   * Один дефект платформы задевает столько ячеек, сколько их есть; без
-   * группировки отчёт сообщает размер матрицы, а не число проблем.
+   * One defect in the platform touches as many cells as there are; without
+   * grouping, the report tells the size of the matrix, not the number of problems.
    */
   readonly defects: readonly DefectGroup[];
   readonly summary: ReportSummary;
@@ -426,14 +447,15 @@ export interface BuildReportOptions {
   readonly version: string;
   readonly config: RunConfig;
   /**
-   * Строки матрицы, включая аккаунты в объявленных условиях.
+   * The matrix rows, including accounts under the declared conditions.
    *
-   * Готовый список от деривации, а не второй обход тех же правил: разойдясь,
-   * они дали бы находку со ссылкой на аккаунт, которого в отчёте нет.
+   * A ready list from the derivation, not a second walk over the same rules: once
+   * the two drift apart, they would give a finding referring to an account the
+   * report does not have.
    */
   readonly accounts?: readonly Account[];
   readonly endpoints: readonly Endpoint[];
-  /** Эндпоинты, которые действительно опрашивались. */
+  /** The endpoints that were actually probed. */
   readonly probed?: readonly Endpoint[];
   readonly observations: readonly AccessObservation[];
   readonly skipped: readonly SkippedEndpoint[];
@@ -442,25 +464,25 @@ export interface BuildReportOptions {
   readonly canariesChecked: number;
   readonly canaries?: readonly CanaryOutcome[];
   readonly truncated: boolean;
-  /** Выполнялись ли методы, изменяющие состояние. */
+  /** Whether methods that change state were performed. */
   readonly unsafeMethods?: boolean;
   readonly findings: readonly AccessDiff[];
-  /** Политика с раскрытыми шаблонами — та, что выносила вердикты. */
+  /** The policy with patterns expanded — the one that gave the verdicts. */
   readonly policy: ResolvedAccessPolicy;
-  /** Находки проверок из реестра. Отсутствие означает «проверки не запускались». */
+  /** Findings from the registry's checks. Absent means 'no checks were run'. */
   readonly checks?: readonly Finding[];
-  /** Идентификаторы выполненных проверок, включая ничего не нашедшие. */
+  /** The identifiers of the checks that ran, the ones that found nothing included. */
   readonly checksRun?: readonly string[];
   /**
-   * Вердикты по ячейкам — от того же обхода, что дал расхождения.
+   * The verdicts on the cells — from the same walk that gave the discrepancies.
    *
-   * Второй источник вердикта здесь был бы худшим из возможных: отчёт
-   * утверждал бы «проверено и совпало» о ячейке, попавшей в находки.
+   * A second source of verdicts here would be the worst one possible: the report
+   * would claim 'tested and agreed' about a cell that landed in the findings.
    */
   readonly cells?: readonly CellVerdict[];
-  /** Действовавшие лимиты обращений — как их разрешил троттлинг, а не флаги. */
+  /** The request limits in force — as throttling resolved them, not as flags said. */
   readonly throttle?: ThrottleLimits;
-  /** Что сравнивалось по телу: пары сравнённые и пропущенные по родству. */
+  /** What was compared by body: the pairs compared and those skipped as related. */
   readonly bodyComparison?: readonly BodyComparisonCoverage[];
   readonly startedAt: Date;
   readonly finishedAt: Date;
@@ -482,12 +504,12 @@ const EMPTY_BY_SEVERITY: Readonly<Record<Severity, number>> = {
 };
 
 /**
- * Считает по **всем** находкам, включая находки проверок.
+ * Counts over **all** findings, check findings included.
  *
- * Раньше считались только расхождения матрицы, и сводка показывала high: 5
- * там, где их 11. Дашборд, построенный на `bySeverity`, терял шесть находок —
- * и в их числе самую эксплуатируемую: списочную утечку, видимую только по телу.
- * Найдено холодным чтением отчёта человеком, не знающим проекта.
+ * Only matrix discrepancies used to be counted, and the summary showed high: 5
+ * where there were 11. A dashboard built on `bySeverity` lost six findings — among
+ * them the most exploitable one: a leak from a list endpoint, visible only by the
+ * body. Found by a cold read of the report by someone who did not know the project.
  */
 function countBySeverity(findings: readonly ReportFinding[]): Readonly<Record<Severity, number>> {
   const counts = { ...EMPTY_BY_SEVERITY };
@@ -498,10 +520,10 @@ function countBySeverity(findings: readonly ReportFinding[]): Readonly<Record<Se
 }
 
 /**
- * Приклеивает к каждой находке запрос, которым она получена.
+ * Attaches to every finding the request that produced it.
  *
- * Соединение по тройке «аккаунт × эндпоинт × объект» — тому же ключу, которым
- * ячейка определяется везде в проекте.
+ * Joined on the triple 'account × endpoint × resource' — the same key a cell is
+ * identified by everywhere in the project.
  */
 function mergeFindings(
   diffs: readonly AccessDiff[],
@@ -509,9 +531,10 @@ function mergeFindings(
   observations: readonly AccessObservation[],
   contexts: readonly RequestContextConfig[] = [],
 ): readonly ReportFinding[] {
-  // Заголовки объявленных условий — по имени условий. Значения объявил человек
-  // в конфигурации, секретов там нет и быть не может: учётные данные приходят
-  // только из окружения и в отчёт не попадают ни при каких обстоятельствах.
+  // The headers of the declared conditions, keyed by the name of the conditions.
+  // A human declared the values in the configuration, and there are no secrets
+  // there and cannot be: credentials come only from the environment and never land
+  // in the report under any circumstances.
   const headersOf = new Map(
     contexts
       .filter((context) => Object.keys(context.headers).length > 0)
@@ -532,10 +555,11 @@ function mergeFindings(
     if (observation?.url === undefined || observation.method === undefined) {
       return finding;
     }
-    // Атрибуты условий печатаются рядом с адресом, иначе воспроизведение
-    // находки в условиях даёт **базовый** случай: параметры запроса видны
-    // в адресе, а заголовки не видны нигде, и строка молча воспроизводит
-    // не то. Найдено холодным чтением: так воспроизводились 43% находок.
+    // The context attributes are printed next to the address, or else reproducing
+    // a finding made under conditions gives the **baseline** case: query
+    // parameters are visible in the address, headers are visible nowhere, and the
+    // line silently reproduces the wrong thing. Found by a cold read: 43% of the
+    // findings were reproduced that way.
     const contextHeaders =
       finding.contextId === undefined ? undefined : headersOf.get(finding.contextId);
     return {
@@ -549,7 +573,7 @@ function mergeFindings(
     };
   }
 
-  /** Обращение второй стороны парной находки, если оно было. */
+  /** The other side's request in a paired finding, if there was one. */
   function relatedRequestOf(check: Finding): { relatedRequest?: RequestRecord } {
     const other = check.evidence.otherAccountId;
     if (typeof other !== "string" || check.endpointId === undefined) {
@@ -574,9 +598,9 @@ function mergeFindings(
     withRequest({ ...diff, source: "matrix" as const }),
   );
 
-  // У находки проверки аккаунт и эндпоинт необязательны по типу `Finding`,
-  // но проверка, не назвавшая ни того ни другого, бесполезна для разбора:
-  // такие в общий список не попадают и остаются видны только счётчиком.
+  // On a check finding the account and the endpoint are optional by the `Finding`
+  // type, but a check that named neither is useless for triage: those do not go
+  // into the common list and stay visible only through the counter.
   const fromChecks: readonly ReportFinding[] = checks
     .filter(
       (check): check is Finding & { accountId: string; endpointId: string } =>
@@ -589,15 +613,17 @@ function mergeFindings(
         severity: check.severity,
         accountId: check.accountId,
         endpointId: check.endpointId,
-        // Условия переносятся наравне с прочим. Поле перечислялось поимённо,
-        // и новое молча терялось: находка проверки в условиях выглядела
-        // базовой, группировка сливала её с базовой, а `request` печатался
-        // без атрибутов. Найдено холодным чтением.
+        // The conditions are carried over like everything else. The fields were
+        // copied by naming each one, and a new one was silently lost: a check
+        // finding made under conditions looked like a baseline one, grouping
+        // merged it with the baseline one, and `request` was printed without the
+        // attributes. Found by a cold read.
         ...(check.contextId === undefined ? {} : { contextId: check.contextId }),
         title: check.title,
         evidence: check.evidence,
-        // Второе обращение пары. Берётся из наблюдений по имени второй стороны:
-        // проверка о транспорте не знает и адреса не хранит.
+        // The second request of the pair. Taken from the observations by the name
+        // of the other side: the check knows nothing about transport and stores
+        // no addresses.
         ...relatedRequestOf(check),
       }),
     );
@@ -630,11 +656,12 @@ function countByReason(skipped: readonly SkippedEndpoint[]): Readonly<Record<str
 }
 
 /**
- * Строки аккаунтов, включая аккаунты в условиях.
+ * The account rows, including accounts under conditions.
  *
- * Аккаунт в условиях — отдельная строка матрицы, и находка ссылается именно
- * на неё. Без такой строки в отчёте ссылка повисает: читатель видит
- * `alice-a@geo-blocked`, ищет его в списке аккаунтов и не находит.
+ * An account under conditions is a matrix row of its own, and that is what a
+ * finding refers to. Without such a row in the report the reference dangles: the
+ * reader sees `alice-a@geo-blocked`, looks for it in the account list and does not
+ * find it.
  */
 function withContextAccounts(
   options: BuildReportOptions,
@@ -654,19 +681,19 @@ function withContextAccounts(
     if (source === undefined) {
       continue;
     }
-    // Всё от исходного аккаунта — включая `tokenEnv`, от которого зависят
-    // и признак анонимности, и то, какая схема будет напечатана.
+    // Everything comes from the original account — including `tokenEnv`, on which
+    // both the anonymity mark and which scheme gets printed depend.
     derived.push({ ...source, id: account.id, contextId: account.contextId, baseAccountId });
   }
   return [...base, ...derived];
 }
 
 /**
- * Ставит вердикт рядом с наблюдением.
+ * Puts the verdict next to the observation.
  *
- * Прежде наблюдение вердиктов не выносило принципиально, и «здесь чисто»
- * существовало только суммой: чтобы проверить одну ячейку, читатель отчёта
- * переписывал ядро на своём языке. См. ADR-0020.
+ * An observation used to carry no verdict on principle, and 'it is clean here'
+ * existed only as a total: to check a single cell, the reader of the report was
+ * rewriting the core in his own language. See ADR-0020.
  */
 function withVerdicts(options: BuildReportOptions): readonly ReportedObservation[] {
   const cells = options.cells ?? [];
@@ -696,7 +723,7 @@ function withVerdicts(options: BuildReportOptions): readonly ReportedObservation
   });
 }
 
-/** Сколько ячеек пронаблюдено в каждых условиях, включая непроверенные. */
+/** How many cells were observed under each set of conditions, untested included. */
 function countByContext(options: BuildReportOptions): Readonly<Record<string, number>> {
   const counts: Record<string, number> = {};
   for (const context of options.config.contexts) {
@@ -725,8 +752,8 @@ export function buildReport(options: BuildReportOptions): RunReport {
     options.config.contexts,
   );
   const notObserved = options.findings.filter((finding) => finding.kind === "not-observed").length;
-  // Вторая сторона парной находки лежит в `evidence`: группировка её не видит,
-  // а без неё группа называет одну сторону утечки из двух.
+  // The other side of a paired finding sits in `evidence`: grouping does not see
+  // it, and without it a group names one side of the leak out of two.
   const groups = groupDefects(
     merged.map((finding) => {
       const other = finding.evidence?.otherAccountId;
@@ -752,34 +779,40 @@ export function buildReport(options: BuildReportOptions): RunReport {
       id: account.id,
       role: account.role,
       tenant: account.tenant,
-      // Набор членств печатается наравне с одиночным тенантом. Без этого
-      // аккаунт с набором выглядел в отчёте как аккаунт вовсе без тенанта,
-      // то есть неотличимо от анонима — при том что вердикты по нему верны.
+      // The set of memberships is printed just like a single tenant. Without this
+      // an account with a set looked in the report like an account with no tenant
+      // at all — that is, indistinguishable from an anonymous one — even though
+      // the verdicts on it are correct.
       tenants: account.tenants,
-      // Аккаунт без учётных данных объявлен анонимным. Без явной пометки
-      // единственный положительный вывод отчёта — «аноним всюду получил 401» —
-      // недоказуем: аккаунт с ошибочно поданным токеном выглядел бы так же.
+      // An account without credentials is declared anonymous. Without an explicit
+      // mark the report's only positive conclusion — 'the anonymous account got
+      // 401 everywhere' — is unprovable: an account whose token was passed wrongly
+      // would look the same.
       anonymous: account.tokenEnv === undefined,
-      // Имя переменной, а не значение. Оно и так лежит в конфигурации, которую
-      // положено коммитить, зато без него читатель отчёта не знает, каким
-      // токеном воспроизводить находку. Найдено третьим холодным чтением.
+      // The name of the variable, not the value. It sits in the configuration
+      // anyway, the one that is meant to be committed, and without it the reader
+      // of the report does not know which token to reproduce the finding with.
+      // Found by a third cold read.
       ...(account.tokenEnv === undefined ? {} : { tokenEnv: account.tokenEnv }),
-      // Условия, в которых существует эта строка. Отсутствие — базовые.
+      // The conditions this row exists under. Absent means baseline.
       ...(account.contextId === undefined
         ? {}
         : { contextId: account.contextId, baseAccountId: account.baseAccountId }),
-      // Каким контуром ходил аккаунт. У анонимного не пишется вовсе:
-      // предъявлять ему нечего, и запись схемы там только путала. Без этого читатель не отличит «ручка
-      // закрыта» от «мы стучались не тем транспортом»: и то и другое даёт 401.
-      // Здесь только вид схемы и имя заголовка или куки — значений нет нигде.
+      // Which surface the account went through. Not written at all for an
+      // anonymous one: it has nothing to present, and a scheme recorded there only
+      // confused. Without this the reader cannot tell 'the endpoint is closed'
+      // from 'we knocked with the wrong transport': both give 401. Only the kind
+      // of scheme and the name of the header or the cookie here — no values
+      // anywhere.
       ...(account.tokenEnv === undefined
         ? {}
         : {
-            // По исходному аккаунту: схема — свойство контура, а не строки
-            // матрицы. Раньше строка в условиях искала схему по своему id,
-            // не находила и печатала корневую — то есть поле врало ровно там,
-            // где оно единственно и нужно: «ручка закрыта» против «стучались
-            // не тем транспортом». Найдено холодным чтением.
+            // By the original account: the scheme is a property of the surface,
+            // not of a matrix row. A row under conditions used to look the scheme
+            // up by its own id, fail to find it and print the root one — that is,
+            // the field lied exactly where it is the only thing needed: 'the
+            // endpoint is closed' against 'we knocked with the wrong transport'.
+            // Found by a cold read.
             auth:
               options.config.accountAuth.get(account.baseAccountId ?? account.id) ??
               options.config.auth,
@@ -808,15 +841,15 @@ export function buildReport(options: BuildReportOptions): RunReport {
       checksRun: options.checksRun ?? [],
       bodyComparison: options.bodyComparison ?? [],
       contextsProbed: countByContext(options),
-      // Считается по самим вердиктам, а не вычитанием. Вычитание врало:
-      // среди расхождений есть `not-observed`, у которых наблюдения нет вовсе,
-      // и число занижалось. ADR-0020 обещает равенство с числом наблюдений,
-      // у которых `match: true`, — теперь это одно и то же число, а не два.
-      // Найдено состязательной проверкой.
+      // Counted from the verdicts themselves, not by subtraction. Subtraction
+      // lied: among the discrepancies there are `not-observed` ones that have no
+      // observation at all, and the number came out too low. ADR-0020 promises
+      // equality with the number of observations that carry `match: true` — now it
+      // is one and the same number, not two. Found by adversarial review.
       //
-      // Ключа нет вовсе, когда вердиктов не считали: ноль читался бы как
-      // «не совпало ни одной ячейки», то есть как утверждение о платформе,
-      // а сказать нужно «мы этого не считали».
+      // The key is absent entirely when no verdicts were computed: a zero would
+      // read as 'not a single cell agreed', that is, as a claim about the
+      // platform, while what has to be said is 'we did not count this'.
       ...(options.cells === undefined
         ? {}
         : {
@@ -847,10 +880,11 @@ export function buildReport(options: BuildReportOptions): RunReport {
       observations: options.observations.length,
       skipped: options.skipped.length,
       failures: options.failures.length,
-      // Длина общего списка, а не число матричных расхождений. Соседние
-      // счётчики уже считали всё, и одно число из пяти расходилось с остальными
-      // ровно на находки по телу. Тот же класс, что прежняя ошибка bySeverity,
-      // в том же объекте — найдено вторым холодным чтением.
+      // The length of the common list, not the number of matrix discrepancies.
+      // The neighbouring counters already counted everything, and one number out
+      // of five differed from the rest by exactly the findings by body. The same
+      // class as the earlier bySeverity bug, in the same object — found by a
+      // second cold read.
       findings: merged.length,
       byKind: countByKind(merged),
       bySeverity: countBySeverity(merged),
@@ -862,28 +896,29 @@ export function buildReport(options: BuildReportOptions): RunReport {
 }
 
 /**
- * Код возврата процесса.
+ * The process exit code.
  *
- * Эскалация привилегий — единственное, что делает прогон проваленным:
- * остальные расхождения требуют внимания, но не означают дыры в доступе.
+ * Privilege escalation is the only thing that makes a run failed: the other
+ * discrepancies call for attention but do not mean a hole in access.
  */
 /**
- * Код возврата процесса.
+ * The process exit code.
  *
- * 0 — проверено и чисто, 1 — найдена эскалация, 2 — прогон недостоверен.
+ * 0 — tested and clean, 1 — an escalation was found, 2 — the run is untrustworthy.
  *
- * Различать 0 и 2 принципиально. Состязательная проверка показала три способа
- * получить «чистый» отчёт, ничего не проверив: спецификация без единого
- * эндпоинта, стенд, отвечающий сплошными ошибками, и исчерпанный бюджет
- * обращений. Во всех трёх случаях находок нет ровно потому, что не было
- * и проверки, — и код 0 читался бы как подтверждение защищённости.
+ * Telling 0 from 2 matters on principle. Adversarial review showed three ways to
+ * get a 'clean' report having tested nothing: a specification without a single
+ * endpoint, a deployment answering with nothing but errors, and an exhausted
+ * request budget. In all three cases there are no findings exactly because there
+ * was no testing either — and a 0 would read as confirmation of being protected.
  */
 /**
- * Доля сорвавшихся обращений, после которой результату верить нельзя.
+ * The share of failed requests past which the result cannot be trusted.
  *
- * Половина. Меньшая доля — обычные частичные сбои: они видны в `failures`
- * и в `byKind`, но не отменяют выводов по уцелевшей части матрицы. Большая
- * означает, что отчёт описывает не платформу, а состояние сети или стенда.
+ * Half. A smaller share is ordinary partial failure: it is visible in `failures`
+ * and in `byKind`, but it does not cancel the conclusions about the surviving part
+ * of the matrix. A larger one means the report describes the state of the network
+ * or of the deployment, not the platform.
  */
 const UNTRUSTWORTHY_ERROR_SHARE = 0.5;
 
@@ -891,55 +926,55 @@ export function exitCodeFor(report: RunReport): number {
   if (report.summary.observations === 0) {
     return 2;
   }
-  // Оборванный прогон не проверил хвост матрицы: находок там нет потому,
-  // что до них не дошли. Найдено состязательной проверкой — исчерпанный
-  // потолок обращений давал код 0 при непроверенной межтенантной утечке.
+  // A run cut short did not test the tail of the matrix: there are no findings
+  // there because nothing ever got to them. Found by adversarial review — an
+  // exhausted request ceiling gave exit code 0 with a cross-tenant leak untested.
   if (report.truncated) {
     return 2;
   }
   if (report.unauthenticated.length > 0) {
     return 2;
   }
-  // Ни одной канарейки — значит аутентификация не подтверждена ничем.
-  // Предохранитель `findUnauthenticated` тут не помогает по построению: он
-  // устроен как «объявлено доступным, но нигде не дали», а у политики из одних
-  // запретов доступным не объявлено ничего, и он молчит.
+  // Not a single canary means authentication is confirmed by nothing. The
+  // `findUnauthenticated` safeguard does not help here by construction: it is
+  // built as 'declared accessible, but granted nowhere', and a policy made of
+  // denials alone declares nothing accessible, so it stays silent.
   //
-  // Найдено состязательной проверкой: стенд отвечал 401 на всё, токены были
-  // протухшие, и отчёт вышел чистый с кодом 0 — да ещё и с `match: true`
-  // на каждой из двенадцати ячеек. Это ровно тот случай, ради которого
-  // двойка и существует: непроверенное не бывает чистым.
+  // Found by adversarial review: the deployment answered 401 to everything, the
+  // tokens were stale, and the report came out clean with exit code 0 — and with
+  // `match: true` on each of the twelve cells at that. This is exactly the case
+  // the 2 exists for: what was not tested is never clean.
   //
-  // Аккаунты без учётных данных из правила исключены: анонимному прогону —
-  // «проверьте, что сюда нельзя вообще никому» — аутентифицировать нечего,
-  // и требовать от него канарейку значило бы запретить законный сценарий.
+  // Accounts without credentials are excluded from the rule: an anonymous run —
+  // 'check that nobody at all can get in here' — has nothing to authenticate, and
+  // demanding a canary of it would forbid a legitimate scenario.
   if (report.canariesChecked === 0 && report.accounts.some((account) => !account.anonymous)) {
     return 2;
   }
-  // Порог, а не «все до единой». Прежнее условие требовало, чтобы сорвались
-  // **все** ячейки: 99 ошибок из ста давали код 0, то есть «проверено, чисто»
-  // о матрице, от которой уцелел один процент. Половина — граница, за которой
-  // отчёт перестаёт что-либо утверждать; она объявлена здесь константой,
-  // потому что число, спрятанное в выражении, никто не оспорит.
+  // A threshold, not 'every single one'. The previous condition required **all**
+  // cells to fail: 99 errors out of a hundred gave exit code 0, that is 'tested,
+  // clean' about a matrix of which one percent survived. Half is the line past
+  // which the report stops claiming anything; it is declared here as a constant,
+  // because a number hidden inside an expression is one nobody will dispute.
   if (
     (report.summary.byKind["probe-error"] ?? 0) >=
     report.summary.observations * UNTRUSTWORTHY_ERROR_SHARE
   ) {
     return 2;
   }
-  // Расхождение есть расхождение, куда бы оно ни было направлено. Инструмент
-  // не может определить, что именно неверно — платформа или объявление, — а раз
-  // не может, то и молчать не вправе. Найдено проверкой оракула платформы:
-  // холдингу закрыли его собственный бренд, и прогон вернул 0. См. ADR-0014.
+  // A discrepancy is a discrepancy whichever way it points. The tool cannot tell
+  // which side is wrong — the platform or the declaration — and since it cannot,
+  // it has no right to stay silent. Found while checking the platform's oracle:
+  // the holding was denied its own brand, and the run returned 0. See ADR-0014.
   if (
     (report.summary.byKind["privilege-escalation"] ?? 0) > 0 ||
     (report.summary.byKind["unexpected-denial"] ?? 0) > 0
   ) {
     return 1;
   }
-  // Находка проверки — такое же расхождение, как эскалация, просто увиденное
-  // не по статусу. Молчать о ней кодом возврата значило бы, что прогон
-  // с найденной межтенантной утечкой выглядит успешным в CI.
+  // A check finding is the same discrepancy as an escalation, just seen by
+  // something other than the status. Staying silent about it in the exit code
+  // would mean a run with a cross-tenant leak found looks successful in CI.
   return report.findings.some(
     (finding) =>
       finding.source === "check" &&

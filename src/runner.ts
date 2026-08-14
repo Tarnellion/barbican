@@ -1,8 +1,9 @@
 /**
- * Прогон: обход матрицы «аккаунт × эндпоинт» и сбор наблюдений.
+ * The run: a walk over the "account × endpoint" matrix, collecting observations.
  *
- * Не ядро — здесь ввод-вывод через порт `HttpClient`. И не адаптер — здесь нет
- * знания о конкретном транспорте. Это связывающий слой между ними.
+ * Not the core — there is I/O here, through the `HttpClient` port. And not an
+ * adapter — there is no knowledge of a concrete transport here. This is the
+ * layer that binds them.
  */
 
 import type { ContextAttributes, CredentialProvider, HttpClient } from "./adapters/ports.js";
@@ -19,22 +20,23 @@ import type {
 import { principalOf, resourceApplies, SAFE_METHODS } from "./core/index.js";
 
 /**
- * Что вычисляется над телом помеченного эндпоинта.
+ * What is computed over the body of a marked endpoint.
  *
- * Один дайджест: он отвечает на вопрос «получили ли два тенанта один и тот же
- * ответ», ради которого послабление и вводилось. Расширять набор без нужды
- * незачем — каждый лишний сигнал означает лишнее прочитанное тело.
+ * One digest: it answers the question "did two tenants get one and the same
+ * response", for the sake of which the relaxation was introduced at all.
+ * Widening the set without need is pointless — every extra signal means one more
+ * body read.
  */
 const DIGEST_SIGNALS = [
   { name: "digest", kind: "digest" },
 ] as const satisfies readonly SignalSpec[];
 
 /**
- * Эндпоинт, который не опрашивался, и почему.
+ * An endpoint that was not probed, and why.
  *
- * Пропуск по решению самого инструмента — не сбой. Раньше отказ от небезопасного
- * метода попадал в `failures`, и штатная работа выглядела в отчёте поломкой:
- * на реальном API каждый POST и PUT давал бы строку «сорвалось».
+ * A skip decided by the tool itself is not a failure. The refusal of an unsafe
+ * method used to land in `failures`, and normal operation looked like a breakage
+ * in the report: on a real API every POST and PUT would give a "went wrong" row.
  */
 export interface SkippedEndpoint {
   readonly endpointId: string;
@@ -42,10 +44,11 @@ export interface SkippedEndpoint {
 }
 
 /**
- * Сорванное обращение с причиной.
+ * A failed request, with its reason.
  *
- * Причина обязательна: `error` без объяснения не позволяет отличить лежащий
- * стенд от неверной конфигурации, и в отчёте такая запись бесполезна.
+ * The reason is mandatory: an `error` with no explanation makes it impossible to
+ * tell a deployment that is down from a wrong configuration, and such an entry
+ * is useless in the report.
  */
 export interface ProbeFailure {
   readonly accountId: string;
@@ -58,36 +61,40 @@ export interface CollectOptions {
   readonly baseUrl: string;
   readonly endpoints: readonly Endpoint[];
   readonly accounts: readonly Account[];
-  /** Как аккаунт представляется системе. Заголовки в наблюдения не попадают. */
+  /** How an account presents itself to the system. The headers do not get into the observations. */
   readonly credentials: CredentialProvider;
   readonly client: HttpClient;
   readonly allowUnsafeMethods?: boolean;
-  /** Объекты обращения. Без них параметризованные эндпоинты не опрашиваются. */
+  /** The resources being requested. Without them parameterized endpoints are not probed. */
   readonly resources?: readonly Resource[];
   /**
-   * Идентификаторы эндпоинтов, которые не трогать.
+   * The identifiers of the endpoints not to touch.
    *
-   * `SAFE_METHODS` защищает от семантики метода, но не от эндпоинта, который её
-   * нарушает: GET, сбрасывающий базу, остаётся GET. Такие адреса исключаются
-   * поимённо — по-другому их не отличить.
+   * `SAFE_METHODS` protects against the semantics of the method, but not against
+   * an endpoint that violates it: a GET that resets the database stays a GET.
+   * Such addresses are excluded by name — there is no other way to tell them
+   * apart.
    */
   readonly exclude?: readonly string[];
   /**
-   * Базовый адрес для отдельных тенантов.
+   * The base address for individual tenants.
    *
-   * Мультибрендовые платформы часто разносят бренды по поддоменам, и типовое
-   * проверяемое утверждение — «токен бренда A не работает на хосте бренда B».
-   * Адрес выбирается по тенанту **объекта**, а не аккаунта: спрашиваем-то мы
-   * именно за чужие данные, и лежат они на чужом хосте. Когда объекта нет,
-   * берётся тенант аккаунта — вопрос тогда о его собственной области.
+   * Multi-brand platforms often spread the brands across subdomains, and a
+   * typical claim under test is "brand A's token does not work on brand B's
+   * host". The address is chosen by the **resource's** tenant, not the
+   * account's: what we ask for is precisely someone else's data, and it lives on
+   * someone else's host. When there is no resource, the account's tenant is
+   * taken — the question is then about its own scope.
    */
   readonly tenantBaseUrls?: ReadonlyMap<TenantId, string>;
   /**
-   * Атрибуты аккаунтов в объявленных условиях: id аккаунта в условиях → что
-   * добавить к обращению и чьи учётные данные предъявить.
+   * The attributes of accounts under declared conditions: the id of the account
+   * under conditions → what to add to the request and whose credentials to
+   * present.
    *
-   * Ядро об этом не знает: ему хватает метки `contextId` на аккаунте. Здесь же
-   * условия становятся заголовками и параметрами запроса. См. ADR-0019.
+   * The core knows nothing about this: the `contextId` label on the account is
+   * enough for it. Here the conditions become request headers and parameters.
+   * See ADR-0019.
    */
   readonly contextAttributes?: ReadonlyMap<string, ContextAttributes>;
 }
@@ -97,20 +104,21 @@ export interface CollectResult {
   readonly skipped: readonly SkippedEndpoint[];
   readonly failures: readonly ProbeFailure[];
   /**
-   * Эндпоинты, которые действительно опрашивались.
+   * The endpoints that were actually probed.
    *
-   * Матрица строится только из них: непройденный эндпоинт — это пробел покрытия,
-   * уже перечисленный в `skipped`, а не расхождение на каждый аккаунт. Иначе один
-   * пропуск порождает столько находок, сколько аккаунтов, и тонет настоящий сигнал.
+   * The matrix is built out of these only: an endpoint that was not walked is a
+   * gap in coverage, already listed in `skipped`, rather than a discrepancy on
+   * every account. Otherwise one skip produces as many findings as there are
+   * accounts, and the real signal drowns.
    */
   readonly probed: readonly Endpoint[];
   /**
-   * Прогон оборвался, не дойдя до конца матрицы.
+   * The run broke off without reaching the end of the matrix.
    *
-   * Исчерпанный потолок обращений или сработавший circuit breaker обрывают
-   * обход посреди списка. Хвост остаётся непроверенным, но находок в нём нет
-   * ровно потому, что до него не дошли, — и без этого признака вердикт
-   * «чисто» неотличим от настоящего.
+   * An exhausted request ceiling or a tripped circuit breaker cut the walk short
+   * in the middle of the list. The tail stays unchecked, but there are no
+   * findings in it precisely because it was never reached — and without this
+   * flag the verdict "clean" is indistinguishable from a real one.
    */
   readonly truncated: boolean;
 }
@@ -118,18 +126,20 @@ export interface CollectResult {
 const TEMPLATE_PARAMETER = /\{[^}]+\}/;
 
 /**
- * Сводит статус ответа к выводу о доступе.
+ * Reduces the response status to a conclusion about access.
  *
- * Вывод делается только там, где он однозначен. Всё остальное — включая 3xx,
- * 4xx кроме перечисленных и 5xx — это `error`: «судить нельзя». Натянуть на них
- * `denied` означало бы записать отсутствие вывода как успешный отказ, а такие
- * записи потом читают как доказательство защищённости.
+ * A conclusion is drawn only where it is unambiguous. Everything else —
+ * including 3xx, 4xx other than the ones listed, and 5xx — is an `error`:
+ * "cannot be judged". Stretching `denied` over them would mean recording the
+ * absence of a conclusion as a successful denial, and such records are later
+ * read as proof of protection.
  *
- * 451 — отказ наравне с 401 и 403. Он неоднозначным не бывает: «недоступно
- * по юридическим причинам» есть решение не обслуживать, а не сбой и не
- * отсутствие объекта. Добавлен вместе с условиями обращения (ADR-0019): гео-
- * и юрисдикционные ограничения отвечают именно им, и без этой строки исправная
- * платформа давала бы стену `probe-error` там, где она как раз работает верно.
+ * 451 is a denial on equal terms with 401 and 403. It is never ambiguous:
+ * "unavailable for legal reasons" is a decision not to serve, not a failure and
+ * not a missing resource. Added together with request conditions (ADR-0019): geo
+ * and jurisdiction restrictions answer with exactly this, and without this line a
+ * healthy platform would give a wall of `probe-error` right where it works
+ * correctly.
  */
 export function classifyStatus(status: number): AccessOutcome {
   if (status >= 200 && status < 300) {
@@ -160,23 +170,25 @@ export class PathEscapesTargetError extends Error {
 }
 
 /**
- * Собирает адрес обращения.
+ * Assembles the address of the request.
  *
- * Origin результата сверяется с origin цели. Причина найдена состязательной
- * проверкой: `new URL(path, base)` отдаёт приоритет абсолютному адресу, поэтому
- * путь вида `http://тот-же-хост:9999/x` из спецификации перебивал базовый URL
- * целиком — понижал https до http и уводил на произвольный порт. Проверка
- * allowlist этого не ловила: она сверяла только имя хоста.
+ * The origin of the result is compared against the origin of the target. The
+ * reason was found by adversarial review: `new URL(path, base)` gives priority
+ * to an absolute address, so a path like `http://the-same-host:9999/x` from the
+ * specification overrode the base URL entirely — it downgraded https to http and
+ * led to an arbitrary port. The allowlist check did not catch this: it compared
+ * only the host name.
  *
- * Обратный слэш и `..` тоже отсекаются: сравнение origin делает форму записи
- * неважной.
+ * A backslash and `..` are cut off as well: comparing origins makes the form of
+ * the notation irrelevant.
  */
 function joinUrl(baseUrl: string, path: string): string {
   const base = new URL(baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
   const resolved = new URL(path.replace(/^[/\\]+/, ""), base);
-  // Сверяется и origin, и префикс пути. Одного origin мало: `..` в значении
-  // объекта уводил обращение выше объявленного базового пути, оставаясь
-  // на том же хосте, — то есть на соседний API той же системы.
+  // Both the origin and the path prefix are compared. The origin alone is not
+  // enough: a `..` in a resource's value led the request above the declared base
+  // path while staying on the same host — that is, to a neighbouring API of the
+  // same system.
   if (resolved.origin !== base.origin || !resolved.pathname.startsWith(base.pathname)) {
     throw new PathEscapesTargetError(
       path,
@@ -188,17 +200,20 @@ function joinUrl(baseUrl: string, path: string): string {
 }
 
 /**
- * Базовый адрес для обращения: свой адрес тенанта, если объявлен, иначе общий.
+ * The base address for a request: the tenant's own address if declared, the
+ * common one otherwise.
  *
- * Отдельной функцией, потому что случай «тенанта нет вовсе» — аккаунт вне
- * тенантов, то есть аноним, — должен решаться одинаково и в канарейке,
- * и в основном прогоне. Заглушки вроде `?? ""` здесь недопустимы: пустая
- * строка снова стала бы именем тенанта, пусть и не совпадающим ни с чем.
+ * A function of its own, because the case "there is no tenant at all" — an
+ * account outside tenants, that is, an anonymous one — must be decided the same
+ * way in the canary and in the main run. Placeholders like `?? ""` are
+ * inadmissible here: an empty string would again become a tenant name, even if
+ * one that matches nothing.
  *
- * У аккаунта с набором членств (ADR-0017) `tenantId` не задан, и сюда приходит
- * `undefined`: своего единственного хоста у такого аккаунта нет, выбирать
- * из набора было бы гаданием, и обращение идёт на общий адрес. Обращения
- * за объектом это не касается — там адрес берётся по тенанту объекта.
+ * For an account with a set of memberships (ADR-0017) `tenantId` is not set, and
+ * `undefined` arrives here: such an account has no single host of its own,
+ * picking one out of the set would be guessing, and the request goes to the
+ * common address. This does not concern requests for a resource — there the
+ * address is taken by the resource's tenant.
  */
 function baseUrlForTenant(
   tenantId: TenantId | undefined,
@@ -213,7 +228,7 @@ function baseUrlForTenant(
 
 const PARAMETER_NAME = /\{([^}]+)\}/g;
 
-/** Подставляет значения объекта в шаблон пути. */
+/** Substitutes the resource's values into the path template. */
 function substitute(path: string, resource: Resource): string {
   return path.replace(PARAMETER_NAME, (_match, name: string) =>
     encodeURIComponent(Object.hasOwn(resource.params, name) ? (resource.params[name] ?? "") : ""),
@@ -236,7 +251,7 @@ function withQuery(
   return parsed.toString();
 }
 
-/** Остаётся ли обращение по этому пути в пределах цели. */
+/** Whether a request along this path stays within the target. */
 export function staysWithinTarget(baseUrl: string, path: string): boolean {
   try {
     joinUrl(baseUrl, path);
@@ -282,11 +297,12 @@ export class TemplatedCanaryError extends Error {
 }
 
 /**
- * Проверяет, что аккаунты действительно аутентифицированы.
+ * Checks that the accounts really are authenticated.
  *
- * Канарейка — эндпоинт, который аккаунту заведомо доступен. Если он отвечает
- * отказом, значит токен не работает, и продолжать бессмысленно: результат
- * такого прогона выглядит как «всё чисто», хотя не проверено ничего.
+ * A canary is an endpoint the account is known to have access to. If it answers
+ * with a denial, the token does not work, and there is no point in continuing:
+ * the result of such a run looks like "everything is clean", though nothing was
+ * checked.
  */
 export async function probeCanaries(options: {
   readonly baseUrl: string;
@@ -295,18 +311,18 @@ export async function probeCanaries(options: {
   readonly credentials: CredentialProvider;
   readonly client: HttpClient;
   readonly exclude?: readonly string[];
-  /** Аккаунты — чтобы знать тенант и выбрать его базовый адрес. */
+  /** The accounts — to know the tenant and pick its base address. */
   readonly accounts?: readonly Account[];
   readonly tenantBaseUrls?: ReadonlyMap<TenantId, string>;
 }): Promise<readonly CanaryResult[]> {
   const byId = new Map(options.endpoints.map((endpoint) => [endpoint.id, endpoint]));
-  // Канарейка обязана стучаться на хост своего же бренда: на платформе,
-  // разнесённой по поддоменам, обращение к чужому даст отказ, и прогон
-  // остановится ложной тревогой «токен не работает».
-  // Аккаунты вне тенантов (анонимные) в карту не попадают: своего адреса
-  // у них нет, обращение идёт на базовый. Аккаунт с набором членств — тоже:
-  // единственного «своего» хоста у него не существует, и канарейку такому
-  // аккаунту выбирают на общем адресе.
+  // A canary must knock on the host of its own brand: on a platform spread
+  // across subdomains a request to a foreign one gives a denial, and the run
+  // stops on the false alarm "the token does not work".
+  // Accounts outside tenants (anonymous ones) do not get into the map: they have
+  // no address of their own, and the request goes to the base one. An account
+  // with a set of memberships likewise: there exists no single "own" host for
+  // it, and a canary for such an account is picked at the common address.
   const tenantOf = new Map(
     (options.accounts ?? []).flatMap((account) =>
       account.tenantId === undefined ? [] : [[account.id, account.tenantId] as const],
@@ -358,11 +374,12 @@ export async function probeCanaries(options: {
 }
 
 /**
- * Опрашивает каждую пару «аккаунт × эндпоинт».
+ * Probes every "account × endpoint" pair.
  *
- * Эндпоинты с параметрами в пути пропускаются: подставить туда идентификатор
- * нечем, пока не решён вопрос сбора значений из ответов. Пропуск возвращается
- * явно, а не молчанием, — иначе непроверенное выглядело бы как проверенное.
+ * Endpoints with parameters in the path are skipped: there is nothing to
+ * substitute an identifier from until the question of collecting values from
+ * responses is settled. The skip is returned explicitly rather than by silence —
+ * otherwise what was not checked would look as if it had been.
  */
 export async function collectObservations(options: CollectOptions): Promise<CollectResult> {
   const probeable: Endpoint[] = [];
@@ -379,19 +396,20 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       TEMPLATE_PARAMETER.test(endpoint.path) &&
       !(options.resources ?? []).some((resource) => resourceApplies(endpoint, resource))
     ) {
-      // Параметры есть, а объекта с их значениями не объявлено — подставлять нечего.
+      // There are parameters, but no resource with values for them is declared —
+      // there is nothing to substitute.
       skipped.push({ endpointId: endpoint.id, reason: "path-parameters" });
     } else if (
-      // Отсеивается только то, что уводит за пределы КАЖДОГО объявленного
-      // адреса: иначе эндпоинт, законный для бренда на поддомене, пропускался бы
-      // из-за несовпадения с адресом по умолчанию.
+      // Only what escapes EVERY declared address is filtered out: otherwise an
+      // endpoint that is legitimate for a brand on a subdomain would be skipped
+      // because it does not match the default address.
       ![options.baseUrl, ...(options.tenantBaseUrls?.values() ?? [])].some((base) =>
         staysWithinTarget(base, endpoint.path),
       )
     ) {
-      // Путь уводит за пределы цели. Это свойство эндпоинта, а не сбой
-      // обращения, поэтому пропуск, а не ошибка: один враждебный путь
-      // в спецификации не должен обрывать весь прогон.
+      // The path leads outside the target. That is a property of the endpoint
+      // rather than a failure of the request, hence a skip and not an error: one
+      // hostile path in a specification must not break off the whole run.
       skipped.push({ endpointId: endpoint.id, reason: "escapes-target" });
     } else {
       probeable.push(endpoint);
@@ -402,8 +420,8 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
   const failures: ProbeFailure[] = [];
   let truncated = false;
 
-  // Эндпоинт без параметров опрашивается один раз; с параметрами — по разу
-  // на каждый объект, который эти параметры покрывает.
+  // An endpoint without parameters is probed once; one with parameters — once
+  // per resource that covers those parameters.
   const cells: Array<{ endpoint: Endpoint; resource?: Resource }> = [];
   for (const endpoint of probeable) {
     const applicable = (options.resources ?? []).filter((resource) =>
@@ -420,12 +438,13 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
 
   for (const account of options.accounts) {
     const attributes = options.contextAttributes?.get(account.id);
-    // Условия аккаунта не меняют: предъявляется он сам, а меняется обращение.
-    // Источник один — `principalOf`: то же самое нужно отношению к объекту
-    // и отчёту, а три разных «взять исходный аккаунт» разошлись бы молча.
+    // Conditions do not change the account: it presents itself, and what changes
+    // is the request. There is one source — `principalOf`: the same thing is
+    // needed by the relation to the resource and by the report, and three
+    // different "take the original account" would drift apart silently.
     const credentialAccountId = principalOf(account);
     for (const { endpoint, resource } of cells) {
-      // Аккаунт в условиях существует только на объявленных ручках.
+      // An account under conditions exists only on the declared endpoints.
       if (account.endpointIds !== undefined && !account.endpointIds.includes(endpoint.id)) {
         continue;
       }
@@ -433,9 +452,9 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       const path = resource === undefined ? endpoint.path : substitute(endpoint.path, resource);
       const tenantId = resource?.tenantId ?? account.tenantId;
       const baseUrl = baseUrlForTenant(tenantId, options.tenantBaseUrls, options.baseUrl);
-      // Проверка области — над готовым путём, а не над шаблоном: значение объекта
-      // с `..` уводило обращение выше объявленного базового пути, потому что
-      // шаблон проверялся до подстановки.
+      // The scope check is over the finished path, not over the template: a
+      // resource value with `..` led the request above the declared base path,
+      // because the template was checked before substitution.
       let url: string;
       try {
         url = withQuery(joinUrl(baseUrl, path), resource, attributes?.query);
@@ -448,22 +467,24 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         });
         continue;
       }
-      // Тело читается только там, где человек объявил `responseMustDifferByTenant`:
-      // где не объявлено, там поток отменяется непрочитанным. См. ADR-0011.
-      // Дайджест подразумевается самим этим объявлением — сравнивать ответы между
-      // тенантами больше нечем, — остальные скаляры объявлены человеком явно.
-      // Пусто — тело не читается вовсе.
+      // The body is read only where a human declared `responseMustDifferByTenant`:
+      // where it is not declared, the stream is cancelled unread. See ADR-0011.
+      // The digest is implied by that declaration itself — there is nothing else
+      // to compare responses between tenants with — while the other scalars are
+      // declared by a human explicitly. Empty means the body is not read at all.
       const specs: readonly SignalSpec[] = [
         ...(endpoint.responseMustDifferByTenant === true ? DIGEST_SIGNALS : []),
         ...(endpoint.signals ?? []),
       ];
-      // Заголовки берутся на каждое обращение, а не один раз на аккаунт:
-      // подпись зависит от метода и адреса, и вынесенное из цикла значение
-      // молча подписывало бы все ячейки первым запросом. См. ADR-0018.
+      // The headers are taken for every request rather than once per account:
+      // the signature depends on the method and the address, and a value hoisted
+      // out of the loop would silently sign every cell with the first request.
+      // See ADR-0018.
       //
-      // Атрибуты условий добавляются **после** учётных: подменить учётный
-      // заголовок они не могут — это проверено при разборе конфигурации, —
-      // и порядок здесь второй рубеж той же защиты, а не стилистика.
+      // The condition attributes are added **after** the credential ones: they
+      // cannot replace a credential header — that is checked when the
+      // configuration is parsed — and the order here is the second line of the
+      // same defence, not a matter of style.
       const request = {
         method: endpoint.method,
         url,
@@ -490,7 +511,7 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         if (name === "RunBudgetExhaustedError" || name === "CircuitOpenError") {
           truncated = true;
         }
-        // Сорванное обращение — это отсутствие вывода, а не отказ в доступе.
+        // A failed request is the absence of a conclusion, not a denial of access.
         status = 0;
         headers = {};
         failures.push({
@@ -511,8 +532,8 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         headers,
         outcome: status === 0 ? "error" : classifyStatus(status),
         durationMs: Date.now() - startedAt,
-        // Момент обращения, а не только длительность: иначе находку нечем
-        // сопоставить с логом платформы.
+        // The moment of the request, not only the duration: otherwise there is
+        // nothing to match the finding against the platform's log.
         at: new Date(startedAt).toISOString(),
         ...(signals === undefined ? {} : { signals }),
       });

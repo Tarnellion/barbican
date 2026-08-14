@@ -1,9 +1,9 @@
 /**
- * Типы общего модуля сверки. Реализация — `index.mjs`.
+ * The types of the shared comparison module. The implementation — `index.mjs`.
  *
- * Написаны вручную, а не выведены: модуль лежит вне `tsconfig.include`,
- * потому что это оснастка проверки, а не часть пакета. Типы нужны затем,
- * чтобы сверку можно было покрыть настоящими тестами на TypeScript.
+ * Written by hand rather than inferred: the module lies outside `tsconfig.include`,
+ * because it is testing tooling, not part of the package. The types are there so
+ * that the comparison can be covered by real tests in TypeScript.
  */
 
 export type Visibility =
@@ -34,8 +34,8 @@ export interface OracleFinding {
   readonly other?: string | null;
   readonly kind: string;
   /**
-   * Дефекты, которыми объясняется эта ячейка. Их может быть несколько: если
-   * один дефект — частный случай другого, общая ячейка объясняется обоими.
+   * The defects that explain this cell. There may be several: when one defect is a
+   * special case of another, the shared cell is explained by both.
    */
   readonly defects: readonly string[];
 }

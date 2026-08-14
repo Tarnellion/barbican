@@ -1,9 +1,10 @@
-# Git-хуки. Устанавливаются командой: pnpm run hooks:install
+# Git hooks. Installed with: pnpm run hooks:install
 #
-# gitleaks — системный бинарь (brew install gitleaks), намеренно не npm-зависимость:
-# npm-обёртки качают бинарь в postinstall, а это ровно тот вектор, от которого
-# защищает allowBuilds в pnpm-workspace.yaml. Если gitleaks не установлен,
-# хук падает — это осознанное поведение, молча пропускать проверку секретов нельзя.
+# gitleaks is a system binary (brew install gitleaks), deliberately not an npm
+# dependency: npm wrappers download the binary in postinstall, and that is exactly
+# the vector allowBuilds in pnpm-workspace.yaml guards against. If gitleaks is not
+# installed the hook fails — that is deliberate: a secret scan must never be
+# skipped silently.
 
 pre-commit:
   parallel: true

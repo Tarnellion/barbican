@@ -1,38 +1,40 @@
-# 0016. Схема аутентификации на аккаунт
+# 0016. A per-account authentication scheme
 
-- **Статус:** принято
-- **Дата:** 2026-08-13
+- **Status:** accepted
+- **Date:** 2026-08-13
 
-## Контекст
+## Context
 
-Схема аутентификации была одна на весь прогон: `auth` в корне конфигурации
-(ADR-0008), и `createCredentialProvider` применял её ко всем аккаунтам
-одинаково.
+There was one authentication scheme for the whole run: `auth` at the root of the
+configuration (ADR-0008), and `createCredentialProvider` applied it to every
+account alike.
 
-Реального контура это не выдерживает. У мультибрендовой платформы контуров
-несколько, и аутентифицируются они по-разному: клиентское API — Bearer-JWT,
-операторская админка — сессионной кукой, кабинет аффилиата — ключом в своём
-заголовке. Это не домысел: направление и способ аутентификации у контуров
-расходятся уже в публичной документации интеграций
-(`docs/research/igaming-contours.md`, §1.2, §3.1, §3.2).
+That does not hold up against a real surface. A multi-brand platform has several
+surfaces, and they authenticate differently: the customer API by a Bearer JWT,
+the operator console by a session cookie, the affiliate cabinet by a key in a
+header of its own. This is not a guess: the direction and the means of
+authentication of the surfaces already diverge in the public integration
+documentation (`docs/research/igaming-contours.md`, §1.2, §3.1, §3.2).
 
-Прогон, охватывающий несколько контуров сразу, был **невыразим** — притом что
-ради него инструмент и существует. Пришлось бы делать несколько прогонов и
-сшивать отчёты вручную, потеряв главное: матрицу «контур × контур», где аккаунт
-одного контура спрашивает за объекты другого. Именно там живут BFLA
-(«аффилиат достаёт до административной ручки бренда») и межконтурные утечки.
+A run covering several surfaces at once was **inexpressible** — even though that
+is the run the tool exists for. You would have had to make several runs and
+stitch the reports together by hand, losing the main thing: the surface ×
+surface matrix, where an account of one surface asks for the resources of
+another. That is exactly where BFLA lives ("an affiliate reaches an
+administrative endpoint of a brand") and cross-surface leaks.
 
-Отдельное ограничение — как обычно, про молчание. Аккаунт, ушедший на прогон
-не с той схемой, получает сплошной 401. Отказ совпадает с политикой везде, где
-доступ не положен, находок не возникает, и отчёт выглядит чистым. Канарейка
-такой прогон останавливает, но она необязательна, а ошибка в схеме — нет.
+A separate constraint is, as usual, about silence. An account that went into the
+run with the wrong scheme gets 401 everywhere. The denial matches the policy
+everywhere access is not meant to be granted, no findings arise, and the report
+looks clean. A canary stops such a run, but a canary is optional, and a mistake
+in the scheme is not.
 
-## Решение
+## Decision
 
-**Именованные схемы в корне, ссылка по имени у аккаунта.**
+**Named schemes at the root, a reference by name on the account.**
 
 ```yaml
-auth: { kind: bearer }              # схема по умолчанию
+auth: { kind: bearer }              # the default scheme
 
 authSchemes:
   operator-console: { kind: cookie, name: opsid }
@@ -43,71 +45,76 @@ accounts:
       tokenEnv: TOKEN_OLGA, authScheme: operator-console }
 ```
 
-Корневая `auth` остаётся значением по умолчанию: аккаунт, не назвавший схему,
-идёт по ней, и прогон против одного контура не меняется ни на символ.
+The root `auth` stays the default value: an account that named no scheme goes by
+it, and a run against a single surface does not change by a single character.
 
-Ссылка, а не схема целиком у аккаунта, — потому что **параметры схемы
-принадлежат контуру, а не аккаунту**. Имя куки `opsid` одно на все операторские
-аккаунты; выписанное у каждого, оно рано или поздно разойдётся опечаткой.
-И вот тут разница принципиальная: опечатку в *параметре* поймать нечем — `opsi`
-такое же законное имя куки, как `opsid`, и проверить его не с чем. Опечатка
-в *ссылке* ловится всегда: имя либо объявлено, либо нет.
+A reference rather than the whole scheme on the account, because **the
+parameters of a scheme belong to the surface, not to the account**. The cookie
+name `opsid` is one and the same for all operator accounts; written out on each
+of them, it will sooner or later drift apart through a typo. And here the
+difference matters: there is nothing to catch a typo in a *parameter* with —
+`opsi` is as legitimate a cookie name as `opsid`, and there is nothing to check
+it against. A typo in a *reference* is caught every time: a name is either
+declared or it is not.
 
-Три ошибки падают на старте, до первого запроса:
+Three errors fail at startup, before the first request:
 
-| Ошибка | Что было бы иначе |
+| Error | What would happen otherwise |
 |---|---|
-| ссылка не разрешается (`UnknownAuthSchemeError`) | аккаунт идёт по умолчанию, 401 везде, отчёт чист |
-| схема никем не используется (`UnusedAuthSchemeError`) | забытый `authScheme`: тот же 401, то же молчание |
-| схема у аккаунта без `tokenEnv` (`AuthSchemeWithoutTokenError`) | ссылка «использует» схему, и забытый `authScheme` у настоящего аккаунта перестаёт быть виден |
+| the reference does not resolve (`UnknownAuthSchemeError`) | the account goes with the default, 401 everywhere, the report is clean |
+| the scheme is used by nobody (`UnusedAuthSchemeError`) | a forgotten `authScheme`: the same 401, the same silence |
+| a scheme on an account without `tokenEnv` (`AuthSchemeWithoutTokenError`) | the reference "uses" the scheme, and a forgotten `authScheme` on a real account stops being visible |
 
-Вторая — тот же класс, что шаблон эндпоинтов, не совпавший ни с чем (ADR-0008):
-объявление, которое ни разу не применилось, выглядит проверенным утверждением,
-не будучи им.
+The second is the same class as an endpoint pattern that matched nothing
+(ADR-0008): a declaration that never applied looks like a checked statement
+without being one.
 
-Секретов в схеме нет ни в каком виде: она описывает транспорт, значение приходит
-из переменной окружения, названной аккаунтом. Объекты схем строгие — лишний ключ
-отвергается, а не отбрасывается молча, иначе `{ kind: bearer, token: "…" }`
-притворился бы работающим, оставив секрет в файле, который положено коммитить.
+There are no secrets in a scheme in any form: it describes the transport, and
+the value comes from the environment variable the account names. Scheme objects
+are strict — an extra key is rejected, not silently dropped, otherwise
+`{ kind: bearer, token: "…" }` would pretend to work while leaving a secret in a
+file that is meant to be committed.
 
-## Альтернативы
+## Alternatives
 
-- **Переопределение целиком у аккаунта** (`accounts[].auth: { kind: cookie, name: opsid }`).
-  Короче на одну сущность и не требует разрешения ссылок. Отклонено: повторяет
-  параметры контура у каждого аккаунта, а опечатка в параметре не ловится ничем
-  и даёт ровно тот молчаливый прогон, ради предотвращения которого всё и
-  затевалось. Класс ошибки при этом не гипотетический — тот же, что однажды
-  спрятал настоящую утечку опечаткой в имени тенанта.
-- **Оба способа сразу**: ссылка или встроенная схема. Гибче, но сохраняет
-  неловимую опечатку как разрешённый путь и даёт два способа сказать одно и то
-  же. Проверяемость в этом проекте дороже удобства записи.
-- **Схема, выводимая из спецификации** (`securitySchemes` в OpenAPI). Отклонено
-  по ADR-0006: спека порождается из того же кода, и вывод из неё означал бы
-  сравнение реализации с самой собой. К тому же она описывает, чем *можно*
-  представиться, а не чем представляется конкретный аккаунт.
-- **Несколько прогонов и сшивание отчётов.** Существующее положение дел.
-  Теряет матрицу «контур × контур» целиком — то есть ровно то, что инструмент
-  умеет и чего не умеет ничто другое.
-- **Схема на роль, а не на аккаунт.** Заманчиво: контур и роль часто совпадают.
-  Но не всегда — один и тот же администратор бывает и в админке, и в клиентском
-  API, — а совпадение, встроенное в модель, потом не разъять.
+- **A full override on the account** (`accounts[].auth: { kind: cookie, name: opsid }`).
+  One entity shorter and it needs no reference resolution. Rejected: it repeats
+  the parameters of the surface on every account, and a typo in a parameter is
+  caught by nothing and gives exactly the silent run that this whole thing was
+  started to prevent. The class of error here is not hypothetical — it is the
+  same one that once hid a real leak through a typo in a tenant name.
+- **Both ways at once**: a reference or an inline scheme. More flexible, but it
+  keeps the uncatchable typo as an allowed path and gives two ways to say the
+  same thing. Checkability in this project is worth more than convenience of
+  writing.
+- **A scheme derived from the specification** (`securitySchemes` in OpenAPI).
+  Rejected by ADR-0006: the spec is generated from the same code, and deriving
+  from it would mean comparing an implementation against itself. Besides, it
+  describes what one *may* present, not what a particular account presents.
+- **Several runs and stitching the reports together.** The existing state of
+  affairs. It loses the surface × surface matrix entirely — that is, exactly
+  what the tool can do and nothing else can.
+- **A scheme per role rather than per account.** Tempting: surface and role
+  often coincide. But not always — one and the same administrator turns up both
+  in the console and in the customer API — and a coincidence built into the
+  model cannot be pulled apart later.
 
-## Последствия
+## Consequences
 
-Прогон охватывает несколько контуров разом. Матрица «контур × контур»
-становится выразимой, и вместе с ней — BFLA между контурами.
+A run covers several surfaces at once. The surface × surface matrix becomes
+expressible, and with it BFLA between surfaces.
 
-Расплата — ещё одна сущность в конфигурации и обязанность объявлять схему
-до ссылки на неё. Для одноконтурного прогона расплаты нет: и `authSchemes`,
-и `authScheme` необязательны.
+The price is one more entity in the configuration and the duty to declare a
+scheme before referring to it. For a single-surface run there is no price: both
+`authSchemes` and `authScheme` are optional.
 
-Отчёт по-прежнему записывает только схему по умолчанию (`inputs.auth`):
-переопределения в него пока не попадают. Это стоит исправить — читатель отчёта
-не видит, каким контуром ходил аккаунт, — но затрагивает формат отчёта и
-делается отдельно.
+The report still records only the default scheme (`inputs.auth`): the overrides
+do not reach it yet. This is worth fixing — the reader of the report cannot see
+which surface an account went through — but it touches the report format and is
+done separately.
 
-Пересмотреть, если появятся схемы, требующие состояния: OAuth-редиректы, обмен
-refresh-токена, подпись тела по RSA (§3.2 исследования). Ни одна из них
-в нынешнюю модель «токен из окружения → заголовок» не укладывается, и добавлять
-их сюда не следует: логин — это POST, то есть за пределами безопасного режима,
-и оператор логинится вне инструмента.
+Revisit if schemes appear that require state: OAuth redirects, a refresh token
+exchange, an RSA signature over the body (§3.2 of the research). None of them
+fits the current "token from the environment → header" model, and they should
+not be added here: a login is a POST, that is, outside safe mode, and the
+operator logs in outside the tool.

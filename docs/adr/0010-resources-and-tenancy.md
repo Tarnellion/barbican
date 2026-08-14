@@ -1,29 +1,31 @@
-# 0010. Ресурсы, принадлежность и трёхмерная матрица
+# 0010. Resources, ownership and the three-dimensional matrix
 
-- **Статус:** принято
-- **Дата:** 2026-08-12
+- **Status:** accepted
+- **Date:** 2026-08-12
 
-## Контекст
+## Context
 
-Проект заявлен как инструмент проверки RBAC **и изоляции тенантов**. Вторая половина
-до сих пор не реализована: `tenantId` читается из конфигурации, кладётся в доменный
-тип и больше не используется нигде — ни в формировании запроса, ни в политике, ни
-в диффе. Это поле в отчёте, за которым ничего нет.
+The project is declared as a tool for checking RBAC **and tenant isolation**. The
+second half is still not implemented: `tenantId` is read from the configuration,
+put into a domain type and used nowhere else — not in forming the request, not in
+the policy, not in the diff. It is a field in the report with nothing behind it.
 
-Причина в том, что матрица двумерна: «аккаунт × эндпоинт». Такая матрица отвечает
-на вопрос «кому какая ручка открыта» и не может ответить на «может ли аккаунт
-тенанта A прочитать объект тенанта B» — потому что объекта в ней нет вовсе.
+The reason is that the matrix is two-dimensional: "account × endpoint". Such a
+matrix answers the question "who has which endpoint open" and cannot answer "can an
+account of tenant A read a resource of tenant B" — because there is no resource in
+it at all.
 
-Отсюда же второе ограничение: эндпоинты с параметрами в пути пропускаются, так как
-подставить в них нечего. На VAmPI это 9 эндпоинтов из 14, на crAPI — четыре из
-шестнадцати доступных GET. BOLA и IDOR живут именно там.
+Hence the second limitation too: endpoints with parameters in the path are skipped,
+since there is nothing to substitute into them. On VAmPI that is 9 endpoints out of
+14, on crAPI four out of the sixteen available GETs. BOLA and IDOR live exactly
+there.
 
-## Решение
+## Decision
 
-**Матрица становится трёхмерной: аккаунт × эндпоинт × ресурс.**
+**The matrix becomes three-dimensional: account × endpoint × resource.**
 
-Ресурсы объявляются человеком в конфигурации вместе с владельцем и значениями
-параметров:
+Resources are declared by a human in the configuration together with the owner and
+the parameter values:
 
 ```yaml
 resources:
@@ -39,25 +41,26 @@ resources:
     query: { report_id: "1" }
 ```
 
-Эндпоинт без параметров опрашивается как прежде — по разу на аккаунт, без ресурса.
-Эндпоинт с параметрами опрашивается по разу на каждую пару «аккаунт × ресурс»,
-у которой есть значения для всех параметров пути.
+An endpoint without parameters is probed as before — once per account, with no
+resource. An endpoint with parameters is probed once per "account × resource" pair
+that has values for all of the path parameters.
 
-### Принадлежность вместо одного «свой или чужой»
+### Ownership instead of a single "own or someone else's"
 
-Отношение аккаунта к ресурсу трёхзначно, потому что двух значений не хватает:
+The relation of an account to a resource has three values, because two are not
+enough:
 
-| Отношение | Условие | Какой дефект ловит |
+| Relation | Condition | Which defect it catches |
 |---|---|---|
-| `own` | владелец ресурса — сам аккаунт | базовый доступ к своему |
-| `same-tenant` | тот же тенант, другой владелец | BOLA внутри тенанта |
-| `foreign-tenant` | другой тенант | утечка между тенантами |
+| `own` | the owner of the resource is the account itself | basic access to one's own |
+| `same-tenant` | same tenant, different owner | BOLA inside a tenant |
+| `foreign-tenant` | a different tenant | a leak between tenants |
 
-Разделение `same-tenant` и `foreign-tenant` существенно: администратору тенанта
-обычно положен доступ ко всем объектам своего тенанта и не положен ни к одному
-чужому. Одним признаком «не своё» это не выразить.
+Separating `same-tenant` and `foreign-tenant` matters: a tenant administrator is
+usually meant to have access to every resource of their own tenant and to none of
+anyone else's. A single "not one's own" flag cannot express that.
 
-### Политика получает область действия
+### The policy gets a scope
 
 ```yaml
 rules:
@@ -66,57 +69,63 @@ rules:
   - { roles: [admin],  endpoints: "*",            scope: foreign-tenant, outcome: denied }
 ```
 
-`scope` необязателен: правило без него применяется к любому отношению, включая
-эндпоинты без ресурса. Это сохраняет совместимость с уже написанными политиками.
+`scope` is optional: a rule without it applies to any relation, including endpoints
+with no resource. This keeps compatibility with policies already written.
 
-### Идентификаторы объявляются, а не выуживаются из ответов
+### Identifiers are declared, not fished out of responses
 
-Это закрывает вопрос, висевший с фазы 2: как достать идентификатор для BOLA, не
-читая тела ответов. Ответ — **не доставать**. Утверждение «объект 1001 принадлежит
-игроку A, а 2002 — тенанту B» есть заявление о намерении, ровно как и сама политика
-доступа (ADR-0006). Человек его объявляет, инструмент проверяет.
+This closes a question that has been hanging since phase 2: how to obtain an
+identifier for BOLA without reading response bodies. The answer is **do not obtain
+it**. The statement "resource 1001 belongs to player A, and 2002 to tenant B" is a
+claim of intent, exactly like the access policy itself (ADR-0006). A human declares
+it, the tool checks it.
 
-Тела ответов при этом остаются нечитаемыми, а инвариант — нетронутым.
+Response bodies stay unread, and the invariant stays untouched.
 
-### Анонимный аккаунт
+### The anonymous account
 
-`tokenEnv` становится необязательным. Аккаунт без него обращается без учётных данных.
-Без этого нельзя проверить утверждение «этот адрес не должен быть публичным», а
-разведка crAPI показала, что там один заказ отдаётся вообще без токена — находка,
-которую двумерная модель с обязательным токеном пропускает.
+`tokenEnv` becomes optional. An account without it makes its requests with no
+credentials. Without that you cannot check the claim "this address must not be
+public", and reconnaissance of crAPI showed that one order there is handed out with
+no token at all — a finding that a two-dimensional model with a mandatory token
+misses.
 
-## Альтернативы
+## Alternatives
 
-**Выуживать идентификаторы из тел предыдущих ответов.** Так работают сканеры общего
-назначения, и так достижимы дефекты, о которых человек не знал заранее. Отклонено:
-требует чтения тел, то есть отмены инварианта, ради которого проект и затевался.
-Цена — инструмент не найдёт того, чего человек не объявил; это осознанное сужение.
+**Fish identifiers out of the bodies of previous responses.** That is how
+general-purpose scanners work, and that is how defects a human did not know about in
+advance become reachable. Rejected: it requires reading bodies, that is, cancelling
+the invariant the project was started for. The price is that the tool will not find
+what a human did not declare; this is a deliberate narrowing.
 
-**Одно поле «чужой ресурс» вместо трёх отношений.** Короче в конфигурации, но не
-выражает разницы между «чужой объект моего тенанта» и «объект чужого тенанта»,
-а для многотенантной платформы это разные классы дефектов с разной серьёзностью.
+**One "someone else's resource" flag instead of three relations.** Shorter in the
+configuration, but it does not express the difference between "someone else's
+resource in my tenant" and "a resource of a different tenant", and for a
+multi-tenant platform those are different classes of defect with different severity.
 
-**Ресурс как четвёртое измерение поверх тенанта.** Тенант ресурса — часть его
-описания, а не отдельная ось: объект принадлежит ровно одному тенанту, и вводить
-для этого измерение значило бы плодить заведомо пустые ячейки.
+**The resource as a fourth dimension on top of the tenant.** A resource's tenant is
+part of its description, not an axis of its own: a resource belongs to exactly one
+tenant, and introducing a dimension for that would mean breeding cells known to be
+empty.
 
-**Извлекать описания параметров из спецификации.** Позволило бы отличать параметры
-пути от query автоматически. Отклонено пока: спецификация приходит от проверяемой
-системы, а значения всё равно объявляет человек — проще и честнее, чтобы он же
-и назвал, куда они подставляются.
+**Extract parameter descriptions from the specification.** It would allow telling
+path parameters from query ones automatically. Rejected for now: the specification
+comes from the system under test, while the values are declared by a human anyway —
+it is simpler and more honest for the same human to name where they get substituted.
 
-## Последствия
+## Consequences
 
-Матрица растёт как произведение: на трёх аккаунтах, десяти эндпоинтах с параметрами
-и четырёх ресурсах это 120 обращений вместо 30. Троттлинг и потолок обращений на
-прогон становятся существеннее, а не декоративнее.
+The matrix grows as a product: with three accounts, ten endpoints with parameters
+and four resources that is 120 requests instead of 30. Throttling and the ceiling on
+requests per run become more substantial, not more decorative.
 
-Конфигурация усложняется: к аккаунтам и политике добавляются ресурсы. Это цена
-за то, чтобы инструмент проверял то, что заявлено в его названии.
+The configuration gets more complicated: resources are added to accounts and the
+policy. That is the price of the tool checking what its own name claims.
 
-Отчёт получает третье измерение: находка теперь указывает не только «кто и куда»,
-но и «к какому объекту», без чего вывод о нарушении изоляции непроверяем.
+The report gains a third dimension: a finding now says not only "who and where" but
+also "against which resource", without which a conclusion about broken isolation
+cannot be verified.
 
-Пересмотреть, если появится источник идентификаторов, независимый от проверяемой
-системы и не требующий ручного объявления, — например, доступ к её базе на чтение
-в тестовом контуре.
+Revisit if a source of identifiers appears that is independent of the system under
+test and does not require manual declaration — for example read access to its
+database in a test environment.

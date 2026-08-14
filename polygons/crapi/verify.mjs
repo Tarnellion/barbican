@@ -1,26 +1,27 @@
 #!/usr/bin/env node
 
 /**
- * Сверка инструмента с оракулом полигона crAPI.
+ * Verification of the tool against the crAPI polygon's oracle.
  *
- * Поднимает crAPI в docker, логинит предзаведённых пользователей, прогоняет
- * собранный `dist/cli.js run` и сравнивает находки с `ground-truth.json`
- * в обе стороны — пропущенное и лишнее. Ложное срабатывание обесценивает
- * инструмент не меньше пропуска, поэтому «найдено сверх оракула» — такое же
- * расхождение, как «не найдено».
+ * Brings crAPI up in docker, logs in the pre-seeded users, runs the built
+ * `dist/cli.js run` and compares the findings against `ground-truth.json` in both
+ * directions — what was missed and what was extra. A false positive devalues the tool
+ * no less than a miss, so "found beyond the oracle" is just as much a discrepancy as
+ * "not found".
  *
- * Вариант ровно один: у crAPI нет переключателя уязвимостей, и `selector`
- * оракула пуст. Подробности — в самом оракуле; проверка на пустоту ниже.
+ * There is exactly one variant: crAPI has no vulnerability switch, and the oracle's
+ * `selector` is empty. The details are in the oracle itself; the emptiness check is
+ * below.
  *
- * Сам crAPI в репозиторий не вкладывается: чужой проект под своей лицензией.
- * Путь к его `deploy/docker` берётся из `CRAPI_DEPLOY_DIR`, спецификация —
- * из `CRAPI_SPEC` либо из того же дерева.
+ * crAPI itself is not vendored into the repository: someone else's project under its
+ * own licence. The path to its `deploy/docker` comes from `CRAPI_DEPLOY_DIR`, the
+ * specification from `CRAPI_SPEC` or from the same tree.
  *
- * Ноль зависимостей: только встроенные модули и docker.
+ * Zero dependencies: built-in modules and docker only.
  *
- * Использование:
- *   CRAPI_DEPLOY_DIR=/путь/к/crAPI/deploy/docker node polygons/crapi/verify.mjs
- *   ... node polygons/crapi/verify.mjs --keep    # не гасить стенд после прогона
+ * Usage:
+ *   CRAPI_DEPLOY_DIR=/path/to/crAPI/deploy/docker node polygons/crapi/verify.mjs
+ *   ... node polygons/crapi/verify.mjs --keep    # do not stop the deployment after the run
  */
 
 import { spawn } from "node:child_process";
@@ -39,8 +40,8 @@ const OVERRIDE = join(POLYGON_DIR, "docker-compose.override.yaml");
 const GROUND_TRUTH = join(POLYGON_DIR, "ground-truth.json");
 
 /**
- * Образы crAPI. Проверяются до запуска: `compose up` иначе молча уходит
- * тянуть полтора гигабайта посреди сверки.
+ * crAPI's images. Checked before the launch: otherwise `compose up` silently goes off
+ * to pull a gigabyte and a half in the middle of the verification.
  */
 const IMAGES = [
   "crapi/crapi-web",
@@ -50,20 +51,20 @@ const IMAGES = [
 ];
 
 /**
- * Эндпоинт, обращение к которому пишет в стенд.
+ * The endpoint a request to which writes to the deployment.
  *
- * `GET /workshop/api/mechanic/receive_report` называется в спецификации
- * create_service_report и создаёт сервис-отчёт: безопасный метод, небезопасное
- * действие. Проверяется отдельно — опрошенный, он менял бы состояние стенда
- * посреди прогона, и совпадение с оракулом было бы случайным.
+ * `GET /workshop/api/mechanic/receive_report` is called create_service_report in the
+ * specification and creates a service report: a safe method, an unsafe action.
+ * Checked separately — once probed, it would change the deployment's state in the
+ * middle of the run, and a match with the oracle would be accidental.
  */
 const WRITING_ENDPOINT = "create_service_report";
 
 /**
- * Локальная петля терпит частоту выше дефолтной.
+ * The local loopback tolerates a higher rate than the default.
  *
- * Дефолты инструмента (2 одновременно, 5 в секунду) рассчитаны на чужой стенд.
- * Здесь стенд свой и в контейнерах на той же машине.
+ * The tool's defaults (2 at a time, 5 per second) are meant for someone else's
+ * deployment. Here the deployment is our own and in containers on the same machine.
  */
 const RUN_FLAGS = ["--rps", "20", "--concurrency", "4"];
 
@@ -71,7 +72,7 @@ const PREFIX = "verify: ";
 
 const NL = "\n";
 
-/** Всё, что печатает скрипт, идёт в stdout: это отчёт о сверке, а не диагностика. */
+/** Everything the script prints goes to stdout: this is a verification report, not diagnostics. */
 function say(text) {
   process.stdout.write(text + NL);
 }
@@ -81,7 +82,7 @@ function fail(message) {
   process.exit(2);
 }
 
-/** Обёртка над spawn: собирает вывод и никогда не бросает. */
+/** A wrapper over spawn: it collects the output and never throws. */
 function run(command, args, options) {
   return new Promise((done) => {
     const settings = {};
@@ -102,10 +103,10 @@ function run(command, args, options) {
 }
 
 /**
- * Достаёт baseUrl из конфигурации прогона.
+ * Pulls the baseUrl out of the run configuration.
  *
- * Регулярным выражением, а не YAML-разбором: у скрипта не должно быть
- * зависимостей. Значение нужно ровно одно, и формат файла мы контролируем.
+ * With a regular expression rather than by parsing YAML: the script must have no
+ * dependencies. Exactly one value is needed, and we control the file's format.
  */
 function readBaseUrl(configText) {
   const match = /^\s*baseUrl:\s*(\S+)\s*$/m.exec(configText);
@@ -116,11 +117,11 @@ function readBaseUrl(configText) {
 }
 
 /**
- * Сверяет, что скрипт логинит ровно тех, кого объявляет конфигурация.
+ * Checks that the script logs in exactly those the configuration declares.
  *
- * Расхождение здесь не падает, а тихо портит прогон: аккаунт без токена
- * получает 401 на каждое обращение, 401 читается как отказ, отказ совпадает
- * с политикой — и отчёт выходит чистым, не проверив ничего.
+ * A discrepancy here does not fail loudly, it quietly spoils the run: an account with
+ * no token gets a 401 on every request, a 401 reads as a denial, a denial agrees with
+ * the policy — and the report comes out clean having tested nothing.
  */
 function assertLoginsMatchConfig(configText) {
   const hits = [...configText.matchAll(/^\s*tokenEnv:\s*(\S+)\s*$/gm)];
@@ -142,11 +143,11 @@ function assertLoginsMatchConfig(configText) {
 }
 
 /**
- * Где лежит сам crAPI.
+ * Where crAPI itself lives.
  *
- * В репозиторий он не вкладывается: чужой проект под своей лицензией. Каталог
- * `deploy/docker` его дерева задаётся переменной CRAPI_DEPLOY_DIR, спецификация —
- * CRAPI_SPEC либо тем же деревом.
+ * It is not vendored into the repository: someone else's project under its own
+ * licence. The `deploy/docker` directory of its tree is set by the CRAPI_DEPLOY_DIR
+ * variable, the specification by CRAPI_SPEC or by the same tree.
  */
 function locateCrapi() {
   const deployDir = process.env.CRAPI_DEPLOY_DIR;
@@ -166,11 +167,11 @@ function locateCrapi() {
 }
 
 /**
- * Окружение compose.
+ * The compose environment.
  *
- * LISTEN_IP выставляется явно: полигон намеренно уязвим, и публиковать его
- * куда-либо кроме петли нельзя. Значение из .env самого crAPI при этом
- * перекрывается — переменная окружения в compose сильнее файла.
+ * LISTEN_IP is set explicitly: the polygon is deliberately vulnerable, and it must
+ * not be published anywhere but the loopback. The value from crAPI's own .env is
+ * overridden in the process — an environment variable beats a file in compose.
  */
 function composeEnvironment() {
   const environment = { ...process.env };
@@ -179,8 +180,8 @@ function composeEnvironment() {
 }
 
 /**
- * Поднимается только веб-контейнер: остальное compose дотянет сам по
- * depends_on. Чат-бот в этот список не входит — см. наложение рядом.
+ * Only the web container is brought up: compose pulls the rest in itself through
+ * depends_on. The chatbot is not on that list — see the override next to this file.
  */
 async function composeUp(compose, environment) {
   const args = ["compose", "-f", compose, "-f", OVERRIDE, "up", "-d", "crapi-web"];
@@ -190,18 +191,19 @@ async function composeUp(compose, environment) {
   }
 }
 
-/** Гасится всё вместе с томами: намеренно уязвимый стенд не оставляют поднятым. */
+/** Everything is stopped along with the volumes: a deliberately vulnerable deployment is not left running. */
 async function composeDown(compose, environment) {
   const args = ["compose", "-f", compose, "-f", OVERRIDE, "down", "-v"];
   await run("docker", args, { env: environment });
 }
 
 /**
- * Ждёт `GET /health` веб-контейнера.
+ * Waits for the web container's `GET /health`.
  *
- * Ждёт сверка, а не инструмент: crAPI поднимается минуту и дольше, а прогон
- * по неготовому стенду дал бы сплошные 502 — отчёт без единой находки,
- * снаружи неотличимый от чистого.
+ * It is the verification that waits, not the tool: crAPI takes a minute and more to
+ * come up, and a run against a deployment that is not ready would give a solid wall
+ * of 502s — a report without a single finding, indistinguishable from a clean one
+ * from the outside.
  */
 async function waitForHealth(baseUrl, attempts) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -212,14 +214,14 @@ async function waitForHealth(baseUrl, attempts) {
         return true;
       }
     } catch {
-      // Ещё не слушает — пробуем снова.
+      // Not listening yet — try again.
     }
     await new Promise((done) => setTimeout(done, 1000));
   }
   return false;
 }
 
-/** Эндпоинты берутся из спецификации самого crAPI — своего списка полигон не ведёт. */
+/** The endpoints come from crAPI's own specification — the polygon keeps no list of its own. */
 function runCli(spec, reportPath, environment) {
   const args = [CLI, "run", "-c", CONFIG, "-s", spec, "-r", reportPath, ...RUN_FLAGS];
   return run("node", args, { env: environment });
@@ -230,9 +232,9 @@ async function checkVariant(variant, baseUrl, spec, reportDir, compose) {
   say("");
   say(`=== ${variant.id} ===`);
 
-  // Пустой selector — устройство полигона, а не недосмотр: переключателя
-  // уязвимостей у crAPI нет. Непустой означал бы, что оракул поменялся,
-  // а скрипт нет, и передать это стенду нечем.
+  // An empty selector is how the polygon is built, not an oversight: crAPI has no
+  // vulnerability switch. A non-empty one would mean the oracle has changed while the
+  // script has not, and there is nothing to pass that to the deployment with.
   if (Object.keys(variant.selector).length > 0) {
     fail(`variant ${variant.id} sets a selector, but crAPI has nothing to switch`);
   }
@@ -258,13 +260,14 @@ async function checkVariant(variant, baseUrl, spec, reportDir, compose) {
   }
   const report = JSON.parse(await readFile(reportPath, "utf8"));
 
-  // Сравнение и проверки достоверности — общие для всех полигонов (ADR-0012).
-  // Своего кода сравнения здесь нет и быть не должно.
+  // The comparison and the trustworthiness checks are shared by all polygons
+  // (ADR-0012). There is no comparison code of our own here and there must not be.
   const shared = compareVariant(variant, report, result.code);
   const problems = [...shared.problems];
 
-  // Пишущий эндпоинт обязан остаться нетронутым: опрошенный, он создаёт
-  // сервис-отчёт, и остаток матрицы проверяется уже по изменённому стенду.
+  // The writing endpoint must stay untouched: once probed, it creates a service
+  // report, and the rest of the matrix is tested against an already changed
+  // deployment.
   const writing = report.skipped.find((item) => item.endpointId === WRITING_ENDPOINT);
   if (writing?.reason !== "excluded") {
     problems.push(
@@ -319,8 +322,8 @@ async function main() {
   }
   assertLoginsMatchConfig(configText);
 
-  // Полнота проверяется до прогона: дефект, объявленный видимым и не ожидаемый
-  // ни в одном варианте, — это забытый вариант либо неверная пометка видимости.
+  // Completeness is checked before the run: a defect declared visible and expected in
+  // no variant is either a forgotten variant or a wrong visibility mark.
   const groundTruth = loadGroundTruth(await readFile(GROUND_TRUTH, "utf8"));
   const gaps = checkCoverage(groundTruth);
   if (gaps.length > 0) {
@@ -343,9 +346,10 @@ async function main() {
     try {
       matched = await checkVariant(variant, baseUrl, located.spec, reportDir, located.compose);
     } catch (error) {
-      // Сорвавшаяся подготовка — не расхождение, а невозможность проверить.
-      // Стенд гасится в любом случае: оставить поднятым намеренно уязвимый API,
-      // отдающий чужие заказы без токена, — плохой способ закончить сверку.
+      // A setup that fell through is not a discrepancy but an inability to test.
+      // The deployment is stopped in any case: leaving a deliberately vulnerable API
+      // running, one that serves other people's orders without a token, is a poor way
+      // to finish a verification.
       await composeDown(located.compose, composeEnvironment());
       fail(`variant ${variant.id}: ${error.message}`);
     }

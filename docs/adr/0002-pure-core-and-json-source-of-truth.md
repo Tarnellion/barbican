@@ -1,41 +1,41 @@
-# 0002. Чистое ядро и JSON как единственный источник истины
+# 0002. A pure core and JSON as the single source of truth
 
-- **Статус:** принято
-- **Дата:** 2026-08-11
+- **Status:** accepted
+- **Date:** 2026-08-11
 
-## Контекст
+## Context
 
-Инструмент делает сетевые запросы к чужим API и на их основе выносит выводы о наличии
-уязвимостей. Два риска: логика вывода, перемешанная с вводом-выводом, не тестируется без
-сети и потому проверяется плохо; отчёт, собираемый по ходу проверок, невозможно
-воспроизвести и сверить.
+The tool makes network requests to someone else's API and, on the strength of them, draws
+conclusions about the presence of vulnerabilities. Two risks: inference logic mixed in with
+input and output cannot be tested without the network and is therefore tested badly; a
+report assembled as the checks run cannot be reproduced or verified.
 
-## Решение
+## Decision
 
-`src/core` содержит только чистые функции и типы: ни HTTP, ни файловой системы, ни
-глобального состояния. Вход — роли, эндпоинты и наблюдённые ответы. Выход — матрица
-доступа и расхождения. Всё тестируется на фикстурах без сети.
+`src/core` contains only pure functions and types: no HTTP, no file system, no global
+state. The input is roles, endpoints and observed responses. The output is the access
+matrix and the discrepancies. Everything is tested on fixtures without the network.
 
-Реестр проверок экземплярный (`new CheckRegistry()`), синглтон не экспортируется:
-глобальное состояние в ядре запрещено, включая состояние вида «реестр по умолчанию».
-Метод `Check.run` синхронный — это делает невозможным незаметный ввод-вывод внутри
-проверки.
+The check registry is per-instance (`new CheckRegistry()`), no singleton is exported:
+global state in the core is forbidden, including state of the "default registry" kind. The
+`Check.run` method is synchronous — that makes unnoticed input and output inside a check
+impossible.
 
-JSON — единственный источник истины. Прогон завершается JSON-документом; HTML, PDF и
-любой человекочитаемый вывод рендерятся из него отдельным шагом в `src/report`.
+JSON is the single source of truth. A run ends with a JSON document; HTML, PDF and any
+human-readable output are rendered from it by a separate step in `src/report`.
 
-## Альтернативы
+## Alternatives
 
-- **Ядро, которое само ходит по сети:** меньше слоёв, но тесты требуют полигона или моков
-  HTTP, а воспроизвести конкретный прогон нельзя.
-- **Рендер отчёта по ходу проверок:** экономит один проход, но делает вывод
-  невоспроизводимым и связывает формат представления с логикой обнаружения.
+- **A core that goes to the network itself:** fewer layers, but the tests then need a
+  polygon or HTTP mocks, and a particular run cannot be reproduced.
+- **Rendering the report as the checks run:** it saves one pass, but makes the output
+  non-reproducible and ties the presentation format to the detection logic.
 
-## Последствия
+## Consequences
 
-Ядро можно прогнать на зафиксированных наблюдениях и получить тот же результат — это
-даёт регрессионные тесты на реальных данных и возможность перепроверить старый прогон
-новой версией детекторов.
+The core can be run over recorded observations and give the same result — that yields
+regression tests on real data and the ability to re-check an old run with a new version of
+the detectors.
 
-Расплата: наблюдения нужно материализовать целиком до анализа, то есть стриминговый
-разбор «на лету» исключён. Для ожидаемых объёмов это приемлемо.
+The price: observations have to be materialized in full before analysis, which rules out
+streaming parsing on the fly. For the expected volumes that is acceptable.

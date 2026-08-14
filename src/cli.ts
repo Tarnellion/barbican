@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
 /**
- * Точка входа CLI.
+ * The CLI entry point.
  *
- * Ограничения безопасности здесь не реализуются, а настраиваются: обязательный
- * allowlist хостов, запрет небезопасных методов, троттлинг и отказ от редиректов
- * живут в HTTP-клиенте и действуют независимо от того, что передал CLI.
+ * Security limits are not implemented here, only configured: the mandatory host
+ * allowlist, the ban on unsafe methods, throttling and the refusal to follow
+ * redirects live in the HTTP client and hold whatever the CLI passes in.
  */
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -42,13 +42,14 @@ import { findUnauthenticated } from "./report/authenticity.js";
 import { buildReport, exitCodeFor } from "./report/build.js";
 import { collectObservations, probeCanaries } from "./runner.js";
 
-// Версия читается из package.json, а не дублируется константой: разошедшись,
-// дубликат заставил бы CLI врать о собственной версии в отчётах о прогонах.
+// The version is read from package.json rather than duplicated in a constant:
+// once they drift apart, the duplicate makes the CLI lie about its own version
+// in run reports.
 const requireFromHere = createRequire(import.meta.url);
 const { version } = requireFromHere("../package.json") as { readonly version: string };
 
 function paint(text: string, format: Parameters<typeof styleText>[0]): string {
-  // Без TTY управляющие последовательности только мусорят в перенаправленном выводе.
+  // Without a TTY, escape sequences only litter redirected output.
   return process.stderr.isTTY === true ? styleText(format, text) : text;
 }
 
@@ -59,7 +60,7 @@ const SKIP_LABELS: Readonly<Record<string, string>> = {
   "escapes-target": "path leaves the target",
 };
 
-/** Расшифровка пропусков: одно число без причин читается как «что-то не проверено». */
+/** Skips broken down: one number with no reasons reads as 'something was not tested'. */
 function skipBreakdown(report: {
   readonly skipped: readonly { readonly reason: string }[];
 }): string {
@@ -94,8 +95,9 @@ interface RunFlags {
 async function run(flags: RunFlags): Promise<number> {
   const config = parseRunConfig(await readFile(flags.config, "utf8"));
 
-  // Предупреждение, а не отказ: на своём полигоне метка не нужна, а на чужой
-  // платформе отчёт без неё нельзя приложить к тикету — он не называет цель.
+  // A warning, not a refusal: on your own polygon the label is not needed, while
+  // on someone else's platform a report without it cannot go into a ticket — it
+  // does not name the target.
   if (config.target.label === undefined) {
     process.stderr.write(
       `${paint("The target is unnamed:", "yellow")} target has no label field. ` +
@@ -104,8 +106,8 @@ async function run(flags: RunFlags): Promise<number> {
     );
   }
 
-  // Ровно один источник эндпоинтов: два молча разошлись бы, а ни одного
-  // дало бы отчёт без находок, неотличимый от успешного.
+  // Exactly one endpoint source: two would silently diverge, and none would give
+  // a report with no findings, indistinguishable from a successful one.
   const sources = [
     { path: flags.spec, create: createOpenApiParser },
     { path: flags.endpoints, create: createEndpointListParser },
@@ -121,18 +123,20 @@ async function run(flags: RunFlags): Promise<number> {
     );
   }
   const parsed = await source.create().parse(await readFile(source.path, "utf8"));
-  // Ссылки сверяются после разбора спецификации: раньше эндпоинтов ещё нет.
+  // References are checked after the spec is parsed: before that there are no
+  // endpoints yet.
   assertReferencesResolve(config, parsed);
-  // Значения атрибутов условий: литералы как есть, ссылки — из окружения.
-  // Разрешаются до проверки подмены метода, потому что проверять надо то,
-  // что реально уйдёт по проводу, а не то, что написано в файле.
+  // The values of the context attributes: literals as they are, references from
+  // the environment. Resolved before the method-override check, because what has
+  // to be checked is what really goes over the wire, not what is written in the
+  // file.
   const contextValues = resolveContextValues(config, process.env);
   assertContextsCannotWrite(contextValues, { allowUnsafeMethods: flags.unsafeMethods === true });
-  // responseMustDifferByTenant — заявление человека об ожидании; источники
-  // эндпоинтов (спека, список, коллекция) о нём не знают и знать не должны.
+  // responseMustDifferByTenant is a human's statement of expectation; endpoint
+  // sources (a spec, a list, a collection) do not know about it and must not.
   const endpoints = applyBodySignals(parsed, config);
-  // Шаблоны раскрываются здесь, до построения матрицы: шаблон, не совпавший
-  // ни с одним эндпоинтом, обязан упасть на старте, а не увести пары в fallback.
+  // Patterns are expanded here, before the matrix is built: a pattern that matched
+  // no endpoint must fail at startup instead of dropping the pairs into fallback.
   const policy = expandPolicy(config.policy, endpoints);
 
   const credentials = createCredentialProvider(
@@ -158,12 +162,13 @@ async function run(flags: RunFlags): Promise<number> {
         }),
   });
 
-  // Аккаунты в объявленных условиях — отдельные строки матрицы. Атрибуты
-  // (заголовки, параметры запроса) в ядро не идут: там достаточно метки.
+  // Accounts under declared conditions are separate matrix rows. The attributes
+  // (headers, query parameters) do not go into the core: the label is enough there.
   const { accounts, attributes: contextAttributes } = toAccounts(config, contextValues);
 
-  // Бренды часто разнесены по поддоменам; адрес выбирается по тенанту объекта,
-  // потому что спрашиваем мы именно за чужие данные, а лежат они на чужом хосте.
+  // Brands are often spread across subdomains; the address is chosen by the
+  // resource's tenant, because what we ask for is someone else's data, and it
+  // lives on someone else's host.
   const tenantBaseUrls = new Map(
     (config.tenants ?? [])
       .filter((tenant) => tenant.baseUrl !== undefined)
@@ -184,7 +189,7 @@ async function run(flags: RunFlags): Promise<number> {
   if (canaries.length === 0) {
     process.stderr.write(
       `${paint("Authentication is unverified:", "yellow")} no account has a canary. ` +
-        `If the tokens do not work, the run will report «no escalations found» having ` +
+        `If the tokens do not work, the run will report 'no escalations found' having ` +
         `tested nothing. The run will end with exit code 2.\n`,
     );
   } else {
@@ -195,9 +200,9 @@ async function run(flags: RunFlags): Promise<number> {
       credentials,
       client,
       exclude: config.exclude,
-      // Канарейки проверяют аутентификацию, а не условия: аккаунт в условиях
-      // предъявляет те же учётные данные, и второй прогон по нему ничего
-      // нового не подтвердил бы, зато удвоил бы обращения.
+      // Canaries check authentication, not conditions: an account under conditions
+      // presents the same credentials, so a second pass over it would confirm
+      // nothing new while doubling the requests.
       accounts: accounts.filter((account) => account.contextId === undefined),
       tenantBaseUrls,
     });
@@ -234,8 +239,9 @@ async function run(flags: RunFlags): Promise<number> {
   });
   const finishedAt = new Date();
 
-  // Матрица только из опрошенного: пропуск — пробел покрытия, а не расхождение
-  // на каждый аккаунт. Иначе один пропуск даёт столько находок, сколько аккаунтов.
+  // The matrix is built only from what was probed: a skip is a gap in coverage,
+  // not a discrepancy per account. Otherwise one skip gives as many findings as
+  // there are accounts.
   const matrix = buildAccessMatrix({
     endpoints: probed,
     accounts,
@@ -243,20 +249,22 @@ async function run(flags: RunFlags): Promise<number> {
     observations,
     ...(config.tenants === undefined ? {} : { tenants: config.tenants }),
   });
-  // Один обход на оба ответа: находки и вердикты по всем ячейкам, включая
-  // совпавшие. Второй проход разошёлся бы, и отчёт утверждал бы «проверено
-  // и совпало» о ячейке, попавшей в находки. См. ADR-0020.
+  // One walk for both answers: the findings and the verdicts over every cell, the
+  // matching ones included. A second pass would diverge, and the report would
+  // claim 'tested and agreed' about a cell that landed in the findings.
+  // See ADR-0020.
   const cells = describeCells(matrix, policy);
   const findings = diffAccess(matrix, policy);
 
-  // Реестр создаётся явно и локально: глобального состояния в ядре нет (ADR-0003).
-  // Проверка сама промолчит, если ни у одного эндпоинта нет объявления
-  // responseMustDifferByTenant.
+  // The registry is created explicitly and locally: there is no global state in
+  // the core (ADR-0003). The check stays silent by itself if no endpoint carries
+  // a responseMustDifferByTenant declaration.
   const registry = new CheckRegistry();
   registry.register(createIdenticalResponseCheck());
   const checksRun = registry.list().map((check) => check.id);
-  // Что проверка сравнивала, а что пропустила по родству. Пересчитывается
-  // рядом с ней самой: правило пропуска описано там, и дубль тут разошёлся бы.
+  // What the check compared and what it skipped as related. Recomputed next to
+  // the check itself: the skip rule is described there, and a duplicate here
+  // would drift apart from it.
   const bodyComparison = describeBodyComparison({ matrix });
   const checks = registry.list().flatMap((check) => check.run({ matrix }));
   const suspicions = findUnauthenticated(
@@ -269,8 +277,9 @@ async function run(flags: RunFlags): Promise<number> {
   const unauthenticated = suspicions.map((s) => s.accountId);
 
   const report = buildReport({
-    // Те же строки, что у матрицы: находка ссылается на аккаунт в условиях,
-    // и он обязан быть в списке аккаунтов, иначе ссылка повисает.
+    // The same rows the matrix has: a finding refers to an account under
+    // conditions, and that account must be in the account list, or the reference
+    // dangles.
     accounts,
     version,
     config,
@@ -290,8 +299,9 @@ async function run(flags: RunFlags): Promise<number> {
     cells,
     checksRun,
     bodyComparison,
-    // Как их разрешил сам троттлинг, а не как их написали флагами: умолчания
-    // живут в адаптере, и второй их источник в отчёте разошёлся бы молча.
+    // As throttling itself resolved them, not as the flags spelled them out: the
+    // defaults live in the adapter, and a second source of them in the report
+    // would drift silently.
     ...(throttle.limits === undefined ? {} : { throttle: throttle.limits }),
     startedAt,
     finishedAt,
@@ -326,8 +336,8 @@ async function run(flags: RunFlags): Promise<number> {
     );
   }
   const lines = [
-    // Не «пар»: ячейка — это тройка «аккаунт × эндпоинт × объект», и 6×8 ≠ 80.
-    // Читатель, проверяющий арифметику, решал, что отчёт врёт.
+    // Not 'pairs': a cell is the triple 'account × endpoint × resource', and
+    // 6×8 ≠ 80. A reader checking the arithmetic decided the report was lying.
     `Cells probed: ${summary.observations} (matrix rows ${summary.accountRows}` +
       (summary.accountRows === summary.accounts
         ? ""
@@ -345,27 +355,29 @@ async function run(flags: RunFlags): Promise<number> {
     `Other discrepancies: unexpected denials ${summary.byKind["unexpected-denial"] ?? 0}, ` +
       `not observed ${summary.byKind["not-observed"] ?? 0}, ` +
       `probe errors ${summary.byKind["probe-error"] ?? 0}`,
-    // С чего начинать читателю: 17 находок в одном списке — это не отчёт.
+    // Where the reader starts: 17 findings in one list is not a report.
     summary.findings === 0
       ? undefined
       : `Rows by severity: critical ${summary.bySeverity.critical}, ` +
         `high ${summary.bySeverity.high}, medium ${summary.bySeverity.medium}, ` +
         `low ${summary.bySeverity.low}`,
-    // Рядом — то же по дефектам. Иначе «критических 10» читается как десять
-    // проблем, тогда как это один отсутствующий фильтр в десяти ячейках.
+    // The same by defects, right next to it. Otherwise 'critical 10' reads as ten
+    // problems, while it is one missing filter across ten cells.
     summary.findings === 0
       ? undefined
       : `Defects by severity: critical ${summary.defectsBySeverity.critical}, ` +
         `high ${summary.defectsBySeverity.high}, medium ${summary.defectsBySeverity.medium}, ` +
         `low ${summary.defectsBySeverity.low}`,
-    // Число строк говорит о размере матрицы, число сигнатур — о числе проблем.
-    // «Не менее», а не «ровно»: два дефекта с одинаковой сигнатурой снаружи
-    // неразличимы, и завышать точность нельзя.
+    // The number of rows tells the size of the matrix, the number of signatures
+    // the number of problems. 'At least', not 'exactly': two defects with the same
+    // signature are indistinguishable from the outside, and the precision must not
+    // be overstated.
     summary.findings === 0
       ? undefined
       : `Distinct defects: at least ${summary.defectGroups} (finding rows ${summary.findings})`,
-    // Находки проверок называются отдельной строкой: они увидены не по статусу,
-    // и смешивать их с эскалацией значило бы стереть это различие.
+    // Check findings are named on a line of their own: they were seen by
+    // something other than the status, and mixing them with escalation would
+    // erase that difference.
     summary.checkFindings > 0
       ? paint(`Of those, found by body rather than status: ${summary.checkFindings}`, "red")
       : undefined,

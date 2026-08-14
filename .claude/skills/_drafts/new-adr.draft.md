@@ -1,36 +1,36 @@
 ---
 name: new-adr
-description: Создать следующий по номеру ADR в docs/adr из шаблона. Использовать, когда принято нетривиальное архитектурное решение, выбран пакет или изменён инвариант безопасности.
+description: Create the next ADR by number in docs/adr from the template. Use when a non-trivial architectural decision has been made, a package chosen or a security invariant changed.
 ---
 
-**ЧЕРНОВИК — не активирован. Ревью и перенос вручную.**
+**DRAFT — not active. Review and move by hand.**
 
-# Новый ADR
+# New ADR
 
-## Шаги
+## Steps
 
-1. Определить следующий номер: `ls docs/adr | sort | tail -1`.
-2. Скопировать `docs/adr/0000-template.md` в `docs/adr/NNNN-краткий-заголовок.md`.
-3. Заполнить: статус, дата, контекст, решение, альтернативы, последствия.
+1. Work out the next number: `ls docs/adr | sort | tail -1`.
+2. Copy `docs/adr/0000-template.md` to `docs/adr/NNNN-short-title.md`.
+3. Fill in: status, date, context, decision, alternatives, consequences.
 
-## Что писать
+## What to write
 
-**Контекст** — факты и ограничения, вынудившие решать. Не пересказ очевидного.
+**Context** — the facts and constraints that forced a decision. Not a retelling of the obvious.
 
-**Решение** — что решено, один-два абзаца. Конкретные версии и настройки, если они
-часть решения.
+**Decision** — what was decided, one or two paragraphs. Specific versions and settings, if they
+are part of the decision.
 
-**Альтернативы** — что отклонили и почему. Формулировка «рассматривали X, отклонили,
-потому что Y» ценнее списка вариантов.
+**Alternatives** — what was rejected and why. The phrasing "we considered X, rejected it
+because Y" is worth more than a list of options.
 
-**Последствия** — что это даёт и чем расплачиваемся. Обязательно: при каких условиях
-решение следует пересмотреть.
+**Consequences** — what this gives and what we pay for it. Required: under what conditions
+the decision should be revisited.
 
-## Когда ADR обязателен
+## When an ADR is mandatory
 
-- Ослабление любого инварианта безопасности из CLAUDE.md.
-- Изменение `SAFE_METHODS`.
-- Разрешение lifecycle-скриптов пакету (`allowBuilds`).
-- Снижение `minimumReleaseAge`.
-- Переименование `id` существующей проверки.
-- Смена ключевого пакета или инструмента сборки.
+- Weakening any security invariant from CLAUDE.md.
+- Changing `SAFE_METHODS`.
+- Allowing lifecycle scripts for a package (`allowBuilds`).
+- Lowering `minimumReleaseAge`.
+- Renaming the `id` of an existing check.
+- Changing a key package or build tool.

@@ -1,8 +1,8 @@
 /**
- * Smoke-тест: доказывает, что цепочка TypeScript → тесты → сборка работает
- * и что ядро импортируется как библиотека.
+ * A smoke test: it proves the TypeScript -> tests -> build chain works and that
+ * the core imports as a library.
  *
- * Бизнес-логики здесь нет — она появится в сессии 2 вместе с фикстурами.
+ * There is no business logic here — that arrives in session 2 with the fixtures.
  */
 
 import { describe, expect, it } from "vitest";
@@ -11,14 +11,14 @@ import { CheckRegistry, DuplicateCheckIdError, SAFE_METHODS } from "../src/core/
 
 const stubCheck: Check = {
   id: "stub.noop",
-  description: "Заглушка для проверки реестра",
+  description: "A stub for checking the registry",
   severity: "info",
   standards: [{ standard: "OWASP-API-2023", clause: "API1" }],
   run: () => [],
 };
 
-describe("реестр проверок", () => {
-  it("регистрирует проверку и отдаёт её по id", () => {
+describe("the check registry", () => {
+  it("registers a check and returns it by id", () => {
     const registry = new CheckRegistry();
     registry.register(stubCheck);
 
@@ -27,7 +27,7 @@ describe("реестр проверок", () => {
     expect(registry.list()).toEqual([stubCheck]);
   });
 
-  it("отвергает повторную регистрацию того же id", () => {
+  it("rejects registering the same id twice", () => {
     const registry = new CheckRegistry();
     registry.register(stubCheck);
 
@@ -36,7 +36,7 @@ describe("реестр проверок", () => {
     }).toThrow(DuplicateCheckIdError);
   });
 
-  it("не имеет общего состояния между экземплярами", () => {
+  it("shares no state between instances", () => {
     const first = new CheckRegistry();
     const second = new CheckRegistry();
     first.register(stubCheck);
@@ -45,8 +45,8 @@ describe("реестр проверок", () => {
   });
 });
 
-describe("инварианты безопасности", () => {
-  it("без явного флага безопасными считаются только GET и HEAD", () => {
+describe("the security invariants", () => {
+  it("without an explicit flag only GET and HEAD count as safe", () => {
     expect([...SAFE_METHODS]).toEqual(["GET", "HEAD"]);
   });
 });

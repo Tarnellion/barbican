@@ -1,9 +1,9 @@
 /**
- * Тесты проверки изоляции тенантов по сигналам.
+ * Tests for the tenant isolation check over signals.
  *
- * Фикстуры написаны вручную: наблюдения с дайджестами задаются числами прямо
- * здесь. Сгенерировать их прогоном значило бы проверять согласованность
- * инструмента с самим собой.
+ * The fixtures are written by hand: observations with digests are given as
+ * numbers right here. Generating them from a run would mean checking the tool
+ * for consistency with itself.
  */
 
 import { describe, expect, it } from "vitest";
@@ -52,14 +52,15 @@ function matrixOf(
 
 const check = createIdenticalResponseCheck();
 
-describe("покрытие сравнения тел", () => {
+describe("coverage of body comparison", () => {
   /**
-   * Молчание отчёта про конкретную пару читается как «совпадений нет».
-   * На референс-платформе холдинг и саппорт с набором членств совпали
-   * дайджестом законно — они в родстве, — и отличить «пропустили» от «сравнили
-   * и разошлись» было нечем. Найдено вторым холодным чтением.
+   * The report's silence about a particular pair reads as "nothing matched".
+   * On the reference platform a holding and a support account with a set of
+   * memberships matched digests lawfully — they are related — and there was
+   * nothing to tell "skipped" from "compared and differed". Found by a second
+   * cold read.
    */
-  it("считает сравнённые пары отдельно от пропущенных по родству", () => {
+  it("counts compared pairs separately from pairs skipped as related", () => {
     const matrix: AccessMatrix = {
       endpoints: [LIST],
       accounts: [
@@ -77,13 +78,13 @@ describe("покрытие сравнения тел", () => {
       ],
     };
 
-    // holding × op-a — родня, пропущена. Остальные две пары сравнивались.
+    // holding x op-a are related and skipped. The other two pairs were compared.
     expect(describeBodyComparison({ matrix })).toEqual([
       { endpointId: "orders-list", comparedPairs: 2, skippedRelatedPairs: 1 },
     ]);
   });
 
-  it("не считает ручки, для которых различие не объявлено", () => {
+  it("does not count endpoints for which no difference was declared", () => {
     const matrix: AccessMatrix = {
       endpoints: [{ id: "orders-list", method: "GET", path: "/v1/orders" }],
       accounts: ACCOUNTS,
@@ -95,14 +96,14 @@ describe("покрытие сравнения тел", () => {
   });
 });
 
-describe("маппинг на стандарты", () => {
+describe("mapping onto standards", () => {
   /**
-   * Заявка о покрытии — тоже утверждение, и завышать её нельзя. API3 (BOPLA)
-   * про уровень полей, а проверка сравнивает ответ целиком и о полях ничего
-   * не знает. CWE-285, а не 862/863: снаружи «проверки нет» и «проверка есть,
-   * но неверна» неотличимы.
+   * A coverage claim is a claim too, and it must not be inflated. API3 (BOPLA)
+   * is about the field level, while the check compares the whole response and
+   * knows nothing about fields. CWE-285, not 862/863: from the outside "there
+   * is no check" and "there is a check but it is wrong" are indistinguishable.
    */
-  it("не числится за классами, которые не умеет находить", () => {
+  it("does not claim classes it cannot find", () => {
     const clauses = check.standards.map((ref) => `${ref.standard}:${ref.clause}`);
 
     expect(clauses).toEqual(["OWASP-API-2023:API1", "OWASP-ASVS-5.0:8.4.1", "CWE:285"]);
@@ -111,7 +112,7 @@ describe("маппинг на стандарты", () => {
 });
 
 describe("identical-response-across-tenants", () => {
-  it("находит совпавший дайджест у аккаунтов из разных тенантов", () => {
+  it("finds a matching digest across accounts of different tenants", () => {
     const findings = check.run({
       matrix: matrixOf([observed("alice-a", 111), observed("carol-b", 111)]),
     });
@@ -122,13 +123,14 @@ describe("identical-response-across-tenants", () => {
   });
 
   /**
-   * Обоснование обязано называть то, что проверено. Сравнивались дайджесты —
-   * 48 бит SHA-256 с солью, — а не тела: тела не сохраняются и сравнить их
-   * нечем. Прежнее `identicalBody` утверждало побайтовое совпадение, которого
-   * инструмент не наблюдал; отчёт ложится в основу инцидента, и разница там
-   * принципиальна. Тест держит имя поля, чтобы утверждение не «подросло» снова.
+   * The evidence must name what was checked. What was compared is digests —
+   * 48 bits of salted SHA-256 — not bodies: bodies are not stored and there is
+   * nothing to compare them with. The former `identicalBody` claimed a
+   * byte-for-byte match the tool never observed; a report becomes the basis of
+   * an incident, and the difference matters there. The test pins the field name
+   * so the claim does not "grow" again.
    */
-  it("называет в обосновании ровно то, что сравнивалось: дайджесты", () => {
+  it("names in the evidence exactly what was compared: digests", () => {
     const findings = check.run({
       matrix: matrixOf([observed("alice-a", 111), observed("carol-b", 111)]),
     });
@@ -138,7 +140,7 @@ describe("identical-response-across-tenants", () => {
     expect(findings[0]?.title).toContain("Response digest");
   });
 
-  it("молчит, когда ответы различаются", () => {
+  it("stays silent when the responses differ", () => {
     const findings = check.run({
       matrix: matrixOf([observed("alice-a", 111), observed("carol-b", 222)]),
     });
@@ -146,8 +148,8 @@ describe("identical-response-across-tenants", () => {
     expect(findings).toEqual([]);
   });
 
-  /** Внутри одного тенанта одинаковый список — норма, а не утечка. */
-  it("молчит на совпадении внутри одного тенанта", () => {
+  /** Inside one tenant an identical list is normal, not a leak. */
+  it("stays silent on a match inside one tenant", () => {
     const findings = check.run({
       matrix: matrixOf([observed("alice-a", 111), observed("bob-a", 111)]),
     });
@@ -156,10 +158,11 @@ describe("identical-response-across-tenants", () => {
   });
 
   /**
-   * Без объявления человеком `GET /v1/health` с одинаковым для всех
-   * `{"status":"ok"}` стал бы находкой, и настоящие утечки утонули бы в шуме.
+   * Without a human declaration, `GET /v1/health` returning the same
+   * `{"status":"ok"}` to everyone would become a finding, and real leaks would
+   * drown in the noise.
    */
-  it("молчит на эндпоинте, для которого различие не объявлено", () => {
+  it("stays silent on an endpoint for which no difference was declared", () => {
     const findings = check.run({
       matrix: matrixOf([observed("alice-a", 111), observed("carol-b", 111)], {
         id: "orders-list",
@@ -172,10 +175,11 @@ describe("identical-response-across-tenants", () => {
   });
 
   /**
-   * Когда объект задан, оба аккаунта читают одну запись: одинаковый ответ —
-   * следствие уже видимого по статусу доступа, а не отдельный дефект.
+   * When a resource is given, both accounts read the same record: an identical
+   * response is a consequence of access already visible by status, not a defect
+   * of its own.
    */
-  it("не считает дефект дважды, когда обращение шло к конкретному объекту", () => {
+  it("does not count a defect twice when the request went to a specific resource", () => {
     const findings = check.run({
       matrix: matrixOf([
         observed("alice-a", 111, { resourceId: "order-1" }),
@@ -186,7 +190,7 @@ describe("identical-response-across-tenants", () => {
     expect(findings).toEqual([]);
   });
 
-  it("не сравнивает отказы", () => {
+  it("does not compare denials", () => {
     const findings = check.run({
       matrix: matrixOf([
         observed("alice-a", 111, { outcome: "denied", status: 403 }),
@@ -197,7 +201,7 @@ describe("identical-response-across-tenants", () => {
     expect(findings).toEqual([]);
   });
 
-  it("молчит, когда сигнал не вычислен: судить не о чем", () => {
+  it("stays silent when the signal was not computed: there is nothing to judge", () => {
     const findings = check.run({
       matrix: matrixOf([
         observed("alice-a", 111, { signals: {} }),
@@ -209,11 +213,12 @@ describe("identical-response-across-tenants", () => {
   });
 
   /**
-   * Холдинг видит объединение своих брендов. Когда бренд один, ответ законно
-   * совпадает с ответом этого бренда — и без учёта дерева проверка объявила бы
-   * утечкой роллап на исправной платформе. Найдено прогоном на референс-платформе.
+   * A holding sees the union of its brands. With a single brand the response
+   * lawfully matches that brand's response — and without accounting for the
+   * tree the check would declare a rollup on a healthy platform a leak. Found
+   * by a run against the reference platform.
    */
-  it("молчит на совпадении между холдингом и его собственным брендом", () => {
+  it("stays silent on a match between a holding and its own brand", () => {
     const matrix: AccessMatrix = {
       endpoints: [LIST],
       accounts: [
@@ -228,8 +233,8 @@ describe("identical-response-across-tenants", () => {
     expect(check.run({ matrix })).toEqual([]);
   });
 
-  /** Родства нет — совпадение остаётся находкой. */
-  it("не молчит на совпадении между брендами разных холдингов", () => {
+  /** No kinship — the match stays a finding. */
+  it("does not stay silent on a match between brands of different holdings", () => {
     const matrix: AccessMatrix = {
       endpoints: [LIST],
       accounts: [
@@ -250,11 +255,11 @@ describe("identical-response-across-tenants", () => {
   });
 
   /**
-   * Аккаунт вне тенантов (аноним) родни в дереве не имеет и иметь не может,
-   * поэтому пара с ним сравнивается: совпадение ответов означает, что данные
-   * тенанта видны тому, кто в нём не состоит.
+   * An account outside of tenants (an anonymous one) has no kinship in the tree
+   * and cannot have any, so a pair with it is compared: matching responses mean
+   * a tenant's data is visible to someone who is not in it.
    */
-  it("не молчит на совпадении с аккаунтом вне тенантов", () => {
+  it("does not stay silent on a match with an account outside of tenants", () => {
     const matrix: AccessMatrix = {
       endpoints: [LIST],
       accounts: [
@@ -269,14 +274,14 @@ describe("identical-response-across-tenants", () => {
     const findings = check.run({ matrix });
 
     expect(findings).toHaveLength(1);
-    // Ключа нет вовсе: пустое место читается как «вне тенантов», а заглушка
-    // читалась бы как имя тенанта.
+    // The key is absent entirely: an empty place reads as "outside of tenants",
+    // while a placeholder would read as the name of a tenant.
     expect(findings[0]?.evidence).not.toHaveProperty("otherTenant");
     expect(findings[0]?.evidence["tenant"]).toBe("tenant-a");
   });
 
-  /** Тенанта нет ни у того, ни у другого — разным он у них быть не может. */
-  it("молчит на совпадении двух аккаунтов вне тенантов", () => {
+  /** Neither of them has a tenant — it cannot differ between them. */
+  it("stays silent on a match between two accounts outside of tenants", () => {
     const matrix: AccessMatrix = {
       endpoints: [LIST],
       accounts: [
@@ -291,12 +296,13 @@ describe("identical-response-across-tenants", () => {
   });
 
   /**
-   * Аккаунт с набором членств (ADR-0017) законно видит строки каждого своего
-   * тенанта. Пара «саппорт брендов A и C против пользователя бренда A» имеет
-   * общий тенант, и совпадение ответов о нарушении изоляции не говорит — так же,
-   * как оно ничего не говорило про двух соседей по тенанту.
+   * An account with a set of memberships (ADR-0017) lawfully sees the rows of
+   * each of its tenants. The pair "support over brands A and C against a user
+   * of brand A" shares a tenant, and matching responses say nothing about
+   * broken isolation — just as they said nothing about two neighbors inside a
+   * tenant.
    */
-  it("молчит на пересекающихся наборах тенантов", () => {
+  it("stays silent on overlapping sets of tenants", () => {
     const matrix: AccessMatrix = {
       endpoints: [LIST],
       accounts: [
@@ -311,8 +317,8 @@ describe("identical-response-across-tenants", () => {
     expect(check.run({ matrix })).toEqual([]);
   });
 
-  /** Родство хоть одним членством — тот же законный случай, что и у холдинга. */
-  it("молчит, когда одно из членств связано родством со вторым аккаунтом", () => {
+  /** Kinship through even one membership is the same lawful case as a holding. */
+  it("stays silent when one membership is related to the second account", () => {
     const matrix: AccessMatrix = {
       endpoints: [LIST],
       accounts: [
@@ -332,8 +338,8 @@ describe("identical-response-across-tenants", () => {
     expect(check.run({ matrix })).toEqual([]);
   });
 
-  /** Ни общего тенанта, ни родства — совпадение остаётся находкой. */
-  it("не молчит на непересекающихся наборах", () => {
+  /** Neither a shared tenant nor kinship — the match stays a finding. */
+  it("does not stay silent on non-overlapping sets", () => {
     const matrix: AccessMatrix = {
       endpoints: [LIST],
       accounts: [
@@ -348,15 +354,15 @@ describe("identical-response-across-tenants", () => {
     const findings = check.run({ matrix });
 
     expect(findings).toHaveLength(1);
-    // Имена набора называет заголовок; в обосновании их нет, потому что
-    // склейка через запятую встала бы в поле настоящих идентификаторов.
-    // Пары упорядочены по идентификатору аккаунта, поэтому набор здесь — второй.
+    // The title names the tenants of the set; the evidence does not, because a
+    // comma-joined string would sit in a field of real identifiers. Pairs are
+    // ordered by account id, so the set is the second side here.
     expect(findings[0]?.title).toContain("tenants brand-a, brand-c");
     expect(findings[0]?.evidence["tenant"]).toBe("brand-b");
     expect(findings[0]?.evidence).not.toHaveProperty("otherTenant");
   });
 
-  it("выдаёт находки в устойчивом порядке", () => {
+  it("produces findings in a stable order", () => {
     const first = check.run({
       matrix: matrixOf([observed("carol-b", 111), observed("alice-a", 111)]),
     });

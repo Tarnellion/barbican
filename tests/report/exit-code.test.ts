@@ -1,10 +1,10 @@
 /**
- * Тесты кода возврата.
+ * Exit code tests.
  *
- * Найдено состязательной проверкой: существовало три способа получить «чистый»
- * отчёт, ничего не проверив — спецификация без эндпоинтов, стенд со сплошными
- * ошибками и исчерпанный бюджет обращений. Во всех код возврата был 0,
- * то есть читался как подтверждение защищённости.
+ * Found by adversarial review: there were three ways to get a "clean" report
+ * having checked nothing — a specification with no endpoints, a deployment
+ * failing on everything, and an exhausted request budget. In all three the
+ * exit code was 0, that is, it read as proof of protection.
  */
 
 import { describe, expect, it } from "vitest";
@@ -97,14 +97,14 @@ function report(overrides: {
   };
 }
 
-describe("сводка по серьёзности", () => {
+describe("the severity summary", () => {
   /**
-   * Считались только расхождения матрицы, и сводка показывала high: 5 там, где
-   * их 11. Дашборд по `bySeverity` терял шесть находок — и в их числе самую
-   * эксплуатируемую: списочную утечку, видимую только по телу.
-   * Найдено холодным чтением отчёта человеком, не знающим проекта.
+   * Only matrix discrepancies were counted, and the summary showed high: 5
+   * where there were 11. A dashboard built on `bySeverity` lost six findings —
+   * among them the most exploitable one: a list leak visible only by body.
+   * Found by a cold read of the report by a person who did not know the project.
    */
-  it("считает и находки проверок, а не только расхождения матрицы", () => {
+  it("counts check findings too, not only matrix discrepancies", () => {
     const built = buildReport({
       version: "test",
       config: CONFIG,
@@ -121,7 +121,7 @@ describe("сводка по серьёзности", () => {
         {
           checkId: "identical-response-across-tenants",
           severity: "high",
-          title: "одинаковый ответ у разных тенантов",
+          title: "the same response for different tenants",
           accountId: "alice",
           endpointId: "orders.list",
           evidence: {},
@@ -129,7 +129,7 @@ describe("сводка по серьёзности", () => {
         {
           checkId: "identical-response-across-tenants",
           severity: "high",
-          title: "одинаковый ответ у разных тенантов",
+          title: "the same response for different tenants",
           accountId: "bob",
           endpointId: "orders.list",
           evidence: {},
@@ -143,7 +143,7 @@ describe("сводка по серьёзности", () => {
   });
 });
 
-describe("покрытие и опознание прогона", () => {
+describe("coverage and run identification", () => {
   function build(overrides: Record<string, unknown> = {}) {
     return buildReport({
       version: "test",
@@ -168,10 +168,10 @@ describe("покрытие и опознание прогона", () => {
   }
 
   /**
-   * Без знаменателя «опрошено шесть эндпоинтов» не значит ничего: это может
-   * быть вся поверхность API, а может двадцатая её часть.
+   * Without a denominator "six endpoints probed" means nothing: it could be
+   * the whole API surface, or a twentieth of it.
    */
-  it("называет знаменатель, а не только числитель", () => {
+  it("names the denominator, not only the numerator", () => {
     const coverage = build().coverage;
 
     expect(coverage.endpointsTotal).toBe(2);
@@ -180,52 +180,55 @@ describe("покрытие и опознание прогона", () => {
   });
 
   /**
-   * Отсутствие находки на ручке, где тела не сравнивались, означает
-   * «не проверяли», а не «совпадений нет». Разницу иначе не увидеть.
+   * The absence of a finding on an endpoint where bodies were not compared
+   * means "no comparison was made", not "nothing matched". There is no other
+   * way to see the difference.
    */
-  it("называет поимённо, где сравнивались тела", () => {
+  it("names by name where bodies were compared", () => {
     expect(build().coverage.bodiesComparedOn).toEqual(["a"]);
   });
 
-  it("говорит, выполнялись ли методы записи", () => {
+  it("says whether write methods were performed", () => {
     expect(build().coverage.writeMethodsProbed).toBe(false);
     expect(build({ unsafeMethods: true }).coverage.writeMethodsProbed).toBe(true);
   });
 
-  /** Два отчёта иначе не отличить друг от друга и не продиффать. */
-  it("даёт разный идентификатор разным прогонам", () => {
+  /** Otherwise two reports cannot be told apart or diffed. */
+  it("gives different runs different identifiers", () => {
     expect(build().runId).not.toBe(build().runId);
   });
 
   /**
-   * Отпечаток считается по разобранной конфигурации: комментарии и отступы
-   * на результат прогона не влияют, а на хеш текста влияли бы.
+   * The fingerprint is computed over the parsed configuration: comments and
+   * indentation do not affect the result of a run, while they would affect a
+   * hash of the text.
    */
-  it("даёт одинаковый отпечаток одной и той же конфигурации", () => {
+  it("gives the same fingerprint to the same configuration", () => {
     expect(build().configDigest).toBe(build().configDigest);
   });
 
-  it("объявляет версию формы отчёта", () => {
+  it("declares the version of the report shape", () => {
     expect(build().schemaVersion).toBe(REPORT_SCHEMA_VERSION);
   });
 
   /**
-   * Проверка, которую забыли зарегистрировать или которая упала, давала отчёт,
-   * неотличимый от чистого: её ключ появляется в `byKind` только при находке.
-   * Найдено вторым холодным чтением.
+   * A check that someone forgot to register, or that crashed, gave a report
+   * indistinguishable from a clean one: its key shows up in `byKind` only once
+   * it has found something. Found by a second cold read.
    */
-  it("перечисляет выполненные проверки, включая ничего не нашедшие", () => {
+  it("lists the checks that ran, including the ones that found nothing", () => {
     expect(build({ checksRun: ["identical-response-across-tenants"] }).coverage.checksRun).toEqual([
       "identical-response-across-tenants",
     ]);
   });
 
   /**
-   * Счётчик считал только матричные расхождения и расходился с соседними
-   * ровно на находки по телу. Тот же класс, что прежняя ошибка `bySeverity`,
-   * в том же объекте — и я её не заметил, чиня соседнюю.
+   * The counter counted only matrix discrepancies and diverged from its
+   * neighbours by exactly the findings by body. The same class as the earlier
+   * `bySeverity` bug, in the same object — and I missed it while fixing the
+   * neighbour.
    */
-  it("считает в findings весь список, а не только матричные расхождения", () => {
+  it("counts the whole list in findings, not only matrix discrepancies", () => {
     const built = build({
       checks: [
         {
@@ -246,17 +249,17 @@ describe("покрытие и опознание прогона", () => {
   });
 
   /**
-   * Вторая сторона утечки лежала только в `evidence` каждой строки, и группа
-   * дефекта называла одну сторону из двух: «данные тенанта-a видны кому-то».
-   * Найдено холодным чтением.
+   * The second side of a leak lived only in the `evidence` of each row, and the
+   * defect group named one side out of two: "tenant-a's data is visible to
+   * somebody". Found by a cold read.
    */
-  it("называет в группе дефекта обе стороны парной находки", () => {
+  it("names both sides of a paired finding in the defect group", () => {
     const built = build({
       checks: [
         {
           checkId: "identical-response-across-tenants",
           severity: "high",
-          title: "совпал дайджест",
+          title: "the digest matched",
           accountId: "alice",
           endpointId: "a",
           evidence: { otherAccountId: "carol-b", bodyDigestsEqual: true },
@@ -268,11 +271,12 @@ describe("покрытие и опознание прогона", () => {
   });
 
   /**
-   * У утечки по телу обращений два, а печаталось одно. На платформе
-   * с адресами по тенантам второе собиралось читателем вручную — и неверно:
-   * хост другого бренда другой. Найдено третьим холодным чтением.
+   * A leak by body has two requests, and only one was printed. On a platform
+   * with per-tenant addresses the second one was assembled by the reader by
+   * hand — and wrongly: another brand's host is a different host. Found by a
+   * third cold read.
    */
-  it("печатает оба обращения парной находки", () => {
+  it("prints both requests of a paired finding", () => {
     const built = build({
       observations: [
         {
@@ -300,7 +304,7 @@ describe("покрытие и опознание прогона", () => {
         {
           checkId: "identical-response-across-tenants",
           severity: "high",
-          title: "совпал дайджест",
+          title: "the digest matched",
           accountId: "alice",
           endpointId: "a",
           evidence: { otherAccountId: "carol", bodyDigestsEqual: true },
@@ -314,10 +318,10 @@ describe("покрытие и опознание прогона", () => {
   });
 
   /**
-   * «Здесь чисто» существовало только вычитанием: чтобы проверить одну ячейку,
-   * читатель отчёта переписывал ядро на своём языке. ADR-0020.
+   * "It is clean here" existed only as subtraction: to check a single cell the
+   * reader of the report rewrote the core in their own language. ADR-0020.
    */
-  it("ставит вердикт рядом с наблюдением", () => {
+  it("puts the verdict next to the observation", () => {
     const built = build({
       observations: [
         {
@@ -352,8 +356,8 @@ describe("покрытие и опознание прогона", () => {
     });
   });
 
-  /** Число совпавших ячеек обязано сходиться со сводкой — проверяемо на месте. */
-  it("оставляет наблюдение без вердикта, если ячейки для него нет", () => {
+  /** The number of matched cells must agree with the summary — checkable on the spot. */
+  it("leaves an observation without a verdict when it has no cell", () => {
     const built = build({
       observations: [
         {
@@ -367,27 +371,27 @@ describe("покрытие и опознание прогона", () => {
           durationMs: 1,
         },
       ],
-      cells: [{ accountId: "кто-то другой", endpointId: "a", expected: "denied", match: false }],
+      cells: [{ accountId: "somebody-else", endpointId: "a", expected: "denied", match: false }],
     });
 
     expect(built.observations[0]).not.toHaveProperty("match");
   });
 
   /**
-   * Строка в условиях без исходного аккаунта в конфигурации — состояние,
-   * которого не должно быть. Печатать её как аккаунт значило бы выдумать
-   * роль и тенант, поэтому строка просто не попадает в список.
+   * A row under conditions whose base account is not in the configuration is a
+   * state that must not happen. Printing it as an account would mean inventing
+   * a role and a tenant, so the row simply does not enter the list.
    */
-  it("не печатает строку в условиях, чей исходный аккаунт неизвестен", () => {
+  it("does not print a row under conditions whose base account is unknown", () => {
     const built = build({
       accounts: [
         { id: "u", roleId: "r", tenantId: "t" },
         {
-          id: "призрак@geo",
+          id: "ghost@geo",
           roleId: "r",
           tenantId: "t",
           contextId: "geo",
-          baseAccountId: "призрак",
+          baseAccountId: "ghost",
         },
       ],
     });
@@ -395,17 +399,17 @@ describe("покрытие и опознание прогона", () => {
     expect(built.accounts.map((account) => account.id)).toEqual(["u"]);
   });
 
-  /** У непарной находки второго обращения нет, и выдумывать его нечем. */
-  it("не выдумывает второе обращение там, где пары не было", () => {
+  /** An unpaired finding has no second request, and there is nothing to invent one from. */
+  it("invents no second request where there was no pair", () => {
     const built = build({
       checks: [
         {
-          checkId: "какая-то-проверка",
+          checkId: "some-check",
           severity: "low",
-          title: "без пары",
+          title: "no counterpart",
           accountId: "alice",
           endpointId: "a",
-          evidence: { что: "нибудь" },
+          evidence: { anything: "at all" },
         },
       ],
     });
@@ -413,16 +417,16 @@ describe("покрытие и опознание прогона", () => {
     expect(built.findings.find((f) => f.source === "check")).not.toHaveProperty("relatedRequest");
   });
 
-  /** Имя переменной не секрет, а без него неизвестно, чем воспроизводить. */
-  it("называет переменную окружения с токеном, но не её значение", () => {
+  /** The variable name is not a secret, and without it there is nothing to reproduce with. */
+  it("names the environment variable holding the token, but not its value", () => {
     const account = build().accounts[0];
 
     expect(account?.tokenEnv).toBe("T");
-    expect(JSON.stringify(build())).not.toContain("секретное-значение");
+    expect(JSON.stringify(build())).not.toContain("secret-value");
   });
 
-  /** Инвариант «троттлинг всегда включён» иначе приходится принимать на слово. */
-  it("печатает действовавшие лимиты обращений", () => {
+  /** Otherwise the invariant "throttling is always on" has to be taken on trust. */
+  it("prints the request limits that were in force", () => {
     expect(
       build({ throttle: { concurrency: 2, requestsPerSecond: 5, maxRequests: 2000 } }).inputs
         .throttle,
@@ -430,11 +434,11 @@ describe("покрытие и опознание прогона", () => {
   });
 
   /**
-   * Без явной пометки единственный положительный вывод отчёта — «аноним всюду
-   * получил отказ» — недоказуем: аккаунт с ошибочно поданным токеном выглядел
-   * бы точно так же.
+   * Without an explicit mark the report's only positive conclusion — "the
+   * anonymous account was denied everywhere" — is unprovable: an account whose
+   * token was passed wrongly would look exactly the same.
    */
-  it("помечает аккаунт без учётных данных как анонимный", () => {
+  it("marks an account without credentials as anonymous", () => {
     const withAnon = parseRunConfig(`
 target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
 accounts:
@@ -450,7 +454,7 @@ policy: { fallback: denied, rules: [] }
   });
 });
 
-describe("аккаунты в условиях", () => {
+describe("accounts under request conditions", () => {
   const WITH_CONTEXT = parseRunConfig(`
 target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
 accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
@@ -504,10 +508,11 @@ contexts:
   }
 
   /**
-   * Находка ссылается на аккаунт в условиях. Без строки в списке аккаунтов
-   * ссылка повисает: читатель видит `u@geo`, ищет его и не находит.
+   * A finding refers to an account under conditions. Without a row in the list
+   * of accounts the reference dangles: the reader sees `u@geo`, looks for it
+   * and finds nothing.
    */
-  it("перечисляет аккаунт в условиях наравне с базовым", () => {
+  it("lists an account under conditions on par with the base one", () => {
     const accounts = build().accounts;
 
     expect(accounts.map((account) => account.id)).toEqual(["u", "u@geo"]);
@@ -519,8 +524,8 @@ contexts:
     });
   });
 
-  /** Атрибуты печатаются: иначе находку в условиях нечем воспроизвести. */
-  it("печатает объявленные условия вместе с атрибутами", () => {
+  /** The attributes are printed: otherwise a finding under conditions cannot be reproduced. */
+  it("prints the declared conditions together with their attributes", () => {
     expect(build().inputs.contexts).toEqual([
       {
         id: "geo",
@@ -533,24 +538,25 @@ contexts:
   });
 
   /**
-   * Ноль здесь означает «условия объявлены, но не проверены»: их ручки могли
-   * уйти в skipped, а отсутствие находок читалось бы как «под этими условиями
-   * всё в порядке».
+   * A zero here means "the conditions are declared but not tested": their
+   * endpoints may have gone into skipped, and the absence of findings would
+   * read as "everything is in order under these conditions".
    */
-  it("считает пронаблюдённые ячейки по каждым условиям", () => {
+  it("counts the observed cells for each set of conditions", () => {
     expect(build().coverage.contextsProbed).toEqual({ geo: 1 });
   });
 
   /**
-   * «Проверено и совпало» существовало только как вычитание, которое читатель
-   * делал сам. Числом оно проверяемо: сумма с расхождениями даёт наблюдения.
+   * "Tested and agreed" existed only as subtraction the reader did themselves.
+   * As a number it is checkable: its sum with the discrepancies gives the
+   * observations.
    */
-  it("называет число совпавших ячеек, а не оставляет его вычитанием", () => {
+  it("names the number of matched cells instead of leaving it to subtraction", () => {
     const built = build();
 
-    // ADR-0020 обещает равенство, и раньше оно не выполнялось: счёт шёл
-    // вычитанием, в котором участвовали и `not-observed` — ячейки, у которых
-    // наблюдения нет вовсе. Найдено состязательной проверкой.
+    // ADR-0020 promises this equality, and it used to fail: the count was done
+    // by subtraction that included `not-observed` too — cells with no
+    // observation at all. Found by adversarial review.
     expect(built.coverage.cellsMatched).toBe(
       built.observations.filter((observation) => observation.match === true).length,
     );
@@ -558,10 +564,10 @@ contexts:
   });
 
   /**
-   * Ноль читался бы как «не совпало ни одной ячейки» — утверждение
-   * о платформе. Сказать же нужно «мы этого не считали».
+   * A zero would read as "not a single cell agreed" — a claim about the
+   * platform. What needs saying is "we did not count this".
    */
-  it("не печатает число совпавших ячеек, когда вердиктов не считали", () => {
+  it("does not print the number of matched cells when no verdicts were counted", () => {
     const built = buildReport({
       version: "test",
       config: WITH_CONTEXT,
@@ -581,8 +587,8 @@ contexts:
     expect(built.coverage).not.toHaveProperty("cellsMatched");
   });
 
-  /** 9 аккаунтов × 6 ручек не давало 135 ячеек, и арифметика не сходилась. */
-  it("различает объявленные аккаунты и строки матрицы", () => {
+  /** 9 accounts x 6 endpoints did not give 135 cells, and the arithmetic did not add up. */
+  it("tells declared accounts apart from matrix rows", () => {
     const built = build();
 
     expect(built.summary.accounts).toBe(1);
@@ -592,87 +598,91 @@ contexts:
 
 describe("exitCodeFor", () => {
   /**
-   * Расхождение есть расхождение, куда бы оно ни было направлено. Найдено
-   * проверкой оракула референс-платформы: холдингу закрыли его собственный
-   * бренд — платформа сломана, объявленный доступ не работает, — и прогон
-   * вернул 0. См. ADR-0014.
+   * A discrepancy is a discrepancy whichever way it points. Found by checking
+   * the reference platform's oracle: a holding was denied its own brand — the
+   * platform is broken, the declared access does not work — and the run
+   * returned 0. See ADR-0014.
    */
-  it("1 — неожиданный отказ тоже расхождение", () => {
+  it("1 — an unexpected denial is a discrepancy too", () => {
     expect(exitCodeFor(report({ denials: 1 }))).toBe(1);
   });
 
   /**
-   * Находка проверки видна не по статусу, но это такое же расхождение.
-   * Без этого прогон с найденной межтенантной утечкой выглядел бы в CI успешным.
+   * A check finding is not visible by status, but it is the same discrepancy.
+   * Without this a run that found a cross-tenant leak would look successful
+   * in CI.
    */
-  it("1 — находка проверки высокой серьёзности", () => {
+  it("1 — a check finding of high severity", () => {
     const leak: ReportFinding = {
       kind: "identical-response-across-tenants",
       source: "check",
       severity: "high",
       accountId: "alice",
       endpointId: "orders.list",
-      title: "одинаковый ответ у разных тенантов",
+      title: "the same response for different tenants",
     };
 
     expect(exitCodeFor(report({ checks: [leak] }))).toBe(1);
   });
 
-  it("0 — находка проверки только информационная", () => {
+  it("0 — the check finding is informational only", () => {
     const note: ReportFinding = {
       kind: "whatever",
       source: "check",
       severity: "info",
       accountId: "alice",
       endpointId: "ping",
-      title: "к сведению",
+      title: "for information",
     };
 
     expect(exitCodeFor(report({ checks: [note] }))).toBe(0);
   });
 
-  it("0 — проверено и чисто", () => {
+  it("0 — tested and clean", () => {
     expect(exitCodeFor(report({}))).toBe(0);
   });
 
-  it("1 — найдена эскалация", () => {
+  it("1 — an escalation was found", () => {
     expect(exitCodeFor(report({ escalations: 1 }))).toBe(1);
   });
 
-  it("2 — не сделано ни одного наблюдения", () => {
-    // Спецификация без эндпоинтов: находок нет, потому что не было проверки.
+  it("2 — not a single observation was made", () => {
+    // A specification with no endpoints: there are no findings because nothing
+    // was checked.
     expect(exitCodeFor(report({ observations: 0 }))).toBe(2);
   });
 
-  it("2 — все обращения сорвались", () => {
-    // Стенд лёг или сработал circuit breaker: судить не о чем.
+  it("2 — every request failed", () => {
+    // The deployment went down or the circuit breaker tripped: there is
+    // nothing to judge.
     expect(exitCodeFor(report({ observations: 4, probeErrors: 4 }))).toBe(2);
   });
 
-  // Найдено состязательной проверкой: потолок обращений обрывал матрицу
-  // посреди прогона, непроверенная межтенантная утечка оставалась ненайденной,
-  // а код возврата был 0.
-  it("2 — прогон оборван, хвост матрицы не проверен", () => {
+  // Found by adversarial review: the request ceiling cut the matrix short in
+  // the middle of the run, an untested cross-tenant leak stayed unfound, and
+  // the exit code was 0.
+  it("2 — the run was cut short, the tail of the matrix untested", () => {
     expect(exitCodeFor(report({ truncated: true }))).toBe(2);
   });
 
   /**
-   * Класс «ничего не проверено выглядит как всё чисто», найденный
-   * состязательной проверкой. Стенд отвечал 401 на всё, токены были протухшие,
-   * политика состояла из одних запретов — и предохранитель `findUnauthenticated`
-   * промолчал по построению: доступным не объявлено ничего, значит и «нигде
-   * не дали» не про что сказать. Отчёт вышел чистым с кодом 0.
+   * The class "nothing was tested looks like everything is clean", found by
+   * adversarial review. The deployment answered 401 to everything, the tokens
+   * were stale, the policy consisted of denials only — and the `findUnauthenticated`
+   * safeguard stayed silent by construction: nothing was declared allowed, so
+   * there is nothing to say "it was denied everywhere" about. The report came
+   * out clean with exit code 0.
    */
-  it("2 — аутентификация не подтверждена ни одной канарейкой", () => {
+  it("2 — authentication was confirmed by no canary at all", () => {
     expect(exitCodeFor(report({ canariesChecked: 0 }))).toBe(2);
   });
 
   /**
-   * Анонимному прогону — «проверьте, что сюда нельзя вообще никому» —
-   * аутентифицировать нечего, и требовать канарейку значило бы запретить
-   * законный сценарий.
+   * An anonymous run — "check that nobody at all can get in here" — has
+   * nothing to authenticate, and requiring a canary would forbid a lawful
+   * scenario.
    */
-  it("0 — прогон только от анонимов канарейки не требует", () => {
+  it("0 — a run of anonymous accounts only needs no canary", () => {
     expect(
       exitCodeFor(
         report({ canariesChecked: 0, accounts: [{ id: "anon", role: "guest", anonymous: true }] }),
@@ -680,27 +690,27 @@ describe("exitCodeFor", () => {
     ).toBe(0);
   });
 
-  it("2 — аутентификация не сработала", () => {
+  it("2 — authentication did not work", () => {
     expect(exitCodeFor(report({ unauthenticated: ["a"] }))).toBe(2);
   });
 
-  it("недостоверность важнее находки", () => {
-    // Эскалация на непроверенном прогоне — не повод отчитаться кодом 1.
+  it("an untrustworthy result outranks a finding", () => {
+    // An escalation on an untested run is no reason to report exit code 1.
     expect(exitCodeFor(report({ escalations: 1, unauthenticated: ["a"] }))).toBe(2);
   });
 
-  it("частичные сбои не делают прогон недостоверным", () => {
-    // Одна сорвавшаяся ячейка из четырёх: выводы по остальным трём в силе,
-    // а сама ошибка видна в failures и byKind.
+  it("partial failures do not make a run untrustworthy", () => {
+    // One failed cell out of four: the conclusions about the other three hold,
+    // and the error itself is visible in failures and byKind.
     expect(exitCodeFor(report({ observations: 4, probeErrors: 1 }))).toBe(0);
   });
 
   /**
-   * Прежнее правило требовало, чтобы сорвались **все** ячейки до единой:
-   * три ошибки из четырёх давали код 0, то есть «проверено, расхождений нет»
-   * о матрице, от которой уцелела одна ячейка. Найдено ревью.
+   * The former rule required **every** cell to fail: three errors out of four
+   * gave exit code 0, that is, "tested, no discrepancies" about a matrix of
+   * which one cell survived. Found by review.
    */
-  it("2 — сорвалась половина матрицы и больше", () => {
+  it("2 — half the matrix or more failed", () => {
     expect(exitCodeFor(report({ observations: 4, probeErrors: 2 }))).toBe(2);
     expect(exitCodeFor(report({ observations: 4, probeErrors: 3 }))).toBe(2);
   });

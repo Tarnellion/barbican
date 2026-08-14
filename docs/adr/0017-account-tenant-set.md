@@ -1,89 +1,92 @@
-# 0017. Аккаунт в наборе тенантов
+# 0017. An account in a set of tenants
 
-- **Статус:** принято
-- **Дата:** 2026-08-13
+- **Status:** accepted
+- **Date:** 2026-08-13
 
-## Контекст
+## Context
 
-ADR-0013 дал тенантам дерево, а аккаунту — один узел в нём. Этого хватает,
-когда область аккаунта совпадает с поддеревом: холдинг над брендами, платформа
-над холдингами, аффилиат под брендом.
+ADR-0013 gave tenants a tree, and an account one node in it. That is enough when
+the account's reach coincides with a subtree: a holding over brands, the
+platform over holdings, an affiliate under a brand.
 
-Не хватает там, где область — **набор** узлов без общего предка, кроме корня.
-Саппорт на брендах A и C из разных холдингов; аффилиат, работающий с двумя
-брендами группы из трёх; партнёрский кабинет, где граница «его бренды» проходит
-внутри отчётной ручки, а не по адресу.
+It is not enough where the reach is a **set** of nodes with no common ancestor
+other than the root. Support staff over brands A and C from different holdings;
+an affiliate working with two brands of a group of three; a partner cabinet
+where the boundary of "his brands" runs inside a reporting endpoint rather than
+along the address.
 
-### Сначала — реален ли случай
+### First: is the case real
 
-Проверено по `docs/research/`, и ответ вышел уже́, чем вопрос. Разделять надо
-три вещи, потому что деревом закрыты две из них.
+Checked against `docs/research/`, and the answer came out narrower than the
+question. Three things have to be separated, because the tree covers two of them.
 
-**Человек состоит в нескольких тенантах — да, но это не наш случай.** Auth0
-Organizations прямо допускают членство в нескольких организациях с ролями
-в пределах каждой; в токен, однако, попадает **один** `org_id`, и требование
-к API сформулировано как сегментация по нему (`tenancy-models.md` §2.3). Снаружи
-это значит: один комплект учётных данных — один контур. Такой человек уже
-выразим как несколько аккаунтов, по одному на комплект, и ложных находок это
-не даёт. То же у Okta с отдельным org на тенанта (§2.4).
+**A person belongs to several tenants — yes, but that is not our case.** Auth0
+Organizations explicitly allow membership in several organizations with roles
+inside each; the token, however, carries **one** `org_id`, and the requirement
+on the API is phrased as segmentation by it (`tenancy-models.md` §2.3). From the
+outside that means: one set of credentials, one surface. Such a person is
+already expressible as several accounts, one per set, and that produces no false
+findings. The same with Okta and a separate org per tenant (§2.4).
 
-**Один комплект учётных данных на поддерево — тоже закрыто.** Платформа Stripe
-Connect обращается к подключённым аккаунтам своим ключом (§2.1), program manager
-в BaaS видит клиентов своей программы (§3.1), PayFac — своих sponsored merchants
-(§3.2), агентские сети рекурсивно вложены (`igaming-contours.md` §1.2). Это
-поддеревья, и ADR-0013 их выражает.
+**One set of credentials over a subtree — also covered.** A Stripe Connect
+platform reaches connected accounts with its own key (§2.1), a program manager
+in BaaS sees the clients of its own program (§3.1), a PayFac sees its sponsored
+merchants (§3.2), agent networks are nested recursively
+(`igaming-contours.md` §1.2). These are subtrees, and ADR-0013 expresses them.
 
-**Один комплект учётных данных на набор, поддеревом не являющийся, — вот
-пробел.** Он подтверждается двумя источниками разного сорта. Первый:
-у Okta среди штатных конфигураций есть «один org, группы как абстракция
-тенанта» (§2.4) — членство в группах есть множество по построению. Второй,
-предметный: отчёт аффилиата в TheAffiliatePlatform несёт колонку `Brand`,
-то есть один кабинет охватывает несколько брендов программы, и граница
-проходит внутри ручки (`igaming-contours.md` §3.1). Аффилиат в нашей модели
-сидит **под** брендом; аффилиат на двух брендах из трёх не выражается даже
-внутри одного холдинга.
+**One set of credentials over a set that is not a subtree — that is the gap.**
+It is confirmed by two sources of different kinds. The first: among Okta's
+standard configurations there is "one org, groups as the tenant abstraction"
+(§2.4) — group membership is a set by construction. The second, domain-specific:
+the affiliate report in TheAffiliatePlatform carries a `Brand` column, that is,
+one cabinet covers several brands of a program, and the boundary runs inside an
+endpoint (`igaming-contours.md` §3.1). In our model an affiliate sits **under** a
+brand; an affiliate on two brands out of three is not expressible even inside a
+single holding.
 
-Чего в источниках **нет** — это подтверждения тому, что произвольные наборы
-распространены. Публичного разбора саппорта на подмножестве брендов найти
-не удалось; ADR-0013 отклонил произвольный граф как редкий случай, и это
-отклонение остаётся в силе для **тенанта** с несколькими родителями. Речь
-здесь о другом: о наборе у **аккаунта**.
+What the sources do **not** have is confirmation that arbitrary sets are
+widespread. No public account of support staff over a subset of brands could be
+found; ADR-0013 rejected an arbitrary graph as a rare case, and that rejection
+stands for a **tenant** with several parents. The subject here is different: a
+set on an **account**.
 
-### Чем плох обходной путь
+### What is wrong with the workaround
 
-Решает не редкость случая, а цена его обхода. Все три способа выразить такой
-аккаунт деревом проверены запуском (`tests/core/tenant-set.test.ts`; платформа
-отдаёт саппорту все четыре бренда, положены ему A и C, находок обязано быть две):
+What decides is not the rarity of the case but the cost of working around it.
+All three ways of expressing such an account with a tree were checked by running
+them (`tests/core/tenant-set.test.ts`; the platform hands support staff all four
+brands, A and C are what it is meant to get, and there must be two findings):
 
 ```
-посадить на brand-a, разрешить same-tenant
-  находки: r-b, r-c, r-d
-  настоящая утечка (b и d) найдена: true
-  ложное срабатывание на законном бренде: true
+seat it on brand-a, allow same-tenant
+  findings: r-b, r-c, r-d
+  real leak (b and d) found: true
+  false positive on the legitimate brand: true
 
-посадить на brand-a, открыть foreign-tenant (чтобы убрать ложную тревогу на C)
-  находки: r-a
-  настоящая утечка (b и d) найдена: false
-  ложное срабатывание на законном бренде: true
+seat it on brand-a, open up foreign-tenant (to remove the false alarm on C)
+  findings: r-a
+  real leak (b and d) found: false
+  false positive on the legitimate brand: true
 
-посадить в общий корень platform, разрешить descendant-tenant
-  находки: —
-  настоящая утечка (b и d) найдена: false
-  ложное срабатывание на законном бренде: false
+seat it at the common root platform, allow descendant-tenant
+  findings: —
+  real leak (b and d) found: false
+  false positive on the legitimate brand: false
 ```
 
-Первый способ лжёт заметно: одна из трёх находок выдумана, и отличить её
-от настоящих читателю нечем. Второй — то, чем эту ложную тревогу убирают
-на практике, — лжёт молча: обе настоящие утечки исчезают, а придирка
-к собственному бренду остаётся. Третий даёт чистый прогон при живой утечке.
+The first way lies visibly: one of the three findings is invented, and the
+reader has nothing to tell it from the real ones. The second — the way this
+false alarm is removed in practice — lies silently: both real leaks disappear,
+while the nitpick about the account's own brand remains. The third gives a clean
+run with a live leak.
 
-Это ровно та пара ошибок, из-за которой писался ADR-0013, и тот же класс
-«чисто ≠ проверено». Разница лишь в том, что теперь она вылезает не на холдинге,
-а на аккаунте, чья область холдингом не описывается.
+This is exactly the pair of errors ADR-0013 was written for, and the same
+"clean ≠ tested" class. The only difference is that now it shows up not on a
+holding but on an account whose reach a holding does not describe.
 
-## Решение
+## Decision
 
-У аккаунта появляется **набор членств**: `tenants` вместо `tenant`.
+An account gets a **set of memberships**: `tenants` instead of `tenant`.
 
 ```yaml
 accounts:
@@ -92,110 +95,120 @@ accounts:
     tenants: [brand-a, brand-c]
 ```
 
-В ядре это union, а не два необязательных поля: `SingleTenantAccount`
-(`tenantId?`) либо `MultiTenantAccount` (`tenantIds`). Одновременная запись
-обоих невозможна по типу, а не по соглашению.
+In the core this is a union, not two optional fields: `SingleTenantAccount`
+(`tenantId?`) or `MultiTenantAccount` (`tenantIds`). Writing both at once is
+impossible by type, not by convention.
 
-`relationOf` считает отношение по **каждому** членству и возвращает ближайшее
-в том же порядке, в каком стояли проверки до сих пор: `own` → `same-tenant`
-→ `descendant-tenant` → `ancestor-tenant` → `foreign-tenant`. На наборе
-из одного элемента результат совпадает с прежним побайтово — это и есть
-механизм совместимости, а не отдельная ветка «для старых конфигураций».
+`relationOf` computes the relation for **every** membership and returns the
+nearest one, in the same order the checks have stood in until now: `own` →
+`same-tenant` → `descendant-tenant` → `ancestor-tenant` → `foreign-tenant`. On a
+set of one element the result matches the old one byte for byte — that is the
+compatibility mechanism, not a separate branch "for old configurations".
 
-**Шестого значения `ResourceRelation` не вводится.** Набор — свойство аккаунта,
-а не новый вид родства; объект по-прежнему лежит в одном тенанте, и вопрос
-«что это мне» имеет те же пять ответов. Значение вида `multi-tenant` молча
-сузило бы существующие правила: ячейки, отвечавшие на `scope: same-tenant`,
-перестали бы под него попадать, ушли бы в `fallback` — и законное чтение стало
-бы находкой, а находка исчезла бы из-под правила. Тот же довод записан
-в ADR-0013 против объединения `descendant` с `ancestor` и в коде `relationOf`
-против отдельного значения для аккаунта вне тенантов.
+**No sixth `ResourceRelation` value is introduced.** A set is a property of the
+account, not a new kind of kinship; the resource still lies in one tenant, and
+the question "what is this to me" has the same five answers. A value like
+`multi-tenant` would silently narrow the existing rules: cells that answered to
+`scope: same-tenant` would stop falling under it, would go to `fallback` — and a
+legitimate read would become a finding, while a finding would slip out from
+under the rule. The same argument is written in ADR-0013 against merging
+`descendant` with `ancestor`, and in the code of `relationOf` against a separate
+value for an account outside of tenants.
 
-Две проверки на старте, обе — против молчаливой подмены смысла:
+Two checks at startup, both against a silent substitution of meaning:
 
-- **повтор в наборе** отвергается: на отношение он не влияет, но прячет второй,
-  настоящий тенант, который хотели написать;
-- **вложенное членство** (`[holding-1, brand-a]`) отвергается: объекты бренда
-  перестали бы быть `descendant-tenant` и стали `same-tenant`, правило для
-  взгляда сверху вниз перестало бы применяться, и ячейка ушла бы в `fallback`.
-  Членство в предке уже покрывает поддерево — второе не уточняет, а меняет
-  классификацию.
+- **a duplicate in the set** is rejected: it does not affect the relation, but
+  it hides the second, real tenant that was meant to be written;
+- **a nested membership** (`[holding-1, brand-a]`) is rejected: the brand's
+  resources would stop being `descendant-tenant` and become `same-tenant`, the
+  rule written for the top-down view would stop applying, and the cell would go
+  to `fallback`. Membership in the ancestor already covers the subtree — the
+  second entry does not refine the classification, it changes it.
 
-Набор из одного элемента конфигурация не принимает: это `tenant`, и две записи
-одного смысла разошлись бы в чтении и в отчёте.
+The configuration does not accept a set of one element: that is `tenant`, and
+two ways of writing one and the same meaning would diverge in the reading and in
+the report.
 
-Проверка `identical-response-across-tenants` обобщена тем же приёмом: вместо
-равенства тенантов — непустое пересечение наборов, вместо родства двух узлов —
-родство хоть одной пары. Саппорт брендов A и B законно видит строки
-пользователя бренда A, и совпадение ответов у этой пары об изоляции не говорит
-ничего — как не говорило и совпадение у двух соседей по тенанту.
+The `identical-response-across-tenants` check is generalized by the same move:
+instead of equality of tenants, a non-empty intersection of the sets; instead of
+kinship of two nodes, kinship of at least one pair. Support staff over brands A
+and B legitimately sees the rows of a user of brand A, and a match of responses
+on that pair says nothing about isolation — just as a match between two
+neighbors inside one tenant said nothing.
 
-## Альтернативы
+## Alternatives
 
-**Не делать, ограничившись документацией.** Отклонено по итогам эксперимента
-выше: инструмент не просто «не выражает» случай, а выдаёт на нём ложные находки
-либо ложную тишину. Это тот самый довод, которым ADR-0013 отклонил ту же
-альтернативу.
+**Do nothing, limiting ourselves to documentation.** Rejected on the results of
+the experiment above: the tool does not merely "fail to express" the case, it
+produces false findings or false silence on it. This is the very argument with
+which ADR-0013 rejected the same alternative.
 
-**Несколько «членств» с ролью у каждого** (`[{tenant: a, role: support},
-{tenant: c, role: viewer}]`). Форма честнее: у Auth0 роли и правда назначаются
-в пределах организации. Отклонено сейчас, потому что роль перестаёт быть
-свойством аккаунта и становится функцией ячейки: `resolveExpected` принимает
-`roleId`, и его пришлось бы выбирать по тенанту объекта — в диффе, в проверке
-достоверности, в группировке дефектов и в отчёте. Цена несоразмерна: снаружи
-у аккаунта один комплект учётных данных, и различить «отказали по роли»
-от «отказали по тенанту» инструмент всё равно не может
-(`tenancy-models.md` §7.2). Вернуться, если появится платформа, где роли
-в разных тенантах у одного комплекта учётных данных различаются наблюдаемо.
+**Several "memberships" each with a role of its own** (`[{tenant: a, role: support},
+{tenant: c, role: viewer}]`). The shape is more honest: in Auth0 roles really
+are assigned inside an organization. Rejected for now, because the role stops
+being a property of the account and becomes a function of the cell:
+`resolveExpected` takes a `roleId`, and it would have to be chosen by the
+resource's tenant — in the diff, in the trustworthiness check, in defect
+grouping and in the report. The price is out of proportion: from the outside an
+account has one set of credentials, and the tool cannot tell "denied by role"
+from "denied by tenant" anyway (`tenancy-models.md` §7.2). Come back to this if
+a platform appears where the roles of one set of credentials in different
+tenants differ observably.
 
-**Отдельное объявление «этот аккаунт видит эти тенанты» рядом с политикой.**
-Отклонено: принадлежность аккаунта уже живёт в описании аккаунта, и второе
-место для неё — это два источника истины про одно и то же. Сверх того,
-объявление рядом с политикой читалось бы как разрешение («видит»), а это
-не разрешение, а факт о платформе: что аккаунту положено, решают правила.
+**A separate declaration "this account sees these tenants" next to the policy.**
+Rejected: an account's membership already lives in the account's description,
+and a second place for it means two sources of truth about one and the same
+thing. On top of that, a declaration next to the policy would read as a
+permission ("sees"), and this is not a permission but a fact about the platform:
+what an account is meant to get is decided by the rules.
 
-**Схлопывать набор до первого тенанта в ядре, оставив его только
-в конфигурации.** Отклонено сразу: это и есть дефект `PRIMARY_TENANT_ONLY`,
-который теперь стоит на полигоне переключателем.
+**Collapse the set to the first tenant in the core, keeping it only in the
+configuration.** Rejected outright: this is exactly the `PRIMARY_TENANT_ONLY`
+defect, which now stands on the polygon as a switch.
 
-## Последствия
+## Consequences
 
-Выразимым становится аккаунт, чья область — набор узлов: саппорт на брендах
-разных холдингов, аффилиат на части брендов группы, партнёр двух программ.
-Формулируемым становится и обратное утверждение — «второй бренд обязан быть
-доступен»: до набора его нечем было записать, поэтому отказ во втором бренде
-совпадал с ожиданием и дефектом не считался. На полигоне это отдельный
-переключатель, единственный, дающий `unexpected-denial`.
+An account whose reach is a set of nodes becomes expressible: support staff over
+brands of different holdings, an affiliate over part of a group's brands, a
+partner in two programs. The converse statement also becomes sayable — "the
+second brand must be accessible": before the set there was nothing to write it
+with, so a denial on the second brand matched the expectation and did not count
+as a defect. On the polygon this is a switch of its own, the only one that gives
+`unexpected-denial`.
 
-Совместимость полная и проверена запуском: до расширения полигона все
-19 прежних комбинаций сошлись с прежним оракулом без единой правки.
+Compatibility is complete and was checked by running it: before the polygon was
+extended, all 19 previous combinations agreed with the old oracle without a
+single edit.
 
-Цена — та же, что у ADR-0013, и растёт она на том же месте. Набор членств,
-написанный шире, чем область аккаунта на самом деле, тихо расширяет ожидаемое,
-и находка исчезает. Против этого работают только проверки на старте (повтор,
-вложенность, неизвестное имя) и то, что набор объявляет человек, а не выводит
-инструмент. Отдельный ADR тут не нужен: это следствие ADR-0006, общее
-для всей политики.
+The price is the same as ADR-0013's, and it grows in the same place. A set of
+memberships written wider than the account's reach really is quietly widens what
+is expected, and a finding disappears. The only things working against that are
+the checks at startup (duplicate, nesting, unknown name) and the fact that the
+set is declared by a human, not derived by the tool. A separate ADR is not
+needed here: this follows from ADR-0006 and is common to the whole policy.
 
-Два места ведут себя у такого аккаунта иначе, и оба стоит знать заранее:
+Two places behave differently for such an account, and both are worth knowing in
+advance:
 
-- **Свой базовый адрес не выбирается.** Хост берётся по тенанту объекта;
-  когда объекта нет (списочная ручка, канарейка), у аккаунта с набором нет
-  единственного «своего» хоста, и обращение идёт на общий адрес. Гадать,
-  какой из брендов считать домашним, инструмент не станет.
-- **В обосновании находки имена набора не печатаются.** Поля `tenant`
-  и `otherTenant` заполняются только у аккаунта с одним тенантом: склейка
-  имён через запятую встала бы в поле настоящих идентификаторов и была бы
-  прочитана как имя. Имена называет заголовок находки.
+- **No base address of its own is chosen.** The host is taken from the
+  resource's tenant; where there is no resource (a list endpoint, a canary), an
+  account with a set has no single "own" host, and the request goes to the
+  common address. The tool will not guess which of the brands to count as home.
+- **The names of the set are not printed in the evidence of a finding.** The
+  `tenant` and `otherTenant` fields are filled in only for an account with a
+  single tenant: names joined by commas would stand in a field of real
+  identifiers and would be read as a name. The names are given by the finding's
+  title.
 
-Остался долг в отчёте, и он **не** закрыт этим ADR: секция `accounts`
-в `src/report/build.ts` печатает у аккаунта только поле `tenant`, поэтому
-у аккаунта с набором тенант в отчёте отсутствует вовсе. Пока это выглядит
-как «аккаунт вне тенантов», хотя он в двух. Правка на одну строку — перенести
-`tenants` рядом с `tenant`, — но файл правится параллельно, и делать её здесь
-значило бы устроить конфликт. До неё отчёт по такому прогону неполон
-во вводных, хотя все вердикты в нём верны.
+A debt remains in the report, and this ADR does **not** close it: the `accounts`
+section in `src/report/build.ts` prints only the `tenant` field for an account,
+so for an account with a set the tenant is missing from the report entirely. For
+now that looks like "an account outside of tenants", though it is in two. The
+fix is one line — carry `tenants` over next to `tenant` — but the file is being
+edited in parallel, and doing it here would mean creating a conflict. Until
+then, a report on such a run is incomplete in its inputs, though every verdict
+in it is correct.
 
-Пересмотреть, если понадобятся разные роли в разных членствах одного аккаунта
-либо тенант с несколькими родителями (последнее — по-прежнему открытый вопрос
-ADR-0013; набор у аккаунта его не решает и решать не пытается).
+Revisit if different roles in different memberships of one account are needed,
+or a tenant with several parents (the latter is still an open question from
+ADR-0013; a set on an account does not solve it and does not try to).

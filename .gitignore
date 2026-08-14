@@ -2,27 +2,27 @@ node_modules/
 dist/
 coverage/
 
-# Секреты — только через переменные окружения, никогда в репозиторий.
+# Secrets go through environment variables only, never into the repository.
 .env
 .env.*
 !.env.example
 
-# Прогоны инструмента: могут содержать PII клиента.
+# Tool runs: they may carry a customer's personal data.
 *.report.json
 *.report.html
 /runs/
 
-# Локальные правила: содержат внутренние названия, которым не место
-# в публичном репозитории.
+# Local rules: they carry internal names that have no place in a public
+# repository.
 .claude/**/_local/
 
-# Рабочие деревья, создаваемые агентами внутри репозитория.
+# Worktrees created by agents inside the repository.
 .claude/worktrees/
 
-# Русские версии документов и сообщений. Источник правды — английские файлы
-# в репозитории; здесь лежит снимок на память владельцу. В git не идёт
-# намеренно: две языковые версии расходятся при первой же правке, и молчаливое
-# расхождение — ровно то, с чем этот инструмент борется.
+# Russian versions of the documents and messages. The source of truth is the
+# English files in the repository; what lies here is a snapshot kept for the
+# owner. It stays out of git deliberately: two language versions drift apart at
+# the first edit, and a silent drift is exactly what this tool fights.
 /_local/
 
 .DS_Store

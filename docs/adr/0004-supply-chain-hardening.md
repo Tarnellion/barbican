@@ -1,108 +1,110 @@
-# 0004. Защита цепочки поставок
+# 0004. Supply chain hardening
 
-- **Статус:** принято
-- **Дата:** 2026-08-11
+- **Status:** accepted
+- **Date:** 2026-08-11
 
-## Контекст
+## Context
 
-Основной риск для проекта — не CVE в коде зависимостей, а компрометация цепочки поставок
-npm: перехват аккаунтов мейнтейнеров и вредоносные lifecycle-скрипты. Инциденты
-2025–2026 годов (chalk/debug, Shai-Hulud 1.0 и 2.0, Glassworm) показали общий шаблон:
-вредоносные версии живут в реестре часы, публикуются под доверенным именем и исполняются
-на `preinstall`/`postinstall`, в том числе в CI.
+The main risk to the project is not a CVE in the code of a dependency but a compromise of
+the npm supply chain: takeover of maintainer accounts and malicious lifecycle scripts. The
+incidents of 2025–2026 (chalk/debug, Shai-Hulud 1.0 and 2.0, Glassworm) showed a common
+pattern: malicious versions live in the registry for hours, are published under a trusted
+name, and run on `preinstall`/`postinstall`, including in CI.
 
-Инструмент предназначен для запуска против клиентских сред и работает с секретами
-доступа — цена компрометации сборочного окружения здесь выше обычной.
+The tool is meant to be run against client environments and works with access secrets — the
+cost of a compromised build environment is higher here than usual.
 
-## Решение
+## Decision
 
-Четыре независимых слоя, зафиксированных в `pnpm-workspace.yaml` и `.npmrc`:
+Four independent layers, fixed in `pnpm-workspace.yaml` and `.npmrc`:
 
-1. **Cooldown.** `minimumReleaseAge: 10080` — не ставить версии моложе 7 суток.
-   Скомпрометированные версии обычно отзывают в течение часов, поэтому недельная
-   задержка перехватывает основной класс атак. Экстренные патчи вносятся точечно
-   через `minimumReleaseAgeExclude`.
-2. **Запрет lifecycle-скриптов.** `strictDepBuilds: true` при пустом `allowBuilds`:
-   установка падает, если у зависимости есть скрипты сборки, и требует явного решения.
-   `lefthook` разбирался отдельно — его `postinstall` лишь запускает `lefthook install`,
-   сети не трогает, поэтому вместо разрешения скрипта тот же шаг вынесен в явную
-   команду `pnpm run hooks:install`.
-3. **Детерминированная установка.** Lockfile в репозитории, `--frozen-lockfile` в CI.
-4. **Точные версии.** `save-exact` и `savePrefix: ''` — диапазоны обходят намерение
-   lockfile при переразрешении.
+1. **Cooldown.** `minimumReleaseAge: 10080` — do not install versions younger than 7 days.
+   Compromised versions are usually withdrawn within hours, so a week-long delay intercepts
+   the main class of attacks. Emergency patches are let in one at a time through
+   `minimumReleaseAgeExclude`.
+2. **Lifecycle scripts forbidden.** `strictDepBuilds: true` with an empty `allowBuilds`:
+   installation fails if a dependency has build scripts, and demands an explicit decision.
+   `lefthook` was examined separately — its `postinstall` only runs `lefthook install` and
+   does not touch the network, so instead of allowing the script the same step was moved
+   into an explicit `pnpm run hooks:install` command.
+3. **Deterministic installation.** The lockfile in the repository, `--frozen-lockfile` in CI.
+4. **Exact versions.** `save-exact` and `savePrefix: ''` — ranges get around the intent of
+   the lockfile on re-resolution.
 
-gitleaks ставится системно (Homebrew), а не как npm-пакет: npm-обёртки качают бинарь в
-`postinstall`, то есть воспроизводят ровно тот вектор, от которого защищает слой 2.
-Если gitleaks не установлен, pre-commit падает — молча пропускать сканирование секретов
-нельзя.
+gitleaks is installed system-wide (Homebrew) rather than as an npm package: the npm
+wrappers download the binary in `postinstall`, that is, they reproduce exactly the vector
+layer 2 protects against. If gitleaks is not installed, pre-commit fails — secret scanning
+must not be skipped silently.
 
-Минимизация зависимостей — часть той же защиты: каждая транзитивная зависимость
-расширяет границу доверия. Новый пакет добавляется только после проверки возраста
-релиза, числа мейнтейнеров, объёма транзитива и наличия provenance.
+Minimizing dependencies is part of the same defence: every transitive dependency widens the
+trust boundary. A new package is added only after checking the age of the release, the
+number of maintainers, the size of the transitive set and the presence of provenance.
 
-## Альтернативы
+## Alternatives
 
-- **Только `npm audit` и Dependabot:** ловят известные CVE, но не свежую вредоносную
-  версию доверенного пакета — а это и есть основной вектор.
-- **Дефолтный cooldown pnpm 11 (1 сутки):** лучше, чем ничего, но недельное окно
-  надёжнее перекрывает время между публикацией и отзывом.
-- **Разрешить `lefthook` выполнять `postinstall`:** удобнее на одну команду, ценой
-  первого исключения в политике, которое затем становится прецедентом.
+- **Only `npm audit` and Dependabot:** they catch known CVEs, but not a fresh malicious
+  version of a trusted package — and that is the main vector.
+- **The default pnpm 11 cooldown (1 day):** better than nothing, but a week-long window
+  covers the time between publication and withdrawal more reliably.
+- **Allow `lefthook` to run `postinstall`:** one command more convenient, at the price of
+  the first exception in the policy, which then becomes a precedent.
 
-## Последствия
+## Consequences
 
-`pnpm` не поставит самые свежие версии — например, на момент старта Biome 2.5.8 и 2.5.7
-были отсечены, установлена 2.5.6. Это ожидаемое поведение, а не сбой.
+`pnpm` will not install the freshest versions — at the start, for instance, Biome 2.5.8 and
+2.5.7 were cut off and 2.5.6 was installed. That is expected behaviour, not a failure.
 
-Установка требует внешнего шага (`brew install gitleaks`) и явного
-`pnpm run hooks:install`. Взамен в проекте нет ни одного пакета с правом выполнять
-lifecycle-скрипты.
+Installation requires an external step (`brew install gitleaks`) and an explicit
+`pnpm run hooks:install`. In exchange, the project has not a single package with the right
+to run lifecycle scripts.
 
-Пересмотреть, если: cooldown начнёт блокировать критичный security-патч (использовать
-`minimumReleaseAgeExclude` точечно, а не снижать порог глобально).
+Revisit if: the cooldown starts blocking a critical security patch (use
+`minimumReleaseAgeExclude` for that one case rather than lowering the threshold globally).
 
-## Уточнение от 2026-08-13: provenance возвращён, публикация уходит в CI
+## Addendum of 2026-08-13: provenance is back, publishing moves to CI
 
-Запись ниже описывает состояние, которого больше нет, и оставлена как история
-решения — не как описание сегодняшнего дня.
+The entry below describes a state that no longer exists and is kept as the history of the
+decision — not as a description of today.
 
-`publishConfig.provenance: true` возвращён в `package.json`, публикация
-переведена на npm trusted publishing: выпуск делает `\.github/workflows/release.yml`
-по тегу `v*`, учётные данные npm выдаёт по OIDC, живут они минуты, и ни одного
-долгоживущего токена в секретах репозитория нет. Requirement npm >= 11.5.1
-выполнено — локально 11.19.0, в выпуске версия закреплена явно.
+`publishConfig.provenance: true` is back in `package.json`, and publishing has been moved
+to npm trusted publishing: the release is done by `.github/workflows/release.yml` on a
+`v*` tag, npm credentials are issued over OIDC, they live for minutes, and there is not a
+single long-lived token in the repository secrets. The npm >= 11.5.1 requirement is met —
+11.19.0 locally, and in the release the version is pinned explicitly.
 
-Три вещи, которые из этого следуют и о которых легко забыть:
+Three things that follow from this and are easy to forget:
 
-- **Ручная публикация с ноутбука больше не работает.** Это не побочный эффект,
-  а цель: провенанс без CI-свидетеля недостижим, а значит и публиковать в обход
-  выпуска нельзя. Понадобится обойти — сначала осознанно снять флаг.
-- **Настройка на стороне npmjs.com обязательна.** Пока пакет не объявил
-  доверенного издателя (репозиторий и имя workflow), выпуск упадёт на шаге
-  публикации. Это правильная сторона отказа: не опубликовать безопаснее,
-  чем опубликовать без провенанса.
-- **Тег обязан совпадать с версией в `package.json`** — проверяется отдельным
-  шагом до публикации. Иначе в реестр уедет не то, что помечено в истории.
+- **Publishing by hand from a laptop no longer works.** That is not a side effect but the
+  goal: provenance is unreachable without a CI witness, which means publishing around the
+  release is not allowed either. If you need to get around it, take the flag off
+  deliberately first.
+- **Configuration on the npmjs.com side is mandatory.** Until the package has declared a
+  trusted publisher (the repository and the workflow name), the release will fail at the
+  publish step. That is the right side to fail on: not publishing is safer than publishing
+  without provenance.
+- **The tag must match the version in `package.json`** — checked by a separate step before
+  publishing. Otherwise what goes to the registry is not what is marked in the history.
 
-## Уточнение от 2026-08-11: provenance сейчас выключен
+## Addendum of 2026-08-11: provenance is off right now
 
-Описанные выше слои действуют. Но один заявленный элемент защиты **не работает**, и
-об этом честнее написать здесь, чем оставить ADR описанием желаемого.
+The layers described above are in force. But one declared element of the defence **does not
+work**, and it is more honest to write that here than to leave the ADR as a description of
+what was wished for.
 
-`publishConfig.provenance: true` снят из `package.json`. Provenance — это подпись,
-привязывающая опубликованный пакет к конкретному коммиту и сборке; она опирается на
-OIDC-токен, который выдаёт CI. С локальной машины такого свидетеля нет, и публикация
-с флагом попросту невозможна. Имя `barbican` занимали вручную с ноутбука, поэтому флаг
-пришлось снять.
+`publishConfig.provenance: true` has been removed from `package.json`. Provenance is a
+signature tying a published package to a particular commit and build; it relies on an OIDC
+token issued by CI. From a local machine there is no such witness, and publishing with the
+flag is simply impossible. The name `barbican` was claimed by hand from a laptop, so the
+flag had to come off.
 
-Практическое следствие: у версий, опубликованных вручную, нет проверяемой связи с
-репозиторием. Именно от той атаки, которой посвящён этот ADR — публикации вредоносной
-версии по угнанному токену, — этот конкретный слой сейчас не защищает.
+The practical consequence: versions published by hand have no checkable link to the
+repository. Against exactly the attack this ADR is about — publishing a malicious version
+with a stolen token — this particular layer does not protect right now.
 
-Возврат запланирован в фазе 4 вместе с переходом на npm trusted publishing, где
-provenance генерируется автоматически и долгоживущие токены не нужны вовсе. Задача
-зафиксирована в `tasks.md`. До тех пор ручная публикация — сознательно принятый риск,
-а не упущение.
+The return is planned for phase 4 together with the move to npm trusted publishing, where
+provenance is generated automatically and long-lived tokens are not needed at all. The task
+is recorded in `tasks.md`. Until then, publishing by hand is a knowingly accepted risk, not
+an oversight.
 
-Сканирование секретов в CI вынесено в отдельное решение — см.
+Secret scanning in CI is a separate decision — see
 [ADR-0007](0007-secret-scanning-in-ci.md).

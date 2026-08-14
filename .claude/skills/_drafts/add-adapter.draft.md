@@ -1,42 +1,42 @@
 ---
 name: add-adapter
-description: Добавить или заменить адаптер barbican (HTTP-клиент, парсер спецификаций, троттлинг) за портом из src/adapters/ports.ts, вместе с фейком для тестов. Использовать при реализации нового адаптера или замене существующего.
+description: Add or replace a barbican adapter (HTTP client, spec parser, throttling) behind a port from src/adapters/ports.ts, together with a fake for tests. Use when implementing a new adapter or replacing an existing one.
 ---
 
-**ЧЕРНОВИК — не активирован. Ревью и перенос вручную.**
+**DRAFT — not active. Review and move by hand.**
 
-# Добавление адаптера
+# Adding an adapter
 
-Адаптеры изолированы за портами (`src/adapters/ports.ts`). Ядро не должно узнать
-о замене реализации.
+Adapters are isolated behind ports (`src/adapters/ports.ts`). The core must not learn
+that an implementation has been replaced.
 
-## Шаги
+## Steps
 
-1. Реализация в `src/adapters/<имя>.ts`. Реализует существующий порт. Если порт
-   приходится расширять — сначала понять, не протекает ли деталь реализации в ядро.
+1. The implementation goes in `src/adapters/<name>.ts`. It implements an existing port. If the port
+   has to be extended — first work out whether an implementation detail is leaking into the core.
 
-2. Фейк в `tests/fixtures` для того же порта. Тесты ядра ходят только через фейк,
-   сети в тестах ядра нет.
+2. A fake in `tests/fixtures` for the same port. The core tests go through the fake only;
+   there is no network in the core tests.
 
-3. Инъекция через аргумент, не через импорт синглтона: глобальное состояние запрещено.
+3. Injection through an argument, not through a singleton import: global state is forbidden.
 
-## Инварианты по типам адаптеров
+## Invariants by adapter type
 
-**HTTP-клиент.** Тела ответов не возвращать — порт `HttpResponse` их не содержит,
-и расширять его нельзя без ADR. Все запросы идут через `Throttle`. Проверка метода
-против `SAFE_METHODS` выполняется до отправки, а не внутри клиента.
+**HTTP client.** Do not return response bodies — the `HttpResponse` port does not carry them,
+and it must not be extended without an ADR. Every request goes through `Throttle`. The method
+is checked against `SAFE_METHODS` before sending, not inside the client.
 
-**Парсер спецификаций.** Внешние `$ref` не резолвятся — ни `http(s)`, ни файловые.
-Обязательны тесты-доказательства отдельно для каждого случая; адаптер без них
-не принимается. Плюс лимит размера и глубины входного документа (YAML-бомба).
+**Spec parser.** External `$ref`s are not resolved — neither `http(s)` nor file ones.
+Proving tests are required, separately for each case; an adapter without them
+is not accepted. Plus a limit on the size and the depth of the input document (a YAML bomb).
 
-**Троттлинг.** Лимит конкурентности, лимит запросов в секунду, общий потолок на прогон,
-экспоненциальный backoff, circuit breaker на серии 5xx/429, уважение `Retry-After`.
-Дефолты консервативные. Отключаемого режима «без лимитов» быть не должно.
+**Throttling.** A concurrency limit, a requests-per-second limit, an overall ceiling per run,
+exponential backoff, a circuit breaker on runs of 5xx/429, respect for `Retry-After`.
+The defaults are conservative. There must be no switchable "no limits" mode.
 
-## Проверить перед коммитом
+## Check before committing
 
-- Ядро не импортирует ничего из `src/adapters`, кроме `ports.ts`.
-- Тесты ядра проходят с фейком, без сети.
-- Для парсера — тесты на внешние `$ref` присутствуют и падают при их включении.
-- `pnpm run check` проходит.
+- The core imports nothing from `src/adapters` except `ports.ts`.
+- The core tests pass with the fake, without the network.
+- For the parser — the tests on external `$ref`s exist and fail when resolution is turned on.
+- `pnpm run check` passes.

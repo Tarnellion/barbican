@@ -1,10 +1,10 @@
 /**
- * Тесты разбора условий обращения.
+ * Tests for parsing request conditions.
  *
- * Все проверки здесь про молчаливую подмену: условия, переписавшие учётный
- * заголовок, дают прогон не тем аккаунтом; условия без правила — ворох
- * расхождений, которых никто не заявлял; опечатка в имени — правило,
- * не применяющееся ни к чему. Ни одно из этого не выглядит как сбой.
+ * Every check here is about a silent substitution: conditions that rewrote a
+ * credential header give a run made as a different account; conditions with no
+ * rule give a heap of discrepancies nobody claimed; a typo in a name gives a
+ * rule that applies to nothing. None of this looks like a failure.
  */
 
 import { describe, expect, it } from "vitest";
@@ -39,8 +39,8 @@ policy:
     - { roles: "*", endpoints: [orders.list], context: geo-blocked, outcome: denied }
 `;
 
-describe("аккаунт в условиях", () => {
-  it("даёт отдельную строку матрицы с теми же тенантом и ролью", () => {
+describe("an account under conditions", () => {
+  it("gives a matrix row of its own with the same tenant and role", () => {
     const parsed = parseRunConfig(
       config(`${GEO_RULE}
 contexts:
@@ -62,13 +62,14 @@ contexts:
       contextId: "geo-blocked",
       endpointIds: ["orders.list"],
     });
-    // Условия аккаунта не меняют: предъявляется он сам, и владение объектом
-    // сверяется по нему же. Без ссылки свой объект переставал быть своим.
+    // Conditions do not change the account: it is the one presented, and
+    // ownership of a resource is checked against it. Without the reference an
+    // account's own resource stopped being its own.
     expect(accounts[2]?.baseAccountId).toBe("alice");
     expect(attributes.get("alice@geo-blocked")?.headers).toEqual({ "cf-ipcountry": "AQ" });
   });
 
-  it("применяет условия только к названным аккаунтам", () => {
+  it("applies the conditions only to the named accounts", () => {
     const parsed = parseRunConfig(
       config(`${GEO_RULE}
 contexts:
@@ -84,17 +85,18 @@ contexts:
   });
 });
 
-describe("условия не подменяют основу обращения", () => {
+describe("conditions do not replace the basis of the request", () => {
   /**
-   * Условия, тихо переписавшие `Authorization`, дали бы прогон, где часть
-   * ячеек ходит не тем аккаунтом, — а выглядело бы это как находки платформы.
+   * Conditions that quietly rewrote `Authorization` would give a run where
+   * some cells go out as a different account — and it would look like findings
+   * about the platform.
    */
   it.each([
-    ["authorization", "Bearer чужой"],
-    ["Cookie", "session=чужая"],
+    ["authorization", "Bearer someone-elses"],
+    ["Cookie", "session=someone-elses"],
     ["host", "evil.test"],
     ["content-length", "0"],
-  ])("отвергает заголовок %s", (header, value) => {
+  ])("rejects the header %s", (header, value) => {
     expect(() =>
       parseRunConfig(
         config(`${GEO_RULE}
@@ -108,29 +110,30 @@ contexts:
   });
 
   /**
-   * Имя заголовка учётной схемы объявлено человеком, поэтому запрет считается
-   * от разобранных схем, а не от строки в файле.
+   * The header name of an authentication scheme is declared by a human, so the
+   * ban is computed from the parsed schemes, not from a line in the file.
    */
-  it("отвергает заголовок, по которому предъявляются учётные данные", () => {
+  it("rejects the header that presents credentials", () => {
     expect(() =>
       parseRunConfig(
         config(`
 auth: { kind: header, header: X-API-Key }
 ${GEO_RULE}
 contexts:
-  - { id: geo-blocked, headers: { x-api-key: чужой }, endpoints: [orders.list] }
+  - { id: geo-blocked, headers: { x-api-key: someone-elses }, endpoints: [orders.list] }
 `),
       ),
     ).toThrow(ForbiddenContextHeaderError);
   });
 });
 
-describe("условия без ожиданий", () => {
+describe("conditions with no expectations", () => {
   /**
-   * Ожидание в условиях объявляется явно. Без правила все ячейки условий уйдут
-   * в fallback, и отчёт наполнится расхождениями, которых никто не заявлял.
+   * An expectation under conditions is declared explicitly. With no rule, all
+   * of their cells fall through to fallback, and the report fills up with
+   * discrepancies nobody claimed.
    */
-  it("отвергает условия, на которые не ссылается ни одно правило", () => {
+  it("rejects conditions no rule refers to", () => {
     expect(() =>
       parseRunConfig(
         config(`
@@ -142,8 +145,8 @@ contexts:
     ).toThrow(UnusedContextError);
   });
 
-  /** Опечатка в ссылке — правило, не применяющееся ни к одной ячейке. */
-  it("отвергает правило, ссылающееся на необъявленные условия", () => {
+  /** A typo in a reference gives a rule that applies to no cell at all. */
+  it("rejects a rule that refers to undeclared conditions", () => {
     expect(() =>
       parseRunConfig(
         config(`
@@ -159,14 +162,14 @@ contexts:
   });
 });
 
-describe("строгая схема правила", () => {
+describe("the strict rule schema", () => {
   /**
-   * Найдено прогоном полигона против старой сборки: нераспознанный ключ молча
-   * отбрасывался, и правило «запретить в этих условиях» превращалось
-   * в «запретить всегда» — 19 находок на исправной платформе. Та же опечатка
-   * в `scope` расширяет правило на все отношения и, наоборот, прячет находку.
+   * Found by running the polygon against an old build: an unrecognized key was
+   * silently dropped, and the rule "deny under these conditions" turned into
+   * "deny always" — 19 findings on a healthy platform. The same typo in `scope`
+   * widens the rule to every relation and, the other way round, hides a finding.
    */
-  it("отвергает лишний ключ в правиле вместо того, чтобы его отбросить", () => {
+  it("rejects an extra key in a rule instead of dropping it", () => {
     expect(() =>
       parseRunConfig(
         config(`
@@ -181,14 +184,14 @@ policy:
 });
 
 /**
- * Найдено состязательной проверкой, и это была худшая находка дня: условия
- * заставили платформу **удалить объект** при выключенных небезопасных методах.
- * Гейт `SAFE_METHODS` смотрит на метод запроса и подмены не видит, а отчёт
- * при этом писал `writeMethodsProbed: false` — то есть утверждал обратное
- * произошедшему.
+ * Found by adversarial review, and it was the worst finding of the day: the
+ * conditions made the platform **delete a resource** with unsafe methods
+ * switched off. The `SAFE_METHODS` gate looks at the request method and does
+ * not see the override, while the report wrote `writeMethodsProbed: false` —
+ * that is, it claimed the opposite of what happened.
  */
-describe("условия не могут подменить смысл обращения", () => {
-  /** Политика обязана называть условия, иначе прогон падает раньше проверки. */
+describe("conditions cannot replace the meaning of a request", () => {
+  /** The policy must name the conditions, otherwise the run fails before the check. */
   function withContext(id: string, attributes: string): string {
     return config(`
 policy:
@@ -203,66 +206,68 @@ contexts:
   }
 
   it.each([
-    ["x-http-method-override", "заголовок подмены метода"],
-    ["X-HTTP-Method", "он же в другом написании"],
-    ["x-method-override", "и в третьем"],
-    ["x-original-url", "подмена адреса: обращение уйдёт мимо объявленного пути"],
-    ["x-rewrite-url", "она же"],
-    ["x-forwarded-host", "маршрутизация: меняет адресата, а не условия"],
-    ["x-forwarded-proto", "она же"],
-    ["proxy-authorization", "учётные данные"],
-    ["upgrade", "заголовок обмена"],
-  ])("отвергает заголовок %s (%s)", (header) => {
+    ["x-http-method-override", "method override header"],
+    ["X-HTTP-Method", "the same one spelled differently"],
+    ["x-method-override", "and a third spelling"],
+    ["x-original-url", "address override: the request would miss the declared path"],
+    ["x-rewrite-url", "the same one"],
+    ["x-forwarded-host", "routing: changes the addressee, not the conditions"],
+    ["x-forwarded-proto", "the same one"],
+    ["proxy-authorization", "credentials"],
+    ["upgrade", "a transport header"],
+  ])("rejects the header %s (%s)", (header) => {
     expect(() => parseRunConfig(withContext("bad", `headers: { "${header}": something }`))).toThrow(
       ForbiddenContextHeaderError,
     );
   });
 
   /**
-   * `__proto__` в обычном объектном литерале ключом не становится: заголовок
-   * молча исчезал бы, а объявление, которое ничего не делает и не жалуется, —
-   * ровно то, против чего написан весь инструмент.
+   * `__proto__` never becomes a key in a plain object literal: the header would
+   * vanish silently, and a declaration that does nothing and does not complain
+   * is exactly what this whole tool is written against.
    */
-  it("отвергает ключ __proto__, а не теряет его молча", () => {
+  it("rejects the key __proto__ instead of losing it silently", () => {
     expect(() => parseRunConfig(withContext("weird", 'headers: { __proto__: "value" }'))).toThrow(
       UncarriableKeyError,
     );
   });
 
-  /** Гео-атрибут остаётся разрешённым: ради него условия и заводились. */
-  it("не трогает x-forwarded-for — это и есть типовой атрибут условий", () => {
+  /** The geo attribute stays allowed: conditions were introduced for its sake. */
+  it("leaves x-forwarded-for alone — it is the typical condition attribute", () => {
     expect(() =>
       parseRunConfig(withContext("geo", 'headers: { x-forwarded-for: "203.0.113.10" }')),
     ).not.toThrow();
   });
 
   it.each(["access_token", "api_key", "token", "jwt", "session"])(
-    "отвергает параметр запроса %s: им предъявляют учётные данные",
+    "rejects the query parameter %s: credentials are presented with it",
     (key) => {
       expect(() =>
-        parseRunConfig(withContext("bad", `query: { "${key}": "похоже на токен" }`)),
+        parseRunConfig(withContext("bad", `query: { "${key}": "looks like a token" }`)),
       ).toThrow(ForbiddenContextQueryError);
     },
   );
 
-  it("отвергает имя заголовка, которое не уйдёт по проводу", () => {
+  it("rejects a header name that will not go out on the wire", () => {
     expect(() => parseRunConfig(withContext("bad", 'headers: { "x-bad name": ok }'))).toThrow(
       ForbiddenContextHeaderError,
     );
   });
 
-  it("отвергает значение, которое не уйдёт по проводу", () => {
-    expect(() => parseRunConfig(withContext("bad", 'headers: { x-note: "кириллица" }'))).toThrow(
+  it("rejects a value that will not go out on the wire", () => {
+    // A value outside printable ASCII: stays non-ASCII deliberately, a Latin
+    // replacement would make the check prove nothing.
+    expect(() => parseRunConfig(withContext("bad", 'headers: { x-note: "日本語" }'))).toThrow(
       ForbiddenContextHeaderError,
     );
   });
 
   /**
-   * Самая тихая из подмен: вердикт считается по объявленному объекту,
-   * а спрашивается другой — и межтенантная утечка ложится в отчёт как
-   * «свой объект, проверено и совпало».
+   * The quietest of the substitutions: the verdict is computed from the
+   * declared resource while a different one is asked for — and a cross-tenant
+   * leak lands in the report as "own resource, tested and agreed".
    */
-  it("отвергает параметр, которым объекты задают себя", () => {
+  it("rejects a parameter by which resources identify themselves", () => {
     expect(() =>
       parseRunConfig(`
 target: { baseUrl: "https://api.test", allowedHosts: [api.test] }
@@ -280,15 +285,15 @@ contexts:
   });
 
   /**
-   * Правило по **значению**, а не по имени: имён у подмены метода десяток
-   * и будет больше, а значение у неё всегда одно — имя метода. Так ловится
-   * и вендорский заголовок, о котором никто не слышал.
+   * The rule works on the **value**, not the name: method override has a dozen
+   * names and will have more, while its value is always the same — the name of
+   * a method. That catches a vendor header nobody has heard of too.
    */
-  describe("подмена метода ловится значением атрибута", () => {
+  describe("method override is caught by the attribute's value", () => {
     const parsed = (attributes: string) =>
       resolveContextValues(parseRunConfig(withContext("proxy", attributes)), {});
 
-    it("отвергает заголовок, чьё значение — имя метода", () => {
+    it("rejects a header whose value is the name of a method", () => {
       expect(() =>
         assertContextsCannotWrite(parsed("headers: { x-vendor-verb: DELETE }"), {
           allowUnsafeMethods: false,
@@ -296,7 +301,7 @@ contexts:
       ).toThrow(MethodOverrideInContextError);
     });
 
-    it("отвергает и параметр запроса с тем же значением", () => {
+    it("rejects a query parameter with the same value too", () => {
       expect(() =>
         assertContextsCannotWrite(parsed('query: { _method: "delete" }'), {
           allowUnsafeMethods: false,
@@ -304,8 +309,8 @@ contexts:
       ).toThrow(MethodOverrideInContextError);
     });
 
-    /** С явным согласием на запись запрещать нечего: человек уже решил. */
-    it("молчит, когда небезопасные методы разрешены явно", () => {
+    /** With explicit consent to write there is nothing to forbid: the human decided already. */
+    it("stays silent when unsafe methods are allowed explicitly", () => {
       expect(() =>
         assertContextsCannotWrite(parsed("headers: { x-vendor-verb: DELETE }"), {
           allowUnsafeMethods: true,
@@ -313,7 +318,7 @@ contexts:
       ).not.toThrow();
     });
 
-    it("не мешает обычному значению атрибута", () => {
+    it("does not get in the way of an ordinary attribute value", () => {
       expect(() =>
         assertContextsCannotWrite(parsed("headers: { cf-ipcountry: AQ }"), {
           allowUnsafeMethods: false,
@@ -324,12 +329,13 @@ contexts:
 });
 
 /**
- * Значение атрибута печатается в отчёте дословно, и человеку, которому нужна
- * в условиях подпись устройства или партнёрский ключ, деться было некуда,
- * кроме открытого текста в конфигурации. Форма `{ env: ИМЯ }` повторяет
- * `tokenEnv` у аккаунта: в отчёт уезжает имя, значение живёт в окружении.
+ * An attribute's value is printed in the report verbatim, and anyone who needs
+ * a device signature or a partner key in the conditions had nowhere to go but
+ * plain text in the configuration. The form `{ env: NAME }` repeats `tokenEnv`
+ * on an account: the name goes into the report, the value lives in the
+ * environment.
  */
-describe("значение атрибута из окружения", () => {
+describe("an attribute value from the environment", () => {
   const CONFIG = `
 target: { baseUrl: "https://api.test", allowedHosts: [api.test] }
 accounts: [{ id: alice, role: user, tenant: tenant-a, tokenEnv: T_ALICE }]
@@ -343,35 +349,35 @@ contexts:
     endpoints: [orders.list]
 `;
 
-  it("подставляет значение из переменной окружения", () => {
+  it("substitutes the value from the environment variable", () => {
     const values = resolveContextValues(parseRunConfig(CONFIG), { PARTNER_KEY: "s3cret" });
 
     expect(values.get("partner")?.headers["x-partner-key"]).toBe("s3cret");
   });
 
-  it("в конфигурации остаётся имя переменной, а не значение", () => {
+  it("the configuration keeps the variable name, not the value", () => {
     const config = parseRunConfig(CONFIG);
 
     expect(config.contexts[0]?.headers["x-partner-key"]).toEqual({ env: "PARTNER_KEY" });
   });
 
-  it("отвергает незаданную переменную, а не ходит с пустым заголовком", () => {
+  it("rejects an unset variable instead of going out with an empty header", () => {
     expect(() => resolveContextValues(parseRunConfig(CONFIG), {})).toThrow(
       MissingContextValueError,
     );
   });
 
-  it("отвергает значение, которое нельзя отправить", () => {
+  it("rejects a value that cannot be sent", () => {
     expect(() =>
-      resolveContextValues(parseRunConfig(CONFIG), { PARTNER_KEY: "перенос\nстроки" }),
+      resolveContextValues(parseRunConfig(CONFIG), { PARTNER_KEY: "a line\nbreak" }),
     ).toThrow(InvalidContextValueError);
   });
 
   /**
-   * Проверка подмены метода идёт по разрешённым значениям: объявление
-   * `{ env: VERB }` при `VERB=DELETE` иначе прошло бы мимо неё.
+   * The method-override check runs over the resolved values: a declaration of
+   * `{ env: VERB }` with `VERB=DELETE` would slip past it otherwise.
    */
-  it("ловит подмену метода, пришедшую из окружения", () => {
+  it("catches a method override that came from the environment", () => {
     const config = parseRunConfig(`
 target: { baseUrl: "https://api.test", allowedHosts: [api.test] }
 accounts: [{ id: alice, role: user, tenant: tenant-a, tokenEnv: T_ALICE }]
@@ -392,8 +398,8 @@ contexts:
     ).toThrow(MethodOverrideInContextError);
   });
 
-  /** Пропущенный шаг разрешения обязан быть слышен, а не уехать объектом. */
-  it("отказывается строить аккаунты, если значения не разрешены", () => {
+  /** A skipped resolution step must be audible, not travel on as an object. */
+  it("refuses to build accounts when the values are not resolved", () => {
     expect(() => toAccounts(parseRunConfig(CONFIG))).toThrow(MissingContextValueError);
   });
 });

@@ -1,13 +1,15 @@
-# Наложение поверх официального compose crAPI. Передаётся вторым `-f`, файлы
-# самого crAPI не правятся: это чужой проект под своей лицензией.
+# An override on top of crAPI's official compose. Passed as the second `-f`; crAPI's
+# own files are not edited: it is someone else's project under its own licence.
 #
-# Чат-бот не поднимается: образ 1,18 ГБ, тянет внешний LLM, а к матрице
-# «роль × эндпоинт» отношения не имеет. Но nginx веб-контейнера резолвит все
-# апстримы на старте и без чат-бота падает, поэтому имя даётся заглушкой на петлю.
+# The chatbot is not brought up: the image is 1.18 GB, it pulls an external LLM, and
+# it has nothing to do with the "role × endpoint" matrix. But the web container's
+# nginx resolves all upstreams at startup and falls over without the chatbot, so the
+# name is given a stub pointing at the loopback.
 #
-# Адрес публикации портов задаётся не здесь, а переменной LISTEN_IP, которую
-# verify.mjs выставляет в 127.0.0.1 явно: `ports` в наложении не заменяют
-# исходные, а добавляются к ним, и «сузить» привязку так нельзя.
+# The publication address of the ports is set not here but by the LISTEN_IP variable,
+# which verify.mjs sets to 127.0.0.1 explicitly: `ports` in an override do not replace
+# the original ones but are added to them, and the binding cannot be "narrowed" that
+# way.
 services:
   crapi-web:
     extra_hosts:

@@ -1,8 +1,8 @@
 /**
- * Тесты общего модуля сверки с оракулом.
+ * Tests for the shared oracle comparison module.
  *
- * Модуль несущий: на нём держатся все утверждения вида «расхождений 0».
- * Сверка, не умеющая падать, подтверждает что угодно.
+ * The module is load-bearing: every claim of the form 'zero discrepancies'
+ * rests on it. A comparison that cannot fail confirms anything.
  */
 
 import { describe, expect, it } from "vitest";
@@ -17,7 +17,7 @@ import {
 
 const MINIMAL: GroundTruth = {
   defects: {
-    "missing-filter": { title: "нет фильтра", visibility: "status" },
+    "missing-filter": { title: "no filter", visibility: "status" },
   },
   variants: [
     {
@@ -48,28 +48,28 @@ function sourceOf(patch: (value: GroundTruth) => unknown): string {
 }
 
 describe("loadGroundTruth", () => {
-  it("принимает корректный оракул", () => {
+  it("accepts a valid oracle", () => {
     expect(loadGroundTruth(JSON.stringify(MINIMAL)).variants).toHaveLength(2);
   });
 
-  it("отвергает неразбираемый JSON", () => {
-    expect(() => loadGroundTruth("{не json")).toThrow(GroundTruthError);
+  it("rejects unparseable JSON", () => {
+    expect(() => loadGroundTruth("{not json")).toThrow(GroundTruthError);
   });
 
   /**
-   * Видимость обязательна: дефект без неё не отличить от забытого, а именно
-   * это различие ADR-0012 и вводил.
+   * Visibility is mandatory: a defect without it cannot be told from a
+   * forgotten one, and that is exactly the distinction ADR-0012 introduced.
    */
-  it("отвергает дефект без объявленной видимости", () => {
+  it("rejects a defect with no declared visibility", () => {
     const source = sourceOf((value) => ({
       ...value,
-      defects: { "missing-filter": { title: "нет фильтра" } },
+      defects: { "missing-filter": { title: "no filter" } },
     }));
 
     expect(() => loadGroundTruth(source)).toThrow(/visibility/);
   });
 
-  it("отвергает неизвестное значение видимости", () => {
+  it("rejects an unknown visibility value", () => {
     const source = sourceOf((value) => ({
       ...value,
       defects: { "missing-filter": { visibility: "maybe" } },
@@ -78,13 +78,13 @@ describe("loadGroundTruth", () => {
     expect(() => loadGroundTruth(source)).toThrow(GroundTruthError);
   });
 
-  /** Оракул, ссылающийся на несуществующий дефект, подтвердит что угодно. */
-  it("отвергает находку со ссылкой на несуществующий дефект", () => {
+  /** An oracle referring to a defect that does not exist will confirm anything. */
+  it("rejects a finding that refers to a non-existent defect", () => {
     const source = sourceOf((value) => ({
       ...value,
       variants: value.variants.map((variant) =>
         variant.id === "broken"
-          ? { ...variant, findings: [{ ...variant.findings[0], defects: ["опечатка"] }] }
+          ? { ...variant, findings: [{ ...variant.findings[0], defects: ["typo-in-the-id"] }] }
           : variant,
       ),
     }));
@@ -93,10 +93,10 @@ describe("loadGroundTruth", () => {
   });
 
   /**
-   * Находка без дефекта — либо забытый дефект, либо ошибка в оракуле.
-   * Молча принятая, она делает проверку полноты бессмысленной.
+   * A finding with no defect is either a forgotten defect or a mistake in the
+   * oracle. Accepted silently, it makes the coverage check meaningless.
    */
-  it("отвергает находку без единого дефекта", () => {
+  it("rejects a finding with no defect at all", () => {
     const source = sourceOf((value) => ({
       ...value,
       variants: value.variants.map((variant) =>
@@ -109,7 +109,7 @@ describe("loadGroundTruth", () => {
     expect(() => loadGroundTruth(source)).toThrow(/has no defect/);
   });
 
-  it("отвергает повторяющийся идентификатор варианта", () => {
+  it("rejects a duplicate variant identifier", () => {
     const source = sourceOf((value) => ({
       ...value,
       variants: [value.variants[0], value.variants[0]],
@@ -118,7 +118,7 @@ describe("loadGroundTruth", () => {
     expect(() => loadGroundTruth(source)).toThrow(/more than once/);
   });
 
-  it("отвергает пустой перечень вариантов", () => {
+  it("rejects an empty list of variants", () => {
     expect(() => loadGroundTruth(sourceOf((value) => ({ ...value, variants: [] })))).toThrow(
       GroundTruthError,
     );
@@ -127,12 +127,12 @@ describe("loadGroundTruth", () => {
 
 describe("checkCoverage", () => {
   /**
-   * Вложенные дефекты: ячейки одного — подмножество ячеек другого. Общая ячейка
-   * объясняется обоими, и без этого частный случай выглядел бы непроверяемым.
-   * Найдено при миграции оракула платформы: PARENT_LEAK числился неохваченным,
-   * потому что все его ячейки принадлежали и ANCESTOR_LEAK.
+   * Nested defects: the cells of one are a subset of the cells of another. The
+   * shared cell is explained by both, and without this the narrower case would
+   * look untestable. Found while migrating the platform's oracle: PARENT_LEAK
+   * counted as uncovered because all of its cells belonged to ANCESTOR_LEAK too.
    */
-  it("засчитывает дефект, объясняющий ячейку наравне с другим", () => {
+  it("credits a defect that explains a cell on par with another", () => {
     const nested: GroundTruth = {
       defects: {
         "whole-chain": { visibility: "status" },
@@ -158,12 +158,12 @@ describe("checkCoverage", () => {
     expect(checkCoverage(nested)).toEqual([]);
   });
 
-  it("молчит, когда каждый видимый дефект где-то ожидается", () => {
+  it("stays silent when every visible defect is expected somewhere", () => {
     expect(checkCoverage(MINIMAL)).toEqual([]);
   });
 
-  /** Забытый вариант и неверная пометка видимости выглядят одинаково. */
-  it("замечает видимый дефект, не ожидаемый ни в одном варианте", () => {
+  /** A forgotten variant and a wrong visibility mark look the same. */
+  it("spots a visible defect expected in no variant at all", () => {
     const withOrphan: GroundTruth = {
       ...MINIMAL,
       defects: { ...MINIMAL.defects, forgotten: { visibility: "status" } },
@@ -174,8 +174,8 @@ describe("checkCoverage", () => {
     ]);
   });
 
-  /** Причина недостижимости разная, а следствие одно: в находках его быть не должно. */
-  it("замечает противоречие: недостижимый дефект ожидается в находках", () => {
+  /** The reason for unreachability varies, the consequence does not: it must not be in the findings. */
+  it("spots the contradiction: an unreachable defect is expected in the findings", () => {
     const contradictory: GroundTruth = {
       ...MINIMAL,
       defects: { "missing-filter": { visibility: "unsafe-method" } },
@@ -186,7 +186,7 @@ describe("checkCoverage", () => {
 });
 
 describe("cellKey", () => {
-  it("одинаково ключует запись оракула и находку инструмента", () => {
+  it("keys an oracle entry and a tool finding identically", () => {
     const fromOracle = cellKey({
       account: "alice",
       endpoint: "orders.read",
@@ -203,8 +203,8 @@ describe("cellKey", () => {
     expect(fromOracle).toBe(fromReport);
   });
 
-  /** У находки проверки третья координата — второй аккаунт пары, а не объект. */
-  it("ключует находку проверки по второму аккаунту пары", () => {
+  /** For a check finding the third coordinate is the second account of the pair, not a resource. */
+  it("keys a check finding by the second account of the pair", () => {
     const fromOracle = cellKey({
       account: "alice",
       endpoint: "orders.list",
@@ -236,18 +236,18 @@ describe("compareVariant", () => {
     checks: [],
   };
 
-  it("молчит при полном совпадении", () => {
+  it("stays silent on a full match", () => {
     expect(compareVariant(broken, matching, 1).problems).toEqual([]);
   });
 
-  it("замечает пропущенную находку", () => {
+  it("spots a missing finding", () => {
     const result = compareVariant(broken, { findings: [], checks: [] }, 1);
 
     expect(result.missing).toHaveLength(1);
     expect(result.problems[0]).toMatch(/not found/);
   });
 
-  it("замечает находку сверх оракула", () => {
+  it("spots a finding beyond the oracle", () => {
     const result = compareVariant(MINIMAL.variants[0] as Variant, matching, 0);
 
     expect(result.unexpected).toHaveLength(1);
@@ -255,10 +255,11 @@ describe("compareVariant", () => {
   });
 
   /**
-   * Одного числа находок мало: пропуск и лишнее в равном количестве
-   * компенсируют друг друга, и счётчик совпадёт при полном расхождении.
+   * A count of findings alone is not enough: a miss and an extra in equal
+   * numbers cancel each other out, and the counter matches on a complete
+   * mismatch.
    */
-  it("замечает взаимную компенсацию, которую не увидел бы счётчик", () => {
+  it("spots the mutual cancellation a counter would miss", () => {
     const wrongCell = {
       findings: [
         {
@@ -278,12 +279,12 @@ describe("compareVariant", () => {
     expect(result.unexpected).toHaveLength(1);
   });
 
-  it("замечает несовпадение кода возврата", () => {
+  it("spots a mismatched exit code", () => {
     expect(compareVariant(broken, matching, 0).problems[0]).toMatch(/exit code/);
   });
 
-  /** Находок может не быть просто потому, что до них не дошли. */
-  it("не считает оборванный прогон совпадением", () => {
+  /** There may be no findings simply because the run never reached them. */
+  it("does not count a run cut short as a match", () => {
     const result = compareVariant(
       MINIMAL.variants[0] as Variant,
       {
@@ -297,7 +298,7 @@ describe("compareVariant", () => {
     expect(result.problems[0]).toMatch(/cut short/);
   });
 
-  it("не считает совпадением прогон с неаутентифицированными аккаунтами", () => {
+  it("does not count a run with unauthenticated accounts as a match", () => {
     const result = compareVariant(
       MINIMAL.variants[0] as Variant,
       {

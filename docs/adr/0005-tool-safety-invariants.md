@@ -1,160 +1,164 @@
-# 0005. Инварианты безопасности самого инструмента
+# 0005. Safety invariants of the tool itself
 
-- **Статус:** принято
-- **Дата:** 2026-08-11
+- **Status:** accepted
+- **Date:** 2026-08-11
 
-## Контекст
+## Context
 
-Инструмент, перебирающий матрицу «роль × эндпоинт» на чужом API, по механике совпадает
-со сканером уязвимостей. Три риска приходится закрывать конструкцией, а не дисциплиной
-оператора: положить чужой стенд нагрузкой; выполнить разрушающий запрос; утащить в
-отчёты и логи персональные данные клиента. Отдельный класс — недоверенная OpenAPI-спека
-на входе, которая может увести парсер во внутреннюю сеть или в файловую систему.
+A tool that walks the "role × endpoint" matrix on someone else's API is mechanically the
+same thing as a vulnerability scanner. Three risks have to be closed by construction rather
+than by operator discipline: taking down someone else's deployment with load; issuing a
+destructive request; dragging a client's personal data into reports and logs. A separate
+class is an untrusted OpenAPI spec on the input, which can lead the parser into an internal
+network or into the file system.
 
-## Решение
+## Decision
 
-Инварианты закладываются в типы и конструкцию, чтобы нарушение требовало осознанного
-изменения кода, а не забытого флага.
+The invariants are built into the types and the construction, so that violating one takes a
+deliberate change to the code rather than a forgotten flag.
 
-**Safe by default.** Без явного `--unsafe-methods` выполняются только GET и HEAD.
-Список зафиксирован константой `SAFE_METHODS` в `src/core/types.ts` и покрыт тестом;
-расширение — только через ADR.
+**Safe by default.** Without an explicit `--unsafe-methods` only GET and HEAD are performed.
+The list is fixed by the `SAFE_METHODS` constant in `src/core/types.ts` and covered by a
+test; extending it goes only through an ADR.
 
-**Троттлинг всегда включён.** Лимит конкурентности, лимит запросов в секунду, общий
-потолок запросов на прогон, экспоненциальный backoff, circuit breaker на серии 5xx/429,
-уважение `Retry-After`. Дефолты консервативные. Троттлинг — порт `Throttle`, а не
-опция вызова, поэтому обойти его нельзя, не подменив адаптер.
+**Throttling is always on.** A concurrency limit, a requests-per-second limit, an overall
+ceiling on requests per run, exponential backoff, a circuit breaker on runs of 5xx/429,
+respect for `Retry-After`. The defaults are conservative. Throttling is the `Throttle`
+port, not a call option, so it cannot be bypassed without replacing the adapter.
 
-**Тела ответов не сохраняются.** Порт `HttpResponse` содержит только статус и заголовки —
-тела в нём нет вовсе, так что «случайно» протащить PII в отчёт невозможно. Если
-сохранение когда-нибудь понадобится, это отдельное поле под явным флагом и отдельный ADR.
+**Response bodies are not stored.** The `HttpResponse` port holds only the status and the
+headers — there is no body in it at all, so smuggling PII into the report "by accident" is
+impossible. If storing them is ever needed, that is a separate field under an explicit flag
+and a separate ADR.
 
-**Внешние `$ref` не резолвятся.** Ни по http, ни по файловой системе — защита от SSRF
-(включая адреса метаданных облака и RFC-1918) и от path traversal. Требование записано
-в контракте порта `SpecParser`; реализация принимается только вместе с тестом,
-доказывающим, что http- и file-`$ref` не разрешаются.
+**External `$ref`s are not resolved.** Neither over http nor through the file system —
+protection against SSRF (including cloud metadata addresses and RFC-1918) and against path
+traversal. The requirement is written into the contract of the `SpecParser` port; an
+implementation is accepted only together with a test proving that http and file `$ref`s are
+not resolved.
 
-**Редакция по хардкод-путям.** Пути редакции задаются в коде и никогда не берутся из
-пользовательского ввода.
+**Redaction along hardcoded paths.** The redaction paths are set in code and are never
+taken from user input.
 
-**Scope обязателен.** Без явно заданного allowlist хостов инструмент отказывается
-работать.
+**Scope is mandatory.** Without an explicitly set allowlist of hosts the tool refuses to
+work.
 
-**Секреты только через переменные окружения.** Ничего в репозиторий, ничего в логи.
+**Secrets only through environment variables.** Nothing into the repository, nothing into
+the logs.
 
-## Альтернативы
+## Alternatives
 
-- **Разрешить все методы, полагаясь на осторожность оператора:** одна ошибка в аргументах
-  приводит к разрушающему запросу на чужом проде.
-- **Сохранять тела ответов для удобства разбора:** заметно упрощает диагностику, но
-  делает файл отчёта носителем персональных данных со всеми вытекающими обязанностями.
-- **Резолвить внешние `$ref` как обычный OpenAPI-инструмент:** совместимее с чужими
-  спеками, но превращает разбор спецификации в SSRF-примитив.
+- **Allow all methods and rely on the operator's care:** one mistake in the arguments leads
+  to a destructive request on someone else's production.
+- **Store response bodies to make analysis easier:** it noticeably simplifies diagnosis, but
+  makes the report file a carrier of personal data with all the obligations that follow.
+- **Resolve external `$ref`s like an ordinary OpenAPI tool:** more compatible with other
+  people's specs, but it turns parsing a specification into an SSRF primitive.
 
-## Последствия
+## Consequences
 
-Часть удобства принесена в жертву: спеки с внешними `$ref` придётся предварительно
-сводить в один файл, а диагностика по одним статусам и заголовкам менее наглядна, чем
-по телам.
+Some convenience has been sacrificed: specs with external `$ref`s have to be bundled into a
+single file beforehand, and diagnosing from statuses and headers alone is less telling than
+from bodies.
 
-Взамен инструмент безопасно запускать против клиентской среды, а его отчёты не содержат
-данных, которые нельзя хранить. Инварианты выражены в типах, поэтому их нарушение
-видно в ревью как изменение контракта.
-
-
-## Уточнение от 2026-08-12: итоги состязательной проверки
-
-Инварианты выше проверялись автором, знавшим их замысел. Отдельная состязательная
-проверка нашла три пробоя, которых этот взгляд не увидел.
-
-**Заголовки ответа переносились в отчёт целиком.** Список запрещённых имён был
-структурно неверен: перечислить всё, что когда-нибудь понесёт секрет, невозможно.
-Мимо него проходили `x-auth-token`, `authentication-info`, `x-amz-security-token`
-и почта клиента в `x-user-email`, а `location` привозил OAuth-токен во фрагменте.
-Инвариант «тела не читаем» держался, но PII заходила соседней дверью. Заменено на
-allowlist имён; `location` сохраняется без query и фрагмента.
-
-**Путь из спецификации управлял схемой и портом.** `new URL(path, base)` отдаёт
-приоритет абсолютному адресу, поэтому путь вида `http://тот-же-хост:9999/x`
-перебивал базовый URL целиком — понижал https до http и уводил на произвольный
-порт. Проверка allowlist это пропускала: она сверяла только имя хоста.
-Спецификация приходит от проверяемой системы и доверенной не является. Теперь
-origin результата сверяется с origin цели, а путь, уводящий за её пределы,
-становится пропуском с причиной.
-
-**`Retry-After` от сервера снимал выдержку.** Значение не ограничивалось сверху,
-а `setTimeout` зажимает величины свыше 2³¹−1 мс до одной миллисекунды — три
-попытки проходили за миллисекунды вместо экспоненциального backoff. Ограничено
-собственным потолком: указание сервера приоритетнее нашей формулы, но не выше
-нашего предела.
-
-Отдельно вскрылось, что «ничего не проверено» было неотличимо от «всё чисто»:
-спецификация без эндпоинтов, лежащий стенд и исчерпанный бюджет обращений давали
-код возврата 0. Теперь такие прогоны возвращают 2, а число проверенных канареек
-попадает в отчёт.
-
-Держались без замечаний: запрет внешних `$ref` (17 попыток обхода, ноль сетевых
-обращений и чтений файла), запрет небезопасных методов, лимиты троттлинга,
-allowlist по имени хоста и отсутствие тела в отчёте.
+In exchange, the tool is safe to run against a client environment, and its reports hold no
+data that must not be stored. The invariants are expressed in the types, so violating them
+shows up in review as a change to a contract.
 
 
-## Уточнение от 2026-08-12, второй заход: регрессия и её причина
+## Addendum of 2026-08-12: results of the adversarial review
 
-Вторая состязательная проверка и прогон против crAPI независимо нашли одно и то же,
-и это была **регрессия, внесённая ADR-0010**.
+The invariants above were checked by the author, who knew what they were meant to do. A
+separate adversarial review found three breaches that this view did not see.
 
-`findUnauthenticated` вызывал `resolveExpected` без отношения, а правила со `scope`
-без отношения не применяются. Значит для политики, которую ADR-0010 вводит
-и рекомендует, счётчик объявленного доступа оставался нулевым, и предохранитель
-не срабатывал **никогда**. Сквозной прогон против стенда, отвечающего 401 на каждый
-запрос, давал «эскалаций не найдено» и код возврата 0.
+**Response headers were carried into the report in full.** The list of forbidden names was
+structurally wrong: enumerating everything that will ever carry a secret is impossible.
+`x-auth-token`, `authentication-info`, `x-amz-security-token` and a client's email in
+`x-user-email` went straight past it, and `location` brought in an OAuth token in the
+fragment. The invariant "we do not read bodies" held, but PII came in through the next door.
+Replaced with an allowlist of names; `location` is stored without the query string and the
+fragment.
 
-Это третий случай одного и того же класса — «инструмент сообщает „чисто“, ничего
-не проверив», — и первый, где его внесли мы сами, добавляя возможность. Вывод
-на будущее: каждое расширение модели ожиданий обязано проходить через
-предохранитель, иначе он проверяет модель, которой больше нет.
+**A path from the specification controlled the scheme and the port.** `new URL(path, base)`
+gives priority to an absolute address, so a path of the form `http://same-host:9999/x`
+overrode the base URL entirely — it downgraded https to http and led to an arbitrary port.
+The allowlist check let that through: it compared only the host name. The specification
+comes from the system under test and is not trusted. Now the origin of the result is
+compared against the origin of the target, and a path that leads outside it becomes a skip
+with a reason.
 
-Заодно закрыты:
+**`Retry-After` from the server removed the delay.** The value had no upper bound, and
+`setTimeout` clamps values above 2³¹−1 ms down to one millisecond — three attempts went
+through in milliseconds instead of exponential backoff. Bounded by a ceiling of our own:
+the server's instruction takes priority over our formula, but not above our limit.
 
-- **Оборванный прогон давал код 0.** Исчерпанный потолок обращений и сработавший
-  размыкатель обрывают обход посреди матрицы; хвост не проверяется, находок там нет
-  ровно поэтому. Теперь такой прогон помечается и возвращает 2.
-- **Неизвестный идентификатор эндпоинта принимался молча** — и в объекте, и в правиле
-  политики. Прогон против crAPI показал оба исхода: опечатка в объекте молча теряла
-  четыре находки BOLA, а опечатка в правиле **фабриковала** находки — чтение
-  пользователем своего заказа объявлялось эскалацией привилегий. Ссылки теперь
-  сверяются с разобранным списком эндпоинтов.
+Separately it came out that "nothing was checked" was indistinguishable from "everything is
+clean": a specification with no endpoints, a deployment that was down and an exhausted
+request budget all gave exit code 0. Now such runs return 2, and the number of canaries
+checked goes into the report.
+
+Held with no remarks: the ban on external `$ref`s (17 bypass attempts, zero network
+requests and zero file reads), the ban on unsafe methods, the throttling limits, the
+allowlist by host name and the absence of a body in the report.
 
 
-## Уточнение от 2026-08-12, третий заход: остаток находок закрыт
+## Addendum of 2026-08-12, second pass: a regression and its cause
 
-**Опечатка в имени тенанта прятала находку.** Отношение вычислялось сравнением
-сырых строк: «tenant-a » с пробелом давало `foreign-tenant`, правило со `scope`
-переставало применяться, и настоящая межтенантная утечка проваливалась в `fallback`,
-не попадая в отчёт вовсе. Пробелы теперь срезаются, а необязательный перечень
-`tenants` включает строгую сверку имён — у аккаунтов и у объектов. Строгость
-необязательна намеренно: объект тенанта, в котором нет ни одного аккаунта, —
-законный случай при проверке изоляции.
+The second adversarial review and a run against crAPI independently found one and the same
+thing, and it was **a regression introduced by ADR-0010**.
 
-**Значение объекта уводило обращение выше базового пути.** Механизм тоньше, чем
-кажется: `encodeURIComponent` кодирует слэш, но **не точки**, поэтому одиночный `..`
-поднимает ровно на уровень вверх, и если параметр стоит в начале пути, этого
-достаточно. Проверка области при этом делалась над **шаблоном**, до подстановки.
-Теперь адрес собирается до проверки, а сверяется не только origin, но и префикс
-базового пути.
+`findUnauthenticated` called `resolveExpected` without a relation, and rules with a `scope`
+do not apply without a relation. So for the policy that ADR-0010 introduces and recommends,
+the counter of declared access stayed at zero and the safeguard **never** fired. An
+end-to-end run against a deployment that answers 401 to every request gave "no escalations
+found" and exit code 0.
 
-**`{constructor}` в шаблоне цеплял любой объект.** Покрытие параметров проверялось
-как `params[name] !== undefined`, а имена берутся из недоверенной спецификации —
-прототип отвечает на такое имя у любого объекта. Заменено на `Object.hasOwn`.
+This is the third case of one and the same class — "the tool reports 'clean' having checked
+nothing" — and the first one we introduced ourselves while adding a capability. The lesson
+for the future: every extension of the expectation model must go through the safeguard,
+otherwise the safeguard is checking a model that no longer exists.
 
-**Учётные данные утекали в отчёт двумя путями.** Логин с паролем в `baseUrl`
-копировались дословно, а `RequestFailedError` клал полный URL с query в текст,
-который попадает в `failures[].reason`. Первое запрещено на входе, второе
-редактируется.
+Closed along the way:
 
-**Канарейка обходила список исключений.** Она выполняла эндпоинт, который прогон
-честно пропускал, — то есть могла дёрнуть `GET /createdb`, ради которого список
-и заведён.
+- **A run cut short gave exit code 0.** An exhausted ceiling on requests and a tripped
+  circuit breaker cut the walk short in the middle of the matrix; the tail is not checked,
+  and there are no findings there for exactly that reason. Now such a run is marked and
+  returns 2.
+- **An unknown endpoint identifier was accepted silently** — both in a resource and in a
+  policy rule. The run against crAPI showed both outcomes: a typo in a resource silently
+  lost four BOLA findings, while a typo in a rule **fabricated** findings — a user reading
+  their own order was declared a privilege escalation. References are now checked against
+  the parsed list of endpoints.
 
-Закрыто заодно: `allowedHosts` с портом понимается и конфигурацией, а не только
-HTTP-клиентом.
+
+## Addendum of 2026-08-12, third pass: the remaining findings are closed
+
+**A typo in a tenant name hid a finding.** The relation was computed by comparing raw
+strings: "tenant-a " with a space gave `foreign-tenant`, the rule with a `scope` stopped
+applying, and a real cross-tenant leak fell through to `fallback` and did not reach the
+report at all. Spaces are now trimmed, and the optional `tenants` list turns on a strict
+name check — for accounts and for resources. The strictness is optional on purpose: a
+resource of a tenant that has no accounts at all is a legitimate case when checking
+isolation.
+
+**A resource value took the request above the base path.** The mechanism is subtler than it
+looks: `encodeURIComponent` encodes the slash but **not dots**, so a single `..` climbs
+exactly one level up, and if the parameter stands at the start of the path, that is enough.
+And the scope check was made over the **template**, before substitution. Now the address is
+assembled before the check, and not only the origin is compared but the prefix of the base
+path as well.
+
+**`{constructor}` in a template matched any object.** Parameter coverage was checked as
+`params[name] !== undefined`, and the names come from an untrusted specification — the
+prototype answers to such a name on any object. Replaced with `Object.hasOwn`.
+
+**Credentials leaked into the report by two paths.** A login and password in `baseUrl` were
+copied verbatim, and `RequestFailedError` put the full URL with the query string into the
+text that lands in `failures[].reason`. The first is forbidden on input, the second is
+redacted.
+
+**The canary bypassed the exclusion list.** It performed an endpoint that the run honestly
+skipped — that is, it could hit `GET /createdb`, the very thing the list exists for.
+
+Closed along the way: `allowedHosts` with a port is understood by the configuration too, not
+only by the HTTP client.

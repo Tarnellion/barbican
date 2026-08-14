@@ -1,11 +1,11 @@
 /**
- * Тесты разбора коллекции Postman.
+ * Postman collection parsing tests.
  *
- * Проверяется поведение: какие эндпоинты получились, какой у них путь и что
- * именно отвергнуто, — а не то, что «функция вызвалась». Отдельно доказывается,
- * что адаптер не ходит ни в файловую систему, ни в сеть: путь к существующему
- * файлу для него обычный текст, а поднятый на время теста http-сервер не
- * получает ни одного запроса, хотя его адрес стоит в коллекции.
+ * These check behaviour: which endpoints came out, what path each has and what
+ * exactly was rejected — not that "the function was called". They also prove
+ * the adapter touches neither the file system nor the network: a path to an
+ * existing file is plain text to it, and an http server raised for the test
+ * receives no request at all, even though its address sits in the collection.
  */
 
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -29,7 +29,7 @@ const parser = createPostmanCollectionParser();
 
 const V21_SCHEMA = "https://schema.getpostman.com/json/collection/v2.1.0/collection.json";
 
-/** Запрос в форме, в которой его экспортирует Postman. */
+/** A request in the shape Postman exports it in. */
 function request(method: string, segments: readonly string[], raw?: string) {
   return {
     method,
@@ -42,59 +42,59 @@ function request(method: string, segments: readonly string[], raw?: string) {
 }
 
 const COLLECTION = JSON.stringify({
-  info: { name: "Платформа", schema: V21_SCHEMA },
+  info: { name: "Platform", schema: V21_SCHEMA },
   item: [
-    { name: "Здоровье", request: request("GET", ["healthz"]) },
+    { name: "Health", request: request("GET", ["healthz"]) },
     {
-      name: "Игроки",
+      name: "Players",
       item: [
-        { name: "Список", request: request("GET", ["v1", "players"]) },
-        { name: "Карточка", request: request("GET", ["v1", "players", "{{playerId}}"]) },
+        { name: "List", request: request("GET", ["v1", "players"]) },
+        { name: "Card", request: request("GET", ["v1", "players", "{{playerId}}"]) },
         {
-          name: "Кошелёк",
+          name: "Wallet",
           item: [
-            { name: "Баланс", request: request("GET", ["v1", "players", ":playerId", "wallet"]) },
+            { name: "Balance", request: request("GET", ["v1", "players", ":playerId", "wallet"]) },
           ],
         },
       ],
     },
     {
-      name: "Админка",
-      item: [{ name: "Список", request: request("DELETE", ["v1", "admin", "users"]) }],
+      name: "Admin",
+      item: [{ name: "List", request: request("DELETE", ["v1", "admin", "users"]) }],
     },
   ],
 });
 
-describe("разбор корректной коллекции", () => {
-  it("обходит папки вглубь и сохраняет порядок объявления", async () => {
+describe("parsing a valid collection", () => {
+  it("walks folders depth-first and keeps declaration order", async () => {
     const endpoints = await parser.parse(COLLECTION);
 
     expect(endpoints).toEqual([
-      { id: "Здоровье", method: "GET", path: "/healthz" },
-      { id: "Игроки/Список", method: "GET", path: "/v1/players" },
-      { id: "Игроки/Карточка", method: "GET", path: "/v1/players/{playerId}" },
-      { id: "Игроки/Кошелёк/Баланс", method: "GET", path: "/v1/players/{playerId}/wallet" },
-      { id: "Админка/Список", method: "DELETE", path: "/v1/admin/users" },
+      { id: "Health", method: "GET", path: "/healthz" },
+      { id: "Players/List", method: "GET", path: "/v1/players" },
+      { id: "Players/Card", method: "GET", path: "/v1/players/{playerId}" },
+      { id: "Players/Wallet/Balance", method: "GET", path: "/v1/players/{playerId}/wallet" },
+      { id: "Admin/List", method: "DELETE", path: "/v1/admin/users" },
     ]);
   });
 
-  // Одноимённые запросы в разных папках — обычное дело для коллекции, а для
-  // политики доступа это два разных эндпоинта.
-  it("различает одноимённые запросы по папке, а не сливает их", async () => {
+  // Requests with the same name in different folders are routine in a
+  // collection; for the access policy they are two different endpoints.
+  it("tells same-named requests apart by folder instead of merging them", async () => {
     const endpoints = await parser.parse(COLLECTION);
-    const duplicates = endpoints.filter((endpoint) => endpoint.id.endsWith("/Список"));
+    const duplicates = endpoints.filter((endpoint) => endpoint.id.endsWith("/List"));
 
-    expect(duplicates.map((endpoint) => endpoint.id)).toEqual(["Игроки/Список", "Админка/Список"]);
+    expect(duplicates.map((endpoint) => endpoint.id)).toEqual(["Players/List", "Admin/List"]);
   });
 
-  it("не добавляет operationId: в коллекции его нет", async () => {
+  it("adds no operationId: a collection has none", async () => {
     const [endpoint] = await parser.parse(COLLECTION);
 
     expect(endpoint).toBeDefined();
     expect(Object.keys(endpoint ?? {})).toEqual(["id", "method", "path"]);
   });
 
-  it("принимает все методы домена и приводит регистр к верхнему", async () => {
+  it("accepts every method of the domain and upper-cases it", async () => {
     const collection = JSON.stringify({
       item: ["get", "Head", "post", "put", "patch", "delete", "options"].map((method) => ({
         name: method,
@@ -115,45 +115,45 @@ describe("разбор корректной коллекции", () => {
     ]);
   });
 
-  it("принимает коллекцию без info: schema необязательна", async () => {
+  it("accepts a collection without info: schema is optional", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "Пинг", request: request("GET", ["ping"]) }],
+      item: [{ name: "Ping", request: request("GET", ["ping"]) }],
     });
 
     await expect(parser.parse(collection)).resolves.toEqual([
-      { id: "Пинг", method: "GET", path: "/ping" },
+      { id: "Ping", method: "GET", path: "/ping" },
     ]);
   });
 
-  it("принимает info без schema и info не-объектом", async () => {
-    const item = [{ name: "Пинг", request: request("GET", ["ping"]) }];
+  it("accepts info without schema and info that is not an object", async () => {
+    const item = [{ name: "Ping", request: request("GET", ["ping"]) }];
 
     await expect(parser.parse(JSON.stringify({ info: { name: "x" }, item }))).resolves.toHaveLength(
       1,
     );
-    await expect(parser.parse(JSON.stringify({ info: "строка", item }))).resolves.toHaveLength(1);
+    await expect(parser.parse(JSON.stringify({ info: "a string", item }))).resolves.toHaveLength(1);
   });
 
-  it("принимает схему v2.0 наравне с v2.1", async () => {
+  it("accepts schema v2.0 on par with v2.1", async () => {
     const collection = JSON.stringify({
       info: {
         name: "x",
         schema: "https://schema.getpostman.com/json/collection/v2.0.0/collection.json",
       },
-      item: [{ name: "Пинг", request: request("GET", ["ping"]) }],
+      item: [{ name: "Ping", request: request("GET", ["ping"]) }],
     });
 
     await expect(parser.parse(collection)).resolves.toHaveLength(1);
   });
 
-  it("игнорирует поля, написанные для Postman, а не для нас", async () => {
+  it("ignores fields written for Postman rather than for us", async () => {
     const collection = JSON.stringify({
       info: { name: "x", schema: V21_SCHEMA, _postman_id: "abc" },
       variable: [{ key: "baseUrl", value: "https://api.example.test" }],
       event: [{ listen: "prerequest", script: { exec: ["pm.test()"] } }],
       item: [
         {
-          name: "Пинг",
+          name: "Ping",
           protocolProfileBehavior: { disableBodyPruning: true },
           response: [{ name: "200", code: 200 }],
           request: {
@@ -161,7 +161,7 @@ describe("разбор корректной коллекции", () => {
             header: [{ key: "accept", value: "application/json" }],
             body: { mode: "raw", raw: "{}" },
             auth: { type: "bearer" },
-            description: "проверка живости",
+            description: "a liveness check",
             url: { raw: "{{baseUrl}}/ping", host: ["{{baseUrl}}"], path: ["ping"] },
           },
         },
@@ -169,28 +169,28 @@ describe("разбор корректной коллекции", () => {
     });
 
     await expect(parser.parse(collection)).resolves.toEqual([
-      { id: "Пинг", method: "GET", path: "/ping" },
+      { id: "Ping", method: "GET", path: "/ping" },
     ]);
   });
 
-  it("обрезает пробелы в именах: id не должен зависеть от них", async () => {
+  it("trims spaces in names: the id must not depend on them", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "  Папка  ", item: [{ name: " Пинг ", request: request("GET", ["ping"]) }] }],
+      item: [{ name: "  Folder  ", item: [{ name: " Ping ", request: request("GET", ["ping"]) }] }],
     });
 
     await expect(parser.parse(collection)).resolves.toEqual([
-      { id: "Папка/Пинг", method: "GET", path: "/ping" },
+      { id: "Folder/Ping", method: "GET", path: "/ping" },
     ]);
   });
 });
 
-describe("переменные Postman в пути", () => {
-  // Ядро вычленяет параметры выражением /\{([^}]+)\}/: на `{{playerId}}` оно
-  // дало бы параметр с именем `{playerId`, которого автор не писал и который
-  // не покроет ни один объявленный объект.
-  it("сводит {{playerId}} к параметру {playerId}", async () => {
+describe("Postman variables in the path", () => {
+  // The core extracts parameters with /\{([^}]+)\}/: on `{{playerId}}` that
+  // would give a parameter named `{playerId`, which the author never wrote and
+  // which no declared resource covers.
+  it("reduces {{playerId}} to the parameter {playerId}", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "Карточка", request: request("GET", ["v1", "players", "{{playerId}}"]) }],
+      item: [{ name: "Card", request: request("GET", ["v1", "players", "{{playerId}}"]) }],
     });
 
     const [endpoint] = await parser.parse(collection);
@@ -198,9 +198,9 @@ describe("переменные Postman в пути", () => {
     expect(endpoint?.path).toBe("/v1/players/{playerId}");
   });
 
-  it("сводит родную постмановскую запись :playerId к {playerId}", async () => {
+  it("reduces Postman's own :playerId form to {playerId}", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "Карточка", request: request("GET", ["v1", "players", ":playerId"]) }],
+      item: [{ name: "Card", request: request("GET", ["v1", "players", ":playerId"]) }],
     });
 
     const [endpoint] = await parser.parse(collection);
@@ -208,13 +208,13 @@ describe("переменные Postman в пути", () => {
     expect(endpoint?.path).toBe("/v1/players/{playerId}");
   });
 
-  // Проверяется именно результат для ядра: параметр обязан вычленяться тем же
-  // выражением, которым его ищут прогон и дифф.
-  it("даёт параметр, который вычленяется правилом ядра", async () => {
+  // What is checked is the result as the core sees it: the parameter must be
+  // extracted by the same expression the run and the diff look for it with.
+  it("gives a parameter the core's own rule extracts", async () => {
     const collection = JSON.stringify({
       item: [
         {
-          name: "Ставка",
+          name: "Bet",
           request: request("GET", ["v1", "{{tenantId}}", "bets", ":betId"]),
         },
       ],
@@ -226,9 +226,9 @@ describe("переменные Postman в пути", () => {
     expect(names).toEqual(["tenantId", "betId"]);
   });
 
-  it("принимает уже готовую запись {playerId}", async () => {
+  it("accepts the already-final {playerId} form", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "Карточка", request: request("GET", ["v1", "players", "{playerId}"]) }],
+      item: [{ name: "Card", request: request("GET", ["v1", "players", "{playerId}"]) }],
     });
 
     const [endpoint] = await parser.parse(collection);
@@ -236,9 +236,9 @@ describe("переменные Postman в пути", () => {
     expect(endpoint?.path).toBe("/v1/players/{playerId}");
   });
 
-  it("оставляет литералом сегмент с двоеточием, не похожий на имя", async () => {
+  it("keeps a colon segment that does not look like a name as a literal", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "Действие", request: request("POST", ["v1", "orders:cancel", ":", ":a+b"]) }],
+      item: [{ name: "Action", request: request("POST", ["v1", "orders:cancel", ":", ":a+b"]) }],
     });
 
     const [endpoint] = await parser.parse(collection);
@@ -246,44 +246,44 @@ describe("переменные Postman в пути", () => {
     expect(endpoint?.path).toBe("/v1/orders:cancel/:/:a+b");
   });
 
-  it("отвергает переменную с именем, которое не является именем параметра", async () => {
+  it("rejects a variable whose name is not a parameter name", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "Карточка", request: request("GET", ["v1", "{{ player id }}"]) }],
+      item: [{ name: "Card", request: request("GET", ["v1", "{{ player id }}"]) }],
     });
 
     await expect(parser.parse(collection)).rejects.toThrow(/unclosed or empty brace/);
   });
 
-  it("отвергает незакрытую фигурную скобку", async () => {
+  it("rejects an unclosed brace", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "Карточка", request: request("GET", ["v1", "{playerId"]) }],
+      item: [{ name: "Card", request: request("GET", ["v1", "{playerId"]) }],
     });
 
     await expect(parser.parse(collection)).rejects.toMatchObject({
       name: "InvalidPostmanItemError",
-      location: "Карточка",
+      location: "Card",
       field: "path",
     });
   });
 
-  it("отвергает пустую пару скобок", async () => {
+  it("rejects an empty pair of braces", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "Карточка", request: request("GET", ["v1", "{}"]) }],
+      item: [{ name: "Card", request: request("GET", ["v1", "{}"]) }],
     });
 
     await expect(parser.parse(collection)).rejects.toThrow(InvalidPostmanItemError);
   });
 });
 
-describe("путь берётся из url", () => {
-  it("предпочитает path сырому адресу", async () => {
+describe("the path comes from url", () => {
+  it("prefers path over the raw address", async () => {
     const collection = JSON.stringify({
       item: [
         {
-          name: "Список",
+          name: "List",
           request: {
             method: "GET",
-            url: { raw: "{{baseUrl}}/устарело?x=1", path: ["v1", "players"] },
+            url: { raw: "{{baseUrl}}/deprecated?x=1", path: ["v1", "players"] },
           },
         },
       ],
@@ -294,11 +294,11 @@ describe("путь берётся из url", () => {
     expect(endpoint?.path).toBe("/v1/players");
   });
 
-  it("берёт raw, когда path пуст", async () => {
+  it("takes raw when path is empty", async () => {
     const collection = JSON.stringify({
       item: [
         {
-          name: "Список",
+          name: "List",
           request: { method: "GET", url: { raw: "{{baseUrl}}/v1/players", path: [] } },
         },
       ],
@@ -309,7 +309,7 @@ describe("путь берётся из url", () => {
     expect(endpoint?.path).toBe("/v1/players");
   });
 
-  it("принимает path строкой и дополняет ведущий слэш", async () => {
+  it("accepts path as a string and adds the leading slash", async () => {
     const withSlash = JSON.stringify({
       item: [{ name: "a", request: { method: "GET", url: { path: "/v1/a" } } }],
     });
@@ -325,7 +325,7 @@ describe("путь берётся из url", () => {
     ]);
   });
 
-  it("берёт raw, когда path — пробельная строка", async () => {
+  it("takes raw when path is a blank string", async () => {
     const collection = JSON.stringify({
       item: [
         { name: "a", request: { method: "GET", url: { path: "   ", raw: "{{baseUrl}}/v1/a" } } },
@@ -337,9 +337,9 @@ describe("путь берётся из url", () => {
     expect(endpoint?.path).toBe("/v1/a");
   });
 
-  it("принимает url целиком строкой", async () => {
+  it("accepts url given entirely as a string", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "Список", request: { method: "GET", url: "{{baseUrl}}/v1/players?page=2" } }],
+      item: [{ name: "List", request: { method: "GET", url: "{{baseUrl}}/v1/players?page=2" } }],
     });
 
     const [endpoint] = await parser.parse(collection);
@@ -347,11 +347,11 @@ describe("путь берётся из url", () => {
     expect(endpoint?.path).toBe("/v1/players");
   });
 
-  it("отбрасывает строку запроса и фрагмент", async () => {
+  it("drops the query string and the fragment", async () => {
     const collection = JSON.stringify({
       item: [
         { name: "q", request: { method: "GET", url: { raw: "{{baseUrl}}/v1/a?b=1&c=2" } } },
-        { name: "f", request: { method: "GET", url: { raw: "{{baseUrl}}/v1/b#часть" } } },
+        { name: "f", request: { method: "GET", url: { raw: "{{baseUrl}}/v1/b#fragment" } } },
       ],
     });
 
@@ -360,7 +360,7 @@ describe("путь берётся из url", () => {
     expect(endpoints.map((endpoint) => endpoint.path)).toEqual(["/v1/a", "/v1/b"]);
   });
 
-  it("считает адрес без пути обращением к корню", async () => {
+  it("treats an address without a path as a request to the root", async () => {
     const collection = JSON.stringify({
       item: [
         { name: "var", request: { method: "GET", url: { raw: "{{baseUrl}}" } } },
@@ -373,9 +373,9 @@ describe("путь берётся из url", () => {
     expect(endpoints.map((endpoint) => endpoint.path)).toEqual(["/", "/"]);
   });
 
-  it("отвергает адрес, из которого путь не выделяется", async () => {
+  it("rejects an address no path can be extracted from", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "Список", request: { method: "GET", url: { raw: "api.example.test/v1/a" } } }],
+      item: [{ name: "List", request: { method: "GET", url: { raw: "api.example.test/v1/a" } } }],
     });
 
     await expect(parser.parse(collection)).rejects.toMatchObject({
@@ -384,15 +384,15 @@ describe("путь берётся из url", () => {
     });
   });
 
-  it("отвергает пустой url-строку", async () => {
+  it("rejects an empty url string", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "Список", request: { method: "GET", url: "   " } }],
+      item: [{ name: "List", request: { method: "GET", url: "   " } }],
     });
 
     await expect(parser.parse(collection)).rejects.toThrow(/"request.url" is empty/);
   });
 
-  it("отвергает url, не являющийся ни строкой, ни объектом", async () => {
+  it("rejects a url that is neither a string nor an object", async () => {
     const missing = JSON.stringify({ item: [{ name: "a", request: { method: "GET" } }] });
     const numeric = JSON.stringify({ item: [{ name: "b", request: { method: "GET", url: 42 } }] });
 
@@ -400,7 +400,7 @@ describe("путь берётся из url", () => {
     await expect(parser.parse(numeric)).rejects.toMatchObject({ field: "url" });
   });
 
-  it("отвергает url без path и без raw", async () => {
+  it("rejects a url with neither path nor raw", async () => {
     const collection = JSON.stringify({
       item: [{ name: "a", request: { method: "GET", url: { host: ["{{baseUrl}}"] } } }],
     });
@@ -410,7 +410,7 @@ describe("путь берётся из url", () => {
     );
   });
 
-  it("отвергает сегмент пути, не являющийся строкой", async () => {
+  it("rejects a path segment that is not a string", async () => {
     const collection = JSON.stringify({
       item: [{ name: "a", request: { method: "GET", url: { path: ["v1", { value: "x" }] } } }],
     });
@@ -419,10 +419,11 @@ describe("путь берётся из url", () => {
   });
 });
 
-describe("хост из коллекции не влияет на адресата", () => {
-  // Куда идут обращения, решают базовый URL прогона и allowlist. Абсолютный
-  // адрес в коллекции сводится к пути, и имени хоста в эндпоинте не остаётся.
-  it("отбрасывает схему и хост, оставляя путь", async () => {
+describe("the host in the collection does not decide the addressee", () => {
+  // Where requests go is decided by the run's base URL and the allowlist. An
+  // absolute address in the collection reduces to a path, and no host name is
+  // left in the endpoint.
+  it("drops the scheme and the host, keeping the path", async () => {
     const collection = JSON.stringify({
       item: [
         { name: "abs", request: { method: "GET", url: { raw: "https://evil.test:9999/v1/a" } } },
@@ -445,9 +446,9 @@ describe("хост из коллекции не влияет на адресат
     }
   });
 
-  // `//host/x` при склейке с базой адресовал бы чужой хост, а не путь
-  // на проверяемом: область проверки не должна расширяться формой записи.
-  it("отвергает схемо-относительный URL, собранный из сегментов", async () => {
+  // Joined with the base, `//host/x` would address someone else's host instead
+  // of a path on the target: the scope must not widen through a notation.
+  it("rejects a scheme-relative URL assembled from segments", async () => {
     const collection = JSON.stringify({
       item: [{ name: "a", request: { method: "GET", url: { path: ["", "evil.test", "x"] } } }],
     });
@@ -455,10 +456,10 @@ describe("хост из коллекции не влияет на адресат
     await expect(parser.parse(collection)).rejects.toThrow(/addresses another host/);
   });
 
-  // Такой путь начинается со слэша и мимо простой проверки проходит, но
-  // `new URL` отдаёт приоритет абсолютному адресу — ровно тот пробой, который
-  // состязательная проверка нашла в прогоне (ADR-0005).
-  it("отвергает путь, который сам является абсолютным адресом", async () => {
+  // Such a path starts with a slash and slips past a naive check, but
+  // `new URL` gives priority to the absolute address — exactly the break an
+  // adversarial review found in the run (ADR-0005).
+  it("rejects a path that is itself an absolute address", async () => {
     const collection = JSON.stringify({
       item: [
         { name: "a", request: { method: "GET", url: { path: ["https:", "", "evil.test", "x"] } } },
@@ -471,7 +472,7 @@ describe("хост из коллекции не влияет на адресат
     await expect(attempt).rejects.toThrow(/addresses https:\/\/evil\.test/);
   });
 
-  it("отвергает путь, который не разбирается как адрес", async () => {
+  it("rejects a path that does not parse as an address", async () => {
     const collection = JSON.stringify({
       item: [{ name: "a", request: { method: "GET", url: { path: ["https:", "", "["] } } }],
     });
@@ -479,12 +480,12 @@ describe("хост из коллекции не влияет на адресат
     await expect(parser.parse(collection)).rejects.toThrow(/could not be parsed as a URL/);
   });
 
-  // Следствие того, что проверка повторяет правило прогона: прогон убирает
-  // ведущий слэш перед склейкой, и `orders:` в первом сегменте становится
-  // схемой. Такой эндпоинт прогон всё равно не выполнит — он попал бы в
-  // пропуски с причиной `escapes-target`, — поэтому отказ здесь честнее.
-  // Двоеточие в любом другом сегменте безвредно.
-  it("отвергает двоеточие в первом сегменте, но не в остальных", async () => {
+  // A consequence of the check repeating the run's rule: the run strips the
+  // leading slash before joining, and `orders:` in the first segment becomes a
+  // scheme. The run would not perform such an endpoint anyway — it would land
+  // in skips with the reason `escapes-target` — so refusing here is honest.
+  // A colon in any other segment is harmless.
+  it("rejects a colon in the first segment but not in the rest", async () => {
     const first = JSON.stringify({
       item: [{ name: "a", request: { method: "GET", url: { path: ["orders:cancel"] } } }],
     });
@@ -499,34 +500,34 @@ describe("хост из коллекции не влияет на адресат
   });
 });
 
-describe("документ не той формы", () => {
-  it("отвергает пустой вход", async () => {
+describe("a document of the wrong shape", () => {
+  it("rejects empty input", async () => {
     await expect(parser.parse("")).rejects.toThrow(PostmanCollectionParseError);
   });
 
-  it("отвергает скаляр вместо документа", async () => {
-    await expect(parser.parse("просто строка")).rejects.toThrow(PostmanCollectionParseError);
+  it("rejects a scalar instead of a document", async () => {
+    await expect(parser.parse("just a string")).rejects.toThrow(PostmanCollectionParseError);
   });
 
-  it("отвергает неразбираемый документ", async () => {
+  it("rejects an unparseable document", async () => {
     await expect(parser.parse('{ "item": [')).rejects.toThrow(PostmanCollectionParseError);
   });
 
-  it("отвергает документ без ключа item", async () => {
+  it("rejects a document without an item key", async () => {
     await expect(parser.parse(JSON.stringify({ info: { name: "x" } }))).rejects.toThrow(
       /"item" key is missing or is not a list/,
     );
   });
 
-  it("отвергает item, не являющийся списком", async () => {
+  it("rejects an item that is not a list", async () => {
     await expect(parser.parse(JSON.stringify({ item: { name: "x" } }))).rejects.toThrow(
       PostmanCollectionParseError,
     );
   });
 
-  // Формат v1 описывает запросы иначе: прочитать его как v2 значит прочитать
-  // неверно, а не прочитать частично.
-  it("отвергает схему v1 отдельной ошибкой", async () => {
+  // The v1 format describes requests differently: reading it as v2 means
+  // reading it wrongly, not reading it partially.
+  it("rejects schema v1 with an error of its own", async () => {
     const collection = JSON.stringify({
       info: {
         name: "x",
@@ -543,23 +544,23 @@ describe("документ не той формы", () => {
     });
   });
 
-  it("отвергает коллекцию без запросов отдельной ошибкой", async () => {
+  it("rejects a collection with no requests with an error of its own", async () => {
     await expect(parser.parse(JSON.stringify({ item: [] }))).rejects.toThrow(
       EmptyPostmanCollectionError,
     );
   });
 
-  it("отвергает коллекцию из одних пустых папок", async () => {
+  it("rejects a collection of nothing but empty folders", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "Папка", item: [{ name: "Вложенная", item: [] }] }],
+      item: [{ name: "Folder", item: [{ name: "Nested", item: [] }] }],
     });
 
     await expect(parser.parse(collection)).rejects.toThrow(EmptyPostmanCollectionError);
   });
 });
 
-describe("элемент коллекции не проходит проверку", () => {
-  it("отвергает элемент, не являющийся объектом", async () => {
+describe("a collection item fails validation", () => {
+  it("rejects an item that is not an object", async () => {
     await expect(parser.parse(JSON.stringify({ item: ["/v1/users"] }))).rejects.toMatchObject({
       name: "InvalidPostmanItemError",
       location: "<collection root>",
@@ -567,7 +568,7 @@ describe("элемент коллекции не проходит проверк
     });
   });
 
-  it("отвергает элемент без имени", async () => {
+  it("rejects an item without a name", async () => {
     const missing = JSON.stringify({ item: [{ request: request("GET", ["a"]) }] });
     const blank = JSON.stringify({ item: [{ name: "  ", request: request("GET", ["a"]) }] });
     const numeric = JSON.stringify({ item: [{ name: 42, request: request("GET", ["a"]) }] });
@@ -577,42 +578,44 @@ describe("элемент коллекции не проходит проверк
     }
   });
 
-  // Молча пропущенный элемент — это непроверенный эндпоинт в отчёте, который
-  // читается как «нарушений нет».
-  it("отвергает элемент, который не папка и не запрос", async () => {
-    const collection = JSON.stringify({ item: [{ name: "Ни то ни сё", description: "х" }] });
+  // An item skipped silently is an unchecked endpoint in the report, and that
+  // reads as "no violations".
+  it("rejects an item that is neither a folder nor a request", async () => {
+    const collection = JSON.stringify({
+      item: [{ name: "Neither one nor the other", description: "x" }],
+    });
 
     await expect(parser.parse(collection)).rejects.toMatchObject({
-      location: "Ни то ни сё",
+      location: "Neither one nor the other",
       field: "request",
     });
   });
 
-  it("отвергает элемент, который одновременно папка и запрос", async () => {
+  it("rejects an item that is a folder and a request at once", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "Оба", item: [], request: request("GET", ["a"]) }],
+      item: [{ name: "Both", item: [], request: request("GET", ["a"]) }],
     });
 
     await expect(parser.parse(collection)).rejects.toThrow(/whether it is a folder or a request/);
   });
 
-  it("отвергает папку, у которой item не список", async () => {
-    const collection = JSON.stringify({ item: [{ name: "Папка", item: { name: "x" } }] });
+  it("rejects a folder whose item is not a list", async () => {
+    const collection = JSON.stringify({ item: [{ name: "Folder", item: { name: "x" } }] });
 
     await expect(parser.parse(collection)).rejects.toThrow(/"item" must be a list/);
   });
 
-  // Сокращённая запись `"request": "https://..."` означала бы GET по умолчанию;
-  // догадка о методе решает за автора, что именно проверяется.
-  it("отвергает сокращённую запись запроса строкой", async () => {
+  // The short form `"request": "https://..."` would mean GET by default;
+  // guessing the method decides for the author what is being checked.
+  it("rejects the short string form of a request", async () => {
     const collection = JSON.stringify({
-      item: [{ name: "Кратко", request: "https://api.example.test/v1/a" }],
+      item: [{ name: "Short", request: "https://api.example.test/v1/a" }],
     });
 
     await expect(parser.parse(collection)).rejects.toMatchObject({ field: "request" });
   });
 
-  it("отвергает отсутствующий и нестроковый метод", async () => {
+  it("rejects a missing method and a non-string method", async () => {
     const missing = JSON.stringify({ item: [{ name: "a", request: { url: "{{baseUrl}}/a" } }] });
     const numeric = JSON.stringify({
       item: [{ name: "b", request: { method: 200, url: "{{baseUrl}}/a" } }],
@@ -622,7 +625,7 @@ describe("элемент коллекции не проходит проверк
     await expect(parser.parse(numeric)).rejects.toMatchObject({ field: "method" });
   });
 
-  it("отвергает метод вне набора HttpMethod", async () => {
+  it("rejects a method outside the HttpMethod set", async () => {
     const collection = JSON.stringify({
       item: [{ name: "a", request: request("TRACE", ["a"]) }],
     });
@@ -630,36 +633,36 @@ describe("элемент коллекции не проходит проверк
     await expect(parser.parse(collection)).rejects.toThrow(/method "TRACE" is not supported/);
   });
 
-  it("называет папку, в которой лежит сбойный элемент", async () => {
+  it("names the folder the failing item sits in", async () => {
     const collection = JSON.stringify({
       item: [
-        { name: "Ок", request: request("GET", ["ok"]) },
+        { name: "Ok", request: request("GET", ["ok"]) },
         {
-          name: "Админка",
+          name: "Admin",
           item: [
-            { name: "Тоже ок", request: request("GET", ["fine"]) },
-            { name: "Сбой", request: request("WAT", ["broken"]) },
+            { name: "Also ok", request: request("GET", ["fine"]) },
+            { name: "Broken", request: request("WAT", ["broken"]) },
           ],
         },
       ],
     });
 
     await expect(parser.parse(collection)).rejects.toMatchObject({
-      location: "Админка/Сбой",
+      location: "Admin/Broken",
       field: "method",
     });
   });
 });
 
-describe("уникальность идентификаторов", () => {
-  it("отвергает два запроса с одним именем в одной папке", async () => {
+describe("identifier uniqueness", () => {
+  it("rejects two requests with the same name in one folder", async () => {
     const collection = JSON.stringify({
       item: [
         {
-          name: "Игроки",
+          name: "Players",
           item: [
-            { name: "Список", request: request("GET", ["v1", "players"]) },
-            { name: "Список", request: request("HEAD", ["v1", "players"]) },
+            { name: "List", request: request("GET", ["v1", "players"]) },
+            { name: "List", request: request("HEAD", ["v1", "players"]) },
           ],
         },
       ],
@@ -668,10 +671,10 @@ describe("уникальность идентификаторов", () => {
     const attempt = parser.parse(collection);
 
     await expect(attempt).rejects.toThrow(DuplicatePostmanEndpointIdError);
-    await expect(attempt).rejects.toMatchObject({ id: "Игроки/Список" });
+    await expect(attempt).rejects.toMatchObject({ id: "Players/List" });
   });
 
-  it("отвергает совпадение id, собранное из разных папок", async () => {
+  it("rejects an id collision assembled from different folders", async () => {
     const collection = JSON.stringify({
       item: [
         { name: "a", item: [{ name: "b/c", request: request("GET", ["x"]) }] },
@@ -682,11 +685,11 @@ describe("уникальность идентификаторов", () => {
     await expect(parser.parse(collection)).rejects.toMatchObject({ id: "a/b/c" });
   });
 
-  it("различает id по регистру: это разные эндпоинты", async () => {
+  it("tells ids apart by case: these are different endpoints", async () => {
     const collection = JSON.stringify({
       item: [
-        { name: "Список", request: request("GET", ["v1", "players"]) },
-        { name: "список", request: request("GET", ["v1", "Players"]) },
+        { name: "List", request: request("GET", ["v1", "players"]) },
+        { name: "list", request: request("GET", ["v1", "Players"]) },
       ],
     });
 
@@ -694,8 +697,8 @@ describe("уникальность идентификаторов", () => {
   });
 });
 
-describe("пределы на вход", () => {
-  it("отвергает YAML-бомбу до того, как она развернётся", async () => {
+describe("limits on the input", () => {
+  it("rejects a YAML bomb before it expands", async () => {
     const bomb = `
 a: &a ["x","x","x","x","x","x","x","x","x"]
 b: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a]
@@ -707,7 +710,7 @@ item: [*d,*d,*d,*d,*d,*d,*d,*d,*d]
     await expect(parser.parse(bomb)).rejects.toThrow(PostmanCollectionParseError);
   });
 
-  it("считает алиасы по своему пределу, а не по чужому", async () => {
+  it("counts aliases against its own limit, not someone else's", async () => {
     const strict = createPostmanCollectionParser({ maxAliasCount: 1 });
     const collection = `
 item:
@@ -719,7 +722,7 @@ item:
     await expect(strict.parse(collection)).rejects.toThrow(PostmanCollectionParseError);
   });
 
-  it("отвергает документ больше предела и называет фактический размер", async () => {
+  it("rejects a document over the limit and names the actual size", async () => {
     const small = createPostmanCollectionParser({ maxBytes: 32 });
 
     const attempt = small.parse(COLLECTION);
@@ -730,15 +733,16 @@ item:
     );
   });
 
-  it("измеряет размер в байтах, а не в символах", async () => {
-    // Кириллица в UTF-8 занимает два байта на символ: предел, заданный
-    // в байтах, нельзя проверять длиной строки.
+  it("measures the size in bytes, not in characters", async () => {
+    // Characters outside ASCII take two bytes in UTF-8: a limit set in bytes
+    // cannot be checked against the string length.
     const limited = createPostmanCollectionParser({ maxBytes: 20 });
 
-    await expect(limited.parse("«".repeat(11))).rejects.toThrow(PostmanCollectionTooLargeError);
+    // A character outside ASCII: two bytes in UTF-8, one in length.
+    await expect(limited.parse("é".repeat(11))).rejects.toThrow(PostmanCollectionTooLargeError);
   });
 
-  it("пропускает документ ровно на пределе", async () => {
+  it("lets through a document exactly at the limit", async () => {
     const source = JSON.stringify({
       item: [{ name: "a", request: { method: "GET", url: "{{baseUrl}}/a" } }],
     });
@@ -747,10 +751,10 @@ item:
     await expect(exact.parse(source)).resolves.toHaveLength(1);
   });
 
-  it("отвергает вложенность папок глубже предела", async () => {
-    let node: unknown = { name: "Запрос", request: request("GET", ["a"]) };
+  it("rejects folder nesting deeper than the limit", async () => {
+    let node: unknown = { name: "Request", request: request("GET", ["a"]) };
     for (let i = 0; i < DEFAULT_POSTMAN_LIMITS.maxFolderDepth + 5; i += 1) {
-      node = { name: `Папка ${i}`, item: [node] };
+      node = { name: `Folder ${i}`, item: [node] };
     }
 
     await expect(parser.parse(JSON.stringify({ item: [node] }))).rejects.toThrow(
@@ -758,31 +762,29 @@ item:
     );
   });
 
-  it("пропускает вложенность ровно на пределе", async () => {
+  it("lets through nesting exactly at the limit", async () => {
     const shallow = createPostmanCollectionParser({ maxFolderDepth: 2 });
     const collection = JSON.stringify({
       item: [
         {
-          name: "Внешняя",
-          item: [
-            { name: "Внутренняя", item: [{ name: "Запрос", request: request("GET", ["a"]) }] },
-          ],
+          name: "Outer",
+          item: [{ name: "Inner", item: [{ name: "Request", request: request("GET", ["a"]) }] }],
         },
       ],
     });
 
     await expect(shallow.parse(collection)).resolves.toEqual([
-      { id: "Внешняя/Внутренняя/Запрос", method: "GET", path: "/a" },
+      { id: "Outer/Inner/Request", method: "GET", path: "/a" },
     ]);
   });
 
-  it("обрывает цикл, построенный YAML-якорями, а не зацикливается", async () => {
-    // `&loop` ссылается сам на себя: обход по такой структуре без предела
-    // глубины не завершился бы никогда.
+  it("breaks a cycle built from YAML anchors instead of looping forever", async () => {
+    // `&loop` refers to itself: a walk over such a structure without a depth
+    // limit would never finish.
     const cyclic = `
 item:
   - &loop
-    name: Папка
+    name: Folder
     item:
       - *loop
 `;
@@ -791,10 +793,10 @@ item:
   });
 });
 
-describe("парсер не обращается к файловой системе", () => {
+describe("the parser does not touch the file system", () => {
   let directory = "";
   let collectionPath = "";
-  const CANARY = "canary-9b41c-не-должно-утечь";
+  const CANARY = "canary-9b41c-must-not-leak";
 
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), "barbican-postman-"));
@@ -810,9 +812,9 @@ describe("парсер не обращается к файловой систе�
     await rm(directory, { recursive: true, force: true });
   });
 
-  // На вход подаётся текст документа, а не путь. Парсер, который умеет
-  // открывать файлы, был бы примитивом path traversal.
-  it("не читает файл, путь к которому подан как источник", async () => {
+  // The input is the text of the document, not a path. A parser that could
+  // open files would be a path traversal primitive.
+  it("does not read a file whose path is passed as the source", async () => {
     const attempt = parser.parse(collectionPath);
 
     await expect(attempt).rejects.toThrow(PostmanCollectionParseError);
@@ -821,12 +823,12 @@ describe("парсер не обращается к файловой систе�
     ).resolves.not.toContain(CANARY);
   });
 
-  it("не читает файл, путь к которому оказался в адресе запроса", async () => {
+  it("does not read a file whose path ended up in a request address", async () => {
     const collection = JSON.stringify({
       item: [{ name: "a", request: { method: "GET", url: { raw: `file://${collectionPath}` } } }],
     });
 
-    // Путь остаётся просто путём: содержимое файла в результат не подмешивается.
+    // The path stays a path: the file's content is not mixed into the result.
     const endpoints = await parser.parse(collection);
 
     expect(endpoints).toEqual([{ id: "a", method: "GET", path: collectionPath }]);
@@ -834,7 +836,7 @@ describe("парсер не обращается к файловой систе�
   });
 });
 
-describe("парсер не обращается в сеть", () => {
+describe("the parser does not touch the network", () => {
   let hits = 0;
   let baseUrl = "";
   let server: ReturnType<typeof createServer>;
@@ -851,7 +853,7 @@ describe("парсер не обращается в сеть", () => {
     });
     const address = server.address();
     if (address === null || typeof address === "string") {
-      throw new Error("не удалось поднять тестовый сервер");
+      throw new Error("could not start the test server");
     }
     baseUrl = `http://127.0.0.1:${address.port}`;
   });
@@ -868,8 +870,8 @@ describe("парсер не обращается в сеть", () => {
     });
   });
 
-  // Главное утверждение — не «выбросилась ошибка», а «наружу не ушло ничего».
-  it("не выполняет ни одного запроса к адресам из коллекции", async () => {
+  // The main claim is not "an error was thrown" but "nothing went out".
+  it("performs no request to the addresses in the collection", async () => {
     const collection = JSON.stringify({
       item: [
         { name: "abs", request: { method: "GET", url: { raw: `${baseUrl}/v1/a` } } },
@@ -883,7 +885,7 @@ describe("парсер не обращается в сеть", () => {
     expect(hits).toBe(0);
   });
 
-  it("не ходит по адресу, даже если разбор оборвался ошибкой", async () => {
+  it("does not go to the address even when parsing failed with an error", async () => {
     const collection = JSON.stringify({
       item: [{ name: "a", request: { method: "WAT", url: { raw: `${baseUrl}/v1/a` } } }],
     });

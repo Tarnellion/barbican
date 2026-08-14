@@ -1,7 +1,8 @@
 /**
- * Построение фактической матрицы доступа из наблюдений.
+ * Building the observed access matrix out of observations.
  *
- * Чистые функции: ни сети, ни файловой системы. Вход — уже собранные наблюдения.
+ * Pure functions: no network, no file system. The input is observations already
+ * collected.
  */
 
 import type { TenantNode } from "./tenancy.js";
@@ -35,24 +36,25 @@ export class ConflictingObservationError extends Error {
 export interface AccessMatrixInput {
   readonly endpoints: readonly Endpoint[];
   readonly accounts: readonly Account[];
-  /** Объекты обращения. Пусто, если параметризованных эндпоинтов нет. */
+  /** The resources being requested. Empty when there are no parameterized endpoints. */
   readonly resources?: readonly Resource[];
   readonly observations: readonly AccessObservation[];
-  /** Дерево тенантов. Отсутствие означает лес из корней без связей. */
+  /** The tenant tree. Absence means a forest of roots with no links. */
   readonly tenants?: readonly TenantNode[];
 }
 
 /**
- * Индекс наблюдений: аккаунт → эндпоинт → объект → наблюдение.
+ * The observation index: account → endpoint → resource → observation.
  *
- * Три уровня вложенных карт, а не составной строковый ключ: склейка
- * идентификаторов допускает коллизию, а тихо смешать результаты двух аккаунтов
- * или двух объектов в инструменте, который судит о правах доступа, недопустимо.
- * Отсутствие объекта — ключ `undefined`, который Map поддерживает наравне
- * со строками, поэтому выдумывать для него строковый маркер не нужно.
+ * Three levels of nested maps rather than a composite string key: gluing
+ * identifiers together admits a collision, and silently mixing the results of
+ * two accounts or two resources is unacceptable in a tool that judges access
+ * rights. An absent resource is the key `undefined`, which Map supports on equal
+ * terms with strings, so there is no need to invent a string marker for it.
  *
- * Объект здесь координата, а не признак: одна и та же ручка со своим объектом
- * и с чужим — разные ячейки с разным ожидаемым исходом.
+ * A resource here is a coordinate, not a flag: the same endpoint with one's own
+ * resource and with someone else's are different cells with different expected
+ * outcomes.
  */
 export type ObservationIndex = ReadonlyMap<
   string,
@@ -62,36 +64,38 @@ export type ObservationIndex = ReadonlyMap<
 const PARAMETER_NAME = /\{([^}]+)\}/g;
 
 /**
- * Относится ли объект к эндпоинту.
+ * Whether the resource applies to the endpoint.
  *
- * Одно правило на прогон и на дифф: разойдясь, они дали бы наблюдения,
- * которым не с чем сравниваться, и находки без наблюдений.
+ * One rule for the run and for the diff: if they drifted apart, they would give
+ * observations with nothing to compare against, and findings with no
+ * observations.
  */
 export function resourceApplies(endpoint: Endpoint, resource: Resource): boolean {
   const names = [...endpoint.path.matchAll(PARAMETER_NAME)].map((match) => match[1] ?? "");
-  // `Object.hasOwn`, а не проверка на undefined: имена берутся из пути, то есть
-  // из недоверенной спецификации, и `{constructor}` отвечал бы у любого объекта
-  // через цепочку прототипов — враждебная спека получала бы обращения от каждого
-  // аккаунта на каждый объявленный объект.
+  // `Object.hasOwn`, not a check against undefined: the names come from the
+  // path, that is, from an untrusted specification, and `{constructor}` would
+  // answer for any object through the prototype chain — a hostile spec would get
+  // requests from every account against every declared resource.
   const covered = names.every((name) => Object.hasOwn(resource.params, name));
 
   if (resource.endpointIds !== undefined) {
     return resource.endpointIds.includes(endpoint.id) && covered;
   }
-  // Без явного списка объект относится только к эндпоинтам с параметрами:
-  // иначе объект с одним лишь query прицепился бы к каждой ручке подряд.
+  // Without an explicit list a resource applies only to endpoints with
+  // parameters: otherwise a resource with nothing but a query would attach
+  // itself to every endpoint in a row.
   return names.length > 0 && covered;
 }
 
 /**
- * Собирает матрицу, проверяя целостность входа.
+ * Assembles the matrix, checking the integrity of the input.
  *
- * Проверки не формальность: непокрытая пара, принятая за отказ, порождает
- * ложное срабатывание, а лишнее наблюдение — неопределённый вердикт.
+ * The checks are not a formality: an uncovered pair taken for a denial produces
+ * a false positive, and a redundant observation an undetermined verdict.
  *
- * @throws {DuplicateIdError} повторяющийся id эндпоинта или аккаунта
- * @throws {UnknownReferenceError} наблюдение ссылается на неизвестный объект
- * @throws {ConflictingObservationError} для одной пары больше одного наблюдения
+ * @throws {DuplicateIdError} a repeated endpoint or account id
+ * @throws {UnknownReferenceError} an observation references an unknown resource
+ * @throws {ConflictingObservationError} more than one observation for one pair
  */
 export function buildAccessMatrix(input: AccessMatrixInput): AccessMatrix {
   const endpointIds = new Set<string>();
@@ -155,8 +159,8 @@ export function buildAccessMatrix(input: AccessMatrixInput): AccessMatrix {
     accounts: input.accounts,
     resources: input.resources ?? [],
     observations: input.observations,
-    // Дерево обязано доехать до диффа: без него отношение считается по плоской
-    // модели, и объявленное родство молча ни на что не влияет.
+    // The tree must reach the diff: without it the relation is computed on the
+    // flat model, and the declared kinship silently affects nothing.
     ...(input.tenants === undefined ? {} : { tenants: input.tenants }),
   };
 }

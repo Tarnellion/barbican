@@ -1,9 +1,10 @@
 /**
- * Разбор и проверка конфигурации прогона.
+ * Parsing and validation of the run configuration.
  *
- * Формат и его обоснование — ADR-0008. Ключевое: **учётные данные в файле
- * не хранятся**. Аккаунт называет имя переменной окружения, а не токен, поэтому
- * конфигурацию можно коммитить и ревьюить — ради чего декларация и заводилась.
+ * The format and the reasoning behind it — ADR-0008. The key point: **no
+ * credentials are kept in the file**. An account names the environment variable,
+ * not the token, so the configuration can be committed and reviewed — which is
+ * what the declaration was introduced for.
  */
 
 import { parse as parseYaml } from "yaml";
@@ -27,20 +28,21 @@ import {
   RESOURCE_RELATIONS,
 } from "../core/index.js";
 
-/** Тот же предел раскрытия алиасов, что и для спецификаций. */
+/** The same limit on alias expansion as for specifications. */
 const MAX_ALIAS_COUNT = 100;
 
 /**
- * Ожидаемый исход. Умолчания нет намеренно — и сообщение объясняет почему.
+ * The expected outcome. There is no default on purpose — and the message explains
+ * why.
  *
- * Найдено холодным чтением: `Invalid option: expected one of "allowed"|"denied"`
- * читается как придирка к форме, тогда как речь о содержании — отсутствие
- * умолчания здесь и есть решение.
+ * Found by a cold read: `Invalid option: expected one of "allowed"|"denied"` reads
+ * as nitpicking about the form, while the point is the substance — the absence of
+ * a default here is the decision itself.
  */
 const outcomeSchema = z.enum(["allowed", "denied"], {
   error:
     'expected "allowed" or "denied". `fallback` has no default on purpose: ' +
-    "a silent «everything is allowed» or «everything is denied» is equally " +
+    "a silent 'everything is allowed' or 'everything is denied' is equally " +
     "dangerous when a verdict about a vulnerability rests on it. Say plainly " +
     "what cells no rule covers should count as",
 });
@@ -48,11 +50,11 @@ const outcomeSchema = z.enum(["allowed", "denied"], {
 const selectorSchema = z.union([z.literal(ANY), z.array(z.string().min(1)).min(1)]);
 
 /**
- * Отбор эндпоинтов: идентификаторы вперемешку с шаблонами.
+ * Endpoint selection: identifiers mixed with patterns.
  *
- * Перечисление по `id` не масштабируется: на сотне ручек правило
- * «администратору положено всё под /v1/admin» становится списком, который
- * расходится с реальностью при первой же новой ручке — и молча.
+ * Listing by `id` does not scale: across a hundred endpoints the rule 'the admin
+ * is meant to have everything under /v1/admin' becomes a list that parts with
+ * reality at the very first new endpoint — and does so silently.
  */
 const endpointSelectorSchema = z.union([
   z.literal(ANY),
@@ -69,44 +71,46 @@ const endpointSelectorSchema = z.union([
     .min(1),
 ]);
 
-// Перечень берётся из ядра, а не переписывается здесь: рукописный дубль уже
-// разошёлся с типом и сделал иерархию тенантов недостижимой через CLI.
+// The list comes from the core instead of being rewritten here: a hand-written
+// duplicate already drifted from the type and made the tenant hierarchy
+// unreachable through the CLI.
 const relationSchema = z.enum(RESOURCE_RELATIONS);
 
 /**
- * Правило политики. Объект строгий: лишний ключ — ошибка, а не отброшенное поле.
+ * A policy rule. The object is strict: an extra key is an error, not a dropped
+ * field.
  *
- * Найдено прогоном полигона против старой сборки: нераспознанный `context`
- * молча отбрасывался, и правило «запретить в этих условиях» превращалось
- * в «запретить всегда» — 19 находок на исправной платформе. Та же опечатка
- * в `scope` расширяет правило на все отношения и, наоборот, **прячет**
- * находку. Молча в обе стороны.
+ * Found by running the polygon against an old build: an unrecognized `context` was
+ * silently dropped, and the rule 'deny under these conditions' turned into 'deny
+ * always' — 19 findings on a healthy platform. The same typo in `scope` widens the
+ * rule to every relation and, the other way round, **hides** a finding. Silently
+ * in both directions.
  */
 const ruleSchema = z.strictObject({
   roles: selectorSchema,
   endpoints: endpointSelectorSchema,
-  /** Отсутствие означает «при любом отношении», включая обращения без объекта. */
+  /** Absent means 'under any relation', requests without a resource included. */
   scope: relationSchema.optional(),
   /**
-   * Имя условий обращения из `contexts`.
+   * The name of the request conditions from `contexts`.
    *
-   * Отсутствие означает **базовые** условия, а не «любые»: иначе объявление
-   * новых условий молча распространило бы на них все прежние ожидания,
-   * и платформа, законно закрывающая ставку из запрещённой страны, дала бы
-   * «неожиданный отказ» на каждой ручке. См. ADR-0019.
+   * Absent means **baseline** conditions, not 'any': otherwise declaring new
+   * conditions would silently extend every previous expectation to them, and a
+   * platform that lawfully blocks a bet from a prohibited country would give an
+   * 'unexpected denial' on every endpoint. See ADR-0019.
    */
   context: z.string().min(1).optional(),
   outcome: outcomeSchema,
 });
 
 /**
- * Схема аутентификации.
+ * An authentication scheme.
  *
- * Объекты строгие намеренно: лишний ключ — ошибка, а не молча отброшенное поле.
- * Так `{ kind: bearer, token: "…" }` отвергается вместо того, чтобы притвориться
- * работающим, оставив секрет в файле, который положено коммитить. Значений
- * в схеме нет ни в каком виде: единственный источник — переменная окружения,
- * названная аккаунтом (ADR-0008).
+ * The objects are strict on purpose: an extra key is an error, not a silently
+ * dropped field. That way `{ kind: bearer, token: "…" }` is rejected instead of
+ * pretending to work while leaving a secret in a file that is meant to be
+ * committed. There are no values in a scheme in any form: the only source is the
+ * environment variable the account names (ADR-0008).
  */
 const authSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("bearer") }),
@@ -116,13 +120,14 @@ const authSchema = z.discriminatedUnion("kind", [
 ]);
 
 /**
- * Значение атрибута условий: литерал либо имя переменной окружения.
+ * The value of a context attribute: a literal or the name of an environment
+ * variable.
  *
- * Заведено потому, что значение атрибута печатается в отчёте дословно —
- * и человеку, которому нужна в условиях подпись устройства или партнёрский
- * ключ, деться было некуда, кроме открытого текста в конфигурации. Форма
- * `{ env: ИМЯ }` повторяет `tokenEnv` у аккаунта: в отчёт уезжает **имя**,
- * значение живёт только в окружении.
+ * Introduced because an attribute's value is printed in the report verbatim — and
+ * someone who needs a device signature or a partner key among the conditions had
+ * nowhere to go but plain text in the configuration. The form `{ env: NAME }`
+ * repeats the account's `tokenEnv`: the **name** travels into the report, the
+ * value lives only in the environment.
  */
 const contextValueSchema = z.union([z.string(), z.strictObject({ env: z.string().min(1) })]);
 
@@ -139,15 +144,15 @@ const configSchema = z.object({
       })
       .min(1, "the host list cannot be empty: there would be nothing to allow"),
     /**
-     * Как называется проверяемая система: окружение, версия, что угодно
-     * опознающее.
+     * What the system under test is called: the environment, the version,
+     * anything that identifies it.
      *
-     * Объявляется человеком, потому что инструмент этого знать не может:
-     * `baseUrl` вида `http://127.0.0.1:8787` не отличает прогон против
-     * прод-подобного стенда от прогона демо-полигона, а отпечаток
-     * конфигурации опознаёт **наше объявление**, а не цель. Читатель отчёта
-     * без этого поля не имеет права заводить тикет на платформу: артефакт
-     * не называет платформу.
+     * Declared by a human, because the tool cannot know it: a `baseUrl` like
+     * `http://127.0.0.1:8787` does not tell a run against a production-like
+     * deployment from a run against a demo polygon, and the configuration
+     * fingerprint identifies **our declaration**, not the target. Without this
+     * field the reader of the report has no right to file a ticket against the
+     * platform: the artefact does not name the platform.
      */
     label: z.string().min(1).optional(),
   }),
@@ -158,58 +163,62 @@ const configSchema = z.object({
           id: z.string().min(1),
           role: z.string().min(1),
           /**
-           * Тенант аккаунта.
+           * The account's tenant.
            *
-           * Необязательно: аккаунт без него объявлен **вне тенантов**, и это
-           * аноним. Служебного имени вроде `none` здесь быть не должно — оно
-           * лежало бы в одном пространстве значений с настоящими именами, и
-           * платформа с таким тенантом сломала бы классификацию молча.
+           * Optional: an account without it is declared **outside of tenants**,
+           * and that is an anonymous one. There must be no reserved name like
+           * `none` here — it would sit in the same value space as real names, and
+           * a platform with a tenant of that name would break the classification
+           * silently.
            */
           tenant: z.string().min(1).optional(),
           /**
-           * Несколько тенантов сразу — когда аккаунту положены тенанты,
-           * не образующие поддерева (ADR-0017).
+           * Several tenants at once — when the account is meant to have tenants
+           * that do not form a subtree (ADR-0017).
            *
-           * Отдельный ключ, а не второе значение у `tenant`: «один тенант»
-           * и «набор тенантов» — разные утверждения о проверяемой платформе,
-           * и писать их одним словом значит поощрять оговорку. Меньше двух
-           * элементов не принимается: набор из одного — это `tenant`, и две
-           * записи одного смысла разошлись бы в чтении и в отчёте.
+           * A key of its own rather than a second value for `tenant`: 'one
+           * tenant' and 'a set of tenants' are different statements about the
+           * platform under test, and writing them with one word encourages a
+           * slip. Fewer than two entries is not accepted: a set of one is
+           * `tenant`, and two ways of writing the same thing would diverge in the
+           * reading and in the report.
            */
           tenants: z
             .array(z.string().min(1))
             .min(2, "at least two tenants are required: a set of one is the `tenant` field")
             .optional(),
           /**
-           * Имя переменной окружения с токеном.
+           * The name of the environment variable holding the token.
            *
-           * Необязательно: аккаунт без него обращается анонимно. Без этого нельзя
-           * проверить утверждение «этот адрес не должен быть публичным».
+           * Optional: an account without it makes its requests anonymously.
+           * Without this there is no way to check the claim 'this address must
+           * not be public'.
            */
           tokenEnv: z.string().min(1).optional(),
           /**
-           * Эндпоинт, заведомо доступный этому аккаунту.
+           * An endpoint this account is known to have access to.
            *
-           * Проверяется до основного прогона. Без него нельзя отличить «доступа
-           * действительно нет» от «мы не аутентифицировались»: 401 читается как
-           * отказ, отказ совпадает с ожиданием там, где доступ не положен, —
-           * и прогон отрапортует «эскалаций не найдено», ничего не проверив.
+           * Checked before the main run. Without it there is no telling 'access
+           * really is absent' from 'we failed to authenticate': a 401 reads as a
+           * denial, a denial agrees with the expectation wherever access is not
+           * meant to be granted — and the run reports 'no escalations found'
+           * having tested nothing.
            */
           canary: z.string().min(1).optional(),
           /**
-           * Имя схемы аутентификации из `authSchemes`.
+           * The name of an authentication scheme from `authSchemes`.
            *
-           * Необязательно: без него аккаунт идёт по корневой `auth`. Здесь
-           * **ссылка**, а не схема целиком, — параметры схемы (имя заголовка,
-           * имя куки) принадлежат контуру, а не аккаунту, и повторённые
-           * у каждого аккаунта они рано или поздно разойдутся опечаткой.
-           * См. ADR-0017.
+           * Optional: without it the account goes by the root `auth`. A
+           * **reference** here, not the whole scheme — a scheme's parameters (the
+           * header name, the cookie name) belong to the surface, not to the
+           * account, and repeated on every account they will sooner or later
+           * drift apart through a typo. See ADR-0016.
            */
           authScheme: z.string().min(1).optional(),
         })
-        // Оба поля сразу — противоречие, а не уточнение: непонятно, какое
-        // из них считать членством, и любое разрешение конфликта было бы
-        // молчаливым выбором за человека.
+        // Both fields at once is a contradiction, not a refinement: it is unclear
+        // which of them counts as the membership, and any resolution of that
+        // conflict would be a silent choice made for the human.
         .refine((account) => account.tenant === undefined || account.tenants === undefined, {
           error:
             'the account declares both "tenant" and "tenants". These are mutually ' +
@@ -223,13 +232,13 @@ const configSchema = z.object({
     rules: z.array(ruleSchema),
   }),
   /**
-   * Эндпоинты, которые не трогать даже безопасным методом.
+   * Endpoints not to touch even with a safe method.
    *
-   * Нужен, потому что GET не обязан быть безопасным на деле: адрес вида
-   * `/createdb` сбрасывает базу, оставаясь GET.
+   * Needed because a GET is not obliged to be safe in practice: an address like
+   * `/createdb` resets the database while remaining a GET.
    */
   exclude: z.array(z.string().min(1)).optional(),
-  /** Объекты обращения и их владельцы — см. ADR-0010. */
+  /** The resources requested and their owners — see ADR-0010. */
   resources: z
     .array(
       z.object({
@@ -239,22 +248,22 @@ const configSchema = z.object({
         params: z.record(z.string().min(1), z.string()).optional(),
         query: z.record(z.string().min(1), z.string()).optional(),
         /**
-         * Эндпоинты, к которым относится объект.
+         * The endpoints the resource belongs to.
          *
-         * Обязательно, когда идентификатор в строке запроса: у такого эндпоинта
-         * нет параметров в пути, и связать его по совпадению имён невозможно.
+         * Required when the identifier sits in the query string: such an endpoint
+         * has no path parameters, so it cannot be bound by matching names.
          */
         endpoints: z.array(z.string().min(1)).min(1).optional(),
       }),
     )
     .optional(),
   /**
-   * Перечень тенантов.
+   * The list of tenants.
    *
-   * Необязателен, но если задан — имена тенантов у аккаунтов и объектов
-   * сверяются с ним. Нужен потому, что опечатка в имени тенанта **прячет
-   * находку**: объект уезжает в `foreign-tenant`, правило со `scope` перестаёт
-   * применяться, и настоящая утечка проваливается в `fallback`.
+   * Optional, but once it is given, the tenant names on accounts and resources are
+   * checked against it. Needed because a typo in a tenant name **hides a
+   * finding**: the resource drifts into `foreign-tenant`, a rule with a `scope`
+   * stops applying, and a real leak falls through to the `fallback`.
    */
   tenants: z
     .union([
@@ -263,12 +272,12 @@ const configSchema = z.object({
         .array(
           z.object({
             id: z.string().min(1),
-            /** Родитель. Отсутствие означает корень. См. ADR-0013. */
+            /** The parent. Absent means the root. See ADR-0013. */
             parent: z.string().min(1).optional(),
             /**
-             * Свой базовый адрес: бренды часто разнесены по поддоменам.
-             * Хост обязан входить в `allowedHosts` — область проверки одна
-             * на прогон, и объявление тенанта её не расширяет.
+             * A base address of its own: brands are often spread across
+             * subdomains. The host must be in `allowedHosts` — there is one scope
+             * per run, and declaring a tenant does not widen it.
              */
             baseUrl: z.url({ protocol: /^https?$/ }).optional(),
           }),
@@ -277,70 +286,73 @@ const configSchema = z.object({
     ])
     .optional(),
   /**
-   * Схема аутентификации по умолчанию. Bearer, если не задана, — самый частый случай.
+   * The default authentication scheme. Bearer if unset — the most common case.
    *
-   * Именно **по умолчанию**: аккаунт, не назвавший схему, идёт по ней. Прогон
-   * против одного контура этим и ограничивается.
+   * The **default** precisely: an account that names no scheme goes by it. A run
+   * against a single surface needs nothing more than this.
    */
   auth: authSchema.optional(),
   /**
-   * Именованные схемы контуров.
+   * Named schemes for the surfaces.
    *
-   * Контуров у мультибрендовой платформы несколько, и аутентифицируются они
-   * по-разному: клиентское API по Bearer, операторская админка по сессионной
-   * куке, кабинет аффилиата по ключу в своём заголовке. Имя объявляется один
-   * раз здесь, аккаунт на него ссылается. См. ADR-0016.
+   * A multi-brand platform has several surfaces, and they authenticate
+   * differently: the customer API by Bearer, the operator console by a session
+   * cookie, the affiliate cabinet by a key in a header of its own. The name is
+   * declared here once, and an account refers to it. See ADR-0016.
    */
   authSchemes: z.record(z.string().min(1), authSchema).optional(),
   /**
-   * Условия обращения — минимальный полезный кусок ABAC.
+   * Request conditions — the minimal useful piece of ABAC.
    *
-   * Тот же аккаунт с той же ролью, но обращение помечено атрибутами: адрес
-   * другой страны, устройство, непройденный KYC. Инструмент не моделирует
-   * логику решения платформы — он сравнивает **исходы** двух объявленных
-   * наборов условий. См. ADR-0019.
+   * The same account with the same role, but the request is tagged with
+   * attributes: an address in another country, a device, KYC not passed. The tool
+   * does not model the platform's decision logic — it compares the **outcomes** of
+   * two declared sets of conditions. See ADR-0019.
    *
-   * `endpoints` обязателен: условия без границ умножили бы матрицу на всю
-   * поверхность API, а стоимость прогона на чужом стенде — не мелочь.
+   * `endpoints` is required: conditions without bounds would multiply the matrix
+   * by the entire API surface, and the cost of a run on someone else's deployment
+   * is not a small matter.
    */
   contexts: z
     .array(
       z.strictObject({
         id: z.string().min(1),
-        /** Человеческое описание: что именно объявлено этими атрибутами. */
+        /** A human description: what exactly these attributes declare. */
         description: z.string().min(1).optional(),
         headers: z.record(z.string().min(1), contextValueSchema).optional(),
         query: z.record(z.string().min(1), contextValueSchema).optional(),
         endpoints: z.array(z.string().min(1)).min(1),
-        /** Аккаунты, к которым условия применяются. Отсутствие — ко всем. */
+        /** The accounts the conditions apply to. Absent means all of them. */
         accounts: z.array(z.string().min(1)).min(1).optional(),
       }),
     )
     .min(1)
     .optional(),
   /**
-   * Чтение тел ответов ради скалярных сигналов. Выключено, если секции нет.
+   * Reading response bodies for the sake of scalar signals. Off when the section
+   * is absent.
    *
-   * Тело читается **только** у перечисленных здесь эндпоинтов: там, где ответ
-   * обязан различаться между тенантами, и совпадение — признак отсутствующего
-   * фильтра. Совпадение этих двух списков не случайно: читать тело там, где
-   * из этого не следует вывода, значит расширять поверхность риска впустую.
-   * См. ADR-0011.
+   * The body is read **only** on the endpoints listed here: the ones where the
+   * response must differ between tenants and a match is a sign of a missing
+   * filter. That these two lists coincide is not accidental: reading a body where
+   * no conclusion follows from it widens the risk surface for nothing.
+   * See ADR-0011.
    */
   bodySignals: z
     .object({
       responseMustDifferByTenant: z.array(z.string().min(1)).min(1),
       maxBodyBytes: z.number().int().positive().optional(),
       /**
-       * Дополнительные скаляры для отчёта.
+       * Extra scalars for the report.
        *
-       * Находок сами по себе не порождают — они нужны человеку, разбирающему
-       * находку дайджеста. «Совпали ответы у alice и carol» — сигнал тревоги,
-       * но триаж начинается с вопроса «а сколько записей кто увидел».
+       * They produce no findings by themselves — they are there for whoever digs
+       * into a digest finding. 'The responses matched for alice and carol' is the
+       * alarm, but triage starts with the question of how many records each
+       * account saw.
        *
-       * `digest` здесь не объявляется: его смысл задаётся объявлением
-       * `responseMustDifferByTenant` и проверкой, которая его читает.
-       * Дайджест без потребителя бесполезен.
+       * `digest` is not declared here: its meaning is set by the
+       * `responseMustDifferByTenant` declaration and by the check that reads it.
+       * A digest with no consumer is useless.
        */
       signals: z
         .array(
@@ -360,36 +372,37 @@ const configSchema = z.object({
 export interface AccountConfig {
   readonly id: string;
   readonly role: string;
-  /** Тенант. Отсутствует у аккаунта вне тенантов, то есть у анонимного. */
+  /** The tenant. Absent on an account outside of tenants, that is, an anonymous one. */
   readonly tenant?: string | undefined;
   /**
-   * Набор тенантов — когда аккаунту положены узлы, не образующие поддерева.
+   * A set of tenants — when the account is meant to have nodes that do not form a
+   * subtree.
    *
-   * Взаимоисключающе с `tenant` и содержит не меньше двух имён: набор
-   * из одного и есть `tenant`. См. ADR-0017.
+   * Mutually exclusive with `tenant`, and holds at least two names: a set of one
+   * is `tenant`. See ADR-0017.
    */
   readonly tenants?: readonly string[] | undefined;
-  /** Имя переменной окружения с токеном. Не сам токен. Отсутствует у анонимных. */
+  /** The environment variable name, not the token itself. Absent on anonymous ones. */
   readonly tokenEnv?: string | undefined;
   /**
-   * Эндпоинт, заведомо доступный этому аккаунту.
+   * An endpoint this account is known to have access to.
    *
-   * `| undefined` явно: под `exactOptionalPropertyTypes` zod отдаёт именно
-   * такой тип для необязательного поля.
+   * `| undefined` spelled out: under `exactOptionalPropertyTypes` zod returns
+   * exactly this type for an optional field.
    */
   readonly canary?: string | undefined;
-  /** Имя схемы из `authSchemes`. Отсутствует у аккаунта, идущего по умолчанию. */
+  /** The name of a scheme from `authSchemes`. Absent on an account using the default. */
   readonly authScheme?: string | undefined;
 }
 
 export interface RunTarget {
   readonly baseUrl: string;
   readonly allowedHosts: readonly string[];
-  /** Опознание проверяемой системы. Объявляется человеком. */
+  /** What the system under test is called. Declared by a human. */
   readonly label?: string | undefined;
 }
 
-/** Узел дерева тенантов плюс необязательный свой базовый адрес. */
+/** A node of the tenant tree plus an optional base address of its own. */
 export interface TenantConfig extends TenantNode {
   readonly baseUrl?: string;
 }
@@ -398,16 +411,16 @@ export interface DeclaredSignal {
   readonly name: string;
   readonly kind: "count" | "present";
   readonly path: string;
-  /** Эндпоинты, у которых этот скаляр вычисляется. */
+  /** The endpoints this scalar is computed on. */
   readonly endpoints: readonly string[];
 }
 
 export interface BodySignalsConfig {
   /**
-   * Эндпоинты, ответ которых обязан различаться между тенантами.
+   * The endpoints whose response must differ between tenants.
    *
-   * Это объявление оператора, а не свойство проверяемого API: инструмент
-   * не выводит его ниоткуда и без него тело не читает вовсе.
+   * This is the operator's declaration, not a property of the API under test: the
+   * tool derives it from nowhere, and without it it does not read the body at all.
    */
   readonly responseMustDifferByTenant: readonly string[];
   readonly maxBodyBytes?: number | undefined;
@@ -425,14 +438,15 @@ export class DuplicateSignalNameError extends Error {
 }
 
 export interface RunConfig {
-  /** Схема по умолчанию: по ней идёт аккаунт, не назвавший свою. */
+  /** The default scheme: an account that named none of its own goes by it. */
   readonly auth: AuthScheme;
   /**
-   * Схема на аккаунт: id аккаунта → разрешённая схема. Пусто, если
-   * переопределений нет.
+   * The scheme per account: account id → the resolved scheme. Empty when there
+   * are no overrides.
    *
-   * Готовая карта, а не имена ссылок: ссылки разрешаются при разборе, чтобы
-   * опечатка падала на старте, а не превращалась в прогон без аутентификации.
+   * A ready map rather than reference names: references are resolved during
+   * parsing, so that a typo fails at startup instead of turning into a run without
+   * authentication.
    */
   readonly accountAuth: ReadonlyMap<string, AuthScheme>;
   readonly target: RunTarget;
@@ -441,23 +455,25 @@ export interface RunConfig {
   readonly exclude: readonly string[];
   readonly resources: readonly Resource[];
   readonly bodySignals?: BodySignalsConfig | undefined;
-  /** Дерево тенантов. Отсутствие означает лес из корней без связей. */
+  /** The tenant tree. Absent means a forest of roots with no links between them. */
   readonly tenants?: readonly TenantConfig[] | undefined;
-  /** Условия обращения. Пусто, если не объявлены. */
+  /** The request conditions. Empty when none are declared. */
   readonly contexts: readonly RequestContextConfig[];
 }
 
 /**
- * Объявленные условия обращения.
+ * The declared request conditions.
  *
- * Атрибуты — заголовки и параметры запроса — живут здесь, а не в ядре: ядро
- * об HTTP не знает и знать не должно, ему достаточно метки `contextId`.
+ * The attributes — headers and query parameters — live here rather than in the
+ * core: the core knows nothing about HTTP and must not, the `contextId` label is
+ * enough for it.
  */
 /**
- * Значение атрибута: либо строка, либо ссылка на переменную окружения.
+ * The value of an attribute: either a string or a reference to an environment
+ * variable.
  *
- * В отчёт уезжает ровно эта форма, поэтому секрет в отчёт попасть не может:
- * `{ env: "DEVICE_SIGNATURE" }` называет переменную, а не значение.
+ * Exactly this form travels into the report, so a secret cannot get there:
+ * `{ env: "DEVICE_SIGNATURE" }` names the variable, not the value.
  */
 export type ContextAttributeValue = string | { readonly env: string };
 
@@ -466,9 +482,9 @@ export interface RequestContextConfig {
   readonly description?: string | undefined;
   readonly headers: Readonly<Record<string, ContextAttributeValue>>;
   readonly query: Readonly<Record<string, ContextAttributeValue>>;
-  /** Ручки, на которых условия применяются. Не бывает пустым. */
+  /** The endpoints the conditions apply on. Never empty. */
   readonly endpointIds: readonly string[];
-  /** Аккаунты, к которым применяются. Пусто — ко всем. */
+  /** The accounts they apply to. Empty means all of them. */
   readonly accountIds: readonly string[];
 }
 
@@ -486,7 +502,7 @@ export class ConfigValidationError extends Error {
   }
 }
 
-/** Входит ли хост адреса в область проверки. Запись с портом сверяется с портом. */
+/** Whether the address's host is in scope. An entry with a port is matched with it. */
 function hostAllowed(url: URL, allowedHosts: readonly string[]): boolean {
   const allowed = allowedHosts.map((entry) => entry.trim().toLowerCase());
   return allowed.includes(url.hostname.toLowerCase()) || allowed.includes(url.host.toLowerCase());
@@ -521,13 +537,14 @@ export class DuplicateAccountIdError extends Error {
 }
 
 /**
- * Ссылка на схему, которой не объявлено.
+ * A reference to a scheme that was never declared.
  *
- * Падает на старте намеренно. Аккаунт с неразрешённой ссылкой пошёл бы по схеме
- * по умолчанию, платформа ответила бы 401 — а сплошной отказ совпадает с
- * политикой везде, где доступ не положен. Отчёт вышел бы чистым, и чистота
- * означала бы «мы не представились», а не «дыр нет». Канарейка это поймала бы,
- * но она необязательна, а опечатка — нет.
+ * It fails at startup on purpose. An account with an unresolved reference would go
+ * by the default scheme, the platform would answer 401 — and a blanket denial
+ * agrees with the policy wherever access is not meant to be granted. The report
+ * would come out clean, and that cleanliness would mean 'we did not present
+ * ourselves', not 'there are no holes'. A canary would catch this, but a canary is
+ * optional, whereas a typo is not.
  */
 export class UnknownAuthSchemeError extends Error {
   constructor(accountId: string, name: string, known: readonly string[]) {
@@ -544,12 +561,12 @@ export class UnknownAuthSchemeError extends Error {
 }
 
 /**
- * Объявленная схема, на которую никто не ссылается.
+ * A declared scheme nobody refers to.
  *
- * Тот же класс, что шаблон эндпоинтов, не совпавший ни с чем: объявление,
- * которое ни разу не применилось, выглядит проверенным утверждением, не будучи
- * им. Практически это забытый `authScheme` у аккаунта — то есть ровно тот
- * случай, когда прогон идёт не тем контуром и молчит об этом.
+ * The same class as an endpoint pattern that matched nothing: a declaration that
+ * never applied looks like a tested statement without being one. In practice it is
+ * a forgotten `authScheme` on an account — that is, exactly the case where the run
+ * goes through the wrong surface and says nothing about it.
  */
 export class UnusedAuthSchemeError extends Error {
   constructor(name: string) {
@@ -564,12 +581,13 @@ export class UnusedAuthSchemeError extends Error {
 }
 
 /**
- * Схема у аккаунта, которому нечего предъявлять.
+ * A scheme on an account that has nothing to present.
  *
- * Аккаунт без `tokenEnv` обращается анонимно, и схема к нему неприменима: класть
- * в заголовок нечего. Само по себе это безобидно, но ссылка «использует» схему,
- * и настоящий аккаунт того же контура, у которого `authScheme` забыт, перестаёт
- * быть виден проверкой на неиспользуемую схему.
+ * An account without `tokenEnv` makes its requests anonymously, and a scheme does
+ * not apply to it: there is nothing to put into the header. That is harmless in
+ * itself, but the reference 'uses' the scheme, and a real account of the same
+ * surface whose `authScheme` was forgotten stops being visible to the check for an
+ * unused scheme.
  */
 export class AuthSchemeWithoutTokenError extends Error {
   constructor(accountId: string, name: string) {
@@ -593,7 +611,7 @@ export class UnknownResourceOwnerError extends Error {
   constructor(resourceId: string, owner: string) {
     super(
       `Resource "${resourceId}" is declared as owned by account "${owner}", which is ` +
-        `not among the declared accounts. The «own or foreign» relation would be undefined.`,
+        `not among the declared accounts. The 'own or foreign' relation would be undefined.`,
     );
     this.name = "UnknownResourceOwnerError";
   }
@@ -604,7 +622,7 @@ export class UnknownTenantError extends Error {
     super(
       `${where} belongs to tenant "${tenant}", which is not among the declared ones ` +
         `(${known.join(", ")}). A typo here hides a finding: the resource drifts ` +
-        `into «foreign tenant», a rule with a scope stops applying, and a real ` +
+        `into 'foreign tenant', a rule with a scope stops applying, and a real ` +
         `leak falls through to the fallback.`,
     );
     this.name = "UnknownTenantError";
@@ -612,11 +630,11 @@ export class UnknownTenantError extends Error {
 }
 
 /**
- * Атрибуты условий не могут подменять учётные и управляющие заголовки.
+ * Context attributes cannot replace credential and control headers.
  *
- * Список хардкодный и из пользовательского ввода не берётся. Условия, тихо
- * переписавшие `Authorization`, дали бы прогон, где половина ячеек ходит
- * не тем аккаунтом, — а выглядело бы это как находки платформы.
+ * The list is hardcoded and never taken from user input. Conditions that quietly
+ * rewrote `Authorization` would give a run where half the cells go out as a
+ * different account — and it would look like findings about the platform.
  */
 export class ForbiddenContextHeaderError extends Error {
   constructor(contextId: string, header: string, reason: string) {
@@ -695,19 +713,18 @@ export class UnknownEndpointReferenceError extends Error {
 }
 
 /**
- * Сверяет ссылки на эндпоинты с фактически разобранным списком.
+ * Checks endpoint references against the list that was actually parsed.
  *
- * Вызывается после разбора спецификации: раньше эндпоинтов ещё нет.
+ * Called after the specification is parsed: before that there are no endpoints yet.
  *
- * Найдено прогоном против crAPI. Опечатка в одном символе давала два разных
- * плохих исхода. В ресурсе — четыре находки BOLA молча исчезали, а объект
- * оставался в отчёте как объявленный. В правиле политики — наоборот,
- * фабриковались находки: чтение пользователем **своего** заказа объявлялось
- * эскалацией привилегий, потому что правило, дающее доступ, перестало
- * применяться.
+ * Found by a run against crAPI. A one-character typo gave two different bad
+ * outcomes. In a resource, four BOLA findings vanished silently while the resource
+ * stayed in the report as declared. In a policy rule, the other way round,
+ * findings were fabricated: a user reading **his own** order was declared a
+ * privilege escalation, because the rule that granted access stopped applying.
  *
- * Это тот же класс, который уже ловят `UnknownCanaryEndpointError`
- * и `EmptyRuleSelectorError`; здесь он был пропущен.
+ * This is the same class `UnknownCanaryEndpointError` and `EmptyRuleSelectorError`
+ * already catch; here it had been missed.
  *
  * @throws {UnknownEndpointReferenceError}
  */
@@ -719,7 +736,8 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
       return;
     }
     for (const entry of rule.endpoints) {
-      // Шаблоны проверяет expandPolicy: там видно, совпал ли он хоть с чем-то.
+      // Patterns are checked by expandPolicy: there it shows whether one matched
+      // anything at all.
       if (typeof entry !== "string") {
         continue;
       }
@@ -754,9 +772,9 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
     }
   }
 
-  // Опечатка здесь отказывает молча и закрыто: тело не читается, проверка
-  // не срабатывает, отчёт выглядит чистым. Тот же класс, что и опечатка
-  // в имени тенанта, — молчаливое сужение области проверки.
+  // A typo here fails silently and closed: the body is not read, the check does
+  // not fire, the report looks clean. The same class as a typo in a tenant name —
+  // a silent narrowing of the scope.
   for (const endpointId of config.bodySignals?.responseMustDifferByTenant ?? []) {
     if (!known.has(endpointId)) {
       throw new UnknownEndpointReferenceError(
@@ -781,11 +799,12 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
 }
 
 /**
- * Переносит на эндпоинты объявление `responseMustDifferByTenant` из конфигурации.
+ * Carries the `responseMustDifferByTenant` declaration from the configuration over
+ * to the endpoints.
  *
- * Источники эндпоинтов (спецификация, список, коллекция Postman) о тенантах
- * ничего не знают и знать не должны: это заявление человека о намерении,
- * ровно как и политика доступа. См. ADR-0006 и ADR-0011.
+ * Endpoint sources (a specification, a list, a Postman collection) know nothing
+ * about tenants and must not: this is a human's statement of intent, exactly like
+ * the access policy. See ADR-0006 and ADR-0011.
  */
 export function applyBodySignals(
   endpoints: readonly Endpoint[],
@@ -825,15 +844,16 @@ export class MissingCredentialError extends Error {
 }
 
 /**
- * Разрешает ссылки аккаунтов на именованные схемы аутентификации.
+ * Resolves accounts' references to named authentication schemes.
  *
- * Все три ошибки — про одно и то же: прогон, идущий не тем контуром, выглядит
- * не как сбой, а как чистый отчёт. Поэтому они падают здесь, до первого запроса.
+ * All three errors are about the same thing: a run that goes through the wrong
+ * surface looks not like a failure but like a clean report. That is why they fail
+ * here, before the first request.
  *
- * @throws {InvalidAuthSchemeError} схему нельзя отправить
- * @throws {UnknownAuthSchemeError} ссылка не разрешается
- * @throws {UnusedAuthSchemeError} схема объявлена, но не используется
- * @throws {AuthSchemeWithoutTokenError} схема у аккаунта без токена
+ * @throws {InvalidAuthSchemeError} the scheme cannot be sent
+ * @throws {UnknownAuthSchemeError} the reference does not resolve
+ * @throws {UnusedAuthSchemeError} the scheme is declared but not used
+ * @throws {AuthSchemeWithoutTokenError} a scheme on an account without a token
  */
 function resolveAccountAuth(
   declared: Readonly<Record<string, AuthScheme>> | undefined,
@@ -843,9 +863,9 @@ function resolveAccountAuth(
     readonly authScheme?: string | undefined;
   }[],
 ): ReadonlyMap<string, AuthScheme> {
-  // Карта, а не индексация по объекту: `authScheme: constructor` на обычном
-  // объекте вернул бы унаследованное свойство вместо `undefined`, и ссылка
-  // «разрешилась» бы во что попало.
+  // A map, not indexing into an object: `authScheme: constructor` on a plain
+  // object would return an inherited property instead of `undefined`, and the
+  // reference would 'resolve' to whatever came back.
   const schemes = new Map<string, AuthScheme>(Object.entries(declared ?? {}));
   for (const [name, scheme] of schemes) {
     assertAuthSchemeIsSound(scheme, `scheme "${name}"`);
@@ -878,16 +898,16 @@ function resolveAccountAuth(
 }
 
 /**
- * Разбирает и проверяет конфигурацию.
+ * Parses and validates the configuration.
  *
- * @param source текст файла в YAML или JSON
- * @throws {ConfigParseError} документ не разбирается
- * @throws {ConfigValidationError} документ не соответствует схеме
- * @throws {HostOutsideScopeError} хост из baseUrl вне allowedHosts
- * @throws {DuplicateAccountIdError} повторяющийся id аккаунта
- * @throws {UnknownAuthSchemeError} аккаунт ссылается на необъявленную схему
- * @throws {UnusedAuthSchemeError} объявленная схема никем не используется
- * @throws {AuthSchemeWithoutTokenError} схема у аккаунта без tokenEnv
+ * @param source the text of the file, in YAML or JSON
+ * @throws {ConfigParseError} the document does not parse
+ * @throws {ConfigValidationError} the document does not match the schema
+ * @throws {HostOutsideScopeError} the host from baseUrl is outside allowedHosts
+ * @throws {DuplicateAccountIdError} a repeated account id
+ * @throws {UnknownAuthSchemeError} an account references an undeclared scheme
+ * @throws {UnusedAuthSchemeError} a declared scheme is used by nobody
+ * @throws {AuthSchemeWithoutTokenError} a scheme on an account without tokenEnv
  */
 export class UncarriableKeyError extends Error {
   constructor(path: string) {
@@ -902,14 +922,14 @@ export class UncarriableKeyError extends Error {
 }
 
 /**
- * Отвергает ключи, которые молча пропадают при разборе.
+ * Rejects keys that silently disappear during parsing.
  *
- * `__proto__` в объектном литерале ключом не становится, и объявленный
- * заголовок условий исчезал бы, не уйдя по проводу и не пожаловавшись.
- * Загрязнения прототипа при этом не происходит — проверено, — но молчаливое
- * исчезновение объявления и есть тот класс ошибок, против которого написан
- * весь инструмент. Проверяется на **сыром** документе: к моменту валидации
- * ключа уже нет.
+ * `__proto__` does not become a key in an object literal, and a declared context
+ * header would vanish without going over the wire and without complaining. No
+ * prototype pollution happens along the way — that has been checked — but the
+ * silent disappearance of a declaration is exactly the class of bug the whole tool
+ * is written against. Checked on the **raw** document: by the time validation runs
+ * the key is already gone.
  *
  * @throws {UncarriableKeyError}
  */
@@ -958,11 +978,11 @@ export function parseRunConfig(source: string): RunConfig {
 
   const accountAuth = resolveAccountAuth(config.authSchemes, config.accounts);
 
-  // Пробелы по краям имени тенанта — всегда опечатка, и опечатка опасная:
-  // «tenant-a » и «tenant-a» дают разные отношения и разный вердикт.
+  // Whitespace around a tenant name is always a typo, and a dangerous one:
+  // 'tenant-a ' and 'tenant-a' give different relations and different verdicts.
   //
-  // Краткая форма (список строк) означает лес из корней без связей — поведение
-  // до ADR-0013. Развёрнутая объявляет родство явно.
+  // The short form (a list of strings) means a forest of roots with no links —
+  // the behaviour before ADR-0013. The long form declares kinship explicitly.
   const tenantNodes: readonly TenantConfig[] | undefined = config.tenants?.map((entry) =>
     typeof entry === "string"
       ? { id: entry.trim() }
@@ -972,8 +992,8 @@ export function parseRunConfig(source: string): RunConfig {
           ...(entry.baseUrl === undefined ? {} : { baseUrl: entry.baseUrl }),
         },
   );
-  // Дерево строится здесь, чтобы неизвестный родитель и цикл падали на старте,
-  // а не посреди прогона против чужого стенда.
+  // The tree is built here so that an unknown parent and a cycle fail at startup
+  // rather than in the middle of a run against someone else's deployment.
   const hierarchy = tenantNodes === undefined ? FLAT_HIERARCHY : createTenantHierarchy(tenantNodes);
   if (tenantNodes !== undefined) {
     for (const node of tenantNodes) {
@@ -984,22 +1004,23 @@ export function parseRunConfig(source: string): RunConfig {
       if (url.username !== "" || url.password !== "") {
         throw new CredentialsInUrlError(`The base address of tenant "${node.id}"`);
       }
-      // Область проверки одна на прогон: адрес тенанта её не расширяет.
+      // There is one scope per run: a tenant's address does not widen it.
       if (!hostAllowed(url, config.target.allowedHosts)) {
         throw new HostOutsideScopeError(url.host, config.target.allowedHosts);
       }
     }
   }
   const declaredTenants = tenantNodes?.map((node) => node.id);
-  // Членства аккаунта одним списком: у обычного аккаунта их ноль или одно,
-  // у аккаунта с набором — несколько. Дальше все проверки идут по списку,
-  // и случай «набор» не заводит себе отдельной ветки в каждой из них.
+  // The account's memberships as one list: an ordinary account has zero or one of
+  // them, an account with a set has several. Every check downstream walks that
+  // list, so the 'set' case does not get a branch of its own in each of them.
   const membershipsOf = (account: AccountConfig): readonly string[] =>
     account.tenants?.map((tenant) => tenant.trim()) ??
     (account.tenant === undefined ? [] : [account.tenant.trim()]);
-  // Аккаунт без тенанта в сверку не входит и записи в перечне не требует:
-  // он объявлен вне тенантов, а не отнесён к какому-то из них. Требовать для
-  // него строки в `tenants` значило бы вернуть сентинел через чёрный ход.
+  // An account without a tenant takes no part in the check and needs no entry in
+  // the list: it is declared outside of tenants, not assigned to one of them.
+  // Demanding a line in `tenants` for it would bring the sentinel back through the
+  // back door.
   const accountTenants = config.accounts.flatMap(membershipsOf);
   for (const account of config.accounts) {
     const memberships = membershipsOf(account);
@@ -1010,20 +1031,21 @@ export function parseRunConfig(source: string): RunConfig {
         }
       }
     }
-    // Повтор и вложенность в наборе меняют отношение молча — см. ADR-0017.
-    // Проверка идёт после сверки имён: на неизвестном тенанте вложенность
-    // всё равно не определена, и внятнее сказать про имя.
+    // A repeat and nesting inside a set change the relation silently — see
+    // ADR-0017. The check runs after the names are verified: on an unknown tenant
+    // nesting is undefined anyway, and it is clearer to speak about the name.
     assertIndependentMemberships(`Account "${account.id}"`, memberships, hierarchy);
   }
 
-  // Проверяется здесь, а не при первом запросе: прогон должен падать до сети.
+  // Checked here rather than on the first request: a run must fail before it
+  // reaches the network.
   const target = new URL(config.target.baseUrl);
   if (target.username !== "" || target.password !== "") {
     throw new CredentialsInUrlError();
   }
-  // Запись с портом сверяется вместе с портом — та же логика, что в HTTP-клиенте.
-  // Раньше конфигурация понимала только имя, и возможность клиента была
-  // недостижима через CLI.
+  // An entry with a port is matched together with the port — the same logic as in
+  // the HTTP client. The configuration used to understand only the name, and the
+  // client's capability was unreachable through the CLI.
   if (!hostAllowed(target, config.target.allowedHosts)) {
     throw new HostOutsideScopeError(target.host, config.target.allowedHosts);
   }
@@ -1042,9 +1064,10 @@ export function parseRunConfig(source: string): RunConfig {
       throw new UnknownResourceOwnerError(declared.id, declared.owner);
     }
     const tenant = declared.tenant.trim();
-    // Тенант объекта сверяется с объявленными, а при их отсутствии — с тенантами
-    // аккаунтов. Второе слабее (объект чужого тенанта без аккаунта в нём —
-    // законный случай), поэтому для строгой проверки заводится `tenants`.
+    // A resource's tenant is checked against the declared ones, and when there are
+    // none, against the accounts' tenants. The second is weaker (a resource of a
+    // foreign tenant with no account in it is a legitimate case), which is why
+    // `tenants` exists for the strict check.
     const knownTenants = declaredTenants ?? accountTenants;
     if (declaredTenants !== undefined && !knownTenants.includes(tenant)) {
       throw new UnknownTenantError(`Resource "${declared.id}"`, tenant, knownTenants);
@@ -1064,8 +1087,8 @@ export function parseRunConfig(source: string): RunConfig {
     policy,
     auth: config.auth ?? DEFAULT_AUTH_SCHEME,
     accountAuth,
-    // Ключи строки запроса, принадлежащие объектам: атрибут условий, совпавший
-    // с таким ключом, молча переписывал бы адрес объекта — см. ниже.
+    // The query-string keys that belong to resources: a context attribute matching
+    // such a key would silently rewrite the resource's address — see below.
     resourceQueryKeys: new Set(resources.flatMap((r) => Object.keys(r.query ?? {}))),
   });
 
@@ -1098,18 +1121,19 @@ export class MethodOverrideInContextError extends Error {
 }
 
 /**
- * Отвергает атрибуты условий, которыми подменяют метод обращения.
+ * Rejects context attributes that override the method of the request.
  *
- * Проверка **по значению**, а не по имени, и в этом весь смысл. Имён у подмены
- * метода десяток и будет больше; значение же у неё всегда одно — имя метода.
- * Правило ловит и `x-http-method-override`, и вендорский заголовок, о котором
- * я никогда не слышал, и `_method` в строке запроса.
+ * The check goes **by value**, not by name, and that is the whole point. Method
+ * override has a dozen names and will have more; its value, though, is always the
+ * same one — the name of a method. The rule catches `x-http-method-override`, a
+ * vendor header I have never heard of, and `_method` in the query string alike.
  *
- * Живёт отдельно от разбора конфигурации, потому что зависит от флага прогона:
- * с `--unsafe-methods` человек уже согласился на запись, и запрещать нечего.
+ * It lives apart from configuration parsing because it depends on a run flag: with
+ * `--unsafe-methods` the human has already agreed to writes, and there is nothing
+ * to forbid.
  *
- * Найдено состязательной проверкой. Стенд удалил объект по обращению, которое
- * инструмент считал чтением, а отчёт написал `writeMethodsProbed: false`.
+ * Found by adversarial review. The deployment deleted a resource on a request the
+ * tool considered a read, while the report said `writeMethodsProbed: false`.
  *
  * @throws {MethodOverrideInContextError}
  */
@@ -1121,10 +1145,10 @@ export function assertContextsCannotWrite(
     return;
   }
   const methods = new Set(["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"]);
-  // Проверяются **разрешённые** значения, а не объявленные: значение из
-  // переменной окружения на момент разбора конфигурации ещё неизвестно,
-  // и проверка объявления пропустила бы `x-vendor-verb: { env: VERB }`
-  // с `VERB=DELETE` в окружении.
+  // The **resolved** values are checked, not the declared ones: a value from an
+  // environment variable is not yet known when the configuration is parsed, and
+  // checking the declaration would let `x-vendor-verb: { env: VERB }` through with
+  // `VERB=DELETE` in the environment.
   for (const [contextId, values] of contexts) {
     for (const [name, value] of Object.entries(values.headers)) {
       if (methods.has(value.trim().toUpperCase())) {
@@ -1139,7 +1163,7 @@ export function assertContextsCannotWrite(
   }
 }
 
-/** Разрешённые значения атрибутов одних условий. */
+/** The resolved attribute values of one set of conditions. */
 export interface ContextValues {
   readonly headers: Readonly<Record<string, string>>;
   readonly query: Readonly<Record<string, string>>;
@@ -1169,14 +1193,15 @@ export class InvalidContextValueError extends Error {
 }
 
 /**
- * Разрешает значения атрибутов условий: литералы как есть, ссылки — из окружения.
+ * Resolves the values of context attributes: literals as they are, references from
+ * the environment.
  *
- * Отдельным шагом, как `resolveTokens`: окружение передаётся явно, а не читается
- * изнутри. Значение из окружения в отчёт не попадает — там остаётся объявление
- * `{ env: ИМЯ }`.
+ * A separate step, like `resolveTokens`: the environment is passed in explicitly
+ * rather than read from inside. A value from the environment never lands in the
+ * report — the declaration `{ env: NAME }` stays there.
  *
- * @throws {MissingContextValueError} переменная не задана или пуста
- * @throws {InvalidContextValueError} значение нельзя отправить в обращении
+ * @throws {MissingContextValueError} the variable is unset or empty
+ * @throws {InvalidContextValueError} the value cannot be sent in a request
  */
 export function resolveContextValues(
   config: RunConfig,
@@ -1215,13 +1240,13 @@ export function resolveContextValues(
 }
 
 /**
- * Заголовки, которых условия задавать не могут.
+ * The headers conditions are not allowed to set.
  *
- * Хардкод, а не настройка: список охраняет основу обращения, и брать его
- * из того же файла, что и сами условия, значило бы охранять дверь ключом,
- * висящим на ней снаружи. `authorization` и `cookie` — учётные данные;
- * `host` уводит запрос за пределы области проверки при неизменном адресе;
- * остальные ломают сам обмен.
+ * Hardcoded, not configurable: the list guards the substance of a request, and
+ * taking it from the same file as the conditions themselves would mean guarding a
+ * door with the key hanging on its outside. `authorization` and `cookie` are
+ * credentials; `host` takes the request outside the scope while the address stays
+ * unchanged; the rest break the exchange itself.
  */
 const FORBIDDEN_CONTEXT_HEADERS: ReadonlyMap<string, string> = new Map([
   ["authorization", "these are the account's credentials"],
@@ -1238,18 +1263,19 @@ const FORBIDDEN_CONTEXT_HEADERS: ReadonlyMap<string, string> = new Map([
 ]);
 
 /**
- * Семейства заголовков, меняющих **смысл** обращения, а не его условия.
+ * Families of headers that change the **meaning** of a request, not its conditions.
  *
- * Найдено состязательной проверкой, и находка была худшего сорта: условия
- * с `x-http-method-override: DELETE` заставили платформу удалить объект,
- * пока по проводу шёл GET, — а отчёт при этом писал `writeMethodsProbed: false`.
- * Гейт `SAFE_METHODS` смотрит на метод в запросе и такой обход не видит.
+ * Found by adversarial review, and the finding was of the worst kind: conditions
+ * carrying `x-http-method-override: DELETE` made the platform delete a resource
+ * while a GET went over the wire — and the report meanwhile said
+ * `writeMethodsProbed: false`. The `SAFE_METHODS` gate looks at the method in the
+ * request and does not see that bypass.
  *
- * Префиксом, а не точным именем: у override-заголовка десяток написаний
- * (`X-HTTP-Method`, `X-HTTP-Method-Override`, `X-Method-Override`), и список
- * точных имён отстанет от следующего фреймворка. `x-forwarded-for` при этом
- * разрешён намеренно — это и есть типовой атрибут гео-условий; запрещены
- * только те `x-forwarded-*`, что меняют адресата.
+ * By prefix, not by exact name: the override header has a dozen spellings
+ * (`X-HTTP-Method`, `X-HTTP-Method-Override`, `X-Method-Override`), and a list of
+ * exact names will fall behind the next framework. `x-forwarded-for` is allowed on
+ * purpose — it is the typical attribute of geo conditions; only those
+ * `x-forwarded-*` that change the recipient are forbidden.
  */
 const FORBIDDEN_HEADER_PREFIXES: readonly (readonly [string, string])[] = [
   ["x-http-method", "a method-override header: the platform will write behind a GET"],
@@ -1264,13 +1290,14 @@ const FORBIDDEN_HEADER_PREFIXES: readonly (readonly [string, string])[] = [
 ];
 
 /**
- * Ключи строки запроса, которыми предъявляют учётные данные.
+ * The query-string keys that present credentials.
  *
- * Токен в строке запроса — это другой аккаунт: платформа обслужит обращение
- * как его, а отчёт напишет исходный `baseAccountId`. Найдено состязательной
- * проверкой: `access_token` в условиях обслуживался как чужой аккаунт, и вся
- * половина матрицы ходила не тем, кем отчёт её называл. Плюс само значение
- * уехало бы в отчёт открытым текстом — адреса обращений там печатаются.
+ * A token in the query string means a different account: the platform will serve
+ * the request as that account, while the report will write the original
+ * `baseAccountId`. Found by adversarial review: an `access_token` in the conditions
+ * was served as someone else's account, and a whole half of the matrix went out as
+ * somebody other than the one the report named. On top of that the value itself
+ * would land in the report in the clear — request addresses are printed there.
  */
 const FORBIDDEN_QUERY_KEYS: ReadonlySet<string> = new Set([
   "access_token",
@@ -1288,19 +1315,19 @@ const FORBIDDEN_QUERY_KEYS: ReadonlySet<string> = new Set([
   "token",
 ]);
 
-/** Значение заголовка: только видимый ASCII и таб — иначе `fetch` его не отправит. */
+/** A header value: visible ASCII and tab only — otherwise `fetch` will not send it. */
 const CONTEXT_VALUE_SAFE = /^[\t\x20-\x7e]*$/;
 
-/** Имя заголовка по RFC 9110: видимые ASCII без разделителей. */
+/** A header name per RFC 9110: visible ASCII without separators. */
 const CONTEXT_HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 /**
- * Приводит объявленные условия к рабочему виду и отвергает негодные.
+ * Brings the declared conditions into working form and rejects the unfit ones.
  *
- * Все проверки здесь — про молчаливую подмену: условия, переписавшие учётный
- * заголовок, дают прогон не тем аккаунтом; условия без правила дают ворох
- * расхождений, которых никто не заявлял; опечатка в имени — правило,
- * не применяющееся ни к чему.
+ * Every check here is about silent substitution: conditions that rewrote a
+ * credential header give a run made as a different account; conditions with no rule
+ * give a pile of discrepancies nobody claimed; a typo in a name gives a rule that
+ * applies to nothing.
  */
 function normalizeContexts(
   declared: readonly {
@@ -1319,8 +1346,8 @@ function normalizeContexts(
     readonly accountAuth: ReadonlyMap<string, AuthScheme>;
   },
 ): readonly RequestContextConfig[] {
-  // Имя заголовка и куки объявлено человеком, поэтому в запретный список
-  // они попадают из разобранных схем, а не из строки конфигурации.
+  // The header name and the cookie name are declared by a human, so they get into
+  // the forbidden list from the parsed schemes, not from a line of configuration.
   const inUse = new Set<string>();
   for (const scheme of [options.auth, ...options.accountAuth.values()]) {
     if (scheme.kind === "header") {
@@ -1334,10 +1361,10 @@ function normalizeContexts(
       .filter((context): context is string => context !== undefined),
   );
   const ids = new Set(declared.map((context) => context.id));
-  // Ссылки правил сверяются раньше проверки на неиспользуемые условия:
-  // опечатка в ссылке даёт оба симптома сразу, но сказать «условия объявлены,
-  // но никем не используются» человеку, который их как раз использовал,
-  // значит увести его не туда. Первым сообщается то, что он и правил.
+  // The rules' references are checked before the unused-conditions check: a typo
+  // in a reference gives both symptoms at once, but telling someone who did use
+  // the conditions that they 'are declared but referenced by nobody' leads him the
+  // wrong way. What he was actually editing is reported first.
   options.policy.rules.forEach((rule, index) => {
     if (rule.context !== undefined && !ids.has(rule.context)) {
       throw new UnknownContextReferenceError(index, rule.context, [...ids]);
@@ -1353,9 +1380,10 @@ function normalizeContexts(
     }
     seenIds.add(context.id);
 
-    // Без прототипа: имя `__proto__` в обычном объектном литерале не становится
-    // ключом, а молча исчезает — объявленный заголовок не ушёл бы по проводу,
-    // и никто бы об этом не узнал. Найдено ревью после состязательной проверки.
+    // Without a prototype: the name `__proto__` in a plain object literal does not
+    // become a key but silently disappears — a declared header would not go over
+    // the wire, and nobody would learn about it. Found by the review that followed
+    // an adversarial review.
     const headers: Record<string, ContextAttributeValue> = Object.create(null);
     for (const [name, value] of Object.entries(context.headers ?? {})) {
       const lower = name.toLowerCase();
@@ -1367,8 +1395,8 @@ function normalizeContexts(
             "be sent at all",
         );
       }
-      // Значение из окружения здесь не проверить — его ещё нет. Оно сверяется
-      // при разрешении, ровно как токен аккаунта.
+      // A value from the environment cannot be checked here — it does not exist
+      // yet. It is verified at resolution time, exactly like an account's token.
       if (typeof value === "string" && !CONTEXT_VALUE_SAFE.test(value)) {
         throw new ForbiddenContextHeaderError(
           context.id,
@@ -1405,10 +1433,10 @@ function normalizeContexts(
             "request URLs are printed there",
         );
       }
-      // Ключ объекта, переписанный условиями, — самая тихая из подмен:
-      // вердикт считается по объявленному объекту, а спрашивается другой.
-      // Найдено состязательной проверкой: межтенантная утечка легла в отчёт
-      // как «свой объект, проверено и совпало».
+      // A resource's key rewritten by conditions is the quietest substitution of
+      // all: the verdict is computed for the declared resource while a different
+      // one is asked for. Found by adversarial review: a cross-tenant leak landed
+      // in the report as 'own resource, tested and agreed'.
       if (options.resourceQueryKeys.has(key)) {
         throw new ForbiddenContextQueryError(
           context.id,
@@ -1451,30 +1479,31 @@ function normalizeContexts(
 }
 
 /**
- * Разделитель идентификатора аккаунта в условиях.
+ * The separator in the identifier of an account under conditions.
  *
- * Аккаунт в условиях — отдельная строка матрицы, и ей нужен свой
- * идентификатор. Совпадение с реально объявленным аккаунтом (например, если
- * аккаунты названы адресами почты) не пройдёт молча: построение матрицы
- * отвергает дубликаты идентификаторов.
+ * An account under conditions is a matrix row of its own, and it needs an
+ * identifier of its own. A collision with an actually declared account (for
+ * example, when accounts are named by email addresses) will not pass silently:
+ * building the matrix rejects duplicate identifiers.
  */
 const CONTEXT_SEPARATOR = "@";
 
 /**
- * Приводит аккаунты конфигурации к доменному типу ядра, добавляя аккаунты
- * в условиях.
+ * Converts the configuration's accounts into the core's domain type, adding the
+ * accounts under conditions.
  *
- * Возвращает и карту атрибутов: заголовки и параметры запроса ядру не нужны
- * и в него не попадают, а прогону нужны. Одна функция, а не две, потому что
- * два обхода одной и той же деривации разошлись бы — и разошлись бы молча:
- * аккаунт без атрибутов ходил бы в базовых условиях, отвечая за находки
- * в условиях объявленных.
+ * Returns the attribute map as well: the core neither needs the headers and query
+ * parameters nor receives them, while the run does need them. One function rather
+ * than two, because two walks over the same derivation would drift apart — and
+ * drift silently: an account without attributes would go out in baseline
+ * conditions while answering for findings made under the declared ones.
  */
 export function toAccounts(
   config: RunConfig,
   /**
-   * Разрешённые значения атрибутов. Обязательны, когда хоть один атрибут берёт
-   * значение из окружения: без них он молча уехал бы в обращение как объект.
+   * The resolved attribute values. Required when at least one attribute takes its
+   * value from the environment: without them it would silently go out in the
+   * request as an object.
    */
   contextValues: ReadonlyMap<string, ContextValues> = new Map(),
 ): {
@@ -1495,9 +1524,10 @@ export function toAccounts(
         ...account,
         id,
         contextId: context.id,
-        // Владение объектом сверяется по исходному аккаунту: условия его
-        // не отменяют. Без этой ссылки свой заказ переставал быть своим,
-        // отношение уезжало в `same-tenant`, а серьёзность — вверх.
+        // Ownership of a resource is checked against the original account:
+        // conditions do not cancel it. Without this reference one's own order
+        // stopped being one's own, the relation drifted to `same-tenant`, and the
+        // severity drifted upwards.
         baseAccountId: account.id,
         endpointIds: context.endpointIds,
       });
@@ -1514,10 +1544,10 @@ export function toAccounts(
 }
 
 /**
- * Значения условий, когда разрешение не передали.
+ * The values of conditions when no resolution was passed in.
  *
- * Ссылка на окружение здесь превращается в отказ, а не в объект в заголовке:
- * пропущенный шаг разрешения обязан быть слышен.
+ * A reference to the environment turns into a refusal here, not into an object in
+ * a header: a skipped resolution step has to be heard.
  */
 function literalValues(context: RequestContextConfig): ContextValues {
   const take = (source: Readonly<Record<string, ContextAttributeValue>>, kind: string) => {
@@ -1539,9 +1569,9 @@ function literalValues(context: RequestContextConfig): ContextValues {
 function baseAccounts(config: RunConfig): readonly Account[] {
   return config.accounts.map((account) => {
     if (account.tenants !== undefined) {
-      // Набор доезжает до ядра набором. Свести его к «первому тенанту»
-      // означало бы объявить остальные членства чужими — ровно та подмена,
-      // из-за которой законное чтение второго бренда выглядело эскалацией.
+      // A set reaches the core as a set. Reducing it to 'the first tenant' would
+      // declare the remaining memberships foreign — exactly the substitution that
+      // made a lawful read of the second brand look like an escalation.
       return {
         id: account.id,
         roleId: account.role,
@@ -1551,9 +1581,9 @@ function baseAccounts(config: RunConfig): readonly Account[] {
     return {
       id: account.id,
       roleId: account.role,
-      // Поле не проставляется вовсе, а не заполняется заглушкой: отсутствие
-      // тенанта — это утверждение «аккаунт вне тенантов», и оно должно доехать
-      // до `relationOf` как отсутствие.
+      // The field is not set at all rather than filled with a placeholder: the
+      // absence of a tenant is the statement 'the account is outside of tenants',
+      // and it has to reach `relationOf` as an absence.
       ...(account.tenant === undefined ? {} : { tenantId: account.tenant.trim() }),
     };
   });
@@ -1575,21 +1605,22 @@ export class InvalidCredentialError extends Error {
   }
 }
 
-/** Значение заголовка допускает только видимый ASCII и табуляцию. */
+/** A header value admits visible ASCII and the tab character only. */
 const HEADER_SAFE = /^[\t\x20-\x7e]+$/;
 
 /**
- * Достаёт токены из окружения.
+ * Takes the tokens out of the environment.
  *
- * Возвращает отдельную карту, а не поле в конфигурации: так токен не может
- * случайно уехать в отчёт вместе с сериализованной конфигурацией.
+ * Returns a separate map rather than a field in the configuration: that way a
+ * token cannot accidentally travel into the report along with the serialized
+ * configuration.
  *
- * Пригодность для заголовка проверяется здесь, а не при первом запросе: иначе
- * одна опечатка в переменной обернулась бы десятками одинаковых сбоев посреди
- * прогона вместо одной внятной ошибки на старте.
+ * Fitness for a header is checked here rather than on the first request: otherwise
+ * one typo in a variable would turn into dozens of identical failures in the
+ * middle of a run instead of one clear error at startup.
  *
- * @throws {MissingCredentialError} переменная не задана или пуста
- * @throws {InvalidCredentialError} токен непригоден как значение заголовка
+ * @throws {MissingCredentialError} the variable is unset or empty
+ * @throws {InvalidCredentialError} the token is unfit as a header value
  */
 export function resolveTokens(
   config: RunConfig,
@@ -1598,7 +1629,7 @@ export function resolveTokens(
   const tokens = new Map<string, string>();
   for (const account of config.accounts) {
     if (account.tokenEnv === undefined) {
-      // Анонимный аккаунт: учётных данных нет намеренно.
+      // An anonymous account: there are no credentials on purpose.
       continue;
     }
     const value = environment[account.tokenEnv];

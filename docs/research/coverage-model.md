@@ -1,11 +1,12 @@
-# Что модель barbican выражает, а что нет
+# What barbican's model expresses, and what it does not
 
-Разбор проведён по коду, а не по намерениям: источник — `src/core/types.ts`
-и `src/core/expected.ts`. Утверждения о пробелах подтверждены запуском.
+The analysis was done against the code, not against intentions: the sources are
+`src/core/types.ts` and `src/core/expected.ts`. The claims about gaps are confirmed
+by running it.
 
-## Модель сегодня
+## The model today
 
-Три сущности и одна функция отношения:
+Three entities and one relation function:
 
 ```ts
 Account  = { id, roleId, tenantId }
@@ -14,155 +15,161 @@ Resource = { id, tenantId, ownerAccountId?, params, query? }
 relationOf(account, resource):
   account.tenantId !== resource.tenantId  -> "foreign-tenant"
   resource.ownerAccountId === account.id  -> "own"
-  иначе                                   -> "same-tenant"
+  otherwise                               -> "same-tenant"
 ```
 
-Правило политики — это `(роль, эндпоинт, отношение) -> allowed | denied`.
-Побеждает последнее подошедшее; непокрытое падает в `fallback`.
+A policy rule is `(role, endpoint, relation) -> allowed | denied`. The last rule
+that matched wins; anything uncovered falls through to `fallback`.
 
-Отсюда прямо следует, **что** проверяемо: утверждения вида «роль R на эндпоинте E
-при отношении к объекту X имеет/не имеет доступ». И **чем**: сравнением кода
-ответа, а с ADR-0011 — ещё и необратимым скаляром над телом.
+From this follows directly **what** is checkable: statements of the form "role R on
+endpoint E, under a given relation to resource X, has / does not have access". And
+**by what means**: by comparing the response code, and since ADR-0011 by an
+irreversible scalar over the body as well.
 
-## Ключевое ограничение: `tenantId` плоский
+## The key limitation: `tenantId` is flat
 
-Тенант — строка, и отношение между двумя тенантами определено ровно одно:
-«не совпадают». Иерархии нет. Это не мелочь реализации, а граница выразимости,
-и вот её цена.
+A tenant is a string, and exactly one relation between two tenants is defined:
+"they do not match". There is no hierarchy. This is not a small matter of
+implementation but a boundary of expressiveness, and here is its price.
 
-### Эксперимент
+### The experiment
 
-Холдинг H1 владеет брендами A и B. Холдинг H2 владеет брендом C. Правильное
-поведение: аккаунт холдинга H1 видит A и B и **не** видит C.
+Holding H1 owns brands A and B. Holding H2 owns brand C. The correct behaviour: an
+account of holding H1 sees A and B and does **not** see C.
 
-Выразить это нечем: у аккаунта один `tenantId`. Приписываем холдинг к бренду A —
-других вариантов модель не даёт — и разрешаем ему `scope: foreign-tenant`,
-иначе бренд B недостижим. Дальше стенд отдаёт холдингу все три объекта,
-включая чужой.
+There is nothing to express that with: an account has one `tenantId`. We attribute
+the holding to brand A — the model gives no other option — and allow it
+`scope: foreign-tenant`, otherwise brand B is unreachable. After that the
+deployment hands the holding all three resources, the foreign one included.
 
 ```
-отношение холдинга H1 к объектам:
+relation of holding H1 to the resources:
   r-a (brand-a) -> same-tenant
   r-b (brand-b) -> foreign-tenant
   r-c (brand-c) -> foreign-tenant
 
-  находка: r-a same-tenant privilege-escalation
-настоящая утечка (чужой холдинг C) найдена: false
-ложное срабатывание на своём бренде A: true
+  finding: r-a same-tenant privilege-escalation
+real leak (foreign holding C) found: false
+false positive on its own brand A: true
 ```
 
-**Инструмент ошибается дважды в одном прогоне.** Законное чтение холдингом
-своего же бренда A объявлено эскалацией привилегий. Настоящая межхолдинговая
-утечка — чтение бренда C — не замечена вовсе, потому что «чужой тенант» для
-модели неотличим от «чужой тенант в пределах моего холдинга».
+**The tool is wrong twice in one run.** A lawful read by the holding of its own
+brand A is declared a privilege escalation. The real cross-holding leak — the read
+of brand C — is not noticed at all, because "a foreign tenant" is indistinguishable
+to the model from "a foreign tenant inside my own holding".
 
-Второе хуже первого. Ложное срабатывание виден и раздражает; пропуск выглядит
-как чистый прогон.
+The second is worse than the first. A false positive is visible and irritating; a
+miss looks like a clean run.
 
-## По контурам
+## By contour
 
-Шестиуровневая разбивка (платформа → агрегатор → холдинг → бренд-оператор →
-аффилиат → игрок) ложится на модель неравномерно.
+The six-level breakdown (platform → aggregator → holding → brand operator →
+affiliate → player) maps onto the model unevenly.
 
-| Контур | Выразим? | Чем именно |
+| Contour | Expressible? | By what exactly |
 |---|---|---|
-| Оператор бренда ↔ оператор бренда | **да** | разные `tenantId`, `foreign-tenant` |
-| Игрок ↔ игрок внутри бренда | **да** | `ownerAccountId`, `own` против `same-tenant` |
-| Роли внутри бренда (саппорт, финансы, риск) | **да** | `roleId` × эндпоинт |
-| Аноним ↔ любой контур | **да** | аккаунт без `tokenEnv` |
-| Холдинг → свои бренды, не чужие | **да** (ADR-0013) | `descendant-tenant` |
-| Платформа → все холдинги | **да** (ADR-0013) | то же, уровнем выше |
-| Аффилиат → своя статистика, не база игроков | **да** (ADR-0013) | тенант под брендом |
-| Саппорт или аффилиат на **наборе** брендов без общего предка | **да** (ADR-0017) | набор членств у аккаунта, отношение по ближайшему |
-| Агрегатор/провайдер (callback-и внутрь) | **нет** | инструмент ходит снаружи внутрь, а этот контур ходит внутрь снаружи |
+| Brand operator ↔ brand operator | **yes** | different `tenantId`, `foreign-tenant` |
+| Player ↔ player inside a brand | **yes** | `ownerAccountId`, `own` against `same-tenant` |
+| Roles inside a brand (support, finance, risk) | **yes** | `roleId` × endpoint |
+| Anonymous ↔ any contour | **yes** | an account without `tokenEnv` |
+| Holding → its own brands, not foreign ones | **yes** (ADR-0013) | `descendant-tenant` |
+| Platform → all holdings | **yes** (ADR-0013) | the same, one tier up |
+| Affiliate → its own statistics, not the player database | **yes** (ADR-0013) | a tenant under a brand |
+| Support or an affiliate over a **set** of brands with no common ancestor | **yes** (ADR-0017) | a set of memberships on the account, the relation taken from the nearest |
+| Aggregator / provider (callbacks inward) | **no** | the tool walks from the outside in, and this contour walks from the inside out |
 
-Последняя строка — не про дерево, а про то, чего дерево не выражает: аккаунт,
-чья область есть **набор** узлов без общего предка. Дерево отвечает на вопрос
-«кто над кем», но не на вопрос «сколько узлов у аккаунта», и посадить такой
-аккаунт было некуда: в один из своих брендов — законное чтение второго станет
-эскалацией, в общий корень — вместе со своими он получит и чужие. Закрыто
-набором членств (ADR-0017), отношение считается по каждому и выигрывает
-ближайшее. Шестого значения `ResourceRelation` при этом не появилось.
+The last row is not about the tree but about what the tree does not express: an
+account whose reach is a **set** of nodes with no common ancestor. The tree answers
+the question "who is above whom", but not the question "how many nodes does an
+account have", and there was nowhere to seat such an account: into one of its own
+brands — and a lawful read of the second becomes an escalation; into the common
+root — and along with its own it gets the foreign ones too. Closed by a set of
+memberships (ADR-0017): the relation is computed for every membership and the
+nearest one wins. No sixth `ResourceRelation` value appeared in the process.
 
-Три верхних контура упирались в одно и то же — плоский тенант, — и закрылись
-одной правкой: ADR-0013. Раздел «Ключевое ограничение» выше описывает поведение
-**без объявленного дерева**: оно осталось прежним ради совместимости, поэтому
-на платформе с холдингом дерево объявлять обязательно.
+The three upper contours all ran into the same thing — the flat tenant — and were
+closed by a single change: ADR-0013. The section "The key limitation" above
+describes the behaviour **without a declared tree**: it stayed as it was for
+compatibility, which is why on a platform with a holding the tree must be declared.
 
-Контур агрегатора — отдельный случай: там проверяемое утверждение звучит как
-«callback от провайдера с чужой подписью отвергается», то есть проверяется
-не матрица доступа, а обработка входящего запроса. Это другой инструмент.
+The aggregator contour is a separate case: there the checkable statement reads "a
+callback from a provider with someone else's signature is rejected", that is, what
+is checked is not the access matrix but the handling of an incoming request. That
+is a different tool.
 
-## По моделям доступа
+## By access model
 
-**RBAC** — ядро того, что инструмент делает. Матрица «роль × эндпоинт»
-и есть его исходная задача.
+**RBAC** — the core of what the tool does. The role × endpoint matrix is its
+original task.
 
-**Tenant Isolation** — покрыт в пределах одного уровня. BOLA/IDOR внутри
-тенанта (`same-tenant`) и межтенантные утечки (`foreign-tenant`) находятся
-по статусу; с ADR-0011 — ещё и списочные утечки, не меняющие статуса.
+**Tenant Isolation** — covered within a single tier. BOLA/IDOR inside a tenant
+(`same-tenant`) and cross-tenant leaks (`foreign-tenant`) are found by the status;
+since ADR-0011 also list leaks that do not change the status.
 
-**ABAC** — не выражается вовсе, и это не пробел реализации. Правило политики
-не имеет места для атрибута: ни времени, ни адреса, ни состояния сессии,
-ни признака «игрок обратился в саппорт». Часть ABAC проверяема снаружи в принципе —
-если инструмент умеет **менять** атрибут и сравнивать исходы (например, обращаться
-с разных адресов). Часть непроверяема никак: «доступ разрешён, потому что тикет
-открыт» требует создать тикет, а это запись, запрещённая по умолчанию.
+**ABAC** — not expressible at all, and that is not an implementation gap. A policy
+rule has no place for an attribute: not the time, not the address, not the state of
+the session, not the flag "the player contacted support". Part of ABAC is checkable
+from the outside in principle — if the tool can **change** an attribute and compare
+the outcomes (making requests from different addresses, for instance). Part of it
+is not checkable by any means: "access is allowed because the ticket is open"
+requires creating a ticket, and that is a write, forbidden by default.
 
-**Segregation of Duties** — не выражается и не будет выражаться этой моделью.
-SoD — утверждение о **последовательности** и о **паре действующих лиц**: кто
-создал выплату, тот не подтверждает. Модель безсостоянийна и рассматривает
-одно обращение за раз; порядка в ней нет. Вдобавок подтверждение выплаты —
-это POST, то есть за пределами безопасного режима. Проверка SoD снаружи требует
-менять состояние проверяемой системы, и относить её к этому инструменту
-не следует без отдельного решения.
+**Segregation of Duties** — not expressible, and it will not be expressed by this
+model. SoD is a statement about a **sequence** and about a **pair of actors**:
+whoever created the payout does not confirm it. The model is stateless and
+considers one request at a time; there is no order in it. On top of that,
+confirming a payout is a POST, that is, outside safe mode. Checking SoD from the
+outside requires changing the state of the system under test, and it should not be
+assigned to this tool without a separate decision.
 
-## Что из этого стоит делать
+## What of this is worth doing
 
-По убыванию отношения пользы к цене:
+In decreasing order of benefit to cost:
 
-1. **Иерархия тенантов.** Одна возможность закрывает три контура сразу и убирает
-   продемонстрированную выше пару «ложное срабатывание плюс пропуск». Форма
-   требует ADR: путь (`holding-1/brand-a`) против явных родительских связей.
-   Отношение перестаёт быть трёхзначным — появляется как минимум «чужой тенант
-   внутри моего поддерева» против «чужое поддерево».
-2. **Атрибуты запроса как измерение матрицы.** Минимальный полезный шаг —
-   не полный ABAC, а возможность объявить два набора условий обращения
-   (например, разные заголовки происхождения) и сравнить исходы. Проверяет
-   утверждение «этот доступ обязан зависеть от атрибута», не пытаясь
-   моделировать логику решения.
-3. **SoD — не делать в этом модуле.** Требует записи и состояния; относится
-   к другому классу инструментов.
+1. **A tenant hierarchy.** One capability closes three contours at once and removes
+   the "false positive plus miss" pair demonstrated above. The form requires an ADR:
+   a path (`holding-1/brand-a`) against explicit parent links. The relation stops
+   being three-valued — at the very least "a foreign tenant inside my own subtree"
+   against "a foreign subtree" appears.
+2. **Request attributes as a dimension of the matrix.** The minimal useful step is
+   not full ABAC but the ability to declare two sets of request conditions
+   (different origin headers, for instance) and compare the outcomes. It checks the
+   statement "this access must depend on the attribute" without trying to model the
+   decision logic.
+3. **SoD — do not do it in this module.** It requires writes and state; it belongs
+   to a different class of tools.
 
-## Добавлено по итогам отраслевого ресерча
+## Added after the industry research
 
-Разборы: [igaming-contours.md](igaming-contours.md), [tenancy-models.md](tenancy-models.md).
+The analyses: [igaming-contours.md](igaming-contours.md), [tenancy-models.md](tenancy-models.md).
 
-**Какой контур считать тенантом — соглашение, а не данность.** Два аффилиата
-одного бренда дают `same-tenant`, и проверка совпадения ответов на них
-не сработает. Объявить аффилиата тенантом можно — но тогда пара «оператор
-и его же аффилиат» станет `foreign-tenant`, что неверно. Это та же нехватка
-иерархии, вид сбоку, и ещё один довод за неё.
+**Which contour counts as the tenant is a convention, not a given.** Two affiliates
+of one brand give `same-tenant`, and the response-match check will not fire on
+them. Declaring an affiliate a tenant is possible — but then the pair "an operator
+and its own affiliate" becomes `foreign-tenant`, which is wrong. This is the same
+lack of a hierarchy seen from the side, and one more argument for it.
 
-**Бренд по поддомену — закрыто.** У тенанта появился свой `baseUrl`, и адрес
-обращения выбирается по тенанту объекта. «Токен бренда A на хосте бренда B»
-теперь выразимо и проверяется тестом.
+**A brand by subdomain — closed.** A tenant got a `baseUrl` of its own, and the
+address of the request is chosen by the resource's tenant. "The token of brand A on
+the host of brand B" is now expressible and is covered by a test.
 
-**Видимость полей у аффилиата — флаги на аккаунте, а не роль.** Лишняя колонка
-в отчёте не меняет статуса ответа, то есть это BOPLA по конструкции. Отсюда
-исправление в `resolvePath`: до него `present` отвечал `false` на поле, которое
-в ответе есть, — неверный сигнал, неотличимый от честного «нет».
+**Field visibility for an affiliate is flags on the account, not a role.** An extra
+column in a report does not change the status of the response, so it is BOPLA by
+construction. Hence the fix in `resolvePath`: before it, `present` answered `false`
+for a field that is in fact in the response — a wrong signal, indistinguishable
+from an honest "no".
 
-**Регуляторные стандарты про изоляцию бренда от бренда молчат.** MGA нормирует
-изоляцию платформы от чужих арендаторов облака, UKGC — сквозной взгляд
-лицензиата по всем white-label доменам. Требование «бренд A не видит данные
-бренда B» отраслевым документом не задано: оно приходит из GDPR и из здравого
-смысла, но не из лицензионных правил. Практический вывод для модуля 2: якорем
-маппинга здесь будет ASVS 8.4.1, а не гемблинговый стандарт.
+**The regulatory standards are silent about isolation of one brand from another.**
+MGA regulates the isolation of the platform from other tenants of the cloud, UKGC
+the licensee's end-to-end view across all white-label domains. The requirement
+"brand A does not see brand B's data" is not set by any industry document: it comes
+from GDPR and from common sense, but not from the licensing rules. The practical
+conclusion for module 2: the anchor for mapping here will be ASVS 8.4.1, not a
+gambling standard.
 
-## Оговорка
+## A caveat
 
-Разбор описывает границы выразимости модели, а не качество покрытия внутри них.
-Внутри своих границ инструмент проверен: 0 ложных срабатываний на crAPI (17
-находок), 0 расхождений с оракулом на 10 комбинациях референс-платформы, 0
-расхождений на обоих режимах VAmPI.
+This analysis describes the boundaries of what the model can express, not the
+quality of coverage inside them. Inside its own boundaries the tool is verified: 0
+false positives on crAPI (17 findings), 0 discrepancies against the oracle on 10
+combinations of the reference platform, 0 discrepancies on both modes of VAmPI.

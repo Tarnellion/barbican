@@ -1,56 +1,58 @@
-# 0007. Сканирование секретов в CI без стороннего action
+# 0007. Secret scanning in CI without a third-party action
 
-- **Статус:** принято
-- **Дата:** 2026-08-11
+- **Status:** accepted
+- **Date:** 2026-08-11
 
-## Контекст
+## Context
 
-Pre-commit-хук ловит секреты до коммита, но обходится через `--no-verify`, поэтому в CI
-нужен второй слой по полной истории. Изначально для этого был взят
-`gitleaks/gitleaks-action`, запиненный по SHA.
+The pre-commit hook catches secrets before a commit, but it is bypassed with `--no-verify`,
+so CI needs a second layer over the full history. `gitleaks/gitleaks-action`, pinned by
+SHA, was taken for that at first.
 
-На первом же пуше он упал. Причина не лицензионная — лог прямо сообщает
-`[Tarnellion] is an individual user. No license key is required.` Action вычисляет
-диапазон коммитов вида `<первый>^..<последний>` и передаёт его в `git log`. У первого
-коммита репозитория родителя нет, `git log` пишет в stderr, и сканирование обрывается
-с `failed to scan Git repository error="stderr is not empty"`.
+It failed on the very first push. The reason is not a licensing one — the log says outright
+`[Tarnellion] is an individual user. No license key is required.` The action computes a
+commit range of the form `<first>^..<last>` and passes it to `git log`. The first commit of
+a repository has no parent, `git log` writes to stderr, and the scan breaks off with
+`failed to scan Git repository error="stderr is not empty"`.
 
-Побочно вскрылось более неприятное: action скачивает собственную версию gitleaks —
-8.24.3, тогда как в pre-commit используется установленная через Homebrew 8.30.1.
-Два слоя защиты выносили бы вердикты разными версиями с разными наборами правил.
+Something more unpleasant came out along the way: the action downloads its own version of
+gitleaks — 8.24.3, while pre-commit uses 8.30.1 installed through Homebrew. Two layers of
+defence would be handing down verdicts from different versions with different rule sets.
 
-## Решение
+## Decision
 
-Бинарь ставится в CI напрямую: загрузка релиза с GitHub и **проверка закреплённой
-SHA-256** перед распаковкой. Версия и сумма заданы переменными в `ci.yml`
-(`GITLEAKS_VERSION`, `GITLEAKS_SHA256`) и совпадают с локальной версией.
+The binary is installed in CI directly: download the release from GitHub and **check the
+pinned SHA-256** before unpacking. The version and the checksum are set by variables in
+`ci.yml` (`GITLEAKS_VERSION`, `GITLEAKS_SHA256`) and match the local version.
 
-Сканируется полная история (`fetch-depth: 0`) той же командой, что и в хуке:
-`gitleaks git --redact --no-banner .`. Никакого вычисления диапазонов — на полном
-клоне оно не нужно, и именно оно было источником поломки.
+The full history is scanned (`fetch-depth: 0`) with the same command as in the hook:
+`gitleaks git --redact --no-banner .`. No computing of ranges — on a full clone it is not
+needed, and it was exactly what caused the breakage.
 
-Загрузка бинаря из сети сама по себе вектор атаки, поэтому проверка контрольной суммы
-здесь не формальность, а обязательное условие: без неё шаг противоречил бы
+Downloading a binary from the network is an attack vector in itself, so the checksum check
+here is not a formality but a mandatory condition: without it the step would contradict
 [ADR-0004](0004-supply-chain-hardening.md).
 
-## Альтернативы
+## Alternatives
 
-- **Оставить action и обойти поломку** — например, гонять его только по расписанию, где
-  он делает полное сканирование. Отклонено: расхождение версий никуда не девается,
-  а поведение action зависит от типа события, что делает защиту непредсказуемой.
-- **Официальный образ Docker по digest.** Даёт ту же неизменяемость, что и сумма, но
-  добавляет запуск контейнера ради одной команды.
-- **Отказаться от сканирования в CI**, положившись на pre-commit. Отклонено: локальный
-  хук обходится одним флагом, а именно от этого CI и страхует.
+- **Keep the action and work around the breakage** — for example, run it only on a
+  schedule, where it does a full scan. Rejected: the version mismatch does not go away, and
+  the action's behaviour depends on the type of event, which makes the defence
+  unpredictable.
+- **The official Docker image by digest.** It gives the same immutability as a checksum, but
+  adds running a container for the sake of one command.
+- **Drop scanning in CI** and rely on pre-commit. Rejected: the local hook is bypassed with
+  a single flag, and that is exactly what CI insures against.
 
-## Последствия
+## Consequences
 
-Из границы доверия ушёл сторонний action — в workflow остались только `actions/checkout`
-и `actions/setup-node`, оба запинены по SHA.
+A third-party action has left the trust boundary — only `actions/checkout` and
+`actions/setup-node` remain in the workflow, both pinned by SHA.
 
-Расплата: версию и контрольную сумму нужно обновлять вручную при обновлении локального
-gitleaks. Задача записана в `tasks.md`; если версии разойдутся, CI и pre-commit снова
-начнут судить по-разному, и это будет тихая деградация, а не явная ошибка.
+The price: the version and the checksum have to be updated by hand whenever the local
+gitleaks is updated. The task is recorded in `tasks.md`; if the versions diverge, CI and
+pre-commit will start judging differently again, and that will be a silent degradation, not
+an explicit error.
 
-Пересмотреть, если появится официальный способ запускать gitleaks в CI ровно той же
-версией, что стоит локально, без ручной синхронизации.
+Revisit if an official way appears to run gitleaks in CI with exactly the same version as
+the one installed locally, without manual syncing.

@@ -1,9 +1,9 @@
 /**
- * Холдинговый контур: до ADR-0013 и после.
+ * The holding setup: before ADR-0013 and after.
  *
- * Первый describe закрепляет поведение **без объявленного дерева** — оно
- * осталось прежним намеренно, ради совместимости, и именно поэтому опасно.
- * Второй показывает, что объявление дерева его чинит.
+ * The first describe pins the behaviour **without a declared tree** — it stayed
+ * the same deliberately, for compatibility, and that is exactly why it is
+ * dangerous. The second shows that declaring the tree fixes it.
  */
 
 import { describe, expect, it } from "vitest";
@@ -19,7 +19,7 @@ import {
 } from "../../src/core/index.js";
 import type { Account, Endpoint, Resource } from "../../src/core/types.js";
 
-/** Холдинг H1 владеет брендами A и B. Холдинг H2 владеет брендом C. */
+/** Holding H1 owns brands A and B. Holding H2 owns brand C. */
 const TENANTS: readonly TenantNode[] = [
   { id: "holding-1" },
   { id: "brand-a", parentId: "holding-1" },
@@ -48,8 +48,8 @@ function observationsFor(accountId: string) {
   }));
 }
 
-describe("без объявленного дерева поведение прежнее — и потому опасное", () => {
-  /** Холдинг приписан к одному из своих брендов: других вариантов модель не даёт. */
+describe("without a declared tree the behaviour is the old one — and dangerous for it", () => {
+  /** The holding is attributed to one of its own brands: the model offers nothing else. */
   const holding: Account = { id: "holding-1", roleId: "holding", tenantId: "brand-a" };
 
   const policy: ResolvedAccessPolicy = {
@@ -69,39 +69,39 @@ describe("без объявленного дерева поведение пре
     policy,
   );
 
-  it("не находит утечку в бренд чужого холдинга", () => {
+  it("does not find a leak into a brand of another holding", () => {
     expect(findings.some((finding) => finding.resourceId === "r-c")).toBe(false);
   });
 
-  it("зато объявляет эскалацией законное чтение своего бренда", () => {
+  it("but declares a lawful read of its own brand an escalation", () => {
     expect(findings.find((finding) => finding.resourceId === "r-a")?.kind).toBe(
       "privilege-escalation",
     );
   });
 });
 
-describe("с объявленным деревом", () => {
+describe("with a declared tree", () => {
   const holding: Account = { id: "holding-1", roleId: "holding", tenantId: "holding-1" };
 
-  it("различает свой бренд, чужой холдинг и уровень выше", () => {
+  it("tells its own brand, a foreign holding and the level above apart", () => {
     const hierarchy = createTenantHierarchy(TENANTS);
     const brandAccount: Account = { id: "op-a", roleId: "operator", tenantId: "brand-a" };
 
     const relations = RESOURCES.map((resource) => relationOf(holding, resource, hierarchy));
     expect(relations).toEqual(["descendant-tenant", "descendant-tenant", "foreign-tenant"]);
 
-    // Бренд, читающий уровень холдинга, — отдельный случай, не «чужой тенант».
+    // A brand reading the holding level is a case of its own, not a foreign tenant.
     expect(
       relationOf(brandAccount, { id: "h", tenantId: "holding-1", params: {} }, hierarchy),
     ).toBe("ancestor-tenant");
   });
 
   /**
-   * Ровно то, ради чего писался ADR-0013: обе прежние ошибки исчезают
-   * одновременно, и политика при этом выражает намерение буквально —
-   * «холдингу положены его собственные бренды, и только они».
+   * Exactly what ADR-0013 was written for: both former mistakes disappear at
+   * once, and the policy states the intent literally — "a holding is meant to
+   * get its own brands, and only those".
    */
-  it("находит утечку в чужой холдинг и не придирается к своему бренду", () => {
+  it("finds a leak into a foreign holding and does not nitpick its own brand", () => {
     const policy: ResolvedAccessPolicy = {
       fallback: "denied",
       rules: [
@@ -132,16 +132,16 @@ describe("с объявленным деревом", () => {
   });
 
   /**
-   * Контракт: отношение строгое. Держится двумя способами сразу — ранним
-   * возвратом и тем, что циклы отвергнуты при построении, — поэтому снятие
-   * раннего возврата этот тест не роняет. Тест утверждает контракт, а не
-   * охраняет конкретную строку.
+   * The contract: the relation is strict. It holds in two ways at once — an
+   * early return and the fact that cycles are rejected at construction — so
+   * removing the early return does not fail this test. The test states the
+   * contract; it does not guard a particular line.
    */
-  it("не считает тенанта собственным предком", () => {
+  it("does not count a tenant as its own ancestor", () => {
     expect(createTenantHierarchy(TENANTS).isAncestor("brand-a", "brand-a")).toBe(false);
   });
 
-  it("видит предка через несколько уровней", () => {
+  it("sees an ancestor several levels up", () => {
     const deep: readonly TenantNode[] = [
       { id: "platform" },
       { id: "holding-1", parentId: "platform" },
@@ -152,20 +152,20 @@ describe("с объявленным деревом", () => {
   });
 });
 
-describe("проверка дерева на старте", () => {
+describe("validating the tree at startup", () => {
   /**
-   * Опечатка в родителе делает тенанта отдельным корнем: `descendant-tenant`
-   * превращается в `foreign-tenant`, правило перестаёт применяться, находка
-   * исчезает. Тот же класс, что лишний пробел в имени тенанта.
+   * A typo in the parent makes the tenant a root of its own:
+   * `descendant-tenant` turns into `foreign-tenant`, the rule stops applying,
+   * the finding vanishes. The same class as a stray space in a tenant name.
    */
-  it("отвергает неизвестного родителя", () => {
+  it("rejects an unknown parent", () => {
     expect(() =>
       createTenantHierarchy([{ id: "brand-a", parentId: "holding-l" }, { id: "holding-1" }]),
     ).toThrow(UnknownParentTenantError);
   });
 
-  /** Без проверки подъём по дереву во время диффа зациклился бы. */
-  it("отвергает цикл", () => {
+  /** Without the check, climbing the tree during the diff would loop forever. */
+  it("rejects a cycle", () => {
     expect(() =>
       createTenantHierarchy([
         { id: "a", parentId: "b" },
@@ -174,11 +174,11 @@ describe("проверка дерева на старте", () => {
     ).toThrow(TenantCycleError);
   });
 
-  it("отвергает повтор идентификатора тенанта", () => {
+  it("rejects a duplicate tenant identifier", () => {
     expect(() => createTenantHierarchy([{ id: "a" }, { id: "a" }])).toThrow(DuplicateTenantIdError);
   });
 
-  it("отвергает тенанта, объявленного своим же родителем", () => {
+  it("rejects a tenant declared as its own parent", () => {
     expect(() => createTenantHierarchy([{ id: "a", parentId: "a" }])).toThrow(TenantCycleError);
   });
 });

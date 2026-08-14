@@ -1,53 +1,54 @@
-# 0001. Стек и версии
+# 0001. Stack and versions
 
-- **Статус:** принято
-- **Дата:** 2026-08-11
+- **Status:** accepted
+- **Date:** 2026-08-11
 
-## Контекст
+## Context
 
-Проект стартует с внешнего технического отчёта, зафиксировавшего стек и вердикты по
-пакетам. При сверке с npm-реестром часть версий разошлась с отчётом, а часть решений
-потребовала уточнения под фактическое окружение.
+The project starts from an external technical report that fixed the stack and the verdicts
+on packages. Checking against the npm registry, some versions diverged from the report, and
+some decisions needed adjusting to the actual environment.
 
-Окружение на момент старта: Node 22.21.0 (Node 24 не установлен), pnpm через corepack,
-gitleaks 8.30.1 через Homebrew.
+The environment at the start: Node 22.21.0 (Node 24 is not installed), pnpm through
+corepack, gitleaks 8.30.1 through Homebrew.
 
-## Решение
+## Decision
 
-Базовый стек: Node >=22.12.0, TypeScript 6.0.3 (`nodenext`, strict), commander 15.0.0,
-vitest 4.1.10, Biome 2.5.6, pnpm 11.20.0, lefthook 2.1.10, gitleaks как системный бинарь.
+The base stack: Node >=22.12.0, TypeScript 6.0.3 (`nodenext`, strict), commander 15.0.0,
+vitest 4.1.10, Biome 2.5.6, pnpm 11.20.0, lefthook 2.1.10, gitleaks as a system binary.
 
-Отклонения от отчёта и их причины:
+Deviations from the report and the reasons for them:
 
-| Позиция | Отчёт | Принято | Причина |
+| Item | Report | Accepted | Reason |
 |---|---|---|---|
-| commander | 13 | **15.0.0** | Ноль зависимостей в обеих версиях; 15 — актуальная линия, требует Node >=22.12.0, что укладывается в `engines`. |
-| TypeScript | не закреплён | **6.0.3** | 7.0.2 числится в `latest`, но собственный README проекта называет сборку preview, публичный API помечен `not ready`, и она добавляет 20 платформенных пакетов в границу доверия. `tsc --noEmit` — гейт CI, туда preview не берём. |
-| Сборка | tsup | **`tsc`** | tsup тянет 17 прямых зависимостей (включая `debug` — пакет из инцидента сентября 2025). Пакет ESM-only под Node, бандлинг не нужен; `tsc` уже стоит ради typecheck и даёт `.js` + `.d.ts` + sourcemaps. |
-| Node | 24 LTS | **22.21.0 локально** | Node 24 на машине нет, а `engines` из отчёта и так `>=22`. CI гоняет матрицу 22 + 24, поэтому поддержка 24 остаётся проверяемой. |
-| YAML-парсер | js-yaml 4 | **`yaml` 2.9.0** | Решающее — встроенная защита от billion laughs: опция `maxAliasCount` (по умолчанию 100) прерывает раскрытие алиасов с явной ошибкой. У js-yaml такого механизма нет, пришлось бы городить эвристику поверх. Дополнительно: ноль зависимостей против `argparse` у js-yaml, и JSON разбирается тем же парсером как подмножество YAML 1.2. |
-| Троттлинг | p-limit + p-queue | **своя реализация** | `p-queue` тянет три пакета (себя, `eventemitter3`, `p-timeout`) при одном мейнтейнере. Конкурентность, скользящее окно частоты и потолок на прогон — около семидесяти строк, а подставляемый источник времени всё равно нужен для тестов backoff. Своя реализация позволила проверить инварианты фактами: тесты измеряют реальный пик конкурентности и запрошенные паузы, а не доверяют настройкам библиотеки. |
-| zod, pino, fast-redact, picocolors | ставить | **отложены** | Ставятся в той сессии, где реально нужны, и проходят проверку перед установкой. |
+| commander | 13 | **15.0.0** | Zero dependencies in both versions; 15 is the current line and requires Node >=22.12.0, which fits inside `engines`. |
+| TypeScript | not pinned | **6.0.3** | 7.0.2 is listed under `latest`, but the project's own README calls the build a preview, the public API is marked `not ready`, and it adds 20 platform packages to the trust boundary. `tsc --noEmit` is a CI gate, and a preview does not go there. |
+| Build | tsup | **`tsc`** | tsup pulls in 17 direct dependencies (including `debug`, a package from the September 2025 incident). The package is ESM-only for Node, bundling is not needed; `tsc` is already installed for typecheck and gives `.js` + `.d.ts` + sourcemaps. |
+| Node | 24 LTS | **22.21.0 locally** | Node 24 is not on the machine, and `engines` from the report is `>=22` anyway. CI runs a 22 + 24 matrix, so support for 24 stays checkable. |
+| YAML parser | js-yaml 4 | **`yaml` 2.9.0** | The deciding factor is built-in protection against billion laughs: the `maxAliasCount` option (100 by default) stops alias expansion with an explicit error. js-yaml has no such mechanism, and a heuristic would have to be piled on top. On top of that: zero dependencies against js-yaml's `argparse`, and JSON is parsed by the same parser as a subset of YAML 1.2. |
+| Throttling | p-limit + p-queue | **own implementation** | `p-queue` pulls in three packages (itself, `eventemitter3`, `p-timeout`) and has a single maintainer. Concurrency, a sliding rate window and a ceiling per run are about seventy lines, and an injectable time source is needed for the backoff tests anyway. An own implementation made it possible to check the invariants against facts: the tests measure the real peak concurrency and the pauses requested, instead of trusting a library's settings. |
+| zod, pino, fast-redact, picocolors | install | **deferred** | Installed in the session where they are actually needed, and vetted before installation. |
 
-Дополнительно принят `@types/node` 22.20.1 — типы для Node API, без которых не
-проходит typecheck. Пакет типовой, без рантайм-кода.
+Additionally accepted: `@types/node` 22.20.1 — the types for the Node API, without which
+typecheck does not pass. The package is types only, with no runtime code.
 
-Версии фиксируются точно, без диапазонов (`savePrefix: ''`, `save-exact=true`).
+Versions are pinned exactly, without ranges (`savePrefix: ''`, `save-exact=true`).
 
-## Альтернативы
+## Alternatives
 
-- **Держаться отчёта буквально** (commander 13, tsup): предсказуемо, но осознанно тащит
-  лишние 17 транзитивных зависимостей ради бандлинга, который проекту не нужен.
-- **TypeScript 7.0.2:** быстрее на больших кодовых базах, но статус preview и `API: not ready`
-  не подходят для обязательного гейта CI на старте проекта.
-- **tsdown:** преемник tsup на Rolldown; вернуться к вопросу, если понадобится бандл или CJS.
+- **Follow the report literally** (commander 13, tsup): predictable, but it knowingly drags
+  in 17 extra transitive dependencies for the sake of bundling the project does not need.
+- **TypeScript 7.0.2:** faster on large codebases, but preview status and `API: not ready`
+  do not suit a mandatory CI gate at the start of a project.
+- **tsdown:** the successor to tsup on Rolldown; come back to the question if a bundle or
+  CJS is needed.
 
-## Последствия
+## Consequences
 
-Граница доверия на старте — 6 прямых зависимостей вместо запланированных по отчёту.
-Сборка проще: один инструмент вместо двух, `tsc` проверено сохраняет shebang в
-`dist/cli.js`, бит исполняемости выставляется отдельным шагом.
+The trust boundary at the start is 6 direct dependencies instead of the ones the report
+planned. The build is simpler: one tool instead of two, `tsc` has been verified to keep the
+shebang in `dist/cli.js`, and the executable bit is set by a separate step.
 
-Пересмотреть, если: понадобится CJS или бандлинг (вернуть tsup/tsdown); TypeScript 7
-выйдет из preview и стабилизирует API (мигрировать); commander перестанет быть
-zero-dependency (искать замену).
+Revisit if: CJS or bundling is needed (bring back tsup/tsdown); TypeScript 7 leaves preview
+and stabilizes its API (migrate); commander stops being zero-dependency (look for a
+replacement).

@@ -1,24 +1,26 @@
-# Минимальная конфигурация прогона.
+# A minimal run configuration.
 #
-# Два тенанта, три аккаунта, три ручки. Полный разбор формата — ADR-0008.
-# Работающий пример со стендом и оракулом — каталог `polygon/`.
+# Two tenants, three accounts, three endpoints. The full walk-through of the format —
+# ADR-0008. A working example with a deployment and an oracle — the `polygon/`
+# directory.
 
 target:
   baseUrl: http://127.0.0.1:8080/api
-  # Обязателен. Без явного перечня хостов инструмент отказывается работать:
-  # прогон против незаявленного хоста — это не проверка, а сканирование
-  # чужой системы. Запись без порта разрешает любой порт, с портом — ровно один.
+  # Mandatory. Without an explicit list of hosts the tool refuses to work: a run
+  # against an undeclared host is not a check but a scan of someone else's system. An
+  # entry without a port allows any port, one with a port exactly one.
   allowedHosts: [127.0.0.1]
 
 accounts:
-  # `tokenEnv` — имя переменной окружения, а не сам токен. Секреты в файл
-  # конфигурации не попадают: он сериализуется в отчёт.
+  # `tokenEnv` is the name of an environment variable, not the token itself. Secrets
+  # do not get into the configuration file: it is serialized into the report.
   - id: alice
     role: user
     tenant: tenant-a
     tokenEnv: TOKEN_ALICE
-    # Канарейка: ручка, заведомо доступная этому аккаунту. Если она ответит
-    # отказом, значит токен протух, и «находок нет» означает «ничего не проверено».
+    # A canary: an endpoint known to be available to this account. Should it answer
+    # with a denial, the token has gone stale, and "there are no findings" means
+    # "nothing was tested".
     canary: orders.list
 
   - id: carol
@@ -27,35 +29,37 @@ accounts:
     tokenEnv: TOKEN_CAROL
     canary: orders.list
 
-  # Аккаунт без `tokenEnv` — анонимный. Нужен, чтобы находить сломанную
-  # аутентификацию: ручку, которая отвечает вообще без токена.
+  # An account with no `tokenEnv` is anonymous. It is there to find broken
+  # authentication: an endpoint that answers without a token at all.
   #
-  # Поля `tenant` у него нет: он вне тенантов. Приписать его к тенанту (или
-  # выдумать служебное имя вроде `none`) значило бы объявить аноним соседом
-  # чьих-то объектов — здесь он стал бы своим для `tenant-a`. Любой объект для
-  # аккаунта вне тенантов — `foreign-tenant`.
+  # It has no `tenant` field: it is outside of tenants. Attributing it to a tenant (or
+  # making up a service name like `none`) would mean declaring the anonymous account
+  # a neighbour of somebody's resources — here it would become one of `tenant-a`'s
+  # own. Any resource is `foreign-tenant` for an account outside of tenants.
   - id: anonymous
     role: anonymous
 
-# Схема аутентификации по умолчанию. Bearer, если её не задать.
+# The default authentication scheme. Bearer if it is not set.
 # auth: { kind: bearer }
 
-# Контуры со своей схемой объявляются поимённо, а аккаунт ссылается на имя:
-# на мультибрендовой платформе кабинет аффилиата, операторская админка и
-# клиентское API аутентифицируются по-разному, а прогон должен охватывать их
-# разом — иначе матрица «контур × контур» распадается на несшиваемые отчёты.
+# Surfaces with a scheme of their own are declared by name, and an account refers to
+# the name: on a multi-brand platform the affiliate cabinet, the operator console and
+# the customer API authenticate differently, while a run must cover them all at once —
+# otherwise the "surface × surface" matrix falls apart into reports that cannot be
+# stitched together.
 #
-# Схема описывает только транспорт. Секретов здесь нет ни в каком виде: токен
-# приходит из переменной, названной аккаунтом. Лишний ключ — ошибка, а не молча
-# отброшенное поле.
+# A scheme describes the transport only. There are no secrets here in any form: the
+# token comes from the variable the account names. An unexpected key is an error, not
+# a silently discarded field.
 #
-# Ссылка по имени, а не схема, выписанная у каждого аккаунта: имя куки и имя
-# заголовка принадлежат контуру, и повторённые у каждого они разойдутся
-# опечаткой — а опечатка в имени куки неотличима от верного имени, даёт 401,
-# и отчёт выглядит чистым. Опечатка в ссылке останавливает прогон на старте.
+# A reference by name rather than a scheme written out on every account: the cookie
+# name and the header name belong to the surface, and repeated on every account they
+# will diverge by a typo — and a typo in a cookie name is indistinguishable from the
+# right name, gives 401, and the report looks clean. A typo in the reference stops the
+# run at startup.
 #
-# Схема, на которую никто не сослался, тоже останавливает прогон: обычно это
-# забытый `authScheme` у аккаунта, то есть прогон не тем контуром.
+# A scheme nobody referred to also stops the run: usually that is a forgotten
+# `authScheme` on an account, that is, a run over the wrong surface.
 #
 # authSchemes:
 #   operator-console: { kind: cookie, name: opsid }
@@ -68,9 +72,9 @@ accounts:
 #     tokenEnv: TOKEN_OLGA
 #     authScheme: operator-console
 
-# Объекты обращения: чем заполнять параметры пути и кому объект принадлежит.
-# Объявляются человеком — из ответов их выуживать нельзя, иначе инструмент
-# начнёт сверять реализацию с самой собой (ADR-0010).
+# The resources requests address: what to fill the path parameters with and who owns
+# the resource. Declared by a human — they must not be fished out of the responses,
+# or the tool starts comparing the implementation with itself (ADR-0010).
 resources:
   - id: order-a-1
     tenant: tenant-a
@@ -82,18 +86,18 @@ resources:
     owner: carol
     params: { orderId: "2001" }
 
-# Ожидаемый доступ. Объявляется человеком и никогда не выводится из спецификации
-# проверяемого API: спека порождается из того же кода (ADR-0006).
+# The expected access. Declared by a human and never derived from the specification
+# of the API under test: the spec is generated from the same code (ADR-0006).
 policy:
-  # Что считать ожидаемым для пары, не покрытой ни одним правилом.
-  # `denied` — консервативный выбор: лишняя находка заметнее пропущенной.
+  # What to consider expected for a pair no rule covers. `denied` is the conservative
+  # choice: an extra finding is more noticeable than a missed one.
   fallback: denied
 
-  # Побеждает последнее подошедшее правило.
+  # The last matching rule wins.
   rules:
-    # `scope: own` — только свои объекты. Чужой объект своего тенанта
-    # (`same-tenant`) и любой чужой тенант (`foreign-tenant`) остаются
-    # под fallback, то есть объявлены запрещёнными.
+    # `scope: own` — one's own resources only. Another user's resource in one's own
+    # tenant (`same-tenant`) and any foreign tenant (`foreign-tenant`) stay under the
+    # fallback, that is, are declared forbidden.
     - roles: [user]
       endpoints: [orders.read]
       scope: own
@@ -103,20 +107,21 @@ policy:
       endpoints: [orders.list]
       outcome: allowed
 
-# Необязательно, но полезно: опечатка в имени тенанта прячет находку, потому что
-# объект уезжает в foreign-tenant и правило со scope перестаёт применяться.
+# Optional, but useful: a typo in a tenant name hides a finding, because the resource
+# drifts into foreign-tenant and the rule with a scope stops applying.
 tenants: [tenant-a, tenant-b]
 
-# Ручки, которые нельзя трогать. SAFE_METHODS защищает от семантики метода,
-# но не от эндпоинта, её нарушающего: GET, сбрасывающий базу, остаётся GET.
+# The endpoints that must not be touched. SAFE_METHODS protects against the semantics
+# of the method, but not against an endpoint that violates it: a GET that resets the
+# database is still a GET.
 # exclude: [dangerous.reset]
 
-# Чтение тел ради скалярных сигналов. Выключено, если секции нет.
+# Reading bodies for the sake of scalar signals. Off if the section is absent.
 #
-# Списочная ручка без фильтра по тенанту отвечает 200 и в корректной, и в
-# дефектной реализации — по статусу такой дефект неотличим. Здесь объявляются
-# ручки, ответ которых обязан различаться между тенантами; совпадение означает
-# отсутствующий фильтр. Тело читается только у них, наружу уходит лишь
-# необратимый скаляр, само тело не сохраняется нигде (ADR-0011).
+# A list endpoint with no tenant filter answers 200 both in a correct and in a
+# defective implementation — such a defect is indistinguishable by status. Here the
+# endpoints are declared whose response must differ between tenants; a match means
+# the filter is absent. Bodies are read on those endpoints only, nothing but an
+# irreversible scalar leaves, and the body itself is not stored anywhere (ADR-0011).
 bodySignals:
   responseMustDifferByTenant: [orders.list]

@@ -1,34 +1,37 @@
-# Исключения OSV-Scanner: только временные и только с разбором досягаемости.
+# OSV-Scanner exceptions: temporary only, and only with an analysis of reach.
 #
-# Правило: молчаливых исключений здесь не бывает. У каждой записи есть срок,
-# после которого находка возвращается сама, и причина, по которой её можно
-# не чинить сегодня. Бессрочное исключение равносильно отключению сканера
-# на этой зависимости — тогда честнее выключить сканер целиком и написать
-# об этом в README.
+# The rule: there are no silent exceptions here. Every entry has an expiry after
+# which the finding comes back on its own, and a reason why it need not be fixed
+# today. An exception without an expiry is the same as switching the scanner off
+# for that dependency — in which case it would be more honest to switch the
+# scanner off entirely and say so in the README.
 
 [[IgnoredVulns]]
 id = "GHSA-2v37-7h3g-55p8"
-# Сутки сверх того момента, когда исправление станет ставиться: 3.3.18 вышла
-# 7 августа, а `minimumReleaseAge` в этом проекте — 7 суток, то есть версия
-# становится доступной 14 августа. Запас на то, чтобы обновить lockfile руками.
+# A day beyond the moment the fix becomes installable: 3.3.18 was released on
+# 7 August, and `minimumReleaseAge` in this project is 7 days, so the version
+# becomes available on 14 August. The margin is there to update the lockfile
+# by hand.
 ignoreUntil = 2026-08-15
 reason = """
-nanoid 3.3.17: бесконечный цикл в customAlphabet/customRandom при size = 0 (DoS).
+nanoid 3.3.17: an infinite loop in customAlphabet/customRandom when size = 0 (DoS).
 
-Досягаемости нет, и это проверено, а не предположено:
-- зависимость транзитивная и только для разработки — vitest → vite → postcss →
-  nanoid; в зависимостях рантайма её нет (там swagger-parser, commander, yaml, zod);
-- в публикуемый пакет она не попадает: `files: ["dist"]`, в тарболе 0.2.0
-  ни одного файла nanoid;
-- postcss зовёт `nanoid(6)` с константой (lib/input.js), size из чужого ввода
-  не приходит.
+It is not reachable, and that was checked rather than assumed:
+- the dependency is transitive and development-only — vitest -> vite -> postcss ->
+  nanoid; it is not among the runtime dependencies (those are swagger-parser,
+  commander, yaml, zod);
+- it does not reach the published package: `files: ["dist"]`, and the 0.2.0
+  tarball contains no nanoid file at all;
+- postcss calls `nanoid(6)` with a constant (lib/input.js); the size never comes
+  from someone else's input.
 
-Почему не исправлено сегодня: исправление 3.3.18 вышло 7 августа, а собственный
-карантин на свежие релизы (`minimumReleaseAge: 10080`) не пускает пакеты моложе
-семи суток. Понижать порог ради находки, до которой нельзя дотянуться, — обмен
-защиты от компрометации свежего релиза на защиту от несуществующего DoS.
-Правильный размен — подождать сутки.
+Why it is not fixed today: the fix 3.3.18 was released on 7 August, and this
+project's own cooldown on fresh releases (`minimumReleaseAge: 10080`) does not
+admit packages younger than seven days. Lowering the threshold for a finding that
+cannot be reached would trade protection against a compromised fresh release for
+protection against a DoS that does not exist here. The right trade is to wait
+a day.
 
-Действие: 14 августа 2026 обновить lockfile до nanoid 3.3.18 и удалить эту
-запись целиком.
+Action: on 14 August 2026 update the lockfile to nanoid 3.3.18 and delete this
+entry entirely.
 """

@@ -1,21 +1,21 @@
 /**
- * Троттлинг обращений.
+ * Throttling of requests.
  *
- * Порт, а не опция: режима «без лимитов» не существует. Инструмент запускают
- * против чужих стендов, и положить чужой прод нагрузкой — худший из возможных
- * исходов прогона.
+ * A port, not an option: there is no "no limits" mode. The tool is run against
+ * someone else's deployments, and taking down someone else's production with
+ * load is the worst possible outcome of a run.
  *
- * Три ограничения одновременно: конкурентность, частота в скользящем окне
- * в одну секунду и общий потолок обращений на прогон.
+ * Three limits at once: concurrency, the rate in a sliding one-second window,
+ * and an overall ceiling on requests per run.
  */
 
 import type { Throttle } from "./ports.js";
 
 /**
- * Источник времени.
+ * The source of time.
  *
- * Вынесен наружу, чтобы паузы можно было проверять фактами, а не ожиданием:
- * тест подставляет свои часы и измеряет запрошенные задержки.
+ * Taken outside so that pauses can be checked by facts rather than by waiting: a
+ * test substitutes its own clock and measures the delays that were requested.
  */
 export interface Clock {
   now(): number;
@@ -31,15 +31,15 @@ export const systemClock: Clock = {
 };
 
 export interface ThrottleLimits {
-  /** Сколько обращений выполняется одновременно. */
+  /** How many requests are performed at the same time. */
   readonly concurrency: number;
-  /** Сколько обращений допускается за скользящую секунду. */
+  /** How many requests are allowed within a sliding second. */
   readonly requestsPerSecond: number;
-  /** Потолок обращений на весь прогон. */
+  /** The ceiling on requests for the whole run. */
   readonly maxRequests: number;
 }
 
-/** Дефолты намеренно медленные: их повышают осознанно, под конкретный стенд. */
+/** The defaults are deliberately slow: they are raised knowingly, for a specific deployment. */
 export const DEFAULT_THROTTLE_LIMITS: ThrottleLimits = {
   concurrency: 2,
   requestsPerSecond: 5,
@@ -66,10 +66,10 @@ export class InvalidThrottleLimitsError extends Error {
 const WINDOW_MS = 1000;
 
 /**
- * Создаёт троттл.
+ * Creates the throttle.
  *
- * Нулевые и отрицательные пределы отвергаются: «ноль» здесь читался бы как
- * «без ограничений», а такого режима быть не должно.
+ * Zero and negative limits are rejected: "zero" here would read as "no limits",
+ * and such a mode must not exist.
  */
 export function createThrottle(
   limits: Partial<ThrottleLimits> = {},
@@ -88,8 +88,8 @@ export function createThrottle(
   const startTimes: number[] = [];
   const slotWaiters: Array<() => void> = [];
 
-  // Решения о допуске принимаются строго по очереди: иначе две задачи могли бы
-  // одновременно увидеть свободный слот и обе его занять.
+  // Admission decisions are made strictly in turn: otherwise two tasks could see
+  // a free slot at the same time and both take it.
   let admissionChain: Promise<void> = Promise.resolve();
 
   function releaseSlot(): void {
@@ -151,9 +151,10 @@ export function createThrottle(
   }
 
   return {
-    // Действующие лимиты объявляются наружу: отчёту нужно напечатать их,
-    // а вычислять слияние умолчаний с флагами второй раз в CLI значило бы
-    // завести дубль, который разойдётся с настоящим поведением молча.
+    // The limits in force are declared outward: the report needs to print them,
+    // and computing the merge of defaults with flags a second time in the CLI
+    // would mean introducing a duplicate that drifts from the real behaviour
+    // silently.
     limits: effective,
     async run<T>(task: () => Promise<T>): Promise<T> {
       await admit();

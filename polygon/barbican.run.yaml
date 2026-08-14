@@ -1,59 +1,63 @@
-# Конфигурация прогона против референс-платформы (формат — ADR-0008).
+# The run configuration against the reference platform (the format — ADR-0008).
 #
-# Токенов здесь нет и быть не может: аккаунт называет имя переменной окружения.
-# Значения выставляет `verify.mjs` (случайные на каждый прогон) либо оператор
-# вручную — см. README.md.
+# There are no tokens here and there cannot be: an account names an environment
+# variable. The values are set by `verify.mjs` (random on every run) or by the
+# operator by hand — see README.md.
 
 target:
-  # Порт обязан совпадать с POLYGON_PORT платформы. verify.mjs сверяет это сам:
-  # разошедшись, они дали бы сплошные отказы и отчёт «всё чисто».
+  # The port must match the platform's POLYGON_PORT. verify.mjs checks that itself:
+  # once they diverged, they would give a solid wall of denials and a report saying
+  # "all clean".
   baseUrl: http://127.0.0.1:8787
   allowedHosts: [127.0.0.1]
-  # Опознание цели: без него читатель отчёта не отличит прогон против стенда
-  # от прогона этого демонстрационного полигона — и будет прав, отказавшись
-  # заводить тикет на платформу.
-  label: barbican reference polygon (демонстрационный стенд, не платформа)
+  # Identifying the target: without it the reader of the report cannot tell a run
+  # against a real deployment from a run against this demonstration polygon — and
+  # would be right to refuse to file a ticket against the platform.
+  label: barbican reference polygon (a demonstration deployment, not a platform)
 
-# Схема по умолчанию: клиентский контур платформы. Объявлена явно, хотя bearer
-# и так подразумевается, — контуров здесь три, и умолчание должно быть названо
-# наравне с остальными.
+# The default scheme: the platform's customer surface. Declared explicitly even
+# though bearer is implied anyway — there are three surfaces here, and the default
+# must be named on a par with the rest.
 auth: { kind: bearer }
 
-# Контуры, аутентифицирующиеся иначе (ADR-0016). Именованные схемы, а не
-# переопределение целиком у каждого аккаунта: имя куки и имя заголовка —
-# свойства контура, а не аккаунта. Повторённые у каждого, они разойдутся
-# опечаткой, а опечатка в имени куки неотличима от верного имени: платформа
-# ответит 401, отказ совпадёт с политикой везде, где доступ не положен, —
-# и отчёт выйдет чистым. Опечатка же в **ссылке** останавливает прогон
-# на старте, потому что имя либо объявлено, либо нет.
+# The surfaces that authenticate differently (ADR-0016). Named schemes rather than a
+# full override on every account: the cookie name and the header name are properties
+# of the surface, not of the account. Repeated on every account, they will diverge by
+# a typo, and a typo in a cookie name is indistinguishable from the right name: the
+# platform will answer 401, the denial will agree with the policy everywhere access
+# is not meant to be granted — and the report will come out clean. A typo in the
+# **reference**, on the other hand, stops the run at startup, because the name is
+# either declared or it is not.
 authSchemes:
   operator-console: { kind: cookie, name: opsid }
   affiliate-cabinet: { kind: header, header: X-Affiliate-Key }
 
-# Дерево тенантов в развёрнутой форме (ADR-0013): два холдинга, под каждым бренд,
-# под одним из брендов — аффилиат.
+# The tenant tree in expanded form (ADR-0013): two holdings, a brand under each, and
+# under one of the brands an affiliate.
 #
-# Родство объявлено явно, отдельным полем. Форма `holding-1/tenant-a` была бы
-# короче, но превратила бы идентификатор в разбираемую структуру: опечатка
-# в префиксе молча сделала бы бренд отдельным корнем, `descendant-tenant` стал бы
-# `foreign-tenant`, правило ниже перестало бы применяться — и находка исчезла бы.
+# Kinship is declared explicitly, as a separate field. The form `holding-1/tenant-a`
+# would be shorter, but it would turn an identifier into a structure to be parsed: a
+# typo in the prefix would silently make the brand a root of its own,
+# `descendant-tenant` would become `foreign-tenant`, the rule below would stop
+# applying — and the finding would disappear.
 #
-# Перечень заодно включает строгую сверку: тенант аккаунта или объекта, которого
-# здесь нет, — ошибка на старте, а не тихое изменение смысла.
+# The list also switches on strict checking: a tenant of an account or of a resource
+# that is not here is an error at startup, not a quiet change of meaning.
 tenants:
   - { id: holding-1 }
   - { id: holding-2 }
   - { id: tenant-a, parent: holding-1 }
   - { id: tenant-b, parent: holding-2 }
-  # Третий уровень. Единственное место в дереве, где у аккаунта **два** предка:
-  # tenant-a через шаг и holding-1 через два. Пока такого места не было, «прямой
-  # родитель» и «любой предок» совпадали, и реализация, поднимающаяся на один
-  # уровень вместо всей цепочки, была неотличима от правильной.
+  # The third level. The only place in the tree where an account has **two**
+  # ancestors: tenant-a one step away and holding-1 two. While there was no such
+  # place, "the direct parent" and "any ancestor" coincided, and an implementation
+  # that walks up one level instead of the whole chain was indistinguishable from a
+  # correct one.
   - { id: affiliate-a1, parent: tenant-a }
 
 accounts:
-  # Тенант A: владелец заказа A-1001 и другой пользователь того же тенанта.
-  # Второй нужен, чтобы отличить BOLA внутри тенанта от межтенантной утечки.
+  # Tenant A: the owner of order A-1001 and another user of the same tenant. The
+  # second one is there to tell BOLA inside a tenant from a cross-tenant leak.
   - id: alice-a
     role: user
     tenant: tenant-a
@@ -65,7 +69,7 @@ accounts:
     tokenEnv: POLYGON_TOKEN_BOB_A
     canary: orders.list
 
-  # Тенант B — зеркально.
+  # Tenant B — a mirror image.
   - id: carol-b
     role: user
     tenant: tenant-b
@@ -77,13 +81,14 @@ accounts:
     tokenEnv: POLYGON_TOKEN_DAVE_B
     canary: orders.list
 
-  # Администратор тенанта A: ему положены все объекты своего тенанта
-  # и не положен ни один чужой.
+  # The administrator of tenant A: every resource of its own tenant is meant for it
+  # and not a single foreign one.
   #
-  # Ходит операторской админкой, а она сессионная: токен идёт кукой `opsid`,
-  # а не Bearer-ом. Платформа принимает его только этим транспортом — иначе
-  # проверка была бы бутафорской. Канарейка здесь работает вторым рубежом:
-  # уйди запрос по схеме по умолчанию, она вернула бы 401 и остановила прогон.
+  # It goes through the operator console, and that one is session-based: the token
+  # travels in the `opsid` cookie, not as a Bearer. The platform accepts it over that
+  # transport only — otherwise the check would be a stage prop. The canary works as a
+  # second line here: were the request to go out under the default scheme, it would
+  # come back 401 and stop the run.
   - id: admin-a
     role: admin
     tenant: tenant-a
@@ -91,28 +96,29 @@ accounts:
     authScheme: operator-console
     canary: orders.list
 
-  # Аккаунт уровня холдинга. Сидит на самом холдинге, а не на одном из брендов:
-  # приписав его к бренду, мы получили бы «свой бренд = чужой тенант» — тот самый
-  # обходной путь, из-за которого межхолдинговая утечка проходила незамеченной
-  # (ADR-0013). Второй холдинг аккаунта не имеет намеренно: он нужен как чужая
-  # ветвь дерева, а не как ещё один набор ячеек.
+  # A holding-level account. It sits on the holding itself, not on one of the brands:
+  # attributing it to a brand would give us "my own brand = a foreign tenant" — the
+  # very workaround because of which a cross-holding leak used to pass unnoticed
+  # (ADR-0013). The second holding deliberately has no account: it is needed as a
+  # foreign branch of the tree, not as another set of cells.
   - id: helen-h1
     role: holding
     tenant: holding-1
     tokenEnv: POLYGON_TOKEN_HELEN_H1
     canary: orders.list
 
-  # Аффилиат под брендом — третий уровень дерева. Ему положена только своя
-  # статистика; ни список заказов бренда, ни расчётные документы — ни бренда,
-  # ни холдинга — ему не положены.
+  # The affiliate under a brand — the third level of the tree. Only its own
+  # statistics are meant for it; neither the brand's order list nor the settlement
+  # statements — neither the brand's nor the holding's — are.
   #
-  # Канарейка у него своя, а не `orders.list`: этот список ему объявлен закрытым,
-  # и канарейка на нём остановила бы прогон ложной тревогой «токен не работает».
+  # Its canary is its own rather than `orders.list`: that list is declared closed to
+  # it, and a canary on it would stop the run with the false alarm "the token does
+  # not work".
   #
-  # Третий контур и третья схема: кабинет аффилиата принимает ключ в собственном
-  # заголовке. Три схемы в одном прогоне — ровно тот случай, ради которого
-  # переопределение и заводилось: раньше пришлось бы делать три прогона и сшивать
-  # отчёты вручную, потеряв при этом матрицу «контур × контур».
+  # A third surface and a third scheme: the affiliate cabinet takes a key in a header
+  # of its own. Three schemes in one run are exactly the case the override was
+  # introduced for: previously this would have taken three runs and hand-stitched
+  # reports, losing the "surface × surface" matrix along the way.
   - id: ivan-af1
     role: affiliate
     tenant: affiliate-a1
@@ -120,37 +126,40 @@ accounts:
     authScheme: affiliate-cabinet
     canary: affiliate.stats
 
-  # Саппорт на двух брендах разных холдингов (ADR-0017). Единственный аккаунт
-  # с набором членств: `tenants` вместо `tenant`.
+  # Support over two brands of different holdings (ADR-0017). The only account with a
+  # set of memberships: `tenants` instead of `tenant`.
   #
-  # Деревом он не выражается ни одним способом, и это проверено запуском
-  # (tests/core/tenant-set.test.ts). Посадить на tenant-a — законное чтение
-  # tenant-b станет эскалацией. Открыть ему foreign-tenant, чтобы убрать эту
-  # ложную тревогу, — исчезнут настоящие межтенантные находки. Завести общий
-  # корень над обоими холдингами — вместе со своими брендами он получит
-  # и affiliate-a1, и уровни холдингов, и прогон замолчит совсем.
+  # A tree cannot express it in any way, and that has been tested by a run
+  # (tests/core/tenant-set.test.ts). Seat it in tenant-a — and a lawful read of
+  # tenant-b becomes an escalation. Open foreign-tenant to it to remove that false
+  # alarm — and the real cross-tenant findings disappear. Introduce a common root
+  # above both holdings — and along with its own brands it gets affiliate-a1 and the
+  # holding levels too, and the run falls silent altogether.
   #
-  # Набор — из тенантов, не связанных родством. Пара вида [holding-1, tenant-a]
-  # отвергается на старте: членство в предке уже покрывает поддерево, а лишнее
-  # членство молча переводит объекты бренда из descendant-tenant в same-tenant.
+  # The set is made of tenants with no kinship between them. A pair of the form
+  # [holding-1, tenant-a] is rejected at startup: membership in the ancestor already
+  # covers the subtree, and the extra membership silently moves the brand's resources
+  # from descendant-tenant to same-tenant.
   - id: sara-ac
     role: support
     tenants: [tenant-a, tenant-b]
     tokenEnv: POLYGON_TOKEN_SARA_AC
     canary: orders.list
 
-  # Аноним: без токена. Проверяет утверждение «эта ручка не публична».
+  # The anonymous account: no token. It tests the claim "this endpoint is not
+  # public".
   #
-  # Поля `tenant` у него нет — и это утверждение, а не пропуск: аккаунт объявлен
-  # **вне тенантов**. Служебное имя вроде `none` стояло бы в одном пространстве
-  # значений с настоящими, и платформа с тенантом, который так и называется,
-  # сделала бы аноним его соседом по тенанту — молча. Отношение к любому объекту
-  # у аккаунта вне тенантов одно, `foreign-tenant`: родства нет и быть не может.
+  # It has no `tenant` field — and that is a claim, not an omission: the account is
+  # declared **outside of tenants**. A service name like `none` would sit in the same
+  # value space as the real ones, and a platform with a tenant actually called that
+  # would make the anonymous account its neighbour inside the tenant — silently. An
+  # account outside of tenants has one relation to any resource, `foreign-tenant`:
+  # there is no kinship and there cannot be.
   - id: anonymous
     role: anonymous
 
-# Объекты обращения и их владельцы (ADR-0010). Идентификаторы объявляются,
-# а не выуживаются из ответов, — тела мы не читаем.
+# The resources requests address and their owners (ADR-0010). The identifiers are
+# declared rather than fished out of the responses — we do not read bodies.
 resources:
   - id: order-a-1001
     tenant: tenant-a
@@ -169,214 +178,223 @@ resources:
     owner: dave-b
     params: { orderId: "B-2002" }
 
-  # Сводный документ холдинга. Поля `owner` нет намеренно: документ принадлежит
-  # тенанту целиком, владельца-пользователя у него не существует. Из этого прямо
-  # следуют отношения, ради которых объект и заведён: для `helen-h1` он
-  # `same-tenant` (а не `own` — своим он ни для кого не является), а для любого
-  # брендового аккаунта холдинга — `ancestor-tenant`, единственное отношение
-  # ADR-0013, которое до сих пор не проверялось ни одной ячейкой.
+  # The holding's summary statement. There is deliberately no `owner` field: the
+  # statement belongs to the tenant as a whole, no user owner of it exists. The
+  # relations the resource was introduced for follow directly from that: for
+  # `helen-h1` it is `same-tenant` (not `own` — it is nobody's own), and for any brand
+  # account of the holding it is `ancestor-tenant`, the one relation of ADR-0013 that
+  # until now was tested by no cell at all.
   - id: statement-h1-0001
     tenant: holding-1
     params: { statementId: "H1-0001" }
 
-  # Расчётный документ бренда: суммы по игрокам `tenant-a`. Владельца-пользователя
-  # у него тоже нет — он принадлежит бренду целиком.
+  # The brand's settlement statement: the totals over the players of `tenant-a`. It
+  # has no user owner either — it belongs to the brand as a whole.
   #
-  # Он и делает дерево проверяемым на глубину. Для брендовых аккаунтов это
-  # `same-tenant` (положен), для холдинга — `descendant-tenant` (положен: сводный
-  # взгляд лицензиата), для чужого бренда — `foreign-tenant` (не положен никогда),
-  # а для аффилиата — `ancestor-tenant` **через один шаг**, тогда как документ
-  # холдинга для него — `ancestor-tenant` через два. Ровно на этой паре ячеек
-  # и расходятся два дефекта раскрытия вверх.
+  # It is what makes the tree testable for depth. For the brand accounts it is
+  # `same-tenant` (allowed), for the holding `descendant-tenant` (allowed: the
+  # licensee's consolidated view), for the other brand `foreign-tenant` (never
+  # allowed), and for the affiliate `ancestor-tenant` **one step away**, whereas the
+  # holding's statement is `ancestor-tenant` two steps away for it. It is on exactly
+  # this pair of cells that the two upward-disclosure defects diverge.
   - id: statement-a-0001
     tenant: tenant-a
     params: { statementId: "A-0001" }
 
 policy:
-  # Всё, что не объявлено, считается запрещённым.
+  # Everything that is not declared is considered forbidden.
   fallback: denied
   rules:
-    # Проверка живости открыта всем, включая аноним.
+    # The liveness check is open to everyone, the anonymous account included.
     - roles: "*"
       endpoints: [health]
       outcome: allowed
 
-    # Свой список заказов положен любому аутентифицированному.
-    # Аноним сюда не попадает: у роли `anonymous` доступа нет.
+    # One's own order list is meant for any authenticated account. The anonymous one
+    # does not get here: the `anonymous` role has no access.
     - roles: [user, admin, holding, support]
       endpoints: [orders.list]
       outcome: allowed
 
-    # Админская ручка — только администратору.
+    # The admin endpoint — for the administrator only.
     - roles: [admin]
-      # Шаблон вместо идентификатора: на платформе в сотню ручек перечисление
-      # расходится с реальностью при первой же новой, причём молча. Шаблон,
-      # не совпавший ни с чем, отвергается на старте.
+      # A pattern instead of an identifier: on a platform with a hundred endpoints an
+      # enumeration diverges from reality with the very first new one, and does so
+      # silently. A pattern that matched nothing is rejected at startup.
       endpoints: [{ method: GET, path: /v1/admin/** }]
       outcome: allowed
 
-    # Своя статистика — только аффилиату. Всем прочим ручка не положена
-    # и остаётся под fallback: denied, как и админская.
+    # One's own statistics — for the affiliate only. For everyone else the endpoint
+    # is not meant and stays under fallback: denied, as the admin one does.
     - roles: [affiliate]
       endpoints: [affiliate.stats]
       outcome: allowed
 
-    # Аффилиату не положен брендовый контур заказов — ни списком, ни поштучно.
-    # Правило ничего не меняет против fallback: denied и написано ровно затем,
-    # зачем ниже написан запрет на `ancestor-tenant`, — чтобы утверждение
-    # существовало и проверялось, а не подразумевалось.
+    # The brand's order surface is not meant for the affiliate — neither as a list
+    # nor one by one. The rule changes nothing against fallback: denied and is
+    # written for exactly the reason the prohibition on `ancestor-tenant` is written
+    # below — so that the claim exists and is tested rather than implied.
     - roles: [affiliate]
       endpoints: [orders.list, orders.read]
       outcome: denied
 
-    # Пользователю положен только свой заказ. Чужой заказ своего тенанта
-    # (same-tenant) и любой чужой тенант остаются под fallback: denied.
+    # Only its own order is meant for a user. Another user's order in its own tenant
+    # (same-tenant) and any foreign tenant stay under fallback: denied.
     - roles: [user]
       endpoints: [orders.read]
       scope: own
       outcome: allowed
 
-    # Администратору положены все объекты его тенанта. Своих объектов
-    # у него нет, поэтому правило на `own` не нужно.
+    # Every resource of its tenant is meant for the administrator. It has no
+    # resources of its own, so a rule on `own` is not needed.
     - roles: [admin]
       endpoints: [orders.read]
       scope: same-tenant
       outcome: allowed
 
-    # Саппорту положены объекты брендов, в которых он состоит. Отношение здесь
-    # `same-tenant` — и это ровно то, ради чего вводился набор членств: оба
-    # бренда для него свои, хотя общего предка у них нет. Отдельным правилом,
-    # а не строкой в правиле администратора: у администратора один тенант,
-    # и утверждения это разные, пусть и записаны одинаково.
+    # The resources of the brands it belongs to are meant for support. The relation
+    # here is `same-tenant` — and that is exactly what the set of memberships was
+    # introduced for: both brands are its own, even though they have no common
+    # ancestor. A separate rule rather than a line in the administrator's rule: the
+    # administrator has one tenant, and these are different claims, even if written
+    # the same way.
     #
-    # Правила про чужие бренды нет: их не существует на этой платформе. Будь
-    # третий бренд, ему хватило бы fallback: denied — членства в нём нет,
-    # отношение foreign-tenant.
+    # There is no rule about foreign brands: they do not exist on this platform. Were
+    # there a third brand, fallback: denied would be enough for it — there is no
+    # membership in it, the relation is foreign-tenant.
     - roles: [support]
       endpoints: [orders.read]
       scope: same-tenant
       outcome: allowed
 
-    # Холдингу положены объекты его брендов — и только они. Правило выражает
-    # намерение буквально: «всё, что ниже меня по дереву».
+    # The resources of its brands are meant for the holding — and only those. The
+    # rule expresses the intent literally: "everything below me in the tree".
     #
-    # Бренд чужого холдинга остаётся под fallback: denied, потому что он
-    # foreign-tenant, а не descendant-tenant. До ADR-0013 этих двух отношений
-    # не различали, и оба способа записать правило были неверны: `foreign-tenant`
-    # открывал доступ к чужому холдингу, отсутствие правила — закрывало свой бренд.
+    # A brand of a foreign holding stays under fallback: denied, because it is
+    # foreign-tenant, not descendant-tenant. Before ADR-0013 these two relations were
+    # not told apart, and both ways of writing the rule were wrong: `foreign-tenant`
+    # opened access to the foreign holding, the absence of a rule closed off its own
+    # brand.
     - roles: [holding]
       endpoints: [orders.read]
       scope: descendant-tenant
       outcome: allowed
 
-    # Расчётный документ своего уровня положен аккаунту этого уровня. Отношение
-    # здесь `same-tenant`, а не `own`: владельца-пользователя у документа нет,
-    # а значит своим он не является ни для кого. Правило про `own` было бы мёртвым.
+    # The settlement statement of one's own level is meant for an account of that
+    # level. The relation here is `same-tenant`, not `own`: the statement has no user
+    # owner, and so it is nobody's own. A rule about `own` would be dead.
     #
-    # Роли `affiliate` в списке нет намеренно: документа уровня `affiliate-a1`
-    # на платформе не существует, и правило для него не сработало бы ни разу.
-    # Мёртвое правило хуже отсутствующего — оно выглядит проверенным утверждением.
+    # The `affiliate` role is deliberately absent from the list: no statement of the
+    # `affiliate-a1` level exists on the platform, and a rule for it would never fire
+    # once. A dead rule is worse than a missing one — it looks like a tested claim.
     - roles: [user, admin, holding, support]
       endpoints: [statements.read]
       scope: same-tenant
       outcome: allowed
 
-    # Вниз по дереву документ виден: холдингу положен расчётный документ его
-    # бренда. Это тот самый сквозной взгляд лицензиата, ради которого ADR-0013
-    # и различает `descendant-tenant` с `ancestor-tenant`, — направления
-    # противоположны, и правило вниз не должно открывать дорогу вверх.
+    # Down the tree the statement is visible: the settlement statement of its brand
+    # is meant for the holding. This is the very consolidated view of the licensee
+    # for whose sake ADR-0013 tells `descendant-tenant` from `ancestor-tenant` — the
+    # directions are opposite, and a rule going down must not open the way up.
     - roles: [holding]
       endpoints: [statements.read]
       scope: descendant-tenant
       outcome: allowed
 
-    # Уровень выше своего не положен никому: ни бренду — уровень его холдинга,
-    # ни аффилиату — уровень его бренда и тем более холдинга. Правило ничего
-    # не меняет по сравнению с `fallback: denied` — и написано именно поэтому.
+    # A level above one's own is meant for nobody: neither the level of its holding
+    # for a brand, nor the level of its brand — let alone of the holding — for the
+    # affiliate. The rule changes nothing compared to `fallback: denied` — and is
+    # written for exactly that reason.
     #
-    # Умолчание и объявленный запрет снаружи неразличимы, а означают разное:
-    # первое — «про этот случай не думали», второе — «подумали и запретили».
-    # Полигон существует, чтобы проверять утверждения; утверждение, которого
-    # никто не записал, проверить нельзя. Ровно та же причина, по которой
-    # непокрытое отношение вынесено отдельным пунктом в README, а не оставлено
-    # умолчанием.
+    # A default and a declared prohibition are indistinguishable from the outside
+    # while meaning different things: the first is "nobody thought about this case",
+    # the second "we thought about it and forbade it". The polygon exists to test
+    # claims; a claim nobody wrote down cannot be tested. This is exactly the reason
+    # an uncovered relation is called out as a separate item in the README rather
+    # than left to a default.
     #
-    # Обе ячейки аффилиата — и через шаг, и через два — попадают под это одно
-    # правило: `ancestor-tenant` не считает шаги. Различие между «поднялись на
-    # уровень» и «поднялись по цепочке» живёт не в политике, а в платформе,
-    # и потому оно и есть предмет проверки.
+    # Both cells of the affiliate — the one step away and the two — fall under this
+    # one rule: `ancestor-tenant` does not count steps. The difference between
+    # "walked up a level" and "walked up the chain" lives not in the policy but in
+    # the platform, and that is why it is the subject of the check.
     #
-    # Порядок значим: выигрывает последнее подходящее правило. Запрет стоит
-    # после разрешающих и потому перекрывает их, а не наоборот.
+    # The order matters: the last matching rule wins. The prohibition stands after
+    # the permitting ones and therefore overrides them, not the other way round.
     #
-    # Саппорт здесь тоже есть, и он единственный, у кого `ancestor-tenant`
-    # получается **не из единственного** тенанта: документ holding-1 стоит выше
-    # его членства в tenant-a и не связан родством с членством в tenant-b.
-    # Отношение считается по каждому членству, и ближайшее выигрывает.
+    # Support is here too, and it is the only one whose `ancestor-tenant` comes out
+    # **not from a single** tenant: the holding-1 statement stands above its
+    # membership in tenant-a and has no kinship with its membership in tenant-b. The
+    # relation is computed per membership, and the nearest one wins.
     - roles: [user, admin, affiliate, support]
       endpoints: [statements.read]
       scope: ancestor-tenant
       outcome: denied
 
-    # Из запрещённой юрисдикции заказы не отдаются никому — ни свои, ни чужие.
+    # From the prohibited jurisdiction orders are served to nobody — neither one's
+    # own nor foreign ones.
     #
-    # Условия обращения объявляются отдельным измерением (ADR-0019), потому что
-    # роль, тенант и объект здесь те же самые: «alice-a × свой заказ» законно
-    # даёт 200 в базовых условиях и обязана дать отказ, когда обращение помечено
-    # страной из запрета. Различить их иначе нечем.
+    # The request conditions are declared as a separate dimension (ADR-0019), because
+    # the role, the tenant and the resource here are the very same ones: "alice-a ×
+    # her own order" lawfully gives 200 in the base conditions and must give a denial
+    # when the request is tagged with a country from the prohibition. There is
+    # nothing else to tell them apart with.
     #
-    # Одно правило на все роли и обе ручки: гео-ограничение живёт выше
-    # авторизации и о ролях не знает — в этом и смысл утверждения.
+    # One rule for all roles and both endpoints: the geo restriction lives above
+    # authorization and knows nothing of roles — that is the point of the claim.
     - roles: "*"
       endpoints: [orders.list, orders.read]
       context: geo-blocked
       outcome: denied
 
-    # Список положен тем же, кому он положен и без параметра: сам по себе
-    # параметр прав не даёт и не отнимает. Утверждение здесь ровно об этом —
-    # исход не меняется, — а вот **содержимое** ответа обязано остаться своим,
-    # и это проверяет сравнение тел внутри тех же условий.
+    # The list is meant for the same accounts it is meant for without the parameter:
+    # by itself the parameter neither grants nor takes away permissions. The claim
+    # here is exactly that — the outcome does not change — while the **content** of
+    # the response must stay one's own, and that is what the comparison of bodies
+    # within the same conditions tests.
     - roles: [user, admin, holding, support]
       endpoints: [orders.list]
       context: wide-scope
       outcome: allowed
 
-# Условия обращения: атрибуты, которыми помечается запрос.
+# The request conditions: the attributes a request is tagged with.
 #
-# `endpoints` обязателен: без границ условия умножили бы матрицу на всю
-# поверхность API. Здесь их две ручки — ровно те, на которых объявлено
-# юрисдикционное ограничение.
+# `endpoints` is mandatory: without boundaries the conditions would multiply the
+# matrix by the whole API surface. Here there are two endpoints — exactly the ones on
+# which the jurisdictional restriction is declared.
 contexts:
-  # Условия с параметром запроса, а не заголовком. Заведены не для полноты:
-  # атрибут в строке запроса проходит другим путём — через сборку адреса,
-  # а не через заголовки, — и утверждение «он доезжает до платформы» без
-  # такой ячейки держалось бы на одном модульном тесте.
+  # Conditions with a query parameter rather than a header. Introduced not for
+  # completeness: an attribute in the query string travels a different path — through
+  # the building of the address rather than through the headers — and without such a
+  # cell the claim "it reaches the platform" would rest on a single unit test.
   #
-  # Смысл самих условий: внутренний параметр расширения выдачи. Такие заводят
-  # для админки или отладки, а проверку прав на них забывают.
+  # The meaning of the conditions themselves: an internal parameter that widens the
+  # listing. Such parameters are introduced for an admin panel or for debugging, and
+  # the permission check on them is forgotten.
   - id: wide-scope
-    description: обращение с внутренним параметром расширения выдачи
+    description: a request with an internal parameter that widens the listing
     query: { scope: all }
     endpoints: [orders.list]
 
   - id: geo-blocked
-    description: обращение из запрещённой юрисдикции (заголовок страны от CDN)
-    # AQ — Антарктида: настоящий код ISO и заведомо не рынок. Реальной стране
-    # в публичном репозитории тут не место, а выдуманный код не прошёл бы
-    # у читателя, знающего стандарт.
+    description: a request from a prohibited jurisdiction (the country header from the CDN)
+    # AQ is Antarctica: a real ISO code and knowingly not a market. A real country
+    # has no place here in a public repository, while a made-up code would not pass
+    # with a reader who knows the standard.
     headers: { cf-ipcountry: AQ }
     endpoints: [orders.list, orders.read]
 
-# Ответ списка обязан различаться между тенантами: у каждого свои заказы.
-# Совпадение означает отсутствующий фильтр — дефект, не меняющий статуса
-# и потому невидимый без чтения тела. Тело читается только здесь. См. ADR-0011.
+# The list response must differ between tenants: each has its own orders. A match
+# means the filter is absent — a defect that does not change the status and is
+# therefore invisible without reading the body. The body is read here only. See
+# ADR-0011.
 #
-# Ключ называет объявляемое ожидание, а не свойство ручки: `orders.read` тоже
-# тенант-скоупный по смыслу, но сравнивать по телу там нечего — там дефект
-# виден по статусу, и объявления нет.
+# The key names the expectation being declared, not a property of the endpoint:
+# `orders.read` is tenant-scoped in meaning too, but there is nothing to compare by
+# body there — the defect there is visible in the status, and there is no declaration.
 bodySignals:
   responseMustDifferByTenant: [orders.list]
-  # Находки не порождает: нужен человеку, разбирающему находку дайджеста.
-  # «Ответы совпали» — тревога, а триаж начинается с «сколько записей кто увидел».
+  # It produces no findings: it is there for the human working through a digest
+  # finding. "The responses matched" is the alarm, while triage starts with "how many
+  # records did each of them see".
   signals:
     - { name: orderCount, kind: count, path: orders, endpoints: [orders.list] }

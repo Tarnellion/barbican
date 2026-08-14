@@ -1,18 +1,19 @@
-# Ручной список эндпоинтов VAmPI.
+# The hand-written list of VAmPI's endpoints.
 #
-# Написан от таблицы действий в README самого VAmPI и сверен с его openapi3.yml.
-# Это не выгрузка спецификации: спецификацию VAmPI отдаёт по `/openapi.json`,
-# и разбирать её было бы удобнее — но список нужен полный, включая то, до чего
-# инструмент не дойдёт. Строка «PUT, который меняет пароль любому» в отчёте
-# как пропуск честнее, чем её отсутствие.
+# Written from the table of actions in VAmPI's own README and checked against its
+# openapi3.yml. This is not a dump of the specification: VAmPI serves a specification
+# at `/openapi.json`, and parsing it would be more convenient — but the list has to be
+# complete, including what the tool will never reach. The line "a PUT that changes
+# anybody's password" in the report as a skip is more honest than its absence.
 endpoints:
-  # Баннер. Отвечает всем и всегда — контроль на то, что стенд вообще жив.
+  # The banner. It answers everyone and always — a control that the deployment is
+  # alive at all.
   - id: home
     method: GET
     path: /
 
-  # Сбрасывает и пересоздаёт базу. GET, то есть `SAFE_METHODS` его не остановит.
-  # Исключён поимённо в barbican.run.yaml — см. там же почему.
+  # Resets and recreates the database. A GET, that is, `SAFE_METHODS` will not stop
+  # it. Excluded by name in barbican.run.yaml — see there for why.
   - id: db.createdb
     method: GET
     path: /createdb
@@ -21,7 +22,7 @@ endpoints:
     method: GET
     path: /users/v1
 
-  # Отладочная ручка: пароли и флаг admin всех пользователей.
+  # A debug endpoint: the passwords and the admin flag of all users.
   - id: users.debug
     method: GET
     path: /users/v1/_debug
@@ -34,8 +35,8 @@ endpoints:
     method: POST
     path: /users/v1/login
 
-  # Единственная ручка VAmPI, где авторизацию проверяет сам connexion:
-  # без токена 401. Канарейка для аутентифицированных аккаунтов.
+  # The only VAmPI endpoint where authorization is checked by connexion itself:
+  # without a token, 401. The canary for the authenticated accounts.
   - id: me
     method: GET
     path: /me
@@ -64,8 +65,9 @@ endpoints:
     method: POST
     path: /books/v1
 
-  # Секрет книги. Здесь живёт единственный дефект VAmPI, различимый по статусу
-  # между режимами: в уязвимом чужая книга отдаётся 200, в защищённом — 404.
+  # The book's secret. The only VAmPI defect distinguishable by status between the
+  # modes lives here: in the vulnerable one another user's book is served 200, in the
+  # secure one 404.
   - id: books.read
     method: GET
     path: /books/v1/{book_title}

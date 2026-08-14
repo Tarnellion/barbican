@@ -1,11 +1,11 @@
 /**
- * Публичный программный API пакета.
+ * The public programmatic API of the package.
  *
- * Пакет работает и как CLI (bin), и как библиотека (exports).
+ * The package works both as a CLI (bin) and as a library (exports).
  *
- * Реализации адаптеров экспортируются наравне с портами: иначе они попадали бы
- * в сборку, но оставались недостижимы для потребителя. Пока версия нулевая,
- * их контракт может меняться.
+ * Adapter implementations are exported alongside the ports: otherwise they would
+ * end up in the build but stay unreachable for a consumer. While the version is
+ * zero, their contract may change.
  */
 
 export * from "./adapters/credentials.js";

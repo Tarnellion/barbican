@@ -1,192 +1,200 @@
-# Роадмап
+# Roadmap
 
-## Откуда он взят
+## Where it comes from
 
-Источники: технический отчёт по стеку, пакетам и требованиям безопасности (разделы 1–5)
-и принятые по ходу работы решения, зафиксированные в [ADR 0001–0010](docs/adr/).
+Sources: the technical report on the stack, the packages and the security requirements
+(sections 1–5) and the decisions taken along the way, recorded in [ADR 0001–0010](docs/adr/).
 
-Где отчёт разошёлся с фактическим состоянием реестра, приоритет у проверенных данных —
-расхождения перечислены в [ADR-0001](docs/adr/0001-stack-and-versions.md).
+Where the report diverged from the actual state of the registry, verified data wins —
+the discrepancies are listed in [ADR-0001](docs/adr/0001-stack-and-versions.md).
 
-## Рамки
+## Constraints
 
-Соло, 8–10 часов в неделю, сессии по 2–3 часа — примерно 3–4 сессии в неделю.
-Оценки ниже — в часах усилий, а не календарные обещания. Якорь: фаза 0 и сессия 2
-фазы 1 закрыты 11 августа 2026.
+Solo, 8–10 hours a week, sessions of 2–3 hours — about 3–4 sessions a week.
+The estimates below are in hours of effort, not calendar promises. Anchor: phase 0 and
+session 2 of phase 1 closed on 11 August 2026.
 
-| Фаза | Содержание | Усилия | Статус |
+| Phase | Content | Effort | Status |
 |---|---|---|---|
-| 0 | Каркас: конфиги, хуки, CI, ADR, реестр проверок | ~3 ч | готово |
-| 1 | Ядро Модуля 1: матрица, адаптеры, CLI | ~9 ч | готово |
-| 2 | Валидация на публичных полигонах | ~8 ч | следующая |
-| 3 | Мультитенантность: своя референс-платформа | ~15–20 ч | |
-| 4 | Стабилизация и публикация | ~10 ч | |
-| 5 | Модуль 2: evidence-pack | ~20 ч | |
+| 0 | Skeleton: configs, hooks, CI, ADRs, the check registry | ~3 h | done |
+| 1 | The core of Module 1: the matrix, the adapters, the CLI | ~9 h | done |
+| 2 | Validation on public polygons | ~8 h | next |
+| 3 | Multi-tenancy: a reference platform of our own | ~15–20 h | |
+| 4 | Stabilization and publishing | ~10 h | |
+| 5 | Module 2: the evidence pack | ~20 h | |
 
-До работающего и опубликованного Модуля 1 — порядка 4–5 недель при заявленном темпе.
-Фаза 3 — самая объёмная и самая вероятная точка застревания; см. риски.
+A working, published Module 1 is some 4–5 weeks away at the stated pace.
+Phase 3 is the largest and the most likely place to get stuck; see the risks.
 
 ---
 
-## Фаза 1 — ядро Модуля 1
+## Phase 1 — the core of Module 1
 
-**Цель:** инструмент проходит матрицу «роль × эндпоинт» по реальному API и выдаёт JSON.
+**Goal:** the tool walks the role × endpoint matrix over a real API and produces JSON.
 
-| Сессия | Состав | Статус |
+| Session | Content | Status |
 |---|---|---|
-| 2 | Политика ожидаемого доступа отдельно от наблюдённой матрицы. Чистые функции построения матрицы и диффа с классификацией расхождений. Фикстуры: два тенанта, три роли. Пороги покрытия. | готово |
-| 3 | Парсер OpenAPI с отключённым резолвингом внешних `$ref` — **вместе с тестами-доказательствами** и защитой от YAML-бомбы. HTTP через встроенный global fetch. Троттлинг собственной реализацией вместо `p-queue` (ADR-0001). | готово |
-| 4 | CLI: обязательный allowlist хостов, `--unsafe-methods`, JSON-отчёт, конфигурация без секретов (ADR-0008). | готово |
+| 2 | Expected access policy separate from the observed matrix. Pure functions that build the matrix and the diff with a classification of discrepancies. Fixtures: two tenants, three roles. Coverage thresholds. | done |
+| 3 | An OpenAPI parser with external `$ref` resolution disabled — **together with proof tests** — and protection against a YAML bomb. HTTP through the built-in global fetch. Throttling written by hand instead of `p-queue` (ADR-0001). | done |
+| 4 | CLI: a mandatory host allowlist, `--unsafe-methods`, a JSON report, configuration with no secrets (ADR-0008). | done |
 
-**Критерий выхода:** прогон против локальной цели даёт JSON-отчёт; без allowlist инструмент
-отказывается стартовать; тела ответов нигде не сохранены; тесты на внешние `$ref` в CI.
+**Exit criterion:** a run against a local target produces a JSON report; without an
+allowlist the tool refuses to start; response bodies are stored nowhere; the tests for
+external `$ref` are in CI.
 
-**Принятые пакеты:** `@apidevtools/swagger-parser`, `yaml`, `zod`. Отклонены после
-проверки: `p-limit` и `p-queue` (троттлинг написан сам), `js-yaml` (нет защиты от
-billion laughs), `picocolors` (есть встроенный `node:util styleText`), `pino`
-и `fast-redact` (токенов в отчёте нет по конструкции, редактировать нечего).
-
----
-
-## Фаза 2 — валидация на публичных полигонах
-
-**Цель:** доказать, что ядро находит известные дефекты и не выдумывает несуществующие.
-
-1. **VAmPI — пройден.** Прогон нашёл три настоящих расхождения: `/users/v1/_debug`
-   открыт всем (утечка паролей) и `/users/v1` доступен обычному пользователю.
-   **Но переключатель `vulnerable=0/1` оказался бесполезен как оракул** — режимы
-   неразличимы по статусам ответов, см. [ADR-0009](docs/adr/0009-validation-oracle.md).
-2. **crAPI — следующим.** Задокументированные BOLA/IDOR, маппинг на OWASP API Top 10,
-   официальный docker-compose.
-3. **Juice Shop — по остаточному принципу.** Широкий ground truth по broken access control.
-
-**Критерий выхода:** дефекты из написанного вручную списка воспроизводятся, и сверх
-объявленной политики находок нет. Критерий «ноль находок в защищённом режиме» снят
-как выполняющийся тривиально.
-
-**Здесь всплывает конфликт, требующий ADR** (см. открытые вопросы, п. 1): часть BOLA
-в crAPI достижима только по идентификатору из тела предыдущего ответа. Наш инвариант
-запрещает хранить тела. Без решения этот класс дефектов структурно недостижим.
+**Packages accepted:** `@apidevtools/swagger-parser`, `yaml`, `zod`. Rejected after
+review: `p-limit` and `p-queue` (throttling was written by hand), `js-yaml` (no
+protection against billion laughs), `picocolors` (there is a built-in
+`node:util styleText`), `pino` and `fast-redact` (there are no tokens in the report by
+construction, nothing to redact).
 
 ---
 
-## Фаза 3 — мультитенантность: своя референс-платформа
+## Phase 2 — validation on public polygons
 
-**Цель:** валидировать обнаружение cross-tenant утечек. Публичные полигоны
-не мультитенантны — проверить изоляцию тенантов на них нельзя в принципе.
+**Goal:** prove that the core finds known defects and does not invent ones that do not
+exist.
 
-Состав: приложение с переключаемыми через env дефектами — отсутствующие фильтры
-по тенанту в guard'ах, отключаемые проверки ролей, IDOR по прямому идентификатору.
-Плюс машиночитаемый ground-truth с ожидаемой матрицей доступа.
+1. **VAmPI — passed.** The run found three real discrepancies: `/users/v1/_debug`
+   is open to everyone (a password leak) and `/users/v1` is available to an ordinary user.
+   **But the `vulnerable=0/1` switch turned out to be useless as an oracle** — the modes
+   are indistinguishable by response statuses, see [ADR-0009](docs/adr/0009-validation-oracle.md).
+2. **crAPI — next.** Documented BOLA/IDOR, a mapping onto the OWASP API Top 10,
+   an official docker-compose.
+3. **Juice Shop — on leftover time.** A broad ground truth on broken access control.
 
-**Дефекты обязаны проявляться в кодах ответов.** Иначе платформа повторит
-бесполезность переключателя VAmPI: разница, видимая только в телах, для инструмента
-не существует (ADR-0009). Роль этой фазы после проверки VAmPI выросла — это
-единственный источник переключаемых дефектов, пригодных как оракул.
+**Exit criterion:** the defects from the hand-written list reproduce, and there are no
+findings beyond the declared policy. The criterion "zero findings in the protected mode"
+is dropped as trivially satisfied.
 
-**Критерий выхода:** каждый переключаемый дефект детектируется при включении и не даёт
-находки при выключении; traceability между находками и ground-truth воспроизводима.
-
-**Это самая дорогая фаза, и она про написание *второго* приложения.** Если темп поедет,
-резать нужно здесь: минимальная версия — 3–4 эндпоинта, два тенанта, три переключаемых
-дефекта. Полноценная платформа не нужна, нужен оракул.
-
----
-
-## Фаза 4 — стабилизация и публикация
-
-Имя в npm уже занято: `barbican@0.0.0` опубликован локально 11 августа 2026, чтобы
-не потерять название. Публикация была ручной, поэтому `publishConfig.provenance`
-пришлось снять — см. уточнение в [ADR-0004](docs/adr/0004-supply-chain-hardening.md).
-
-Остаётся: перевести публикацию на npm trusted publishing (OIDC) с автоматическим
-provenance и без долгоживущих токенов (требует npm CLI ≥ 11.5.1), вернуть
-`publishConfig.provenance`, завести changesets. Пользовательская документация:
-как задать аккаунты, ожидаемую матрицу и scope.
-
-**Критерий выхода:** посторонний человек по README доводит `npx barbican` до
-осмысленного прогона. Сама команда уже работает — не хватает содержательных команд
-и понятного формата входа.
+**A conflict surfaces here that needs an ADR** (see the open questions, item 1): some of
+the BOLAs in crAPI are reachable only through an identifier from the body of a previous
+response. Our invariant forbids storing bodies. Without a decision this class of defects
+is structurally out of reach.
 
 ---
 
-## Фаза 5 — Модуль 2: evidence-pack
+## Phase 3 — multi-tenancy: a reference platform of our own
 
-Архитектурно уже подготовлен: поле `standards` в интерфейсе `Check` и реестр проверок
-([ADR-0003](docs/adr/0003-check-registry.md)). Добавляется регистрацией проверок.
+**Goal:** validate the detection of cross-tenant leaks. Public polygons
+are not multi-tenant — tenant isolation cannot be checked on them at all.
 
-Состав: маппинг проверок на пункты внешних стандартов (ориентир из отчёта — GLI-19,
-требования AGCO), генерация отчёта из JSON отдельным шагом, traceability-матрица
-«находка ↔ пункт стандарта».
+Content: an application with defects switchable through env — missing tenant filters in
+the guards, role checks that can be turned off, IDOR by direct identifier.
+Plus a machine-readable ground truth with the expected access matrix.
 
-Рендер: `pdfkit` (активен, релиз 2 месяца назад) либо HTML → PDF через headless-браузер.
-`pdf-lib` не рассматривать — 57 месяцев без релиза.
+**Defects must show up in response codes.** Otherwise the platform repeats the
+uselessness of the VAmPI switch: a difference visible only in the bodies does not exist
+for the tool (ADR-0009). The role of this phase grew after the VAmPI check — it is the
+only source of switchable defects fit to serve as an oracle.
 
-**Начинать только после фазы 3.** Маппинг на стандарты поверх непроверенного ядра даёт
-документ, подтверждающий несуществующее соответствие, — это хуже отсутствия документа.
+**Exit criterion:** every switchable defect is detected when it is on and produces no
+finding when it is off; traceability between the findings and the ground truth is
+reproducible.
 
----
-
-## Открытые вопросы, требующие ADR
-
-1. **Идентификаторы из ответов против запрета хранить тела.** Часть BOLA достижима
-   только по `id` из тела предыдущего ответа. Предлагаемое направление: извлекать
-   отдельные значения по заданным в коде путям в кратковременный пул в памяти, никогда
-   не попадающий в отчёт. Решать в фазе 2, до написания детекторов этого класса.
-2. **Формат машиночитаемого ground-truth.** Общий для VAmPI, crAPI и своей платформы,
-   иначе валидация не переиспользуется. Решать в фазе 2.
-
-Закрыто: откуда берётся ожидаемая матрица — [ADR-0006](docs/adr/0006-expected-access-declaration.md),
-формат конфигурации — [ADR-0008](docs/adr/0008-run-configuration-format.md).
+**This is the most expensive phase, and it is about writing a *second* application.** If
+the pace slips, cut here: the minimal version is 3–4 endpoints, two tenants, three
+switchable defects. A full platform is not needed; an oracle is.
 
 ---
 
-## Пороги пересмотра решений
+## Phase 4 — stabilization and publishing
 
-| Что | Условие | Куда уходим |
+The name on npm is already taken: `barbican@0.0.0` was published locally on 11 August
+2026 so as not to lose the name. The publish was manual, so `publishConfig.provenance`
+had to be removed — see the clarification in [ADR-0004](docs/adr/0004-supply-chain-hardening.md).
+
+What is left: move publishing to npm trusted publishing (OIDC) with automatic provenance
+and no long-lived tokens (requires npm CLI ≥ 11.5.1), bring `publishConfig.provenance`
+back, set up changesets. User documentation: how to declare accounts, the expected matrix
+and the scope.
+
+**Exit criterion:** an outsider following the README gets `npx barbican` to a meaningful
+run. The command itself already works — what is missing is commands that do something
+and an input format that can be understood.
+
+---
+
+## Phase 5 — Module 2: the evidence pack
+
+Architecturally it is already prepared: the `standards` field in the `Check` interface
+and the check registry ([ADR-0003](docs/adr/0003-check-registry.md)). It is added by
+registering checks.
+
+Content: a mapping of checks onto clauses of external standards (the reference point from
+the report — GLI-19, the AGCO requirements), report generation from JSON as a separate
+step, a traceability matrix "finding ↔ standard clause".
+
+Rendering: `pdfkit` (active, released 2 months ago) or HTML → PDF through a headless
+browser. `pdf-lib` is not to be considered — 57 months without a release.
+
+**Start only after phase 3.** A mapping onto standards on top of an unvalidated core
+gives a document that confirms compliance which does not exist — that is worse than
+having no document.
+
+---
+
+## Open questions that need an ADR
+
+1. **Identifiers from responses against the ban on storing bodies.** Some BOLAs are
+   reachable only through an `id` from the body of a previous response. The proposed
+   direction: extract individual values along paths fixed in the code into a short-lived
+   in-memory pool that never reaches the report. To be decided in phase 2, before the
+   detectors of this class are written.
+2. **The format of the machine-readable ground truth.** Shared between VAmPI, crAPI and
+   our own platform, otherwise the validation is not reused. To be decided in phase 2.
+
+Closed: where the expected matrix comes from — [ADR-0006](docs/adr/0006-expected-access-declaration.md),
+the configuration format — [ADR-0008](docs/adr/0008-run-configuration-format.md).
+
+---
+
+## Thresholds for revisiting decisions
+
+| What | Condition | Where we go |
 |---|---|---|
-| `@apidevtools/swagger-parser` | 18 месяцев без релиза. Последний — 12.1.0 от 14.10.2025, то есть порог наступит около **апреля 2027** | `@readme/openapi-parser` (7.0.1 от 07.08.2026, активен) |
-| TypeScript 6 | TS 7 выходит из preview и стабилизирует публичный API | миграция на 7.x |
-| Сборка через `tsc` | понадобился CJS или бандл | `tsup`, затем `tsdown` |
-| Biome | не хватает правил | ESLint 9 flat + `oxlint` в CI |
-| `fast-redact` | 28 месяцев без релиза; мутирует исходный объект | `@pinojs/redact` |
-| `pdfkit` | не тянет нужный отчёт | HTML → PDF отдельным шагом |
-| Любая зависимость | инцидент в цепочке поставок | cooldown 7 суток даёт время на отзыв версии |
+| `@apidevtools/swagger-parser` | 18 months without a release. The latest is 12.1.0 of 14.10.2025, so the threshold arrives around **April 2027** | `@readme/openapi-parser` (7.0.1 of 07.08.2026, active) |
+| TypeScript 6 | TS 7 leaves preview and stabilizes its public API | migrate to 7.x |
+| The build through `tsc` | CJS or a bundle is needed | `tsup`, then `tsdown` |
+| Biome | rules are missing | ESLint 9 flat + `oxlint` in CI |
+| `fast-redact` | 28 months without a release; it mutates the source object | `@pinojs/redact` |
+| `pdfkit` | it cannot carry the report we need | HTML → PDF as a separate step |
+| Any dependency | a supply-chain incident | a 7-day cooldown gives time for a version to be pulled |
 
-Проверять при каждом обновлении зависимостей, не реже раза в квартал.
-
----
-
-## Риски
-
-**Фаза 3 — второе приложение.** Наибольший шанс, что проект встанет. Смягчение:
-резать до минимального оракула, а не строить платформу.
-
-**Ложные срабатывания.** Инструмент, который «находит» несуществующее, теряет доверие
-с первого прогона. Поэтому VAmPI с выключенными дефектами идёт раньше crAPI.
-
-**Дрейф темпа.** 8–10 часов в неделю — это оптимистичная оценка при полной занятости.
-Фазы 1 и 2 самодостаточны: если проект остановится после них, останется работающий
-инструмент без evidence-pack, а не половина обоих модулей.
+Check on every dependency update, and at least once a quarter.
 
 ---
 
-## Что осознанно вне роадмапа
+## Risks
 
-Monorepo и workspaces. Оркестрация и «архитектура на вырост». Веб-интерфейс.
-Непрерывный мониторинг и планировщик прогонов. Поддержка GraphQL и gRPC —
-только REST и OpenAPI, пока Модуль 1 не стабилен.
+**Phase 3 — a second application.** The biggest chance that the project stalls.
+Mitigation: cut down to a minimal oracle instead of building a platform.
 
-## Границы каталогов
+**False positives.** A tool that "finds" things that do not exist loses trust on the
+first run. That is why VAmPI with the defects switched off comes before crAPI.
 
-Создаются в той сессии, где появляется первая реальная реализация — пустых каталогов
-«на будущее» в репозитории нет.
+**Pace drift.** 8–10 hours a week is an optimistic estimate alongside a full-time job.
+Phases 1 and 2 are self-contained: if the project stops after them, what is left is a
+working tool without an evidence pack, not half of both modules.
 
-| Каталог | Назначение | Появится |
+---
+
+## What is deliberately out of the roadmap
+
+Monorepo and workspaces. Orchestration and "architecture to grow into". A web interface.
+Continuous monitoring and a scheduler for runs. GraphQL and gRPC support —
+REST and OpenAPI only, until Module 1 is stable.
+
+## Directory boundaries
+
+They are created in the session where the first real implementation appears — there are
+no empty directories "for the future" in the repository.
+
+| Directory | Purpose | Appears |
 |---|---|---|
-| `src/core` | Чистые функции: матрица, диффы, проверки | есть |
-| `src/adapters` | HTTP-клиент, парсер спек, троттлинг — за портами | порты есть, реализации в фазе 1 |
-| `src/io` | Чтение спек и аккаунтов, запись JSON | фаза 1, сессия 4 |
-| `src/report` | Рендер JSON в HTML/PDF отдельным шагом | фаза 5 |
-| `tests/fixtures` | Фикстуры ядра, без сети | фаза 1, сессия 2 |
-| `tests/integration` | Прогоны против полигонов | фаза 2 |
+| `src/core` | Pure functions: the matrix, the diffs, the checks | exists |
+| `src/adapters` | The HTTP client, the spec parser, throttling — behind ports | the ports exist, the implementations in phase 1 |
+| `src/io` | Reading specs and accounts, writing JSON | phase 1, session 4 |
+| `src/report` | Rendering JSON into HTML/PDF as a separate step | phase 5 |
+| `tests/fixtures` | Core fixtures, no network | phase 1, session 2 |
+| `tests/integration` | Runs against the polygons | phase 2 |

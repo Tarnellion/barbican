@@ -1,47 +1,48 @@
-# 0012. Единый формат машиночитаемого оракула
+# 0012. A single format for the machine-readable oracle
 
-- **Статус:** принято
-- **Дата:** 2026-08-12
+- **Status:** accepted
+- **Date:** 2026-08-12
 
-## Контекст
+## Context
 
-Оракулов стало два, и они разошлись за один день.
+There are now two oracles, and they diverged within a day.
 
 | | `polygon/ground-truth.json` | `polygons/vampi/ground-truth.json` |
 |---|---|---|
-| контейнер вариантов | `combinations` | `modes` |
-| чем задаётся вариант | `flags`: карта env-переменных | `vulnerable`: одно булево |
-| находка | `{account, endpoint, resource, kind}` | то же плюс `defect` |
-| таксономия | `kinds` — виды расхождений | `visibility` — что видно инструменту |
+| variant container | `combinations` | `modes` |
+| what defines a variant | `flags`: a map of env variables | `vulnerable`: a single boolean |
+| a finding | `{account, endpoint, resource, kind}` | the same plus `defect` |
+| taxonomy | `kinds` — kinds of discrepancy | `visibility` — what is visible to the tool |
 
-Расхождение не косметическое. Сверки (`verify.mjs`) написаны под свою форму
-каждая, и общего кода у них нет. Третий полигон добавит третью. Это ровно та
-ситуация, ради которой заводился ADR: не «некрасиво», а «валидация не
-переиспользуется, и каждый следующий полигон стоит как первый».
+The divergence is not cosmetic. The verification scripts (`verify.mjs`) are each
+written for their own shape, and they share no code. A third polygon will add a
+third. This is exactly the situation an ADR was created for: not "it is ugly" but
+"validation is not reused, and every next polygon costs as much as the first".
 
-Важнее другое: версия VAmPI оказалась **содержательно богаче**, и не случайно.
-В ней находка ссылается на именованный дефект, а у дефекта есть признак
-видимости. Это отвечает на вопрос, который до сих пор оставался без ответа
-и записан в задачах отдельным пунктом: **один дефект даёт столько строк, сколько
-ячеек он задел**. Прогон crAPI дал шесть строк на три BOLA, прогон референс-платформы —
-десять строк на один отсутствующий фильтр. Без связи «находка → дефект» схлопнуть
-их нельзя в принципе: инструмент видит ячейки, а считать надо дефекты.
+Something else matters more: the VAmPI version turned out **richer in substance**,
+and not by accident. In it a finding refers to a named defect, and a defect has a
+visibility marker. This answers a question that has stayed unanswered until now and
+is recorded in the task list as a separate item: **one defect produces as many rows
+as there are cells it touched**. The crAPI run gave six rows for three BOLAs, the
+reference-platform run ten rows for one missing filter. Without the link "finding →
+defect" they cannot be collapsed at all: the tool sees cells, but what has to be
+counted is defects.
 
-## Решение
+## Decision
 
-Единая схема для всех полигонов. За основу берётся форма VAmPI как более полная,
-с обобщением того, чем задаётся вариант.
+A single schema for all polygons. The VAmPI shape is taken as the basis, being the
+more complete one, with a generalization of what defines a variant.
 
 ```jsonc
 {
-  "note": "…",                    // зачем этот оракул и как он писался
-  "cellKey": "…",                 // из чего собирается ключ ячейки
-  "target": "vampi" ,             // какой полигон
+  "note": "…",                    // what this oracle is for and how it was written
+  "cellKey": "…",                 // what the cell key is assembled from
+  "target": "vampi" ,             // which polygon
   "defects": {
     "user-directory-public": {
       "title": "…",
       "visibility": "status",     // status | body-signal | invisible
-      "note": "…"                 // чем именно проявляется
+      "note": "…"                 // what exactly it shows up as
     }
   },
   "variants": [
@@ -53,8 +54,8 @@
         {
           "account": "alice",
           "endpoint": "orders.list",
-          "resource": null,       // null у эндпоинтов без параметров
-          "other": null,          // второй аккаунт пары — у находок проверок
+          "resource": null,       // null on endpoints without parameters
+          "other": null,          // the second account of the pair — for check findings
           "kind": "privilege-escalation",
           "defect": "user-directory-public"
         }
@@ -64,113 +65,118 @@
 }
 ```
 
-Три решения внутри схемы заслуживают объяснения.
+Three decisions inside the schema deserve an explanation.
 
-**`selector` — непрозрачная карта, а не булево и не список флагов.** У VAmPI
-вариант задаётся одним `vulnerable`, у своей платформы — четырьмя переменными,
-у следующего полигона это может быть версия образа или профиль compose. Общего
-у них ровно одно: набор пар «имя → значение», который сверка передаёт стенду
-и потом сверяет с тем, что стенд о себе сообщает. Схема фиксирует форму, а смысл
-остаётся за скриптом полигона.
+**`selector` is an opaque map, not a boolean and not a list of flags.** On VAmPI a
+variant is defined by a single `vulnerable`, on our own platform by four variables,
+on the next polygon it may be an image version or a compose profile. They have
+exactly one thing in common: a set of "name → value" pairs which the verification
+script passes to the deployment and then checks against what the deployment reports
+about itself. The schema fixes the shape, and the meaning stays with the polygon's
+script.
 
-**`visibility` обязательна у каждого дефекта.** Три значения: `status` — виден
-по коду ответа; `body-signal` — виден только через скаляр над телом (ADR-0011);
-`invisible` — недостижим для инструмента в принципе. Последнее значение важнее
-первых двух: оракул, где недостижимые дефекты просто не упомянуты, не отличается
-от оракула, где их забыли. Явная запись «этот дефект есть и мы его не найдём»
-превращает пробел покрытия из умолчания в утверждение.
+**`visibility` is required on every defect.** Three values: `status` — visible by
+response code; `body-signal` — visible only through a scalar over the body
+(ADR-0011); `invisible` — out of the tool's reach in principle. The last value
+matters more than the first two: an oracle where unreachable defects are simply not
+mentioned is indistinguishable from an oracle where they were forgotten. Writing
+down explicitly "this defect exists and we will not find it" turns a coverage gap
+from an omission into a statement.
 
-**`defect` обязателен у каждой находки.** Это и есть связь, которой не хватало.
-Она даёт схлопывание — «дефектов 3, ячеек 6» вместо «находок 6» — и позволяет
-сверять не только множества ячеек, но и множества **дефектов**: сверка,
-проверяющая, что все объявленные `status`-дефекты найдены, а все `invisible`
-не найдены, отвечает на вопрос о полноте, а не только о совпадении.
+**`defect` is required on every finding.** This is the link that was missing. It
+gives the collapsing — "3 defects, 6 cells" instead of "6 findings" — and makes it
+possible to check not only sets of cells but also sets of **defects**: a
+verification that checks that all declared `status` defects were found and all
+`invisible` ones were not answers the question of completeness, not only of
+coincidence.
 
-## Альтернативы
+## Alternatives
 
-**Оставить два формата и вынести общий код в библиотеку сверки.** Отклонено:
-общего кода почти не будет, пока формы разные, а привести формы к общей — это
-и есть решение выше, только без записи о нём.
+**Keep two formats and factor the common code into a verification library.**
+Rejected: there will be almost no common code while the shapes differ, and bringing
+the shapes to a common one is precisely the decision above, only without a record of
+it.
 
-**Взять форму `polygon/` как основу, она первая.** Отклонено: в ней нет связи
-находки с дефектом и нет признака видимости, то есть нет ровно того, ради чего
-единый формат и нужен. Первенство — не аргумент.
+**Take the `polygon/` shape as the basis, it came first.** Rejected: it has no link
+from a finding to a defect and no visibility marker, that is, it lacks exactly what
+a single format is needed for. Being first is not an argument.
 
-**Описать схему как JSON Schema и проверять ею.** Отложено, не отклонено. Пока
-полигонов два-три, проверка схемы окупается хуже, чем сверка вручную; при
-четвёртом стоит вернуться. Новой зависимости это не потребует: проверку схемы
-такого размера пишут руками.
+**Describe the schema as JSON Schema and validate with it.** Postponed, not
+rejected. While there are two or three polygons, schema validation pays off worse
+than checking by hand; at the fourth it is worth coming back to. It will require no
+new dependency: validation of a schema this size is written by hand.
 
-**Генерировать оракул из конфигурации полигона.** Отклонено категорически, как
-и в ADR-0009: эталон, порождённый проверяемой системой, проверяет её на
-согласованность с самой собой.
+**Generate the oracle from the polygon's configuration.** Rejected outright, as in
+ADR-0009: a reference produced by the system under test checks that system against
+itself for consistency.
 
-## Последствия
+## Consequences
 
-Обе существующие сверки переписываются на общую форму, и появляется общий
-модуль сравнения. Цена — разовая переделка двух работающих скриптов; проверка
-успешности та же, что и была: после переделки все варианты обязаны сойтись
-без расхождений, иначе переделка что-то сломала.
+Both existing verification scripts are rewritten to the common shape, and a common
+comparison module appears. The price is a one-off rework of two working scripts; the
+test of success is the same as it was: after the rework all variants must come out
+with no discrepancies, otherwise the rework broke something.
 
-Появляется возможность отчитываться в терминах дефектов, а не ячеек. Это
-закрывает задачу о схлопывании, но не бесплатно: связь «находка → дефект»
-проставляется человеком в оракуле, то есть работает на полигонах и не работает
-на чужом стенде, где дефекты заранее не известны. Схлопывание в самом отчёте
-инструмента — отдельная задача, и этот ADR её не решает.
+It becomes possible to report in terms of defects rather than cells. This closes the
+task about collapsing, but not for free: the link "finding → defect" is filled in by
+a human in the oracle, that is, it works on polygons and does not work on someone
+else's deployment, where the defects are not known in advance. Collapsing in the
+tool's own report is a separate task, and this ADR does not solve it.
 
-Пересмотреть, если появится полигон, где вариант нельзя задать набором пар
-«имя → значение» — например, стенд, переключаемый только пересборкой образа.
-Тогда `selector` придётся расширить, и это стоит сделать записью, а не молча.
+Revisit if a polygon appears where a variant cannot be defined by a set of "name →
+value" pairs — for example a deployment switched only by rebuilding the image.
+`selector` would then have to be extended, and that is worth doing with a record
+rather than silently.
 
-## Уточнение от 2026-08-12: находку объясняет набор дефектов, а не один
+## Clarification of 2026-08-12: a finding is explained by a set of defects, not by one
 
-Схема выше отводила находке поле `defect` — ровно один. При переносе оракула
-референс-платформы на этот формат выяснилось, что так нельзя.
+The schema above gave a finding a `defect` field — exactly one. While porting the
+reference platform's oracle to this format it turned out that this does not work.
 
-Проверка полноты сразу выдала:
+The completeness check reported immediately:
 
 ```
-дефект "POLYGON_DEFECT_PARENT_LEAK" объявлен видимым (status),
-но не ожидается ни в одном варианте
+defect "POLYGON_DEFECT_PARENT_LEAK" is declared visible (status) yet expected in no variant
 ```
 
-Причина не в данных, а в схеме. `PARENT_LEAK` поднимает видимость вверх на один
-уровень, `ANCESTOR_LEAK` — по всей цепочке, поэтому **ячейки первого суть
-подмножество ячеек второго**. Общая ячейка порождается любым из двух дефектов
-независимо; приписать её одному — значит объявить второй непроверяемым.
+The reason is not in the data but in the schema. `PARENT_LEAK` raises visibility
+upward by one level, `ANCESTOR_LEAK` along the whole chain, so **the cells of the
+first are a subset of the cells of the second**. A shared cell is produced by either
+of the two defects independently; attributing it to one means declaring the other
+uncheckable.
 
-Поле становится `defects` — непустой массив. На платформе восемь ячеек
-из двухсот сорока одной объясняются двумя дефектами сразу; это не погрешность
-разметки, а точное описание вложенности.
+The field becomes `defects` — a non-empty array. On the platform eight cells out of
+two hundred and forty-one are explained by two defects at once; that is not sloppy
+marking but an exact description of the nesting.
 
-Пустой массив запрещён: находка, которую нечем объяснить, — либо забытый дефект,
-либо ошибка в самом оракуле, и молча принятая она обесценивает проверку полноты.
+An empty array is forbidden: a finding that nothing explains is either a forgotten
+defect or an error in the oracle itself, and accepted silently it devalues the
+completeness check.
 
-Атрибуция выводится **по варианту**, а не глобально: в варианте с единственным
-включённым флагом все находки принадлежат ему, а в составном ячейка приписывается
-каждому включённому дефекту, чей одиночный вариант её содержит. Первая попытка
-строила одну глобальную карту «ячейка → дефект» и на вложенных дефектах давала
-именно тот ложный вывод, с которого начинается это уточнение.
+Attribution is derived **per variant**, not globally: in a variant with a single
+flag enabled all findings belong to it, and in a composite one a cell is attributed
+to every enabled defect whose single-flag variant contains it. The first attempt
+built one global "cell → defect" map and on nested defects gave exactly the false
+conclusion this clarification starts with.
 
-## Уточнение от 2026-08-12: шесть видов видимости вместо трёх
+## Clarification of 2026-08-12: six kinds of visibility instead of three
 
-Первоначальный перечень — `status | body-signal | invisible` — не пережил
-переноса оракула VAmPI. Там у каждого дефекта уже стояла причина, и причин
-оказалось пять, а не одна:
+The original list — `status | body-signal | invisible` — did not survive the porting
+of the VAmPI oracle. There every defect already carried a reason, and there turned
+out to be four reasons, not one — three kinds became six:
 
-| Вид | Почему инструмент не находит |
+| Kind | Why the tool does not find it |
 |---|---|
-| `body-only` | разница в теле, но невыразима объявленным скаляром — значения полей |
-| `unsafe-method` | живёт на методе записи, без `--unsafe-methods` не опрашивается |
-| `excluded` | был бы виден, но эндпоинт трогать нельзя: обращение ломает стенд |
-| `out-of-scope` | вопрос не о матрице «роль × эндпоинт» вовсе |
+| `body-only` | the difference is in the body, but is not expressible by a declared scalar — field values |
+| `unsafe-method` | it lives on a write method, and without `--unsafe-methods` it is not probed |
+| `excluded` | it would be visible, but the endpoint must not be touched: a request breaks the deployment |
+| `out-of-scope` | the question is not about the role × endpoint matrix at all |
 
-Свести их в один `invisible` значило бы стереть различие между четырьмя разными
-пробелами, каждый из которых закрывается по-своему: один — расширением сигналов,
-второй — флагом небезопасных методов, третий — не закрывается вовсе и не должен,
-четвёртый — другим инструментом. Пробел, у которого не названа причина,
-неотличим от лени.
+Collapsing them into a single `invisible` would erase the difference between four
+different gaps, each of which is closed in its own way: one by extending the signals,
+the second by the unsafe-methods flag, the third not closed at all and rightly so,
+the fourth by a different tool. A gap whose reason is not named is indistinguishable
+from laziness.
 
-Обнаруживаемыми считаются только `status` и `body-signal`; проверка полноты
-требует, чтобы такие дефекты встречались хотя бы в одном варианте, а все
-остальные не встречались нигде.
+Only `status` and `body-signal` count as detectable; the completeness check requires
+such defects to appear in at least one variant, and all the rest to appear nowhere.

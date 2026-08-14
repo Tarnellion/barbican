@@ -1,8 +1,9 @@
 /**
- * Тесты прогона.
+ * Run tests.
  *
- * Ядро сравнивает намерение с наблюдениями, но сами наблюдения рождаются здесь —
- * и ошибка в сведении статуса к выводу о доступе исказит весь отчёт.
+ * The core compares intent against observations, but the observations
+ * themselves are born here — and a mistake in reducing a status to a
+ * conclusion about access would distort the whole report.
  */
 
 import { describe, expect, it } from "vitest";
@@ -47,43 +48,45 @@ function fakeClient(reply: (request: HttpRequest) => HttpResponse | Error): {
 }
 
 describe("classifyStatus", () => {
-  it("считает доступом только 2xx", () => {
+  it("counts only 2xx as access granted", () => {
     expect(classifyStatus(200)).toBe("allowed");
     expect(classifyStatus(204)).toBe("allowed");
     expect(classifyStatus(299)).toBe("allowed");
   });
 
-  it("считает отказом 401, 403 и 451", () => {
+  it("counts 401, 403 and 451 as denials", () => {
     expect(classifyStatus(401)).toBe("denied");
     expect(classifyStatus(403)).toBe("denied");
-    // «Недоступно по юридическим причинам» — решение не обслуживать, а не сбой.
-    // Так отвечают на гео- и юрисдикционные ограничения; без этой строки
-    // исправная платформа давала бы стену probe-error именно там, где работает.
+    // "Unavailable for legal reasons" is a decision not to serve, not a
+    // failure. That is how geo and jurisdiction restrictions answer; without
+    // this line a healthy platform would give a wall of probe-error exactly
+    // where it works.
     expect(classifyStatus(451)).toBe("denied");
   });
 
-  it("выделяет 404 отдельно", () => {
+  it("sets 404 apart", () => {
     expect(classifyStatus(404)).toBe("not-found");
   });
 
-  // Записать неоднозначный ответ как отказ — значит выдать отсутствие вывода
-  // за доказательство защищённости.
-  it("не делает вывода о доступе из прочих статусов", () => {
+  // Recording an ambiguous response as a denial means passing the absence of a
+  // conclusion off as proof of protection.
+  it("draws no conclusion about access from other statuses", () => {
     for (const status of [301, 302, 400, 405, 429, 500, 503]) {
       expect(classifyStatus(status)).toBe("error");
     }
   });
 });
 
-describe("подпись обращения", () => {
+describe("request signing", () => {
   /**
-   * Раньше заголовки вычислялись один раз на аккаунт и переиспользовались
-   * на всех ячейках. Провайдер, подписывающий метод и путь, подписал бы этим
-   * первую ячейку, а разослал бы подпись во все: платформа отвергла бы всё,
-   * кроме первого обращения, и отчёт вышел бы «доступа нигде нет» —
-   * неотличимо от исправной платформы с закрытым доступом.
+   * Headers used to be computed once per account and reused across every cell.
+   * A provider that signs the method and the path would have signed the first
+   * cell and sent that signature to all of them: the platform would reject
+   * everything but the first request, and the report would come out as "there
+   * is no access anywhere" — indistinguishable from a healthy platform with
+   * access closed.
    */
-  it("даёт провайдеру адрес каждой ячейки, а не первой", async () => {
+  it("gives the provider the address of every cell, not of the first one", async () => {
     const endpoints: readonly Endpoint[] = [
       { id: "users.list", method: "GET", path: "/v1/admin/users" },
       { id: "tickets.list", method: "GET", path: "/v1/support/tickets" },
@@ -115,7 +118,7 @@ describe("подпись обращения", () => {
     ]);
   });
 
-  it("подписывает и канареечное обращение", async () => {
+  it("signs the canary request too", async () => {
     const asked: SignedRequest[] = [];
     const { client } = fakeClient(() => ({ status: 200, headers: {} }));
     await probeCanaries({
@@ -141,7 +144,7 @@ describe("collectObservations", () => {
     { id: "tickets.list", method: "GET", path: "/v1/support/tickets" },
   ];
 
-  describe("сигналы над телом", () => {
+  describe("signals over the body", () => {
     function collect(marked: readonly Endpoint[], response: HttpResponse) {
       const { client, seen } = fakeClient(() => response);
       return collectObservations({
@@ -150,14 +153,14 @@ describe("collectObservations", () => {
         accounts: accounts.slice(0, 1),
         credentials: createCredentialProvider(
           DEFAULT_AUTH_SCHEME,
-          new Map([["player-a", "токен-игрока"]]),
+          new Map([["player-a", "player-token"]]),
         ),
         client,
       }).then((result) => ({ result, seen }));
     }
 
-    /** Тело читается только там, где человек объявил responseMustDifferByTenant. */
-    it("просит сигналы только у помеченных эндпоинтов", async () => {
+    /** The body is read only where a human declared responseMustDifferByTenant. */
+    it("asks for signals only on the marked endpoints", async () => {
       const marked: readonly Endpoint[] = [
         {
           id: "users.list",
@@ -174,7 +177,7 @@ describe("collectObservations", () => {
       expect(seen[1]?.signals).toBeUndefined();
     });
 
-    it("переносит вычисленные сигналы в наблюдение", async () => {
+    it("carries the computed signals into the observation", async () => {
       const marked: readonly Endpoint[] = [
         {
           id: "users.list",
@@ -194,10 +197,10 @@ describe("collectObservations", () => {
     });
 
     /**
-     * Дайджест подразумевается пометкой, объявленные скаляры добавляются к нему.
-     * Раньше пометка перекрывала объявление: запрашивался только дайджест.
+     * The digest is implied by the mark, and declared scalars are added to it.
+     * The mark used to override the declaration: only the digest was requested.
      */
-    it("складывает подразумеваемый дайджест с объявленными скалярами", async () => {
+    it("adds the implied digest to the declared scalars", async () => {
       const marked: readonly Endpoint[] = [
         {
           id: "users.list",
@@ -216,7 +219,7 @@ describe("collectObservations", () => {
       ]);
     });
 
-    it("читает тело и по одному объявленному скаляру, без пометки", async () => {
+    it("reads the body for a declared scalar alone, without the mark", async () => {
       const marked: readonly Endpoint[] = [
         {
           id: "users.list",
@@ -231,7 +234,7 @@ describe("collectObservations", () => {
       expect(seen[0]?.signals).toEqual([{ name: "n", kind: "count", path: "items" }]);
     });
 
-    it("без пометки наблюдение остаётся без сигналов", async () => {
+    it("leaves the observation without signals when there is no mark", async () => {
       const { result } = await collect([{ id: "users.list", method: "GET", path: "/v1/x" }], {
         status: 200,
         headers: {},
@@ -241,7 +244,7 @@ describe("collectObservations", () => {
     });
   });
 
-  it("опрашивает каждую пару «аккаунт × эндпоинт»", async () => {
+  it("probes every account x endpoint pair", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     const result = await collectObservations({
@@ -251,8 +254,8 @@ describe("collectObservations", () => {
       credentials: createCredentialProvider(
         DEFAULT_AUTH_SCHEME,
         new Map([
-          ["player-a", "токен-игрока"],
-          ["admin-a", "токен-админа"],
+          ["player-a", "player-token"],
+          ["admin-a", "admin-token"],
         ]),
       ),
       client,
@@ -268,7 +271,7 @@ describe("collectObservations", () => {
     ]);
   });
 
-  it("подставляет токен того аккаунта, от имени которого обращается", async () => {
+  it("presents the token of the account it makes the request as", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     await collectObservations({
@@ -278,18 +281,18 @@ describe("collectObservations", () => {
       credentials: createCredentialProvider(
         DEFAULT_AUTH_SCHEME,
         new Map([
-          ["player-a", "токен-игрока"],
-          ["admin-a", "токен-админа"],
+          ["player-a", "player-token"],
+          ["admin-a", "admin-token"],
         ]),
       ),
       client,
     });
 
-    expect(seen[0]?.headers.authorization).toBe("Bearer токен-игрока");
-    expect(seen[1]?.headers.authorization).toBe("Bearer токен-админа");
+    expect(seen[0]?.headers.authorization).toBe("Bearer player-token");
+    expect(seen[1]?.headers.authorization).toBe("Bearer admin-token");
   });
 
-  it("пропускает эндпоинты с параметрами в пути и сообщает об этом", async () => {
+  it("skips endpoints with path parameters and reports it", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     const result = await collectObservations({
@@ -303,14 +306,14 @@ describe("collectObservations", () => {
       client,
     });
 
-    // Непроверенное не должно выглядеть как проверенное.
+    // What was not tested must not look like what was.
     expect(result.skipped).toEqual([{ endpointId: "profile.read", reason: "path-parameters" }]);
     expect(result.observations).toHaveLength(1);
     expect(seen).toHaveLength(1);
   });
 
-  it("записывает сорванное обращение как отсутствие вывода, а не как отказ", async () => {
-    const { client } = fakeClient(() => new Error("соединение разорвано"));
+  it("records a failed request as no conclusion, not as a denial", async () => {
+    const { client } = fakeClient(() => new Error("the connection was reset"));
 
     const result = await collectObservations({
       baseUrl: "https://api.test",
@@ -324,7 +327,7 @@ describe("collectObservations", () => {
     expect(result.observations[0]?.status).toBe(0);
   });
 
-  it("не кладёт токен в наблюдения", async () => {
+  it("puts no token into the observations", async () => {
     const { client } = fakeClient(() => ({
       status: 200,
       headers: { "set-cookie": "[REDACTED]" },
@@ -337,17 +340,17 @@ describe("collectObservations", () => {
       credentials: createCredentialProvider(
         DEFAULT_AUTH_SCHEME,
         new Map([
-          ["player-a", "секретный-токен-игрока"],
-          ["admin-a", "секретный-токен-админа"],
+          ["player-a", "secret-player-token"],
+          ["admin-a", "secret-admin-token"],
         ]),
       ),
       client,
     });
 
-    expect(JSON.stringify(result)).not.toContain("секретный-токен");
+    expect(JSON.stringify(result)).not.toContain("secret-");
   });
 
-  it("собирает корректный URL независимо от косых черт", async () => {
+  it("assembles a correct URL regardless of slashes", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     await collectObservations({
@@ -362,7 +365,7 @@ describe("collectObservations", () => {
   });
 });
 
-describe("что инструмент не трогает", () => {
+describe("what the tool does not touch", () => {
   const endpoints: readonly Endpoint[] = [
     { id: "users.list", method: "GET", path: "/v1/users" },
     { id: "users.create", method: "POST", path: "/v1/users" },
@@ -370,7 +373,7 @@ describe("что инструмент не трогает", () => {
   ];
   const one: readonly Account[] = [{ id: "a", roleId: "r", tenantId: "t" }];
 
-  it("не считает отказ от небезопасного метода сбоем", async () => {
+  it("does not count refusing an unsafe method as a failure", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     const result = await collectObservations({
@@ -381,13 +384,13 @@ describe("что инструмент не трогает", () => {
       client,
     });
 
-    // Штатная работа инструмента не должна выглядеть поломкой в отчёте.
+    // The tool working as intended must not look like a breakage in the report.
     expect(result.failures).toEqual([]);
     expect(result.skipped).toContainEqual({ endpointId: "users.create", reason: "unsafe-method" });
     expect(seen.map((r) => r.method)).not.toContain("POST");
   });
 
-  it("опрашивает небезопасный метод при явном разрешении", async () => {
+  it("probes an unsafe method when explicitly allowed", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     await collectObservations({
@@ -402,7 +405,7 @@ describe("что инструмент не трогает", () => {
     expect(seen.map((r) => r.method)).toContain("POST");
   });
 
-  it("не трогает исключённый эндпоинт даже безопасным методом", async () => {
+  it("does not touch an excluded endpoint even with a safe method", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     const result = await collectObservations({
@@ -414,13 +417,13 @@ describe("что инструмент не трогает", () => {
       exclude: ["db.reset"],
     });
 
-    // GET не обязан быть безопасным на деле: /createdb сбрасывает базу.
+    // A GET is not obliged to be safe in practice: /createdb resets the database.
     expect(result.skipped).toContainEqual({ endpointId: "db.reset", reason: "excluded" });
     expect(seen.map((r) => r.url)).not.toContain("https://api.test/createdb");
   });
 });
 
-describe("предохранители против недостоверного прогона", () => {
+describe("safeguards against an untrustworthy run", () => {
   const endpoints: readonly Endpoint[] = [
     { id: "me", method: "GET", path: "/v1/me" },
     { id: "users.list", method: "GET", path: "/v1/users" },
@@ -438,7 +441,7 @@ describe("предохранители против недостоверного
     ]),
   );
 
-  it("сообщает, что аккаунт не аутентифицирован, когда канарейка отвечает отказом", async () => {
+  it("reports the account as unauthenticated when the canary answers with a denial", async () => {
     const { client } = fakeClient((request) => ({
       status: request.headers.authorization === "Bearer tok-a" ? 401 : 200,
       headers: {},
@@ -461,23 +464,23 @@ describe("предохранители против недостоверного
     ]);
   });
 
-  it("отвергает канарейку на неизвестный эндпоинт", async () => {
+  it("rejects a canary on an unknown endpoint", async () => {
     const { client } = fakeClient(() => ({ status: 200, headers: {} }));
 
     await expect(
       probeCanaries({
         baseUrl: "https://api.test",
         endpoints,
-        canaries: [{ accountId: "a", endpointId: "нет-такого" }],
+        canaries: [{ accountId: "a", endpointId: "no-such-endpoint" }],
         credentials,
         client,
       }),
     ).rejects.toThrow(UnknownCanaryEndpointError);
   });
 
-  // Список исключений заводится ровно для адресов, которые трогать нельзя —
-  // GET, сбрасывающий базу. Канарейка не должна быть лазейкой мимо него.
-  it("отвергает канарейку на исключённый эндпоинт", async () => {
+  // The exclude list exists exactly for addresses that must not be touched —
+  // a GET that resets the database. A canary must not be a way around it.
+  it("rejects a canary on an excluded endpoint", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     await expect(
@@ -493,7 +496,7 @@ describe("предохранители против недостоверного
     expect(seen).toEqual([]);
   });
 
-  it("отвергает канарейку на эндпоинт с параметром в пути", async () => {
+  it("rejects a canary on an endpoint with a path parameter", async () => {
     const { client } = fakeClient(() => ({ status: 200, headers: {} }));
 
     await expect(
@@ -507,7 +510,7 @@ describe("предохранители против недостоверного
     ).rejects.toThrow(TemplatedCanaryError);
   });
 
-  it("возвращает список реально опрошенных эндпоинтов", async () => {
+  it("returns the list of endpoints actually probed", async () => {
     const { client } = fakeClient(() => ({ status: 200, headers: {} }));
 
     const result = await collectObservations({
@@ -518,18 +521,18 @@ describe("предохранители против недостоверного
       client,
     });
 
-    // profile пропущен из-за параметра в пути и в матрицу попасть не должен.
+    // profile was skipped over a path parameter and must not enter the matrix.
     expect(result.probed.map((e) => e.id)).toEqual(["me", "users.list"]);
   });
 });
 
-// Найдено состязательной проверкой: `new URL(path, base)` отдаёт приоритет
-// абсолютному адресу, поэтому путь из спецификации перебивал базовый URL целиком.
-// Имя хоста при этом не менялось, и allowlist пропускал — токен уходил открытым
-// текстом на порт, заданный проверяемой системой.
-describe("путь из спецификации не управляет адресом", () => {
+// Found by adversarial review: `new URL(path, base)` gives priority to the
+// absolute address, so a path from the specification overrode the base URL
+// entirely. The host name did not change, so the allowlist let it through —
+// and the token went out in the clear to a port chosen by the system under test.
+describe("a path from the specification does not control the address", () => {
   const one: readonly Account[] = [{ id: "a", roleId: "r", tenantId: "t" }];
-  const credentials = createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "секрет"]]));
+  const credentials = createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "token"]]));
 
   async function probe(path: string) {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
@@ -543,40 +546,40 @@ describe("путь из спецификации не управляет адр�
     return { seen, result };
   }
 
-  it("отвергает абсолютный адрес с чужой схемой и портом", async () => {
+  it("rejects an absolute address with a different scheme and port", async () => {
     const { seen, result } = await probe("http://api.example.test:9999/exfil");
 
     expect(seen).toEqual([]);
     expect(result.skipped).toEqual([{ endpointId: "e", reason: "escapes-target" }]);
   });
 
-  it("отвергает абсолютный адрес на другой хост", async () => {
+  it("rejects an absolute address pointing at another host", async () => {
     const { seen, result } = await probe("https://evil.test/x");
 
     expect(seen).toEqual([]);
     expect(result.skipped).toEqual([{ endpointId: "e", reason: "escapes-target" }]);
   });
 
-  it("не даёт обратному слэшу увести на чужой хост", async () => {
+  it("does not let a backslash lead to another host", async () => {
     const { seen } = await probe("/\\evil.test/x");
 
-    // Обходной путь через обратный слэш остаётся внутри цели.
+    // The backslash route stays inside the target.
     expect(seen[0]?.url).toBe("https://api.example.test/v1/evil.test/x");
   });
 
-  it("обычный путь собирается как прежде", async () => {
+  it("an ordinary path is assembled as before", async () => {
     const { seen } = await probe("/users");
 
     expect(seen[0]?.url).toBe("https://api.example.test/v1/users");
   });
 });
 
-describe("обращение к объектам", () => {
+describe("requests to resources", () => {
   const one: readonly Account[] = [{ id: "a", roleId: "r", tenantId: "t" }];
   const credentials = createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "tok"]]));
   const profile: Endpoint = { id: "profile", method: "GET", path: "/v1/players/{playerId}" };
 
-  it("подставляет значения объекта в путь и опрашивает каждый по разу", async () => {
+  it("substitutes a resource's values into the path and probes each one once", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     const result = await collectObservations({
@@ -598,7 +601,7 @@ describe("обращение к объектам", () => {
     expect(result.observations.map((o) => o.resourceId)).toEqual(["r1", "r2"]);
   });
 
-  it("кодирует значение, а не вставляет как есть", async () => {
+  it("encodes the value instead of inserting it as-is", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     await collectObservations({
@@ -607,14 +610,14 @@ describe("обращение к объектам", () => {
       accounts: one,
       credentials,
       client,
-      // Иначе значение с косой чертой сместило бы путь на другой ресурс.
+      // Otherwise a value with a slash would shift the path to another resource.
       resources: [{ id: "r", tenantId: "t", params: { playerId: "../admin" } }],
     });
 
     expect(seen[0]?.url).toBe("https://api.test/v1/players/..%2Fadmin");
   });
 
-  it("добавляет параметры строки запроса", async () => {
+  it("adds query string parameters", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     await collectObservations({
@@ -623,8 +626,9 @@ describe("обращение к объектам", () => {
       accounts: one,
       credentials,
       client,
-      // Найдено разведкой crAPI: идентификатор бывает в query, а не в пути.
-      // У такого эндпоинта нет параметров в шаблоне, поэтому привязка явная.
+      // Found while scouting crAPI: the identifier sometimes sits in the query
+      // rather than the path. Such an endpoint has no parameters in its
+      // template, so the binding is explicit.
       resources: [
         { id: "r", tenantId: "t", params: {}, query: { report_id: "1" }, endpointIds: ["report"] },
       ],
@@ -633,7 +637,7 @@ describe("обращение к объектам", () => {
     expect(seen[0]?.url).toBe("https://api.test/v1/report?report_id=1");
   });
 
-  it("пропускает параметризованный эндпоинт, если объектов с такими параметрами нет", async () => {
+  it("skips a parameterized endpoint when no resource has those parameters", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     const result = await collectObservations({
@@ -649,7 +653,7 @@ describe("обращение к объектам", () => {
     expect(seen).toEqual([]);
   });
 
-  it("не привязывает объект к эндпоинту без параметров", async () => {
+  it("does not bind a resource to an endpoint without parameters", async () => {
     const { client } = fakeClient(() => ({ status: 200, headers: {} }));
 
     const result = await collectObservations({
@@ -666,7 +670,7 @@ describe("обращение к объектам", () => {
   });
 });
 
-describe("значение объекта не уводит обращение", () => {
+describe("a resource's value does not divert the request", () => {
   const one: readonly Account[] = [{ id: "a", roleId: "r", tenantId: "t" }];
   const credentials = createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "tok"]]));
   const profile: Endpoint = { id: "p", method: "GET", path: "/v1/players/{playerId}" };
@@ -684,11 +688,12 @@ describe("значение объекта не уводит обращение",
     return { seen, result };
   }
 
-  // Механизм тоньше, чем кажется: encodeURIComponent кодирует слэш, но НЕ точки,
-  // поэтому одиночный `..` поднимает ровно на уровень вверх. Если параметр стоит
-  // в начале пути, этого хватает, чтобы выйти за объявленный базовый путь.
-  // Проверка области делалась над шаблоном, до подстановки, и этого не видела.
-  it("не даёт значению с .. выйти за базовый путь", async () => {
+  // The mechanism is subtler than it looks: encodeURIComponent encodes the
+  // slash but NOT the dots, so a bare `..` climbs exactly one level up. When
+  // the parameter sits at the start of the path, that is enough to leave the
+  // declared base path. The scope check ran over the template, before
+  // substitution, and did not see this.
+  it("does not let a value with .. escape the base path", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     const result = await collectObservations({
@@ -704,21 +709,21 @@ describe("значение объекта не уводит обращение",
     expect(result.failures[0]?.reason).toContain("would send the request");
   });
 
-  it("слэш в значении кодируется и обхода не даёт", async () => {
+  it("a slash in the value gets encoded and gives no bypass", async () => {
     const { seen } = await probeWith({ playerId: "../.." });
 
     expect(seen[0]?.url).toBe("https://api.test/api/v1/players/..%2F..");
   });
 
-  it("кодирует обычное значение и остаётся внутри базового пути", async () => {
+  it("encodes an ordinary value and stays inside the base path", async () => {
     const { seen } = await probeWith({ playerId: "1001" });
 
     expect(seen[0]?.url).toBe("https://api.test/api/v1/players/1001");
   });
 
-  // Имена параметров берутся из недоверенной спецификации, а прототип
-  // отвечает на {constructor} у любого объекта.
-  it("не цепляет объект по имени из цепочки прототипов", async () => {
+  // Parameter names come from an untrusted specification, and the prototype
+  // answers to {constructor} on any object.
+  it("does not pick up a resource by a name from the prototype chain", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     const result = await collectObservations({
@@ -735,12 +740,13 @@ describe("значение объекта не уводит обращение",
   });
 });
 
-describe("объект с параметрами, которых нет у эндпоинта", () => {
-  it("подставляет пустую строку для имени, которого нет в объекте", async () => {
+describe("a resource with parameters the endpoint does not have", () => {
+  it("substitutes an empty string for a name the resource lacks", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
-    // Объект привязан явным списком, но покрывает не все параметры пути:
-    // недостающее имя даёт пустой сегмент, а не мусор из прототипа.
+    // The resource is bound by an explicit list but does not cover every path
+    // parameter: a missing name gives an empty segment, not junk from the
+    // prototype.
     await collectObservations({
       baseUrl: "https://api.test",
       endpoints: [{ id: "p", method: "GET", path: "/v1/{a}/{b}" }],
@@ -754,7 +760,7 @@ describe("объект с параметрами, которых нет у эн�
   });
 });
 
-describe("обрыв прогона", () => {
+describe("a run cut short", () => {
   const one: readonly Account[] = [{ id: "a", roleId: "r", tenantId: "t" }];
   const credentials = createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "tok"]]));
   const two: readonly Endpoint[] = [
@@ -762,10 +768,11 @@ describe("обрыв прогона", () => {
     { id: "e2", method: "GET", path: "/2" },
   ];
 
-  // Исчерпанный потолок обращений обрывает обход посреди матрицы: хвост
-  // не проверен, и без этого признака вердикт «чисто» неотличим от настоящего.
-  it("помечается признаком при исчерпании бюджета", async () => {
-    const budget = Object.assign(new Error("бюджет исчерпан"), {
+  // An exhausted request ceiling cuts the walk short in the middle of the
+  // matrix: the tail is untested, and without this flag a "clean" verdict is
+  // indistinguishable from a real one.
+  it("is flagged when the budget runs out", async () => {
+    const budget = Object.assign(new Error("the budget is exhausted"), {
       name: "RunBudgetExhaustedError",
     });
     let call = 0;
@@ -785,8 +792,8 @@ describe("обрыв прогона", () => {
     expect(result.truncated).toBe(true);
   });
 
-  it("не помечается при обычном сбое обращения", async () => {
-    const { client } = fakeClient(() => new Error("соединение разорвано"));
+  it("is not flagged on an ordinary request failure", async () => {
+    const { client } = fakeClient(() => new Error("the connection was reset"));
 
     const result = await collectObservations({
       baseUrl: "https://api.test",
@@ -799,8 +806,8 @@ describe("обрыв прогона", () => {
     expect(result.truncated).toBe(false);
   });
 
-  it("канарейка не падает, когда обращение сорвалось", async () => {
-    const { client } = fakeClient(() => new Error("стенд не отвечает"));
+  it("the canary does not throw when the request fails", async () => {
+    const { client } = fakeClient(() => new Error("the deployment does not answer"));
 
     const results = await probeCanaries({
       baseUrl: "https://api.test",

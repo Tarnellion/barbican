@@ -1,57 +1,60 @@
 /**
- * Объявленная политика ожидаемого доступа.
+ * The declared policy of expected access.
  *
- * Ожидания задаёт человек, а не спецификация проверяемого API — обоснование
- * в ADR-0006. Здесь только разрешение политики в конкретный ожидаемый исход.
+ * The expectations are set by a human, not by the specification of the API under
+ * test — the reasoning is in ADR-0006. Here is only the resolution of the policy
+ * into a concrete expected outcome.
  */
 
 import type { EndpointPattern } from "./selectors.js";
 import { expandPattern } from "./selectors.js";
 import type { Endpoint, ExpectedOutcome, ResourceRelation, RoleId } from "./types.js";
 
-/** Совпадает с любым значением поля. */
+/** Matches any value of the field. */
 export const ANY = "*";
 
 export type Any = typeof ANY;
 
 export interface ExpectedAccessRule {
-  /** Роли, к которым применимо правило, либо `*`. */
+  /** The roles the rule applies to, or `*`. */
   readonly roles: readonly RoleId[] | Any;
   /**
-   * Эндпоинты, к которым применимо правило, либо `*`.
+   * The endpoints the rule applies to, or `*`.
    *
-   * Элемент — либо идентификатор, либо шаблон метода и пути. Шаблоны
-   * раскрываются в идентификаторы `expandPolicy` до диффа, поэтому разрешение
-   * политики про них ничего не знает.
+   * An entry is either an identifier or a method-and-path pattern. Patterns are
+   * expanded into identifiers by `expandPolicy` before the diff, so policy
+   * resolution knows nothing about them.
    */
   readonly endpoints: readonly (string | EndpointPattern)[] | Any;
   /**
-   * Отношение аккаунта к объекту, при котором правило действует.
+   * The account's relation to the resource under which the rule is in force.
    *
-   * Отсутствие означает «при любом», включая обращения без объекта. Это
-   * сохраняет смысл политик, написанных до появления ресурсов (ADR-0010).
+   * Absence means "under any relation", including requests without a resource.
+   * That preserves the meaning of policies written before resources appeared
+   * (ADR-0010).
    */
   readonly scope?: ResourceRelation | undefined;
   /**
-   * Условия обращения, при которых правило действует.
+   * The request conditions under which the rule is in force.
    *
-   * Совпадение **точное**, и отсутствие здесь означает «базовые условия»,
-   * а не «любые». Иначе объявление новых условий молча распространило бы
-   * на них все прежние ожидания: платформа, законно закрывающая ставку
-   * из запрещённой страны, дала бы «неожиданный отказ» на каждой ручке.
-   * Ожидание в условиях объявляется явно — либо срабатывает `fallback`.
+   * The match is **exact**, and absence here means "baseline conditions", not
+   * "any". Otherwise declaring new conditions would silently extend every
+   * previous expectation to them: a platform that lawfully closes a bet from a
+   * prohibited country would give an "unexpected denial" on every endpoint. An
+   * expectation under conditions is declared explicitly — or `fallback` fires.
    */
   readonly context?: string | undefined;
   readonly outcome: ExpectedOutcome;
 }
 
 /**
- * Правило с уже раскрытыми шаблонами.
+ * A rule with its patterns already expanded.
  *
- * Отдельный тип, а не проверка в рантайме: раскрытая политика присваивается
- * объявленной, но не наоборот, поэтому передать нераскрытую туда, где нужна
- * раскрытая, компилятор не даст. Иначе шаблон, доживший до сравнения, молча
- * не совпал бы ни с чем и увёл пары в `fallback`.
+ * A separate type rather than a runtime check: an expanded policy is assignable
+ * to a declared one but not the other way round, so the compiler will not let an
+ * unexpanded one be passed where an expanded one is needed. Otherwise a pattern
+ * that survived to the comparison would silently match nothing and send the
+ * pairs into `fallback`.
  */
 export interface ResolvedAccessRule extends Omit<ExpectedAccessRule, "endpoints"> {
   readonly endpoints: readonly string[] | Any;
@@ -63,11 +66,11 @@ export interface ResolvedAccessPolicy extends Omit<ExpectedAccessPolicy, "rules"
 
 export interface ExpectedAccessPolicy {
   /**
-   * Исход для пар, не покрытых ни одним правилом.
+   * The outcome for pairs covered by no rule.
    *
-   * Значения по умолчанию нет намеренно: молчаливое «всё разрешено» или
-   * «всё запрещено» одинаково опасно, когда от этого зависит вердикт
-   * о наличии уязвимости.
+   * There is no default value on purpose: a silent "everything is allowed" and a
+   * silent "everything is denied" are equally dangerous when the verdict on
+   * whether a vulnerability exists depends on it.
    */
   readonly fallback: ExpectedOutcome;
   readonly rules: readonly ExpectedAccessRule[];
@@ -88,10 +91,10 @@ function matches(selector: readonly string[] | Any, value: string): boolean {
 }
 
 /**
- * Проверяет политику на правила, которые не могут сработать.
+ * Checks the policy for rules that cannot fire.
  *
- * Пустой список в селекторе почти всегда опечатка, а не намерение: правило
- * молча не применяется, и человек считает, что что-то объявил.
+ * An empty list in a selector is almost always a typo rather than an intent: the
+ * rule silently does not apply, while the human believes something was declared.
  *
  * @throws {EmptyRuleSelectorError}
  */
@@ -107,23 +110,22 @@ export function assertPolicyIsSound(policy: ExpectedAccessPolicy): void {
 }
 
 /**
- * Разрешает политику в ожидаемый исход для пары «роль × эндпоинт».
+ * Resolves the policy into an expected outcome for a "role × endpoint" pair.
  *
- * Выигрывает **последнее** подходящее правило: это позволяет задать широкое
- * правило и сузить его последующими.
+ * The **last** matching rule wins: that makes it possible to state a broad rule
+ * and narrow it with the ones that follow.
  */
 /**
- * Ожидаемый исход вместе с правилом, которое его дало.
+ * The expected outcome together with the rule that produced it.
  *
- * Номер правила нужен читателю отчёта: политика в отчёте есть, но искать среди
- * десятка правил то, которое объявило доступ запрещённым, — работа, которую
- * инструмент может сделать сам. Его отсутствие значит «ни одно правило
- * не подошло, сработал `fallback`» — и это отдельное, содержательное сообщение,
- * а не пропуск.
+ * The rule number is for the reader of the report: the policy is in the report,
+ * but hunting through a dozen rules for the one that declared access forbidden
+ * is work the tool can do itself. Its absence means "no rule matched, `fallback`
+ * fired" — and that is a separate, meaningful message, not an omission.
  */
 export interface ExpectedVerdict {
   readonly outcome: ExpectedOutcome;
-  /** Номер правила в `policy.rules`. Отсутствует, когда сработал `fallback`. */
+  /** The rule's number in `policy.rules`. Absent when `fallback` fired. */
   readonly ruleIndex?: number;
 }
 
@@ -135,13 +137,13 @@ export function resolveExpectedVerdict(
   contextId?: string,
 ): ExpectedVerdict {
   let verdict: ExpectedVerdict = { outcome: policy.fallback };
-  // Побеждает последнее подошедшее, поэтому перебор идёт до конца, а не до
-  // первого совпадения: номер должен указывать на то же правило, что и исход.
+  // The last match wins, so the loop runs to the end rather than stopping at the
+  // first one: the number must point at the same rule as the outcome.
   for (const [index, rule] of policy.rules.entries()) {
     if (rule.scope !== undefined && rule.scope !== relation) {
       continue;
     }
-    // Условия сравниваются точно, включая «оба отсутствуют».
+    // Conditions are compared exactly, including "both are absent".
     if (rule.context !== contextId) {
       continue;
     }
@@ -163,13 +165,13 @@ export function resolveExpected(
 }
 
 /**
- * Раскрывает шаблоны в правилах в конкретные идентификаторы.
+ * Expands the patterns in the rules into concrete identifiers.
  *
- * Вызывается один раз, до построения матрицы. Так `resolveExpected` остаётся
- * функцией от идентификатора, а не от эндпоинта, и связанные с ней места —
- * в том числе проверка достоверности прогона — не меняются вовсе.
+ * Called once, before the matrix is built. That keeps `resolveExpected` a
+ * function of an identifier rather than of an endpoint, and the places tied to
+ * it — the run's trustworthiness check among them — do not change at all.
  *
- * @throws {UnmatchedPatternError} если шаблон не совпал ни с одним эндпоинтом.
+ * @throws {UnmatchedPatternError} if a pattern matched no endpoint.
  */
 export function expandPolicy(
   policy: ExpectedAccessPolicy,
@@ -184,8 +186,9 @@ export function expandPolicy(
       const ids = rule.endpoints.flatMap((entry) =>
         typeof entry === "string" ? [entry] : expandPattern(entry, endpoints),
       );
-      // Дубли убираются: один эндпоинт мог подойти и по идентификатору,
-      // и под шаблон. На результат это не влияет, но список в отчёте читается.
+      // Duplicates are removed: one endpoint could match both by identifier and
+      // by pattern. That does not affect the result, but the list in the report
+      // becomes readable.
       return { ...rule, endpoints: [...new Set(ids)] };
     }),
   };

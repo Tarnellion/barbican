@@ -1,25 +1,27 @@
 #!/usr/bin/env node
 
 /**
- * Получение токенов crAPI.
+ * Obtaining crAPI's tokens.
  *
- * Инструмент их не добывает и не должен: логин у crAPI — это POST, а без
- * `--unsafe-methods` инструмент POST не выполняет (ADR-0008). Учётные данные
- * добывает оператор, то есть этот скрипт, и кладёт их в переменные окружения.
+ * The tool does not obtain them and must not: a login in crAPI is a POST, and without
+ * `--unsafe-methods` the tool does not perform POST (ADR-0008). The credentials are
+ * obtained by the operator, that is, by this script, which puts them into environment
+ * variables.
  *
- * Пользователи crAPI предзаведены её собственным seed'ом — заводить некого,
- * в отличие от VAmPI. Пароли предзаведённых учётных записей опубликованы самим
- * проектом и здесь просто повторены: это константа стенда в петле, не секрет.
+ * crAPI's users are pre-seeded by its own seed — there is nobody to create, unlike in
+ * VAmPI. The passwords of the pre-seeded accounts are published by the project itself
+ * and are simply repeated here: this is a constant of a loopback deployment, not a
+ * secret.
  *
- * Ноль зависимостей: только встроенные модули.
+ * Zero dependencies: built-in modules only.
  *
- * Использование:
+ * Usage:
  *   eval "$(node polygons/crapi/tokens.mjs)"
  */
 
 import { fileURLToPath } from "node:url";
 
-/** Обращения к полигону не должны висеть вечно: стенд поднимается в петле. */
+/** Requests to the polygon must not hang forever: the deployment lives on loopback. */
 const REQUEST_TIMEOUT_MS = 15_000;
 
 const LOGIN_ROUTE = "/identity/api/auth/login";
@@ -29,22 +31,25 @@ function user(id, email, secret, tokenEnv) {
 }
 
 /**
- * Кого логиним.
+ * Who is logged in.
  *
- * Имена переменных обязаны совпадать с `tokenEnv` в `barbican.run.yaml`:
- * разойдясь, они дали бы прогон без единого токена, то есть сплошные 401,
- * а сплошной отказ совпадает с политикой и выглядит чистым отчётом.
+ * The variable names must match `tokenEnv` in `barbican.run.yaml`: once they
+ * diverged, they would give a run without a single token, that is, a solid wall of
+ * 401s, and a solid wall of denials agrees with the policy and looks like a clean
+ * report.
  */
 /**
- * Пароли предзаведённых пользователей стенда.
+ * The passwords of the deployment's pre-seeded users.
  *
- * Это не секреты: значения опубликованы в самом crAPI как seed-константы,
- * а стенд живёт в петле и создаётся заново на каждый прогон. VAmPI обходится
- * без них — там пользователи регистрируются скриптом со случайными паролями, —
- * а здесь учётные записи предзаведены, и взять их неоткуда.
+ * These are not secrets: the values are published in crAPI itself as seed constants,
+ * and the deployment lives on the loopback and is created anew for every run. VAmPI
+ * does without them — there the users are registered by a script with random
+ * passwords — while here the accounts are pre-seeded, and there is nowhere else to
+ * take them from.
  *
- * Переопределяются окружением: держать в репозитории образец «пароль строкой»
- * не стоит даже там, где он безобиден, — читатель копирует форму, а не оговорку.
+ * They are overridden by the environment: a "password as a literal" sample is not
+ * worth keeping in a repository even where it is harmless — the reader copies the
+ * form, not the caveat.
  */
 function secretOf(name, published) {
   return process.env[`CRAPI_PASSWORD_${name.toUpperCase()}`] ?? published;
@@ -89,10 +94,10 @@ async function login(baseUrl, account) {
 }
 
 /**
- * Логинит всех и возвращает карту «переменная окружения → токен».
+ * Logs everyone in and returns the "environment variable → token" map.
  *
- * Токены наружу выходят — их нельзя не выдать, они и есть предмет работы.
- * Никуда не записываются: ни в файл, ни в отчёт.
+ * The tokens do go out — they cannot be withheld, they are the point of the work.
+ * They are written nowhere: neither to a file nor to a report.
  */
 export async function provision(options) {
   const baseUrl = options.baseUrl;
@@ -106,8 +111,8 @@ export async function provision(options) {
 }
 
 /**
- * Токен идёт в `export` без кавычек, но только если состоит из безопасных
- * символов: JWT — это base64url через точки, и ничего иного там быть не должно.
+ * The token goes into `export` without quotes, but only if it consists of safe
+ * characters: a JWT is base64url separated by dots, and nothing else should be there.
  */
 const TOKEN_SHAPE = /^[A-Za-z0-9._-]+$/;
 
@@ -118,7 +123,7 @@ async function main() {
   const report = (message) => process.stderr.write(`tokens: ${message}\n`);
   const tokens = await provision({ baseUrl, log: report });
 
-  // Токены — в stdout, чтобы работал eval; всё прочее — в stderr.
+  // The tokens go to stdout so that eval works; everything else to stderr.
   for (const [name, token] of tokens) {
     if (!TOKEN_SHAPE.test(token)) {
       throw new ProvisionError(`token ${name} contains unexpected characters`);
@@ -127,7 +132,7 @@ async function main() {
   }
 }
 
-// Запуск как программы, а не импорт как модуля.
+// Run as a program, not imported as a module.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     await main();
