@@ -408,6 +408,542 @@ thing and nowhere says so.
       out loud that a matrix exported from the code or generated from the same
       specification is worthless here for the reason in ADR-0006.
 
+## Full audit of 14 August 2026
+
+Twelve tracks run in parallel, 130 findings. Every claim below was produced by a
+run or points at a line; the working copy with each command and its full output
+lives outside the repository. Six findings are blockers, and four of those are
+one class: **a run that tested nothing looks exactly like a clean one** — the
+thing this whole tool exists to prevent.
+
+Nothing here is fixed yet. The order of work is at the end.
+
+### Blockers
+
+- [ ] **C-1. The signal name `digest` is not reserved.** One line in a user's
+      configuration — `{ name: digest, kind: present, path: orders, endpoints:
+      [orders.list] }` — turns 18 cross-tenant findings into 0 and leaves
+      `coverage.checksRun` claiming the check ran. With `kind: count` the mirror
+      case: 16 fabricated `high` findings on a healthy platform. The implied
+      digest goes into `specs` first (`runner.ts:537`), the extractor writes by
+      order (`signals.ts:202`), a later spec overwrites it, and `digestOf` then
+      drops the observation from the check entirely. `DuplicateSignalNameError`
+      compares declared signals against each other only — the implied `digest`
+      never enters `seenNames`. The text of that very error describes this
+      failure.
+- [ ] **A-1. An exhausted budget never reaches the verdict.** `--max-requests
+      149` against a 144-cell matrix leaves three cells unprobed and reports
+      `truncated: false`, exit 0. `http.ts:391` wraps everything in
+      `RequestFailedError` with the cause attached; `runner.ts:572` matches
+      terminality on the **outer** error's name and never unwraps `cause`.
+      `CircuitOpenError` is thrown directly and so is recognised;
+      `RunBudgetExhaustedError` never leaves the client. Recorded as closed in
+      the ADR-0005 addendum of 12 August — it is not. The test that "covers" it
+      feeds a fake client an error the real client cannot produce.
+- [ ] **L-2. A resource that does not exist yields "isolation verified."** A 404
+      becomes `not-found`, `toBinary` folds that into `denied`, and the cell
+      reports `MATCH: true`. The tool's central claim — "carol cannot read
+      alice's order" — is proved by the order not existing. Credentials get a
+      canary, the existence of a resource gets nothing, though identifiers are
+      written by hand and go stale faster than tokens. The comment above
+      `toBinary` names the gap and defers it to "separate checks" that do not
+      exist.
+- [ ] **L-1. A token that expires mid-walk.** Canaries are probed once, before
+      the walk. Every remaining cell then answers 401, matches a policy of
+      denial, and lands in `cellsMatched`; exit 0. `findUnauthenticated` requires
+      "refused everywhere" and stays silent by construction once the first half
+      succeeded. At the default 5 rps a matrix of 10 accounts x 60 endpoints x 3
+      resources takes about an hour — longer than a typical JWT.
+- [ ] **A-3. A secret from the environment reaches the report in the clear.** A
+      context attribute declared under `query` as `{ env: NAME }` is substituted
+      into the address, and addresses are printed verbatim: 24 occurrences of a
+      live token across 9 accounts. The same secret declared as a **header**
+      leaks nothing — headers travel as the declared form. `config.ts:475` claims
+      the opposite in a comment. The only guard is `FORBIDDEN_QUERY_KEYS`, a
+      **denylist of 13 names**; `sig`, `hmac`, `key`, `secret` pass freely. This
+      is structurally the mistake the project already corrected once: the
+      ADR-0005 addendum called the response-header denylist "structurally wrong:
+      every name that will ever carry a secret cannot be enumerated" and replaced
+      it with an allowlist.
+- [ ] **D-1. A resource value of `.` or `..` walks out of `exclude`.**
+      `encodeURIComponent` escapes the slash and not the dot, so a `.` segment
+      survives and navigates. The guard in `joinUrl` compares
+      `resolved.pathname.startsWith(base.pathname)`, and with a `baseUrl` that
+      has no path `base.pathname` is `"/"` — the condition is always true, in the
+      default case and in every example the project ships. Two consequences: the
+      exclusion list is bypassed, and the verdict for one endpoint is computed
+      from another endpoint's answer. An empty value passes too — `min(1)` in the
+      params schema sits on the key, not on the value.
+
+### A string from outside lands in a slot with its own grammar
+
+Eleven point fixes of one shape across four files, two of which have already
+drifted apart (`CONTEXT_VALUE_SAFE` uses `*` where `HEADER_SAFE` uses `+`).
+
+- [ ] **D-2.** A signal named `__proto__` disappears from every observation:
+      `signals.ts:173` builds a plain object literal, and the assignment calls
+      the prototype setter.
+- [ ] **D-3.** `tokenEnv: constructor` gives `TypeError: value.trim is not a
+      function` instead of `MissingCredentialError`. The same class is already
+      recognised and closed elsewhere in that file (`config.ts:914`).
+- [ ] **D-4.** A response header named `__proto__` vanishes, breaking the promise
+      made ten lines above it that the name is kept even for redacted headers.
+- [ ] **D-6.** The class is closed on the CLI path only. A library consumer
+      building a request themselves passes all four regular expressions by and
+      gets `RequestFailedError` with "Cannot convert argument to a ByteString"
+      after three attempts.
+- [ ] **A-4.** The redaction of URLs inside error text (`safeUrl`) is covered by
+      no test: making it return the URL unchanged leaves 574 tests green.
+- [ ] **The cure for the class rather than a fifth point fix:**
+      `src/io/untrusted.ts` with branded constructors — `HeaderValue`,
+      `HeaderName`, `PathSegment`, `safeRecord()`, `lookup()` — and
+      `HttpRequest.headers: Readonly<Record<HeaderName, HeaderValue>>` in
+      `ports.ts`. After that a raw `Record<string, string>` cannot reach
+      `createHttpClient` from anywhere, the two duplicated name regexes collapse
+      into one, and the `*`/`+` divergence becomes impossible by construction.
+      `substitute` calling `pathSegment` fixes D-1 in the line where it lives.
+      The technique is already used twice here and stated as a principle:
+      `SignalValue = number | boolean` and the `Account` union — "a duplicate the
+      compiler cannot check drifts apart sooner or later."
+
+### Two channels of results, never joined below the report type
+
+The shared type already exists (`ReportFinding` with `source`). What diverges is
+everything downstream of it.
+
+- [ ] **B-1.** A check finding naming neither an account nor an endpoint is
+      dropped (`build.ts:614`), and the counter that the comment promises will
+      keep it visible counts the already-filtered list. Latent today; a blocker
+      for Module 2, where run-level findings are the point.
+- [ ] **B-2 / H-3.** A cell is `match: true` and carries a body finding at the
+      same time — 12 of 18 on the reference run. `cellsMatched 100 + findings 98
+      = 198` against `cellsObserved 180`, which breaks the self-check
+      `docs/report.md` teaches the reader to perform, and contradicts ADR-0020 in
+      the same file.
+- [ ] **B-3.** Different thresholds per channel: any matrix discrepancy exits 1,
+      a check finding needs `high|critical`. ADR-0014 states the opposite
+      principle.
+- [ ] **B-4.** `summary.byKind` is one flat key space for diff kinds and check
+      ids, and `runVerdict` reads escalations out of it. A check registered as
+      `privilege-escalation` reports as one.
+- [ ] **B-5.** `coverage.bodiesComparedOn` names endpoints that were never
+      probed: it filters all endpoints where the check filters probed ones.
+- [ ] **B-6.** `groupDefects` never merges the channels, so one platform defect
+      visible both by status and by body counts as two.
+- [ ] **B-7.** A failure before the address is built produces no observation,
+      hence no `probe-error`, hence the untrustworthiness threshold cannot see
+      it: four failed cells out of five exit 0.
+- [ ] **B-9.** `findings` is not sorted — 80 matrix rows, then 18 check rows —
+      while `defects[]` is sorted by severity.
+- [ ] **B-16.** The screen summary never prints `info`, the level introduced for
+      registry checks.
+- [ ] The cure is not a shared type but a **single source for the per-cell
+      verdict** and a single threshold rule in `runVerdict`.
+
+### Terminal errors lost at a layer boundary
+
+- [ ] **A-2.** Past an exhausted budget each cell still makes three attempts with
+      two sleeps. `--max-requests 149` takes **32.1 s** against 30.3 s for the
+      full run while making three fewer requests. The throttle counter does not
+      advance — `admit()` throws before `started += 1` — so the budget cannot
+      recover and the retries are futile by construction. The silence boundary is
+      exactly **4 cells**: from the fifth the circuit breaker fires and masks A-1.
+- [ ] **G-4.** An exhausted budget sends the reader to check the port.
+      `RunBudgetExhaustedError` carries no `code`, `failureCode()` falls back to
+      `"TRANSPORT"`, and the canary prints "The platform did not answer at all…
+      Check the address, the port". The error's own text — "a guard against
+      uncontrolled load, not a configuration error" — goes into `cause` and never
+      reaches the reader.
+- [ ] **L-9.** After a truncation the loop has no `break` and walks the rest of
+      the matrix. At 18 040 cells with the default budget: 5 267 ms spent on
+      16 040 dead cells, 16 139 finding rows against 109, and a report of
+      **16.3 MB against 12.8 MB for the complete run**. A truncated run costs more
+      than a full one.
+
+### The shape of data described twice
+
+- [ ] **B-10.** The HTTP method set lives in five places; two copies the compiler
+      does not check (`openapi.ts:83` without `satisfies`, `config.ts:66` with no
+      tie to the type). The technique for checking it is documented in this
+      repository and applied in three of the five.
+- [ ] **B-11.** `z.infer` is used nowhere; every configuration interface is
+      written by hand beside its schema, so "the schema grew, the interface did
+      not" is undiagnosable.
+- [ ] **B-12.** Contexts and accounts are carried into the report by naming each
+      field — the mechanism the same file documents as having already lost one.
+- [ ] **B-13.** `tools/oracle/index.d.mts` is a hand-written description outside
+      `tsconfig.include` with `skipLibCheck: true`: tests type against it, CI runs
+      the implementation.
+- [ ] **J-16.** ADR-0001 pins Biome 2.5.6; `package.json` has 2.5.7.
+
+### A document describing an invariant weaker than the code
+
+The dangerous class: a fix made *by the document* reopens a hole adversarial
+review already closed.
+
+- [ ] **J-2.** CLAUDE.md calls response-header redaction "a hardcoded list" — a
+      denylist. The code says "An allowlist, precisely, and not a denylist". The
+      header of `http.ts` repeats the wrong version twenty lines above its own code.
+- [ ] **J-3.** CLAUDE.md describes the context-attribute ban as one layer.
+      ADR-0019 says the first version "was **wrong**" and was rewritten into
+      three; the code holds three.
+- [ ] **J-4.** The header of `http.ts` says the response body is "never read";
+      line 323 reads it. ADR-0011 changed the invariant from "not read" to "not
+      stored" and the header stayed.
+- [ ] **J-11.** ADR-0016 and ADR-0017 describe debts in the report that the code
+      has since paid, with no dated note. A reader of ADR-0017 concludes today
+      that an account with a set of tenants is indistinguishable from an
+      anonymous one; the live report prints `tenants: [...]`.
+- [ ] **J-12.** ADR-0021, written specifically about what ships, lists three
+      directories where `package.json` has four.
+- [ ] **J-13.** A per-tenant `baseUrl` — several hosts in one run — has no ADR,
+      although ADR-0008 named exactly that as its condition for revisiting.
+
+### Numbers woven into sentences have gone stale
+
+The project has caught this class twice and cured it by generating a table from
+the run. Generation does not reach a number inside a sentence.
+
+- [ ] **J-7.** "25 combinations" survives in five places including the **name of
+      the CI job**. `plan.md` contradicts itself seventy lines apart: "ten
+      switchable defects and 25 combinations" against "28 combinations… twelve
+      switches".
+- [ ] **J-8.** The `coverage` example in `docs/report.md` promises
+      `endpointsTotal: 6` and `notProbed: {}`; the run gives 7 and
+      `{"unsafe-method": 1}`.
+- [ ] **J-9.** `docs/report.md` contradicts itself about compared body pairs: the
+      JSON block says 24/39, the prose thirty lines below says 8 of 21 and 13.
+      The JSON block is right.
+- [ ] **J-5.** `polygon/README.md` states the platform implements no unsafe
+      methods (405). It does: `POST /v1/orders/{orderId}/cancel` answers 200. The
+      endpoint table in the same file lists 6 of 7.
+- [ ] **J-6.** The same file describes the oracle format as it was before
+      ADR-0012 — `combinations[]`, `flags`, no `defects` on a finding. A fourth
+      polygon written from that section would not parse.
+- [ ] **J-10.** `tasks.md` still holds open "the README has never been checked by
+      a cold read" while containing two sections about such reads.
+- [ ] **J-14.** `docs/report.md` sends the reader to `tasks.md` for an open item
+      that is recorded there as closed.
+- [ ] **J-15.** `plan.md`: "ADR 0001-0010" against 21 files; `src/report` listed
+      as phase 5 work while it has existed since phase 1; `tests/integration`
+      does not exist.
+
+### `--dry-run` does not do what it promises
+
+- [ ] **G-1.** "Parses and validates everything" is false: a canary on an
+      excluded endpoint passes the dry run and stops the real one.
+- [ ] **G-2.** It stays silent about there being no canaries at all — a run that
+      always ends in exit 2. The most expensive pre-flight defect is the one the
+      pre-flight check does not mention.
+- [ ] **G-3.** The "exact number of cells" ignores `--max-requests` from the same
+      command line: it promises 144 where the real run makes one request.
+- [ ] **G-7.** `--dry-run --report path` silently ignores `--report`. No file, no
+      warning, and the previous report stays in place — a pipeline that publishes
+      it will publish yesterday's.
+- [ ] **G-8 / K-3.** An unusable `--report` path is checked neither at startup nor
+      in the dry run. `writeFile` sits 86 lines below `collectObservations`: the
+      run spends 152 requests on someone else's deployment and then dies on
+      ENOENT with nothing to show.
+- [ ] **I-4.** The dry run is quadratic — 20 992 000 calls to `resourceApplies` at
+      1600 endpoints — and takes 5.48 s where the real run reaches its first
+      request in 0.606 s. The preview costs nine times more than starting the
+      thing it previews.
+
+### The artifact is guarded by nothing
+
+- [ ] **F-2.** A release publishes having run **one CI gate out of four**.
+      `release.yml` runs `pnpm run check` and nothing else: no gitleaks over the
+      history, no oracle verification, no vulnerability scan. Its own comment
+      promises "The same gate as CI".
+- [ ] **E-7.** Packaging is checked by nothing in CI — no `publint`, no `attw`, no
+      pack, no install from the tarball. Every packaging finding below would have
+      passed a release unnoticed.
+- [ ] **C-3.** The **content** of the report is guarded by nothing. Three
+      mutations that gut `evidence` pass the unit suite **and the oracle**: the
+      digest leaks into evidence in place of the declared scalars, a finding loses
+      `contextId`, a defect group loses `relation`. `cellKey()` compares
+      coordinates and never looks at `relation`, `contextId` or evidence.
+- [ ] **B-15.** The oracle reads four summary counters and the exit code;
+      `bySeverity`, `defectGroups` and `coverage.cellsMatched` are not checked. It
+      compares **sets**, so duplicated rows are invisible by construction.
+- [ ] **E-3.** The published package carries **9 broken relative links**
+      (`polygon/`, `tasks.md`, `plan.md`, `tests/…`, `.github/…`). The guard test
+      resolves them against the repository root and stays green.
+- [ ] **K-5.** The link guard walks the file system rather than git and descends
+      into `.claude/worktrees/`: **135 of 182** files it visits are not the
+      repository. Its neighbour `language.test.ts` does it correctly.
+- [ ] **F-6.** `pnpm audit` runs nowhere — not in CI, not in the hooks. The
+      declared two layers are one. It exits 1 today.
+
+### Tests that do not prove what is claimed
+
+Track A: 40 mutations of the invariants, 34 killed. Track C over the core: 148
+mutations, 80.4 % killed; after an honest re-triage (equivalent mutants, and
+mutants the type checker rejects) **7 real gaps**, not 29.
+
+- [ ] **C-2.** Six defaults of twelve are caught by nothing: retry `maxAttempts`
+      and `baseDelayMs`, the **breaker threshold 5 -> 5000** (the 5xx/429 guard
+      effectively off), the request timeout, `maxBodyBytes`, and `DIGEST_BYTES
+      6 -> 1` — an eight-bit digest, roughly one collision in 256 per pair. The
+      throttle limits are caught because they have an exact `toEqual`; the others
+      have nothing.
+- [ ] **C-4.** The ADR-0019 invariant "different conditions are not compared" has
+      no unit test; only the oracle catches it, as "15 extra findings" out of a
+      ninety-second run.
+- [ ] **C-5.** `resourceApplies`: `&&` to `||` survives both the suite and the
+      oracle. Every test gives a true second operand, and no polygon resource
+      declares `endpointIds` — the branch is dead there.
+- [ ] **C-6.** A vacuous assertion: the only check sits inside `for (const request
+      of seen)` and the length of `seen` is never asserted.
+- [ ] **C-7.** Branching inside the text of `ConflictingObservationError` and
+      `UnmatchedPatternError` inverts without a failure.
+- [ ] **A-5.** Cancelling the unread response stream is covered by nothing.
+- [ ] **A-6.** `Object.hasOwn` to `in` in path substitution is caught by nothing —
+      a finding declared closed in the ADR-0005 addendum, closed without a
+      regression test.
+- [ ] **The third `$ref` barrier** is called separately proven by ADR-0005 and has
+      no such test. Verified by hand (zero requests, zero reads), but the mutation
+      `resolve: { external: true }` alone is not caught.
+- [ ] **B-14.** The exit-code tests assemble a `RunReport` by hand, bypassing
+      `buildReport`, and assemble objects `buildReport` cannot produce. The seam
+      `buildReport -> runVerdict` is uncovered — which is where B-3 and B-4 live.
+- [ ] **K-6.** `existsSync` is case-blind on macOS: a link with the wrong case
+      passes locally and fails on Linux CI. No current divergence.
+
+### The report is not self-sufficient for a ticket
+
+Five of six criteria pass. The arithmetic is exact — 22 quantities recomputed
+independently, zero divergence — and seven of seven `curl` commands assembled
+from the report reproduced on the first attempt. The failing criterion is B-2 /
+H-3 above.
+
+- [ ] **H-1.** **37 of 80** matrix findings carry no `ruleIndex`, and **22 of 34
+      critical**. The basis for "access was not expected" is expressed by the
+      absence of a field, and "the fallback applied" cannot be told from "the tool
+      forgot to fill it in".
+- [ ] **H-2.** The JSON contains no reference to its own documentation or schema.
+      Everything the reader is missing is described in `docs/report.md`, and the
+      artifact does not say where to find it. The cheapest fix on this list.
+- [ ] **H-4.** The identity of the system tested rests on the optional
+      `target.label`; the warning about its absence goes to the console and never
+      into the report.
+- [ ] **H-5.** `summary.accounts` is 9 where `accounts.length` is 27 — the only
+      one of seven summary fields that is not the length of its array. The
+      distrustful reader checks exactly this first.
+- [ ] **H-6.** `relatedRequest` on a body finding is byte-for-byte equal to
+      `request` and does not name the other side; that is only in
+      `evidence.otherAccountId`.
+- [ ] **H-7.** A finding references no observation and carries no response
+      headers — the one thing that settles "closed" against "we knocked with the
+      wrong transport".
+- [ ] **H-8.** For `auth.kind: "bearer"` the header name is not given, while
+      cookie and header schemes name theirs.
+- [ ] **H-9.** The report carries no verdict — only the verdict's inputs.
+- [ ] **H-10.** A defect group has no citable key, and the array order changes
+      with severity: "defect #5 from run X" points elsewhere a month later.
+- [ ] **H-11.** `configDigest` is `JSON.stringify` without canonicalisation, so it
+      depends on key order and answers nothing.
+
+### Scale: a sequential walk and quadratic post-processing
+
+| Cells | Cold start | Walk | Post | Peak RSS | Report |
+|---|---|---|---|---|---|
+| 605 | 253 ms | 243 ms | 83 ms | 129 MB | 0.36 MB |
+| 9 020 | 284 ms | 2 127 ms | 549 ms | 229 MB | 6.4 MB |
+| 36 080 | 391 ms | 7 469 ms | 6 053 ms | 409 MB | 26.1 MB |
+| 144 320 | 875 ms | 28 570 ms | **104 112 ms** | 1 003 MB | 102.4 MB |
+
+- [ ] **I-1.** `--concurrency` does nothing: `await client.send(request)` sits
+      inside the nested loop, one request in flight always. 615 requests at 20 ms
+      latency take 13 766 ms at `--concurrency 1` and 13 754 ms at 128. The flag
+      is documented **and written into the report**, so the report asserts
+      something about the run that did not happen.
+- [ ] **I-3.** `resourceApplies` parses the endpoint path with a regex on every
+      call, and is called accounts x endpoints x resources times — the main
+      quadratic source. Control: trimming the policy from 440 rules to 2 takes
+      `describeCells` from 622 ms to 344 ms, and the remainder is exactly the
+      measured 333.6 ms of regex work.
+- [ ] **I-2.** The walk happens twice: `describeCells` and `diffAccess` are called
+      on consecutive lines with identical arguments and each performs its own
+      `walk`. The comment above `describeCells` — "One walk for both answers… Two
+      independent passes would drift" — describes an intent the call site cancels.
+- [ ] **I-7.** `resolveExpectedVerdict` scans every policy rule per cell and never
+      breaks. Control: 440 rules to 2 takes `findUnauthenticated` from 275 ms to
+      21 ms.
+- [ ] **I-5.** The isolation check emits O(accounts^2) **rows**: 11 -> 37,
+      21 -> 150, 41 -> 600, 81 -> 2 400. One missing tenant filter on a platform
+      with a hundred accounts is some 4 000 rows per endpoint.
+- [ ] **I-6.** The full matrix lives in memory and is serialised as one string;
+      observations are 70 % of both the memory and the file and are row-independent.
+- [ ] **The practical ceiling is about 20 000 cells** — 400 endpoints x 40
+      accounts at 80 resources. What binds first is walk time, because the walk is
+      sequential: 15 minutes at 50 ms RTT, and nothing shortens it. Then report
+      size (0.72 KB per cell), then quadratic post-processing, which overtakes the
+      walk between 36 000 and 72 000 cells. **Memory does not bind at all** in the
+      range measured — a useful negative result. Note that the default
+      `--max-requests 2000` makes the ceiling 2 000 cells unless it is raised.
+
+### The public surface
+
+- [ ] **E-1 / B-8.** `createSignalExtractor` is the one adapter factory missing
+      from `src/index.ts`. Body-signal findings are unreachable from the library
+      while the check that consumes them is exported, and `http.d.ts` declares a
+      public `signalExtractor?: SignalExtractor` — a type the consumer cannot
+      name. The comment in `src/index.ts` states exactly the policy this breaks.
+- [ ] **E-2.** The only library example in the README does not compile:
+      `diffAccess` takes a `ResolvedAccessPolicy`, the example passes an
+      `ExpectedAccessPolicy`, and `expandPolicy` is never called. It runs, which
+      is why it reads as correct.
+- [ ] **E-6.** 217 exported names against 5 documented, including 66 error classes
+      and the internal validators. `configSchema` is exported as a raw
+      `z.ZodObject`, which makes a zod major a breaking change for consumers.
+- [ ] **E-4.** `exports` declares neither `./package.json` nor `./schema/*`, so the
+      schema the README says ships in `node_modules/barbican/` cannot be resolved.
+- [ ] **E-5.** 50 source maps ship dangling — they point at `../src/*.ts`, absent
+      from the package, with no `sourcesContent`. 316 KB of 784 KB in `dist`.
+- [ ] **L-8.** `Check.severity` and `Check.description` are read by nobody, and
+      severity is declared twice — on the check and inside `run()` — where the
+      compiler cannot see them diverge.
+
+### Module 2 is not architecturally ready
+
+- [ ] **L-4.** `plan.md` says the evidence pack is added by registering checks
+      without touching the core. Five gaps: `standards` is declared, filled and
+      **read by no line of code** (the word does not occur in a report at all, so
+      the promised finding-to-clause traceability cannot be built from a saved
+      report); run-level findings vanish (B-1); the report layer imports a
+      specific check; `evidence.otherAccountId` is an undocumented cross-layer
+      contract; and `CheckContext` carries only the matrix, so the whole class
+      "was enough tested for this clause" is inexpressible rather than unwritten.
+      The registry is also assembled hard-coded, with no way to select checks —
+      the "registry assembled for a particular run" of ADR-0003 is unreachable.
+      **The first task of phase 5 is a rework of `Finding`, `CheckContext`,
+      `mergeFindings` and `Coverage`** — a report schema change and core edits.
+
+### Hygiene of files, process and repository
+
+- [ ] **K-1.** `verify.mjs` on all three polygons creates a temporary directory
+      and never removes it: **209 directories, 2 440 report files, 214 MB** on this
+      machine — the very files `.gitignore` describes as possibly carrying a
+      customer's personal data.
+- [ ] **K-2.** The report is written 0644, world-readable: `writeFile(path, json,
+      "utf8")` with no `{ mode }`. It holds full request URLs, all response
+      headers, and account, resource and tenant identifiers.
+- [ ] **L-10.** `.claude/settings.local.json` is excluded only by the owner's
+      global ignore, not by the project `.gitignore`.
+- [ ] **F-3.** `.npmrc` is dead under pnpm 11: `pnpm config get engineStrict` and
+      `engine-strict` both return undefined. An isolated probe shows the key works
+      only as `engineStrict` in `pnpm-workspace.yaml`. ADR-0004 lists `.npmrc` as
+      one of two carriers of the protection.
+- [ ] **F-4 / E-8.** `engines: ">=22.12.0"` has no upper bound while CI runs 22
+      and 24 and Node 26 is current; and `node: [22]` resolves to the latest 22.x,
+      so the declared lower bound is never exercised.
+- [ ] **F-5.** The pinned gitleaks and osv-scanner binaries are covered by no
+      dependabot ecosystem. The stated reason for pinning osv-scanner 2.4.0 —
+      "2.5.0 came out a week ago" — expired today.
+- [ ] **F-7.** `packageManager` has no corepack integrity hash: the one gap in an
+      otherwise consistent pinning scheme.
+- [ ] **F-9.** Dependency vetting results are recorded nowhere, so the rule in
+      CLAUDE.md cannot be checked after the fact.
+- [ ] **K-7.** `pnpm run build`, and therefore `check`, cannot run on Windows —
+      `chmod` does not exist there. CI will never catch it: no Windows job.
+- [ ] **K-4.** The README table comparison in `verify.mjs` breaks on CRLF, and
+      there is no `.gitattributes`.
+- [ ] **K-8.** Duplicate token values across accounts are not caught — although
+      the polygon itself has that guard.
+- [ ] **K-9.** The "am I main" idiom in both external polygons' `tokens.mjs` is
+      false when the path goes through a symlink.
+- [ ] **G-5.** A CLI usage error exits **1** — the same code as "checked, and it
+      does not match". A typo in a flag name reports as a privilege escalation.
+- [ ] **G-6.** The exit-code table covers neither a failed startup nor `SIGINT`,
+      which gives **130**.
+- [ ] **G-9.** Policy rule numbering is zero-based and presented as an ordinal:
+      a typo in the fourth rule reports `Policy rule #3`.
+- [ ] **G-10.** `EISDIR` names neither the file nor the flag, with at least two
+      paths on the command line.
+- [ ] **D-5.** A body over `maxBodyBytes` removes the digest, the comparison
+      becomes zero, and the reason is not stated anywhere in the report.
+- [ ] **D-7.** `parseRunConfig` is the only parse path without size and depth
+      limits, while all three adapters have them.
+
+### Legal, language, and platform assumptions
+
+- [ ] **J-1.** **100 of 131 commits are written in Russian**, which CLAUDE.md
+      forbids without exception, commit messages included. **J-18**: the guard
+      reads `git ls-files`, that is the contents of tracked files; the history is
+      outside its scope entirely and there is no `commit-msg` hook. Thirteen merge
+      commits also fail conventional commits. The last Russian commit is `1b3ed47`
+      of 13 August, so the rule holds de facto from that date — the decision to
+      make is whether to say so in CLAUDE.md and add the hook, or rewrite history.
+- [ ] **L-6.** Not one line anywhere in the user documentation says that testing
+      someone else's system needs their permission. The README says outright
+      "meant to run against systems you do not own outright" and answers that with
+      technical defaults. A search for `permission | authoriz | consent | legal`
+      matches only the licence text and the `Authorization` header. The package
+      ships with the keywords `bola`, `idor`, `api-security`.
+- [ ] **L-7.** Traversal order is assumed not to matter, and with
+      `--unsafe-methods` that is false: a `DELETE` performed by the first account
+      gives every later one a 404, which folds into `denied` and matches a policy
+      of denial. The polygon endpoint was deliberately chosen to sidestep this —
+      it is written down in these notes — so the one oracle the project has cannot
+      catch the class.
+- [ ] **L-3.** A platform that refuses with `200` and an error envelope produces
+      a hundred per cent false positives: `classifyStatus` treats any 2xx as
+      allowed. The risk named first in `plan.md` — "a tool that finds things that
+      do not exist loses trust on the first run" — realised in full, and the
+      guide's "What the tool does not do" says nothing about it.
+
+### A contradiction between tracks, left unreconciled
+
+Track A's verdict table records "scope is not widened through substituted values —
+holds". Track D demonstrated by running that a `.` in a resource value walks the
+request onto an excluded endpoint's path, and that the `joinUrl` guard is inert
+when `baseUrl` has no path (D-1).
+
+There is no disagreement about facts — A mutated `Object.hasOwn`, D supplied a
+hostile **value**, and the two probed different things in the same line. But A's
+verdict is refuted by D's run, and the invariant should be counted as breached.
+
+### What could not be checked
+
+Windows (nothing to run it on; K-7 and half of K-8 are code reading). Branch
+protection on GitHub, so it is unknown whether the three missing release gates
+block a merge in practice. Real network latency — localhost only, so the scale
+numbers are extrapolation from a model confirmed at two latencies. OpenAPI
+parsing at scale. A matrix with request conditions at scale. Node 22.12.0 exactly.
+The published 0.2.0 tarball from the registry. The crAPI and VAmPI polygons.
+Mutation testing of `src/io`, `src/adapters` and `src/report` — `config.ts` at
+1 718 lines was not covered. An interrupt landing exactly inside the report write
+(13 attempts, no hit). Terminal state after an interrupt.
+
+### Order of work, by risk over cost
+
+1. **nanoid** — tonight, in the window 16:41-24:00 UTC.
+2. **C-1** reserve the name `digest`.
+3. **A-3** allowlist instead of a denylist for query attributes, or redact the
+   value inside the printed URL.
+4. **A-1** unwrap `cause` when matching terminal errors.
+5. **D-1** `pathSegment` instead of `encodeURIComponent`.
+6. **L-2** a canary for resources.
+7. **L-1** re-probe the canaries at the end of the walk.
+8. **F-2** the release runs all four gates.
+9. **B-1** stop discarding registry findings.
+10. **I-3** cache the path parse in `resourceApplies` — also fixes I-4.
+11. **C-2** an exact `toEqual` on the four remaining default constants.
+12. **H-1 + H-2** `basis: "fallback"` beside `expected`, and a documentation link
+    in the JSON.
+13. **G-8 / K-3** check the report path before the first request.
+14. **J-2, J-3, J-4** bring CLAUDE.md and the `http.ts` header back to the code.
+15. **K-1 + K-2** clean the temporary directories, write the report `0o600`.
+16. **L-6** a paragraph about the system owner's permission.
+17. **G-5** a distinct exit code for usage errors.
+18. **B-2 / H-3** a single source for the per-cell verdict.
+19. **I-1** a parallel walk, or drop the flag honestly.
+20. **D-6** branded types in `src/io/untrusted.ts`.
+21. **J-1** decide about the history, and add a `commit-msg` hook.
+22. **L-4** rework `Finding` and `CheckContext` before phase 5 is scheduled.
+23. **L-3** a warning about platforms that refuse with an envelope.
+
 ## Readiness for different authentication surfaces
 
 - [x] **ADR-0016: an authentication scheme per account.** Named schemes at the root,

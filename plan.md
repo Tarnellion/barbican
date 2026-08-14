@@ -3,7 +3,7 @@
 ## Where it comes from
 
 Sources: the technical report on the stack, the packages and the security requirements
-(sections 1–5) and the decisions taken along the way, recorded in [ADR 0001–0010](docs/adr/).
+(sections 1–5) and the decisions taken along the way, recorded in [docs/adr/](docs/adr/).
 
 Where the report diverged from the actual state of the registry, verified data wins —
 the discrepancies are listed in [ADR-0001](docs/adr/0001-stack-and-versions.md).
@@ -28,7 +28,7 @@ tag with provenance over OIDC. What phase 4 still lacks is its exit criterion,
 not its content — see below.
 
 Phase 3 was expected to be the largest and the most likely place to get stuck.
-It was neither: the reference platform carries ten switchable defects and 25
+It was neither: the reference platform carries twelve switchable defects and 28
 combinations that agree with a hand-written oracle cell for cell, and the whole
 of it is plain Node without Docker. What actually took the time was everything
 that came out of reading the report with someone else's eyes.
@@ -136,13 +136,36 @@ in that release still spoke Russian around English documentation. All three are 
 
 **Phase 4 closes with the release of `0.3.0`**, not with another cold read.
 
+**And `0.3.0` cannot go out through the pipeline as it stands.** The audit of 14
+August found that `release.yml` runs one CI gate of four — `pnpm run check` — and
+skips the secret scan over the history, the oracle verification and the
+vulnerability scan. A tag can therefore publish a commit that three quarters of
+CI never saw, with provenance attesting to it. That, and the blockers in the same
+audit, come before the release.
+
 ---
 
 ## Phase 5 — Module 2: the evidence pack
 
-Architecturally it is already prepared: the `standards` field in the `Check` interface
-and the check registry ([ADR-0003](docs/adr/0003-check-registry.md)). It is added by
-registering checks.
+**The claim that this is architecturally prepared did not survive the audit of 14
+August.** It rested on one registered check, and that check happens to use only
+the fields that reach the report. Five gaps, each proven: `standards` is declared
+and filled and **read by no line of code**, so the promised "finding ↔ standard
+clause" matrix cannot be built from a saved report at all; a finding that names
+neither an account nor an endpoint — the natural shape of "this clause is not
+covered" — is silently discarded before the report; the report layer imports a
+specific check; `evidence.otherAccountId` is an undocumented contract between
+layers; and `CheckContext` carries only the matrix, so a check cannot see the
+policy, the coverage or the failures and the whole class "was enough tested for
+this clause" is inexpressible rather than unwritten.
+
+The first task of phase 5 is therefore a rework of `Finding`, `CheckContext`,
+`mergeFindings` and `Coverage` — a change of `REPORT_SCHEMA_VERSION` and edits to
+the core. The estimate of ~20 h above was made under the opposite assumption and
+should be treated as unknown until that rework is scoped.
+
+What does hold: the registry itself ([ADR-0003](docs/adr/0003-check-registry.md))
+— registration, duplicate ids, a synchronous pure `run`.
 
 Content: a mapping of checks onto clauses of external standards (the reference point from
 the report — GLI-19, the AGCO requirements), report generation from JSON as a separate
@@ -218,6 +241,6 @@ no empty directories "for the future" in the repository.
 | `src/core` | Pure functions: the matrix, the diffs, the checks | exists |
 | `src/adapters` | The HTTP client, the spec parser, throttling — behind ports | the ports exist, the implementations in phase 1 |
 | `src/io` | Reading specs and accounts, writing JSON | phase 1, session 4 |
-| `src/report` | Rendering JSON into HTML/PDF as a separate step | phase 5 |
+| `src/report` | Building the JSON report and its verdict | exists since phase 1; HTML/PDF rendering is phase 5 |
 | `tests/fixtures` | Core fixtures, no network | phase 1, session 2 |
-| `tests/integration` | Runs against the polygons | phase 2 |
+| `tests/integration` | Never created: the polygon runs go through `polygon/verify.mjs` against the built CLI, which is closer to how the tool is used | dropped |
