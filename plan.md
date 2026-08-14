@@ -18,13 +18,20 @@ session 2 of phase 1 closed on 11 August 2026.
 |---|---|---|---|
 | 0 | Skeleton: configs, hooks, CI, ADRs, the check registry | ~3 h | done |
 | 1 | The core of Module 1: the matrix, the adapters, the CLI | ~9 h | done |
-| 2 | Validation on public polygons | ~8 h | next |
-| 3 | Multi-tenancy: a reference platform of our own | ~15–20 h | |
-| 4 | Stabilization and publishing | ~10 h | |
+| 2 | Validation on public polygons | ~8 h | done |
+| 3 | Multi-tenancy: a reference platform of our own | ~15–20 h | done |
+| 4 | Stabilization and publishing | ~10 h | one criterion left |
 | 5 | Module 2: the evidence pack | ~20 h | |
 
-A working, published Module 1 is some 4–5 weeks away at the stated pace.
-Phase 3 is the largest and the most likely place to get stuck; see the risks.
+Module 1 works and is published: `barbican@0.2.0` went out through a release by
+tag with provenance over OIDC. What phase 4 still lacks is its exit criterion,
+not its content — see below.
+
+Phase 3 was expected to be the largest and the most likely place to get stuck.
+It was neither: the reference platform carries ten switchable defects and 25
+combinations that agree with a hand-written oracle cell for cell, and the whole
+of it is plain Node without Docker. What actually took the time was everything
+that came out of reading the report with someone else's eyes.
 
 ---
 
@@ -100,18 +107,20 @@ switchable defects. A full platform is not needed; an oracle is.
 
 ## Phase 4 — stabilization and publishing
 
-The name on npm is already taken: `barbican@0.0.0` was published locally on 11 August
-2026 so as not to lose the name. The publish was manual, so `publishConfig.provenance`
-had to be removed — see the clarification in [ADR-0004](docs/adr/0004-supply-chain-hardening.md).
+Done: publishing moved to npm trusted publishing over OIDC, with automatic provenance
+and not a single long-lived token; `publishConfig.provenance` is back; `barbican@0.2.0`
+went out through a release by tag and was checked from the registry, not from the build
+log. `0.1.0` — a stub whose CLI registered no commands — is deprecated with a message
+pointing at 0.2.0. User documentation is written and was rewritten twice from the
+misunderstandings of cold readers. Changesets were vetted and rejected: 40 transitive
+packages against a lockfile of 256, for a changelog on a project whose version is moved
+by hand once every few days.
 
-What is left: move publishing to npm trusted publishing (OIDC) with automatic provenance
-and no long-lived tokens (requires npm CLI ≥ 11.5.1), bring `publishConfig.provenance`
-back, set up changesets. User documentation: how to declare accounts, the expected matrix
-and the scope.
-
-**Exit criterion:** an outsider following the README gets `npx barbican` to a meaningful
-run. The command itself already works — what is missing is commands that do something
-and an input format that can be understood.
+**Exit criterion — not met, and it is the only thing left in this phase:** an outsider
+following the README gets `npx barbican` to a meaningful run. Two cold reads have
+happened, but both read the *report* and the guides; the README and the installation
+path have never been read by anyone but their author. Until `0.2.0` that check was not
+even worth running — the published CLI was a stub — and now it is.
 
 ---
 

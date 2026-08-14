@@ -766,9 +766,9 @@ Left over from the cold read, in decreasing order of payoff:
       blocker went stale: npm locally is 11.19.0 against the required 11.5.1.
       The tag is checked against the package version before publishing — otherwise something
       other than what is tagged in the history would go to the registry.
-- [ ] **Left for a human:** declare the trusted publisher on npmjs.com
-      (repository `Tarnellion/barbican`, workflow `release.yml`). Until then the
-      release will fail at the publish step — and that is the right side to fail on.
+- [x] The trusted publisher is declared on npmjs.com, and `barbican@0.1.0` — the
+      stub whose CLI registered no commands — is deprecated in the registry with a
+      message pointing at 0.2.0. Both done by the owner on 14 August 2026.
 - [ ] Changesets for versioning — **a new dependency, and I am against it**.
       Vetted by the project's rules (13 August 2026): `@changesets/cli`,
       MIT, 2 maintainers, 126 releases; the latest, 3.0.0 of 11 August, is younger than
