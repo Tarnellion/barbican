@@ -173,3 +173,85 @@ jobs:
       # verdict depends on what is declared and reproduces without an install.
       - name: Scan lockfile
         run: ./osv-scanner scan source --lockfile=pnpm-lock.yaml
+
+  package:
+    name: the artifact as it ships
+    runs-on: ubuntu-latest
+    # Nothing checked the package itself. A cold install of 0.2.0 found a README
+    # that argued against the version it shipped with, a tarball with no guide
+    # and no example, and an adapter that reached the build but not `exports` —
+    # every one of them would have passed a release unnoticed, because a release
+    # ran `pnpm run check` and stopped there.
+    #
+    # What is verified here is the artifact, not the sources: the tarball is
+    # built, inspected, installed into an empty directory and driven from there.
+    # That is the closest thing to "npx on someone else's machine" that does not
+    # require someone else's machine.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Enable pnpm via corepack
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # `files` ships `dist`, so the tarball is only as honest as the build.
+      - name: Build
+        run: pnpm run build
+
+      - name: Pack
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pack"
+          pnpm pack --pack-destination "$RUNNER_TEMP/pack"
+          ls -l "$RUNNER_TEMP/pack"
+
+      # Versions are pinned rather than @latest, for the same reason every other
+      # tool here is: a gate must not change its verdict because something came
+      # out this morning.
+      - name: publint
+        run: pnpm dlx publint@0.3.23 run
+
+      # `--profile esm-only` is deliberate, not a way of quieting the tool. By
+      # default attw fails this package on two counts, and both are inapplicable:
+      # node10 resolution, which no ESM-only package satisfies, and "a require
+      # call resolved to ESM", which stopped being an error in Node 22.12 — the
+      # floor this package declares. Left on the default profile the job would be
+      # red on every run, and a job that is always red is a job somebody deletes,
+      # taking the checks that do work with it.
+      - name: are the types wrong
+        run: |
+          set -euo pipefail
+          tarball="$(ls "$RUNNER_TEMP"/pack/*.tgz)"
+          pnpm dlx @arethetypeswrong/cli@0.18.5 --profile esm-only "$tarball"
+
+      # The part no static check can answer: does the thing run once installed.
+      # Not from this repository — from an empty directory, the way a user gets it.
+      - name: Install from the tarball and drive the CLI
+        run: |
+          set -euo pipefail
+          tarball="$(ls "$RUNNER_TEMP"/pack/*.tgz)"
+          work="$RUNNER_TEMP/consumer"
+          mkdir -p "$work"
+          cd "$work"
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund "$tarball"
+          npx barbican --version
+          npx barbican run --help
+          # The schema is generated from the same zod schema the run validates
+          # against; printing it proves the command works from the package.
+          npx barbican schema > schema.json
+          node -e "JSON.parse(require('node:fs').readFileSync('schema.json','utf8'))"
+          # The starter configuration ships, and `--dry-run` sends nothing: a
+          # complete parse and validation without touching any network.
+          npx barbican run \
+            --config node_modules/barbican/examples/minimal/barbican.run.yaml \
+            --endpoints node_modules/barbican/examples/minimal/endpoints.yaml \
+            --dry-run

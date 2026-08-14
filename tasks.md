@@ -687,7 +687,11 @@ the run. Generation does not reach a number inside a sentence.
       `release.yml` runs `pnpm run check` and nothing else: no gitleaks over the
       history, no oracle verification, no vulnerability scan. Its own comment
       promises "The same gate as CI".
-- [ ] **E-7.** Packaging is checked by nothing in CI — no `publint`, no `attw`, no
+- [x] **E-7.** Packaging is checked by nothing in CI — closed 14 August by the
+      `package` job: pack, publint, attw and an install from the tarball into an
+      empty directory, driven from there. `attw` runs under `--profile esm-only`
+      because its two default complaints are inapplicable to this package, and a
+      job that is always red is a job somebody deletes. Original finding: — no `publint`, no `attw`, no
       pack, no install from the tarball. Every packaging finding below would have
       passed a release unnoticed.
 - [x] **C-3.** The **content** of the report is guarded by nothing — closed 14 August
