@@ -14,6 +14,7 @@ import type {
   AccessOutcome,
   DiffKind,
   ExpectedOutcome,
+  Resource,
   ResourceRelation,
 } from "./types.js";
 import { relationOf, severityOf } from "./types.js";
@@ -156,6 +157,28 @@ function walk(
     diffs.push(actual === undefined ? withResource : { ...withResource, actual });
   }
 
+  /**
+   * Which resources apply to which endpoint — computed once, not per account.
+   *
+   * The answer does not depend on the account: it is a property of the path
+   * template and the resource's parameters. Recomputing it inside the account
+   * loop made the walk cost accounts × endpoints × resources, and
+   * `resourceApplies` re-parses the path with a regular expression on every
+   * call: 1 312 000 calls and 425 ms on a matrix of 400 endpoints, 41 accounts
+   * and 80 resources, which the audit of 14 August measured as the largest
+   * single quadratic term in the run.
+   *
+   * A memo inside `resourceApplies` would have fixed the same number, and would
+   * have put mutable state into the core, which has none by design. Hoisting the
+   * loop removes the term instead of caching it.
+   */
+  const applicableTo = new Map<string, readonly Resource[]>(
+    matrix.endpoints.map((endpoint) => [
+      endpoint.id,
+      matrix.resources.filter((resource) => resourceApplies(endpoint, resource)),
+    ]),
+  );
+
   for (const account of matrix.accounts) {
     const byEndpoint = index.get(account.id);
     for (const endpoint of matrix.endpoints) {
@@ -169,7 +192,7 @@ function walk(
       // An endpoint with parameters exists only together with a resource:
       // without one there is nothing to substitute, and such a cell is not a
       // coordinate but an empty spot.
-      const applicable = matrix.resources.filter((resource) => resourceApplies(endpoint, resource));
+      const applicable = applicableTo.get(endpoint.id) ?? [];
       if (applicable.length > 0) {
         for (const resource of applicable) {
           const relation = relationOf(account, resource, hierarchy);

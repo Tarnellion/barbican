@@ -169,9 +169,26 @@ function describePlan(config: RunConfig, endpoints: readonly Endpoint[], flags: 
   });
 
   // An endpoint without parameters costs one request; one with parameters, a
-  // request per resource that covers them. Counted the way the run counts it.
-  const costOf = (endpoint: Endpoint): number =>
-    Math.max(config.resources.filter((resource) => resourceApplies(endpoint, resource)).length, 1);
+  // request per resource that covers them. Counted the way the run counts it —
+  // and counted once per endpoint rather than once per account × endpoint.
+  //
+  // The audit of 14 August measured the difference: at 1600 endpoints, 41
+  // accounts and 320 resources the preview made 20 992 000 calls to
+  // `resourceApplies` and took 5.48 s, while the real run of the same
+  // configuration reached its first request in 0.606 s. A dry run that costs
+  // nine times more than starting the thing it previews is not a pre-flight
+  // check, and this is the flag people are told to use first on someone else's
+  // deployment.
+  const cost = new Map<string, number>(
+    endpoints.map((endpoint) => [
+      endpoint.id,
+      Math.max(
+        config.resources.filter((resource) => resourceApplies(endpoint, resource)).length,
+        1,
+      ),
+    ]),
+  );
+  const costOf = (endpoint: Endpoint): number => cost.get(endpoint.id) ?? 1;
 
   // A row under conditions walks only the endpoints its context names — that is
   // why a context has to name them. An estimate that ignored this overstated the

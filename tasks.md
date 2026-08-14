@@ -672,7 +672,7 @@ the run. Generation does not reach a number inside a sentence.
       in the dry run. `writeFile` sits 86 lines below `collectObservations`: the
       run spends 152 requests on someone else's deployment and then dies on
       ENOENT with nothing to show.
-- [ ] **I-4.** The dry run is quadratic — 20 992 000 calls to `resourceApplies` at
+- [x] **I-4.** Closed together with I-3 — see above. Original finding: the dry run is quadratic — 20 992 000 calls to `resourceApplies` at
       1600 endpoints — and takes 5.48 s where the real run reaches its first
       request in 0.606 s. The preview costs nine times more than starting the
       thing it previews.
@@ -807,7 +807,14 @@ H-3 above.
       latency take 13 766 ms at `--concurrency 1` and 13 754 ms at 128. The flag
       is documented **and written into the report**, so the report asserts
       something about the run that did not happen.
-- [ ] **I-3.** `resourceApplies` parses the endpoint path with a regex on every
+- [x] **I-3 and I-4.** Closed 14 August by hoisting rather than by caching: which
+      resources apply to an endpoint does not depend on the account, so it is
+      computed once per endpoint in `walk` and in `describePlan`. A memo inside
+      `resourceApplies` would have fixed the same number and put mutable state in
+      the core, which has none by design. Measured: `describeCells` 692.5 -> 326.3
+      ms on an identical 664 200 cells, and `--dry-run` on 1600 endpoints x 41
+      accounts x 320 resources 7.06 s -> 0.47 s for the same answer of 20 992 000
+      cells. Original finding: `resourceApplies` parses the endpoint path with a regex on every
       call, and is called accounts x endpoints x resources times — the main
       quadratic source. Control: trimming the policy from 440 rules to 2 takes
       `describeCells` from 622 ms to 344 ms, and the remainder is exactly the
