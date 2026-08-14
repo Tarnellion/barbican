@@ -181,6 +181,81 @@ export function cellKey(finding) {
 }
 
 /**
+ * The report against itself.
+ *
+ * The oracle compares **which cells** are broken and is blind to what the report
+ * says about them: `cellKey` is built from account, endpoint, kind and resource,
+ * so `relation`, `contextId` and the whole of `evidence` take no part in it.
+ * A mutation campaign on 14 August gutted all three and the verification stayed
+ * green — as did the unit suite. The strongest gate in the project was checking
+ * the list of findings and nothing about the document that carries it.
+ *
+ * These are the invariants that need no ground truth: they hold for any run
+ * whatever the platform answered, so they cost nothing to state and catch a
+ * regression in the aggregation that leaves the finding list itself correct.
+ *
+ * Not here: `cellsMatched + findings === cellsObserved`. It is documented in
+ * `docs/report.md` and does **not** hold today — a cell can be `match: true` and
+ * carry a body finding at once. That is an open finding of its own, and
+ * asserting it now would make this gate red for a reason it did not find.
+ */
+function checkReportConsistency(report) {
+  const problems = [];
+  const findings = report.findings ?? [];
+  const summary = report.summary ?? {};
+  const sum = (counts) => Object.values(counts ?? {}).reduce((total, one) => total + one, 0);
+
+  const say = (what, declared, counted) => {
+    if (declared !== counted) {
+      problems.push(`${what}: the summary says ${declared}, the body has ${counted}`);
+    }
+  };
+
+  say("findings", summary.findings, findings.length);
+  say("observations", summary.observations, (report.observations ?? []).length);
+  say("bySeverity totals", sum(summary.bySeverity), findings.length);
+  say("byKind totals", sum(summary.byKind), findings.length);
+  say(
+    "checkFindings",
+    summary.checkFindings,
+    findings.filter((one) => one.source === "check").length,
+  );
+  say("defectGroups", summary.defectGroups, (report.defects ?? []).length);
+  say(
+    "violations across the defect groups",
+    (report.defects ?? []).reduce((total, group) => total + group.violations, 0),
+    findings.length,
+  );
+
+  // Grouping is by the signature "endpoint × kind × relation × conditions", so
+  // the two sets of signatures are the same set seen twice. A group that lost
+  // `relation`, or a finding that lost `contextId`, shows up here and nowhere
+  // else: the finding list stays right, and only the aggregation is wrong.
+  const signature = (one) =>
+    `${one.endpointId} × ${one.kind} × ${one.relation ?? "—"} × ${one.contextId ?? "—"}`;
+  const inFindings = new Set(findings.map(signature));
+  const inGroups = new Set((report.defects ?? []).map(signature));
+  for (const missing of [...inFindings].filter((one) => !inGroups.has(one)).sort()) {
+    problems.push(`no defect group for the signature ${missing}`);
+  }
+  for (const extra of [...inGroups].filter((one) => !inFindings.has(one)).sort()) {
+    problems.push(`a defect group with a signature no finding has: ${extra}`);
+  }
+
+  // The conditions are spelled twice — in the account's name and in the field —
+  // and a finding that loses the field still reproduces the baseline case, not
+  // the one that was found.
+  for (const finding of findings) {
+    const suffix = String(finding.accountId ?? "").split("@")[1];
+    if (suffix !== finding.contextId) {
+      problems.push(`finding for ${finding.accountId} says contextId ${finding.contextId ?? "—"}`);
+    }
+  }
+
+  return problems;
+}
+
+/**
  * Compares the tool's report against the variant's expectations.
  *
  * A comparison over sets in both directions: what was missed and what was extra are
@@ -217,6 +292,10 @@ export function compareVariant(variant, report, exitCode) {
   if ((report.unauthenticated ?? []).length > 0) {
     problems.push(`accounts with no access anywhere: ${report.unauthenticated.join(", ")}`);
   }
+  if ((report.staleCredentials ?? []).length > 0) {
+    problems.push(`credentials went stale mid-run: ${report.staleCredentials.join(", ")}`);
+  }
+  problems.push(...checkReportConsistency(report));
 
   return { missing, unexpected, problems };
 }

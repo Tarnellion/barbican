@@ -224,6 +224,16 @@ describe("cellKey", () => {
 
 describe("compareVariant", () => {
   const broken = MINIMAL.variants[1] as Variant;
+  /**
+   * A whole report rather than the two fields the key is built from.
+   *
+   * `compareVariant` now also checks the report against itself — the counters
+   * against the body, the defect signatures against the findings' — because the
+   * oracle was blind to everything but which cells were broken, and three
+   * mutations that gutted the aggregation passed it. A stub with no summary
+   * would make that half of the comparison vacuous here, which is the very shape
+   * of problem it exists to catch.
+   */
   const matching = {
     findings: [
       {
@@ -231,9 +241,28 @@ describe("compareVariant", () => {
         endpointId: "orders.read",
         resourceId: "o-1",
         kind: "privilege-escalation",
+        source: "matrix",
       },
     ],
-    checks: [],
+    observations: [{ accountId: "alice", endpointId: "orders.read" }],
+    defects: [
+      {
+        endpointId: "orders.read",
+        kind: "privilege-escalation",
+        severity: "high",
+        accountIds: ["alice"],
+        resourceIds: ["o-1"],
+        violations: 1,
+      },
+    ],
+    summary: {
+      findings: 1,
+      observations: 1,
+      checkFindings: 0,
+      defectGroups: 1,
+      bySeverity: { info: 0, low: 0, medium: 0, high: 1, critical: 0 },
+      byKind: { "privilege-escalation": 1 },
+    },
   };
 
   it("stays silent on a full match", () => {

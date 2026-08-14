@@ -140,6 +140,34 @@ describe("identical-response-across-tenants", () => {
     expect(findings[0]?.title).toContain("Response digest");
   });
 
+  /**
+   * The audit of 14 August inverted the filter in `scalarsOf`, so the evidence
+   * carried the digest instead of the declared scalars — and neither the unit
+   * suite nor the oracle noticed. The oracle by construction: it compares which
+   * cells are broken, never what the report says about them.
+   *
+   * The declared scalars are the whole reason evidence exists: "alice sees 4
+   * records and carol sees 4" is an argument a developer can act on, "the
+   * digests matched" is not. Inverting the filter replaces them with a
+   * per-side copy of the digest — the one thing the reader already has under
+   * `bodyDigestsEqual`, and the one thing that means nothing outside this run.
+   */
+  it("carries the scalars a human declared, per side", () => {
+    const findings = check.run({
+      matrix: matrixOf([
+        observed("alice-a", 111, { signals: { digest: 111, orderCount: 4 } }),
+        observed("carol-b", 111, { signals: { digest: 111, orderCount: 7 } }),
+      ]),
+    });
+
+    expect(findings[0]?.evidence["own.orderCount"]).toBe(4);
+    expect(findings[0]?.evidence["other.orderCount"]).toBe(7);
+    // The digest is not repeated per side: `own.digest` and `other.digest` are
+    // what the inverted filter produces instead of the scalars above.
+    expect(findings[0]?.evidence).not.toHaveProperty("own.digest");
+    expect(findings[0]?.evidence).not.toHaveProperty("other.digest");
+  });
+
   it("stays silent when the responses differ", () => {
     const findings = check.run({
       matrix: matrixOf([observed("alice-a", 111), observed("carol-b", 222)]),

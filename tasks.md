@@ -690,12 +690,21 @@ the run. Generation does not reach a number inside a sentence.
 - [ ] **E-7.** Packaging is checked by nothing in CI — no `publint`, no `attw`, no
       pack, no install from the tarball. Every packaging finding below would have
       passed a release unnoticed.
-- [ ] **C-3.** The **content** of the report is guarded by nothing. Three
+- [x] **C-3.** The **content** of the report is guarded by nothing — closed 14 August
+      on both sides. The oracle now checks the report against itself, which catches
+      a group that lost `relation` and a finding that lost `contextId`; the
+      evidence is pinned by a unit test, because the oracle cannot see it by
+      construction. Original finding: Three
       mutations that gut `evidence` pass the unit suite **and the oracle**: the
       digest leaks into evidence in place of the declared scalars, a finding loses
       `contextId`, a defect group loses `relation`. `cellKey()` compares
       coordinates and never looks at `relation`, `contextId` or evidence.
-- [ ] **B-15.** The oracle reads four summary counters and the exit code;
+- [x] **B-15.** The oracle reads four summary counters — closed 14 August together
+      with C-3: `checkReportConsistency` in `tools/oracle/index.mjs` compares the
+      counters against the body and the defect signatures against the findings',
+      for all three polygons. `cellsMatched + findings === cellsObserved` is
+      deliberately not among them: it is documented and does not hold (B-2).
+      Original finding: and the exit code;
       `bySeverity`, `defectGroups` and `coverage.cellsMatched` are not checked. It
       compares **sets**, so duplicated rows are invisible by construction.
 - [ ] **E-3.** The published package carries **9 broken relative links**
