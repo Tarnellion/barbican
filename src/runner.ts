@@ -17,7 +17,13 @@ import type {
   SignalValue,
   TenantId,
 } from "./core/index.js";
-import { DEFAULT_DIGEST_SIGNAL, principalOf, resourceApplies, SAFE_METHODS } from "./core/index.js";
+import {
+  DEFAULT_DIGEST_SIGNAL,
+  isUsablePathSegment,
+  principalOf,
+  resourceApplies,
+  SAFE_METHODS,
+} from "./core/index.js";
 
 /**
  * What is computed over the body of a marked endpoint.
@@ -228,11 +234,48 @@ function baseUrlForTenant(
 
 const PARAMETER_NAME = /\{([^}]+)\}/g;
 
-/** Substitutes the resource's values into the path template. */
+/**
+ * Substitutes the resource's values into the path template.
+ *
+ * A value that is not a segment stops this cell rather than quietly changing the
+ * address. Configuration refuses those three values at startup; this is the same
+ * refusal for whoever assembles resources through the library, and the caller
+ * records it as a failure of one cell.
+ *
+ * A missing name still yields an empty segment on purpose — the template asked
+ * for a parameter the resource does not describe, and that is a mismatch between
+ * the two, caught by `resourceApplies` before it gets here.
+ */
 function substitute(path: string, resource: Resource): string {
-  return path.replace(PARAMETER_NAME, (_match, name: string) =>
-    encodeURIComponent(Object.hasOwn(resource.params, name) ? (resource.params[name] ?? "") : ""),
-  );
+  return path.replace(PARAMETER_NAME, (_match, name: string) => {
+    if (!Object.hasOwn(resource.params, name)) {
+      return "";
+    }
+    const value = resource.params[name] ?? "";
+    if (!isUsablePathSegment(value)) {
+      throw new UnusablePathValueError(resource.id, name, value);
+    }
+    return encodeURIComponent(value);
+  });
+}
+
+/**
+ * A resource value that would change which endpoint is addressed.
+ *
+ * Found by the audit of 14 August: `.` in a path parameter sent the request to
+ * the neighbouring collection endpoint, which the configuration had excluded,
+ * and the verdict for the parameterised endpoint was then computed from that
+ * answer.
+ */
+export class UnusablePathValueError extends Error {
+  constructor(resourceId: string, name: string, value: string) {
+    super(
+      `Resource "${resourceId}" gives path parameter "${name}" the value ` +
+        `"${value}", which is path navigation rather than an identifier: the ` +
+        `request would go to a different address than the endpoint names.`,
+    );
+    this.name = "UnusablePathValueError";
+  }
 }
 
 function withQuery(
@@ -571,7 +614,6 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         continue;
       }
       const startedAt = Date.now();
-      const path = resource === undefined ? endpoint.path : substitute(endpoint.path, resource);
       const tenantId = resource?.tenantId ?? account.tenantId;
       const baseUrl = baseUrlForTenant(tenantId, options.tenantBaseUrls, options.baseUrl);
       // The scope check is over the finished path, not over the template: a
@@ -579,6 +621,7 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       // because the template was checked before substitution.
       let url: string;
       try {
+        const path = resource === undefined ? endpoint.path : substitute(endpoint.path, resource);
         url = withQuery(joinUrl(baseUrl, path), resource, attributes?.query);
       } catch (cause) {
         failures.push({

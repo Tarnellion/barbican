@@ -26,6 +26,7 @@ import {
   createTenantHierarchy,
   DEFAULT_DIGEST_SIGNAL,
   FLAT_HIERARCHY,
+  isUsablePathSegment,
   RESOURCE_RELATIONS,
 } from "../core/index.js";
 
@@ -666,6 +667,39 @@ export class DuplicateResourceIdError extends Error {
   }
 }
 
+/**
+ * A path parameter whose value is not a segment.
+ *
+ * Found by the audit of 14 August. `params: { orderId: "." }` on the template
+ * `/v1/orders/{orderId}` produced a request to `/v1/orders/` — the **list**
+ * endpoint, which the configuration had put in `exclude`. Two things broke at
+ * once: the exclusion list, which exists precisely for addresses that must not
+ * be touched, and the verdict, which was computed for `orders.read` from an
+ * answer that `orders.list` gave.
+ *
+ * `encodeURIComponent` does not catch it: a dot is unreserved, so it survives
+ * encoding and then works as navigation. The scope guard in `joinUrl` does not
+ * either, and cannot — this is not a request leaving the base path but a request
+ * addressing a different endpoint inside it.
+ *
+ * Refused at parsing: a resource identifier is written by a human, and none of
+ * these three is ever a real one.
+ */
+export class UnusablePathParameterError extends Error {
+  constructor(resourceId: string, name: string, value: string) {
+    const shown = value === "" ? "an empty string" : `"${value}"`;
+    super(
+      `Resource "${resourceId}" gives path parameter "${name}" ${shown}, which is ` +
+        `not an identifier but a piece of path navigation. Substituted into a ` +
+        `template it changes which endpoint is addressed: the request goes to a ` +
+        `neighbouring address, the exclusion list is bypassed, and the verdict is ` +
+        `computed for the endpoint that was declared rather than the one that ` +
+        `answered.`,
+    );
+    this.name = "UnusablePathParameterError";
+  }
+}
+
 export class UnknownResourceOwnerError extends Error {
   constructor(resourceId: string, owner: string) {
     super(
@@ -1203,6 +1237,11 @@ export function parseRunConfig(source: string): RunConfig {
     resourceIds.add(declared.id);
     if (declared.owner !== undefined && !seen.has(declared.owner)) {
       throw new UnknownResourceOwnerError(declared.id, declared.owner);
+    }
+    for (const [name, value] of Object.entries(declared.params ?? {})) {
+      if (!isUsablePathSegment(value)) {
+        throw new UnusablePathParameterError(declared.id, name, value);
+      }
     }
     const tenant = declared.tenant.trim();
     // A resource's tenant is checked against the declared ones, and when there are

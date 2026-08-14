@@ -800,12 +800,22 @@ describe("a resource's value does not divert the request", () => {
     return { seen, result };
   }
 
-  // The mechanism is subtler than it looks: encodeURIComponent encodes the
-  // slash but NOT the dots, so a bare `..` climbs exactly one level up. When
-  // the parameter sits at the start of the path, that is enough to leave the
-  // declared base path. The scope check ran over the template, before
-  // substitution, and did not see this.
-  it("does not let a value with .. escape the base path", async () => {
+  /**
+   * The mechanism is subtler than it looks: encodeURIComponent encodes the slash
+   * but NOT the dots, so a bare `..` climbs exactly one level up. When the
+   * parameter sits at the start of the path, that is enough to leave the declared
+   * base path. The scope check ran over the template, before substitution, and
+   * did not see this.
+   *
+   * The refusal moved earlier after the audit of 14 August: such a value is now
+   * rejected while the address is being assembled, rather than caught by the
+   * scope guard afterwards. The guard only ever saw the case where there was a
+   * base path to climb out of — with a `baseUrl` of bare origin there is nothing
+   * above `/`, and the same value instead addressed a **neighbouring endpoint**
+   * inside the target, which no scope check can catch. Either way the request
+   * does not go out, and that is what this asserts.
+   */
+  it("does not let a value with .. divert the request", async () => {
     const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
 
     const result = await collectObservations({
@@ -818,7 +828,31 @@ describe("a resource's value does not divert the request", () => {
     });
 
     expect(seen).toEqual([]);
-    expect(result.failures[0]?.reason).toContain("would send the request");
+    expect(result.failures[0]?.reason).toContain("path navigation rather than an identifier");
+  });
+
+  /**
+   * The case the scope guard cannot reach, and the one the audit actually found:
+   * a bare origin as the target, `.` as the value. Nothing leaves the base path —
+   * there is nothing above `/` — and the request lands on the collection endpoint
+   * next door, the one `exclude` was there to protect.
+   */
+  it("does not let a value of . address the neighbouring endpoint", async () => {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: [{ id: "orders.read", method: "GET", path: "/v1/orders/{orderId}" }],
+      accounts: one,
+      credentials,
+      client,
+      resources: [{ id: "r", tenantId: "t", params: { orderId: "." } }],
+    });
+
+    // Before the fix this sent GET /v1/orders/ and recorded its answer as the
+    // verdict for orders.read.
+    expect(seen).toEqual([]);
+    expect(result.failures[0]?.reason).toContain("path navigation rather than an identifier");
   });
 
   it("a slash in the value gets encoded and gives no bypass", async () => {

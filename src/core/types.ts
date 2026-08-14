@@ -177,12 +177,36 @@ export type SignalSpec =
  * ADR-0010. The statement "resource 1001 belongs to player A" is a claim of
  * intent, exactly like the access policy itself.
  */
+/**
+ * Whether a value can stand in for a path parameter.
+ *
+ * Three cannot, and they are the same three everywhere a path is assembled: an
+ * empty string, `.` and `..`. Substituted into a template they are not
+ * identifiers but navigation — `/v1/orders/{orderId}` with `.` becomes
+ * `/v1/orders/`, which is a different endpoint.
+ *
+ * `encodeURIComponent` is no defence: a dot is unreserved and comes through
+ * untouched. Nor is the scope guard when the address is assembled, because
+ * nothing left the base path — the request simply went somewhere else inside it.
+ *
+ * In the core, and not beside either place that needs it, because both do: the
+ * configuration refuses such a value at startup, and the walk refuses to build
+ * an address from one for whoever assembles resources through the library.
+ */
+export function isUsablePathSegment(value: string): boolean {
+  return value !== "" && value !== "." && value !== "..";
+}
+
 export interface Resource {
   readonly id: string;
   readonly tenantId: TenantId;
   /** The owning account. Absent when the resource belongs to the tenant as a whole. */
   readonly ownerAccountId?: string;
-  /** Values for the path parameters, by the names in the template. */
+  /**
+   * Values for the path parameters, by the names in the template.
+   *
+   * Every value is a segment, never navigation: see {@link isUsablePathSegment}.
+   */
   readonly params: Readonly<Record<string, string>>;
   /** Query string parameters. */
   readonly query?: Readonly<Record<string, string>>;

@@ -35,6 +35,7 @@ import {
   UnknownEndpointReferenceError,
   UnknownResourceOwnerError,
   UnknownTenantError,
+  UnusablePathParameterError,
   UnusedAuthSchemeError,
 } from "../../src/io/config.js";
 
@@ -368,6 +369,34 @@ policy:
 
     expect(broken).toThrow(DuplicateResourceIdError);
     expect(broken).toThrow(/A resource with id/);
+  });
+
+  /**
+   * Found by the audit of 14 August. `params: { playerId: "." }` on the template
+   * `/v1/players/{playerId}` produced a request to `/v1/players/` — the
+   * collection endpoint next door, which that configuration had put in
+   * `exclude`. Two guarantees fell together: the exclusion list, which is the
+   * only defence against a GET that must not be issued, and the verdict, which
+   * was computed for the parameterised endpoint out of the collection's answer.
+   *
+   * `encodeURIComponent` does not help — a dot is unreserved. Nor does the scope
+   * guard, and it never could: nothing left the target, the request simply went
+   * somewhere else inside it.
+   */
+  it.each([".", "..", ""])("rejects a path parameter value of %o", (value) => {
+    const broken = () =>
+      parseRunConfig(WITH_RESOURCES.replace('playerId: "1001"', `playerId: "${value}"`));
+
+    expect(broken).toThrow(UnusablePathParameterError);
+    expect(broken).toThrow(/which endpoint is addressed/);
+  });
+
+  // A value that merely contains dots is an identifier like any other: the slash
+  // is encoded, and nothing navigates.
+  it("keeps accepting a value that only looks like navigation", () => {
+    const config = parseRunConfig(WITH_RESOURCES.replace('playerId: "1001"', 'playerId: "../.."'));
+
+    expect(config.resources[0]?.params).toEqual({ playerId: "../.." });
   });
 
   it("with no resources the list is empty, not absent", () => {

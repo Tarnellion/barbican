@@ -478,7 +478,11 @@ Nothing here is fixed yet. The order of work is at the end.
       ADR-0005 addendum called the response-header denylist "structurally wrong:
       every name that will ever carry a secret cannot be enumerated" and replaced
       it with an allowlist.
-- [ ] **D-1. A resource value of `.` or `..` walks out of `exclude`.**
+- [x] **D-1. A resource value of `.` or `..` walks out of `exclude`.** Closed 14
+      August: `isUsablePathSegment` in the core, refused at parsing and again while
+      the address is assembled. The scope guard was never the defence here and
+      could not be — nothing leaves the target, the request goes somewhere else
+      inside it. Original finding:
       `encodeURIComponent` escapes the slash and not the dot, so a `.` segment
       survives and navigates. The guard in `joinUrl` compares
       `resolved.pathname.startsWith(base.pathname)`, and with a `baseUrl` that
