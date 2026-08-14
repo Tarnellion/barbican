@@ -348,6 +348,66 @@ Left over from this topic:
 - [ ] SoD is **not to be done** in this module: it requires writes and state, and belongs
       to a different class of tool. Record the decision if it is ever disputed.
 
+## Walking through adoption on a real platform (14 August 2026)
+
+Not a review and not a run: a walk through the questions someone asks when they
+already have a platform, an OpenAPI document and a Roles & Access Matrix, and
+want to know what else it will cost them. Two contours — staff with their own
+accesses, customers with roles and **statuses**. The exercise found gaps of two
+kinds, and the second kind is the larger one: places where the tool can do the
+thing and nowhere says so.
+
+### The model cannot express it
+
+- [ ] **A contour has no address of its own.** A base address can be declared on a
+      **tenant** (brands are spread across subdomains), never on an authentication
+      scheme. Contours split across subdomains — `admin.example.com` beside
+      `api.example.com` — therefore need two runs, and two runs lose the surface ×
+      surface matrix: whether the operator's cookie opens a customer endpoint, and
+      whether the customer's token reaches an administrative one. That matrix is
+      the reason ADR-0016 exists, so the gap cancels the feature exactly where it
+      was meant to pay off. The obvious workaround — declaring a contour as a
+      tenant to borrow its `baseUrl` — must stay forbidden: it would make `own`,
+      `same-tenant` and `foreign-tenant` mean something else, and the findings
+      would be noise rather than wrong. Likely shape: an optional `baseUrl` on an
+      entry in `authSchemes`, with the host still required to be in
+      `allowedHosts`.
+- [ ] **Granted access is not a relation.** The five relations describe **belonging**
+      — whose the resource is and how the tenants are related. They cannot say
+      "Anna shared this document with Boris". On any platform with sharing, an ACL
+      or a guest link, the whole class is out of reach: a legitimate share and a
+      leak are the same `same-tenant` cell. Needs thought before it is promised
+      anywhere.
+- [ ] **Permissions that depend on the resource's state** — a draft may be edited, a
+      published one may not. Works around to declaring two resources with different
+      identifiers and separate rules, which is honest and costs a line. Worth a
+      paragraph so nobody concludes it is impossible.
+- [ ] **Permissions that depend on the request body.** Conditions carry headers and
+      query parameters only. A deliberate boundary today, and it is the boundary a
+      platform reaches the moment an endpoint decides by a field in the payload.
+
+### The documentation does not say it
+
+- [ ] **What `role` actually is.** It is a label for a group of accounts expected to
+      have the **same** access — it need not match the platform's own role names,
+      and nothing in the guide says so. The whole question of how to model customer
+      statuses hangs off this sentence, and today a reader has to infer it.
+- [ ] **A status of an account is not a condition of a request, and the two are easy
+      to confuse.** A blocked customer, an unverified one, a VIP tier — persistent
+      state, expressed as separate accounts under distinct role labels, and each
+      needs a real account in that state. A customer from a prohibited country, an
+      unrecognised device — conditions of the request, expressed as a `context`
+      over one account. Pick the wrong one and you either cannot get the accounts,
+      or you check a restriction where you meant to check an entitlement.
+- [ ] **How to carry over an existing Roles & Access Matrix.** This is the most
+      common way in: the matrix already exists, usually as a spreadsheet of ticks
+      down "role × endpoint". Every tick has an invisible asterisk — **own or
+      anyone's?** — and that asterisk is precisely where BOLA lives, because by the
+      tick a broken platform is indistinguishable from a healthy one. The guide
+      should show one row of such a matrix turning into rules with `scope`, and say
+      out loud that a matrix exported from the code or generated from the same
+      specification is worthless here for the reason in ADR-0006.
+
 ## Readiness for different authentication surfaces
 
 - [x] **ADR-0016: an authentication scheme per account.** Named schemes at the root,
