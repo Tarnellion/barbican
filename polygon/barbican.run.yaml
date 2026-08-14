@@ -330,6 +330,31 @@ policy:
       scope: ancestor-tenant
       outcome: denied
 
+    # Cancelling is a write, and the rights for it are not the rights for reading.
+    # A player may cancel their own order; an administrator, anything inside their
+    # tenant; support, inside the brands it belongs to.
+    - roles: [user]
+      endpoints: [orders.cancel]
+      scope: own
+      outcome: allowed
+    - roles: [admin]
+      endpoints: [orders.cancel]
+      scope: same-tenant
+      outcome: allowed
+    - roles: [support]
+      endpoints: [orders.cancel]
+      scope: same-tenant
+      outcome: allowed
+
+    # A holding may read the rollup of its brands and may **not** cancel their
+    # orders. The rule states it rather than leaving it to the fallback: a sweeping
+    # read by a licensee is not a right to act, and the difference between reading
+    # and writing is exactly what this endpoint exists to check.
+    - roles: [holding]
+      endpoints: [orders.cancel]
+      scope: descendant-tenant
+      outcome: denied
+
     # From the prohibited jurisdiction orders are served to nobody — neither one's
     # own nor foreign ones.
     #

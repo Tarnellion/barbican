@@ -52,6 +52,16 @@
       "title": "A hidden query parameter widens the listing: ?scope=all removes the tenant filter in the brand list GET /v1/orders",
       "visibility": "body-signal",
       "note": "A hidden query parameter removes the tenant filter: the filter is there, but it is switched off by a context attribute. It differs from POLYGON_DEFECT_LIST_NO_FILTER both in mechanics and in the set of cells: that one is visible on base requests, this one only under the conditions where the parameter is declared (wide-scope), and on base requests it does not show at all. The status does not change — 200 both with the defect and without — so it is visible only through a signal over the body. Hits the same 6 pairs as list-no-filter, but in different cells: the three accounts of tenant-a against the two accounts of tenant-b, all under the wide-scope conditions. The holding and support are not hit: they have listing branches of their own, the parameter does not reach them, and their bodies keep their attribution by brand. The list is closed to the affiliate (403), the anonymous account gets 401. The conditions with a query parameter were introduced on the polygon for the sake of this flag: an attribute in the query string travels a different path than a header — through the building of the address — and without such a cell the claim \"the parameter reaches the platform\" would rest on a single unit test."
+    },
+    "POLYGON_DEFECT_WRITE_CROSS_TENANT": {
+      "title": "No tenant filter on a write: POST /v1/orders/{orderId}/cancel cancels an order of another tenant instead of refusing — 200 instead of 403",
+      "visibility": "status",
+      "note": "No tenant filter on a write. A mirror of POLYGON_DEFECT_CROSS_TENANT on POST, and it affects the same 10 cells: two foreign orders for each of the five brand accounts. What makes it worth having is not the branch in the code but the method: without it the whole write path of the tool — the --unsafe-methods flag, the skip of write endpoints without it, writeMethodsProbed in the report — was not proved by a single cell. The holding is not affected in either direction: reading a rollup of its brands is allowed to it, cancelling their orders is not, and the platform refuses it in every mode. The affiliate is refused as well; the anonymous account gets 401."
+    },
+    "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": {
+      "title": "No owner check on a write: a player cancels a neighbour's order inside their own tenant — 200 instead of 403",
+      "visibility": "status",
+      "note": "No owner check on a write, the counterpart of POLYGON_DEFECT_IDOR_SAME_TENANT. Affects 4 cells: each of the four players against the order of their neighbour in the same tenant. The administrator is not affected — everything inside the tenant is allowed to them in any mode. On a real platform this is the more expensive of the two: reading someone else's order leaks data, cancelling it takes money away from them."
     }
   },
   "variants": [
@@ -67,7 +77,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 0,
       "findings": []
@@ -84,7 +96,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -182,7 +196,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -256,7 +272,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -306,7 +324,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -340,7 +360,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -406,7 +428,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": true,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -464,7 +488,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": true,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -498,7 +524,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -652,7 +680,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -782,7 +812,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -888,7 +920,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -1002,7 +1036,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -1084,7 +1120,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": true,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -1150,7 +1188,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -1336,7 +1376,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -1451,7 +1493,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": true,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "note": "The request conditions as a dimension of the matrix. In the correct mode the same cells give 451 — a denial for legal reasons — and there are no findings; from which it also follows that not one previous combination is touched by this flag: without it the geo cells answer 451 under any other defects.",
@@ -1611,6 +1655,162 @@
       ]
     },
     {
+      "id": "write-cross-tenant",
+      "selector": {
+        "POLYGON_DEFECT_CROSS_TENANT": false,
+        "POLYGON_DEFECT_NO_ROLE_CHECK": false,
+        "POLYGON_DEFECT_IDOR_SAME_TENANT": false,
+        "POLYGON_DEFECT_LIST_NO_FILTER": false,
+        "POLYGON_DEFECT_CROSS_HOLDING": false,
+        "POLYGON_DEFECT_ANCESTOR_LEAK": false,
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
+        "POLYGON_DEFECT_GEO_BYPASS": false,
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": true,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
+      },
+      "unsafeMethods": true,
+      "expectedExitCode": 1,
+      "note": "The first variant that runs with --unsafe-methods. Without the flag orders.cancel is skipped and the report says so; with it the same matrix machinery walks it, and a write cell turns out to be an ordinary cell whose method changes state.",
+      "findings": [
+        {
+          "account": "alice-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.cancel",
+          "resource": "order-a-1001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.cancel",
+          "resource": "order-a-1002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.cancel",
+          "resource": "order-a-1001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.cancel",
+          "resource": "order-a-1002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        }
+      ]
+    },
+    {
+      "id": "write-no-owner-check",
+      "selector": {
+        "POLYGON_DEFECT_CROSS_TENANT": false,
+        "POLYGON_DEFECT_NO_ROLE_CHECK": false,
+        "POLYGON_DEFECT_IDOR_SAME_TENANT": false,
+        "POLYGON_DEFECT_LIST_NO_FILTER": false,
+        "POLYGON_DEFECT_CROSS_HOLDING": false,
+        "POLYGON_DEFECT_ANCESTOR_LEAK": false,
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
+        "POLYGON_DEFECT_GEO_BYPASS": false,
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": true
+      },
+      "unsafeMethods": true,
+      "expectedExitCode": 1,
+      "note": "The write counterpart of idor-same-tenant. The sets of cells of the two write defects do not intersect, for the same reason the read ones do not: one lives on foreign tenants, the other inside one's own.",
+      "findings": [
+        {
+          "account": "alice-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-a-1002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_NO_OWNER_CHECK"]
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-a-1001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_NO_OWNER_CHECK"]
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_NO_OWNER_CHECK"]
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_NO_OWNER_CHECK"]
+        }
+      ]
+    },
+    {
       "id": "all-four",
       "selector": {
         "POLYGON_DEFECT_CROSS_TENANT": true,
@@ -1622,7 +1822,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -1904,7 +2106,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -2202,7 +2406,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -2548,7 +2754,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": true,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -2894,7 +3102,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": true,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": true,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "findings": [
@@ -3256,7 +3466,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": false,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
         "POLYGON_DEFECT_GEO_BYPASS": false,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": true
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": true,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "note": "The conditions with a query parameter. There are no matrix discrepancies and there must not be: the parameter by itself neither grants nor takes away permissions, and the outcome stays as it was. What breaks is the content of the response, and that is visible only by comparing bodies within one and the same set of conditions — the pair \"a base request against a request with the parameter\" is deliberately not compared, two variables would change there at once (ADR-0019).",
@@ -3323,7 +3535,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": true,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": true,
         "POLYGON_DEFECT_GEO_BYPASS": true,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "note": "All nine defects at once. The findings must be a union: the discrepancies of the base conditions — the same as in all-eight, cell for cell — plus the same defects seen under the geo-blocked conditions. The claim of orthogonality is tested right here: the conditions change not one base cell, while the geo cells repeat the picture of permissions, because with the geo barrier removed the same authorization runs. There is one exception, and a substantive one: the collapsed set of memberships is visible in the base conditions as a denial (unexpected-denial on sara-ac), and under the geo conditions it is not visible at all — there a denial is the declared expectation.",
@@ -3998,7 +4212,9 @@
         "POLYGON_DEFECT_PARENT_LEAK": true,
         "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": true,
         "POLYGON_DEFECT_GEO_BYPASS": true,
-        "POLYGON_DEFECT_SCOPE_ALL_HONORED": true
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": true,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": false,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
       "note": "All ten defects at once, and the picture is identical to all-nine — cell for cell, 82 findings against 82. This is a claim, not a coincidence: the tenth defect, the hidden `?scope=all`, removes the tenant filter from the brand list, and with `list-no-filter` on there is no filter there any more — nothing left to remove. A defect invisible in the presence of another one is a normal thing, and it is worth having it visible as a number rather than as an argument. The six wide-scope pairs that `scope-all` produces on its own are already present in all-nine, produced there by `list-no-filter`.",
@@ -4658,6 +4874,140 @@
           "other": "dave-b@wide-scope",
           "kind": "identical-response-across-tenants",
           "defects": ["POLYGON_DEFECT_SCOPE_ALL_HONORED", "POLYGON_DEFECT_LIST_NO_FILTER"]
+        }
+      ]
+    },
+    {
+      "id": "both-writes",
+      "selector": {
+        "POLYGON_DEFECT_CROSS_TENANT": false,
+        "POLYGON_DEFECT_NO_ROLE_CHECK": false,
+        "POLYGON_DEFECT_IDOR_SAME_TENANT": false,
+        "POLYGON_DEFECT_LIST_NO_FILTER": false,
+        "POLYGON_DEFECT_CROSS_HOLDING": false,
+        "POLYGON_DEFECT_ANCESTOR_LEAK": false,
+        "POLYGON_DEFECT_PARENT_LEAK": false,
+        "POLYGON_DEFECT_PRIMARY_TENANT_ONLY": false,
+        "POLYGON_DEFECT_GEO_BYPASS": false,
+        "POLYGON_DEFECT_SCOPE_ALL_HONORED": false,
+        "POLYGON_DEFECT_WRITE_CROSS_TENANT": true,
+        "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": true
+      },
+      "unsafeMethods": true,
+      "expectedExitCode": 1,
+      "note": "Both write defects at once. The findings must be the union, 14 cells: the sets do not intersect, and that is the claim being checked, not an observation about the implementation.",
+      "findings": [
+        {
+          "account": "alice-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "admin-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.cancel",
+          "resource": "order-a-1001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.cancel",
+          "resource": "order-a-1002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.cancel",
+          "resource": "order-a-1001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.cancel",
+          "resource": "order-a-1002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_CROSS_TENANT"]
+        },
+        {
+          "account": "alice-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-a-1002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_NO_OWNER_CHECK"]
+        },
+        {
+          "account": "bob-a",
+          "endpoint": "orders.cancel",
+          "resource": "order-a-1001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_NO_OWNER_CHECK"]
+        },
+        {
+          "account": "carol-b",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2002",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_NO_OWNER_CHECK"]
+        },
+        {
+          "account": "dave-b",
+          "endpoint": "orders.cancel",
+          "resource": "order-b-2001",
+          "other": null,
+          "kind": "privilege-escalation",
+          "defects": ["POLYGON_DEFECT_WRITE_NO_OWNER_CHECK"]
         }
       ]
     }

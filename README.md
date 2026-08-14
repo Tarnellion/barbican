@@ -15,7 +15,9 @@ Validated against three targets — [crAPI](docs/polygons/crapi.md), VAmPI, and 
 
 - **Works today** — OpenAPI/Postman/manual endpoint sources, throttled probing across
   accounts and roles, path and query parameter substitution, cross-tenant and BOLA
-  detection, scalar signals over response bodies, JSON report and exit codes.
+  detection, scalar signals over response bodies, request conditions as a fourth
+  coordinate of a cell (geo, KYC, device — the part of ABAC that permissions cannot
+  express), a per-cell verdict in the report, JSON report and exit codes.
 - **Not yet** — see the limitation below, plus [tasks.md](tasks.md).
 
 ### Declare your tenant tree, or the old failure mode is still yours

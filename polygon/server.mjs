@@ -376,6 +376,27 @@ const DEFECT_FLAGS = {
    * that is no longer in the request.
    */
   scopeAllHonored: "POLYGON_DEFECT_SCOPE_ALL_HONORED",
+  /**
+   * No tenant filter on a **write**: an order of another tenant is cancelled
+   * instead of being refused.
+   *
+   * A mirror of `crossTenant` on POST, and a separate flag for the same reason
+   * the read one is separate from the rollup: reading and cancelling are
+   * different branches of the code and break independently. What makes this one
+   * worth having is not the branch, though, but the method — the whole write path
+   * of the tool (`--unsafe-methods`, the skip of write endpoints without it,
+   * `writeMethodsProbed` in the report) had no cell proving it worked.
+   */
+  writeCrossTenant: "POLYGON_DEFECT_WRITE_CROSS_TENANT",
+  /**
+   * No owner check on a write: a player cancels a neighbour's order inside their
+   * own tenant.
+   *
+   * The write counterpart of `idorSameTenant`. On a real platform this is the
+   * more expensive of the two: reading someone else's order leaks data, whereas
+   * cancelling it takes money away from them.
+   */
+  writeNoOwnerCheck: "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK",
 };
 
 class ConfigurationError extends Error {
@@ -421,6 +442,8 @@ function readDefects() {
     primaryTenantOnly: readFlag(DEFECT_FLAGS.primaryTenantOnly),
     geoBypass: readFlag(DEFECT_FLAGS.geoBypass),
     scopeAllHonored: readFlag(DEFECT_FLAGS.scopeAllHonored),
+    writeCrossTenant: readFlag(DEFECT_FLAGS.writeCrossTenant),
+    writeNoOwnerCheck: readFlag(DEFECT_FLAGS.writeNoOwnerCheck),
   };
 }
 
@@ -600,6 +623,40 @@ function authorizeOrder(account, order, defects) {
 }
 
 /**
+ * Access to cancelling an order — a **write**.
+ *
+ * A branch of its own rather than a reuse of `authorizeOrder`, and the difference
+ * is not cosmetic: a holding may read the rollup of its brands but may not cancel
+ * their orders. Reading and writing have different rules on a real platform, and
+ * a polygon where they coincide would not be able to show that.
+ */
+function authorizeCancel(account, order, defects) {
+  if (account.role === "affiliate") {
+    // Orders of a brand are not the affiliate's business, in any mode.
+    return 403;
+  }
+  if (account.role === "holding") {
+    // The point of the endpoint: the sweeping read of a licensee is not a right
+    // to act. Declared denied in the policy, and denied here.
+    return 403;
+  }
+  if (account.role === "support") {
+    return visibleTenants(account, defects).includes(order.tenant) ? 200 : 403;
+  }
+  if (order.tenant !== account.tenant) {
+    return defects.writeCrossTenant ? 200 : 403;
+  }
+  if (account.role === "admin") {
+    // An administrator of a tenant may cancel anything inside it.
+    return 200;
+  }
+  if (order.owner === account.id) {
+    return 200;
+  }
+  return defects.writeNoOwnerCheck ? 200 : 403;
+}
+
+/**
  * Access to a summary settlement statement.
  *
  * The statement has no user owner, so "one's own" here means exactly a match of
@@ -681,6 +738,7 @@ function send(res, status, payload) {
 }
 
 const ORDER_PATH = /^\/v1\/orders\/([^/]+)$/;
+const CANCEL_PATH = /^\/v1\/orders\/([^/]+)\/cancel$/;
 const STATEMENT_PATH = /^\/v1\/statements\/([^/]+)$/;
 
 /** The list of endpoints. Duplicated in `endpoints.yaml` — there it is the human's declaration. */
@@ -707,16 +765,51 @@ function geoBlocked(headers, defects) {
   return typeof country === "string" && country.toUpperCase() === BLOCKED_COUNTRY;
 }
 
+/**
+ * Cancelling an order.
+ *
+ * The write changes state but not the outcome of any authorization: `cancelled`
+ * is set and never consulted. That is deliberate. The tool probes each cell once,
+ * but the cells share resources, and a write whose result depended on the order
+ * of the probes would make the oracle a function of the traversal order rather
+ * than of the platform.
+ */
+function handleCancel(req, res, context, pathname) {
+  const account = authenticate(req.headers, context.tokensByValue);
+  if (account === undefined) {
+    send(res, 401, { error: "unauthorized" });
+    return;
+  }
+  const orderId = decodeURIComponent(CANCEL_PATH.exec(pathname)?.[1] ?? "");
+  const order = ORDERS.find((entry) => entry.id === orderId);
+  if (order === undefined) {
+    send(res, 404, { error: "not_found" });
+    return;
+  }
+  const status = authorizeCancel(account, order, context.defects);
+  if (status !== 200) {
+    send(res, status, { error: "forbidden" });
+    return;
+  }
+  order.cancelled = true;
+  send(res, 200, { id: order.id, cancelled: true });
+}
+
 function handle(req, res, context) {
+  const { pathname, searchParams: query } = new URL(req.url ?? "/", `http://${HOST}`);
+
+  // One write endpoint, and everything else is read-only. The tool does not send
+  // unsafe methods without `--unsafe-methods`, so in an ordinary run this branch
+  // is never reached — which is exactly what the skipped-endpoint entry in the
+  // report has to prove.
+  if (req.method === "POST" && CANCEL_PATH.test(pathname)) {
+    handleCancel(req, res, context, pathname);
+    return;
+  }
   if (req.method !== "GET" && req.method !== "HEAD") {
-    // The platform does not implement unsafe methods: the tool does not send them
-    // without --unsafe-methods anyway, and there is no reason to keep a
-    // state-changing endpoint on a deployment that is run in a loop.
     send(res, 405, { error: "method_not_allowed" });
     return;
   }
-
-  const { pathname, searchParams: query } = new URL(req.url ?? "/", `http://${HOST}`);
 
   // A public endpoint: it answers everyone, the anonymous account included. It is
   // needed both as a readiness probe for verify.mjs and as a control — it is not

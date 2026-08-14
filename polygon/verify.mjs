@@ -46,6 +46,8 @@ const FLAG_FIELDS = {
   POLYGON_DEFECT_PRIMARY_TENANT_ONLY: "primaryTenantOnly",
   POLYGON_DEFECT_GEO_BYPASS: "geoBypass",
   POLYGON_DEFECT_SCOPE_ALL_HONORED: "scopeAllHonored",
+  POLYGON_DEFECT_WRITE_CROSS_TENANT: "writeCrossTenant",
+  POLYGON_DEFECT_WRITE_NO_OWNER_CHECK: "writeNoOwnerCheck",
 };
 
 /**
@@ -127,11 +129,16 @@ function stopServer(child) {
   });
 }
 
-function runCli(reportPath, environment) {
+function runCli(reportPath, environment, unsafeMethods) {
   return new Promise((done) => {
+    // The flag comes from the variant rather than from the command line: whether a
+    // write endpoint is probed is a property of the claim being checked, and a
+    // human deciding it per invocation would make the oracle depend on how the
+    // script was called.
+    const flags = unsafeMethods ? [...RUN_FLAGS, "--unsafe-methods"] : RUN_FLAGS;
     const child = spawn(
       process.execPath,
-      [CLI, "run", "-c", CONFIG, "-e", ENDPOINTS, "-r", reportPath, ...RUN_FLAGS],
+      [CLI, "run", "-c", CONFIG, "-e", ENDPOINTS, "-r", reportPath, ...flags],
       { env: environment, stdio: ["ignore", "pipe", "pipe"] },
     );
     let stdout = "";
@@ -295,7 +302,7 @@ async function main() {
     }
 
     const reportPath = join(reportDir, `${combination.id}.report.json`);
-    const result = await runCli(reportPath, environment);
+    const result = await runCli(reportPath, environment, combination.unsafeMethods === true);
     await stopServer(child);
 
     if (!existsSync(reportPath)) {

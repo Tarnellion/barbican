@@ -157,8 +157,16 @@ The reasoning — [ADR-0014](https://github.com/Tarnellion/barbican/blob/main/do
 | 1 | tested, there are discrepancies |
 | 2 | **the result cannot be trusted** |
 
-A 2 outranks a 1: what was not tested is never clean. It means there were no
-observations at all, the run was cut short, or the accounts did not authenticate.
+A 2 outranks a 1: what was not tested is never clean. It is returned when any of
+these holds:
+
+| Reason | What it means |
+|---|---|
+| no observations at all | the source gave no endpoints, or every cell was skipped |
+| `truncated: true` | the request budget ran out or the circuit breaker tripped, and the tail of the matrix was never reached |
+| an account got no access anywhere it was declared to have some | the credentials do not work, or the address is wrong |
+| **no canary was checked**, while at least one account carries credentials | authentication is confirmed by nothing. A policy made only of denials leaves the safety net above with nothing to say: nothing is declared accessible, so "no access anywhere" never triggers |
+| **half or more of the requests failed** | the report describes the state of the network or the deployment, not the platform. Fewer failures are ordinary partial failures: they are visible in `failures` and in `byKind`, and they do not cancel the verdicts on the cells that survived |
 
 An unexpected denial also gives **1**. The tool compares the declared intent
 against observed behaviour, and a discrepancy is a discrepancy whichever way it

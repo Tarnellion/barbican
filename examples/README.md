@@ -22,7 +22,7 @@ TOKEN_ALICE=… TOKEN_CAROL=… barbican run --config examples/minimal/barbican.
 ## A complete working example
 
 `polygon/` in the repository root is not an example but a deployment for testing
-the tool itself: a multi-tenant API with four switchable defects, a
+the tool itself: a multi-tenant API with twelve switchable defects, a
 machine-readable oracle and a verification script. It is worth looking there when
 what you need is not a template but a working configuration against a live server.
 

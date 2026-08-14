@@ -46,3 +46,11 @@ endpoints:
   - id: admin.accounts
     method: GET
     path: /v1/admin/accounts
+
+  # The only write endpoint. Without `--unsafe-methods` the tool skips it and says
+  # so in the report — and that skip is itself a claim worth proving. With the flag
+  # the same matrix machinery walks it, which is the point: a write cell is not a
+  # special case, it is a cell whose method changes state.
+  - id: orders.cancel
+    method: POST
+    path: /v1/orders/{orderId}/cancel

@@ -14,9 +14,11 @@ nothing away tests the reader's patience, not the tool. That is what burned the
 VAmPI switch: the `vulnerable=0/1` modes differed by body, and the reports
 matched byte for byte (ADR-0009).
 
-**Eight defects out of ten** are **visible in the response status**: 200 where a
+**Ten defects out of twelve** are **visible in the response status**: 200 where a
 correct implementation answers 403 or 451, or — in one of them — 403 where a
-correct one answers 200.
+correct one answers 200. Two of those ten live on a **write** and are reached only
+with `--unsafe-methods`; without the flag `orders.cancel` is skipped, and the skip
+appears in the report with its reason.
 
 The remaining two work differently. `POLYGON_DEFECT_LIST_NO_FILTER` on
 `GET /v1/orders` changes no status at all — 200 both with the defect and without
@@ -228,7 +230,12 @@ would be confirming that scheme overrides work on a tool that ignores them.
 
 ## Defects
 
-All ten are off by default. A value of `1` or `true` turns one on; `0`/`false`/
+All twelve are off by default. The last two live on a write endpoint and are
+reached only when the tool runs with `--unsafe-methods`; the oracle carries that
+flag on the variant rather than on the command line, because whether a write is
+probed is a property of the claim being checked, not of how the script was called.
+
+A value of `1` or `true` turns one on; `0`/`false`/
 absence turns it off. **Any other value is a refusal at startup**: a silently
 accepted typo like `=yes` would give a run with no findings, indistinguishable
 from a check of a correct platform.
@@ -245,6 +252,8 @@ from a check of a correct platform.
 | `POLYGON_DEFECT_LIST_NO_FILTER` | no tenant filter in the brand list `orders.list`; the status does not change, it is visible only by body | 6 pairs |
 | `POLYGON_DEFECT_GEO_BYPASS` | the jurisdiction of the request is not checked: orders are served from a prohibited country too — 200 instead of 451 | 19 |
 | `POLYGON_DEFECT_SCOPE_ALL_HONORED` | a hidden `?scope=all` removes the tenant filter in the brand list; the status does not change, it is visible only by body | 6 pairs |
+| `POLYGON_DEFECT_WRITE_CROSS_TENANT` | no tenant filter on a **write**: `POST /v1/orders/{orderId}/cancel` cancels an order of another tenant — 200 instead of 403 | 10 |
+| `POLYGON_DEFECT_WRITE_NO_OWNER_CHECK` | no owner check on a **write**: a player cancels the order of a neighbour inside their own tenant — 200 instead of 403 | 4 |
 
 `primary-tenant-only` stands apart in this list: it is the **only defect of the
 platform that shows itself as a denial** rather than as excess access, and
@@ -544,7 +553,7 @@ affecting the result, and it must not.
 
 <!-- verify:begin -->
 
-Cells probed per combination: 144. Combinations: 25.
+Cells probed per combination: 144. Combinations: 28.
 
 | Combination | Findings | Oracle expects | Verdict | Exit code |
 |---|---|---|---|---|
@@ -565,6 +574,8 @@ Cells probed per combination: 144. Combinations: 25.
 | `all`                            | 21 | 21 | match | 1 |
 | `list-no-filter`                 | 12, of them by body 12 | 12 | match | 1 |
 | `geo-bypass`                     | 19 | 19 | match | 1 |
+| `write-cross-tenant`             | 10 | 10 | match | 1 |
+| `write-no-owner-check`           | 4 | 4 | match | 1 |
 | `all-four`                       | 33, of them by body 12 | 33 | match | 1 |
 | `all-five`                       | 35, of them by body 12 | 35 | match | 1 |
 | `all-six`                        | 41, of them by body 12 | 41 | match | 1 |
@@ -573,6 +584,7 @@ Cells probed per combination: 144. Combinations: 25.
 | `scope-all`                      | 6, of them by body 6 | 6 | match | 1 |
 | `all-nine`                       | 82, of them by body 18 | 82 | match | 1 |
 | `all-ten`                        | 82, of them by body 18 | 82 | match | 1 |
+| `both-writes`                    | 14 | 14 | match | 1 |
 
 <!-- verify:end -->
 

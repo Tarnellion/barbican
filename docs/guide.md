@@ -53,8 +53,18 @@ tenant — and a leak of that tenant's own data would stop being a finding.
 
 `canary` is an endpoint this account is known to have access to. It is checked
 before the main run, and without it you cannot tell "access really is absent"
-from "we failed to authenticate". **Give every account a canary.** A run without
-them formally works, but its "clean" verdict rests on nothing.
+from "we failed to authenticate".
+
+**Every account with credentials needs one.** A run where no canary was checked
+ends with exit code 2 — the result cannot be trusted — because authentication is
+then confirmed by nothing. This is not pedantry: a deployment answering 401 to
+everything, with a policy made only of denials, produces a report with no findings
+at all, and every cell in it says "tested and agreed". An adversarial review built
+exactly that run.
+
+Accounts declared without credentials are exempt: an anonymous run has nothing to
+authenticate, and demanding a canary of it would forbid a legitimate scenario —
+"check that nobody at all can get in here".
 
 ### Authentication
 
@@ -178,6 +188,23 @@ policy:
 Every set of conditions gives its own matrix rows — `alice-a@geo-blocked` — and
 in the report they stand next to the baseline ones. The credentials are the same:
 what changes is the request, not the account.
+
+**An attribute value may come from the environment**, exactly like an account
+token. A device signature or a partner key belongs in a variable, not in a file
+that is meant to be committed:
+
+```yaml
+contexts:
+  - id: partner
+    headers:
+      x-partner-key: { env: PARTNER_KEY }   # the variable name, not the value
+      x-channel: mobile                     # a literal, when there is no secret
+    endpoints: [orders.list]
+```
+
+What goes into the report is the declaration — `{ "env": "PARTNER_KEY" }` — never
+the value. An unset variable, or a value that cannot be sent in a request, is a
+refusal at startup rather than an empty header mid-run.
 
 **A context attribute is an arbitrary header sent into someone else's system, and
 it has to be treated as exactly that.** At startup the tool rejects the ones that
@@ -494,9 +521,9 @@ cannot be turned off: it is a port, not an option.
 
 ## Working example
 
-`polygon/` in the repository root is a multi-tenant test platform with eight
-switchable defects, a three-level tenant tree, an account with a set of tenants
-and a machine-readable oracle:
+`polygon/` in the repository root is a multi-tenant test platform with twelve
+switchable defects, a three-level tenant tree, an account with a set of tenants,
+declared request conditions and a machine-readable oracle:
 
 ```bash
 pnpm run build
