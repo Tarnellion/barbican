@@ -266,6 +266,36 @@ export interface CanaryResult {
   readonly endpointId: string;
   readonly status: number;
   readonly authenticated: boolean;
+  /**
+   * Why the request never produced a status, when it did not: `ECONNREFUSED`,
+   * `ENOTFOUND`, `UND_ERR_CONNECT_TIMEOUT` and their like.
+   *
+   * A code and not a message. Found by a cold read: a dead port made the canary
+   * say "401 reads as a denial", and the reader spent a minute looking for a
+   * stale token instead of a wrong port. The two facts deserve two sentences.
+   *
+   * A code rather than the error text for the same reason `SignalValue` admits
+   * no strings: this field is serialized into the report, and a bounded
+   * vocabulary of symbols structurally cannot carry a URL with a token in it.
+   */
+  readonly failure?: string;
+}
+
+/**
+ * The transport failure's code, if the error carries one.
+ *
+ * `fetch` wraps the cause: the outer error is an unhelpful `TypeError: fetch
+ * failed`, and the code sits one or two levels down.
+ */
+function failureCode(error: unknown): string | undefined {
+  for (let current = error, depth = 0; current !== undefined && depth < 4; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string" && /^[A-Z][A-Z0-9_]*$/.test(code)) {
+      return code;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
 }
 
 export class UnknownCanaryEndpointError extends Error {
@@ -348,6 +378,7 @@ export async function probeCanaries(options: {
     );
 
     let status = 0;
+    let failure: string | undefined;
     try {
       const response = await options.client.send({
         method: endpoint.method,
@@ -358,8 +389,9 @@ export async function probeCanaries(options: {
         }),
       });
       status = response.status;
-    } catch {
+    } catch (error) {
       status = 0;
+      failure = failureCode(error) ?? "TRANSPORT";
     }
 
     results.push({
@@ -367,6 +399,7 @@ export async function probeCanaries(options: {
       endpointId: canary.endpointId,
       status,
       authenticated: status >= 200 && status < 300,
+      ...(failure === undefined ? {} : { failure }),
     });
   }
 
@@ -381,7 +414,30 @@ export async function probeCanaries(options: {
  * responses is settled. The skip is returned explicitly rather than by silence —
  * otherwise what was not checked would look as if it had been.
  */
-export async function collectObservations(options: CollectOptions): Promise<CollectResult> {
+/** What a run will and will not touch, decided before a single request goes out. */
+export interface EndpointPlan {
+  readonly probeable: readonly Endpoint[];
+  readonly skipped: readonly SkippedEndpoint[];
+}
+
+/**
+ * Splits the endpoints into the ones a run will probe and the ones it will not.
+ *
+ * A function of its own so that `--dry-run` can print the same answer the run
+ * acts on. Recomputing it beside the run would give a preview that agrees with
+ * reality until one of the two is edited — and a preview that lies about what
+ * will be touched is worse than no preview on someone else's deployment.
+ *
+ * Pure: no network, no clock, no file system.
+ */
+export function planEndpoints(options: {
+  readonly endpoints: readonly Endpoint[];
+  readonly baseUrl: string;
+  readonly resources?: readonly Resource[];
+  readonly exclude?: readonly string[];
+  readonly allowUnsafeMethods?: boolean;
+  readonly tenantBaseUrls?: ReadonlyMap<TenantId, string>;
+}): EndpointPlan {
   const probeable: Endpoint[] = [];
   const skipped: SkippedEndpoint[] = [];
   const excluded = new Set(options.exclude ?? []);
@@ -415,6 +471,12 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       probeable.push(endpoint);
     }
   }
+
+  return { probeable, skipped };
+}
+
+export async function collectObservations(options: CollectOptions): Promise<CollectResult> {
+  const { probeable, skipped } = planEndpoints(options);
 
   const observations: AccessObservation[] = [];
   const failures: ProbeFailure[] = [];

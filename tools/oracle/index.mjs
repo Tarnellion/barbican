@@ -6,7 +6,8 @@
  * cost as much as the first.
  *
  * It lives outside `src/` because it is tooling for testing the tool itself, not
- * part of the published package (`files: ["dist"]`).
+ * part of the published package: `files` carries the build, the documentation,
+ * the examples and the schema, and nothing that only serves to test the tool.
  */
 
 /**

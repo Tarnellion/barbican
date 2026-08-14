@@ -18,7 +18,9 @@ Validated against three targets — [crAPI](docs/polygons/crapi.md), VAmPI, and 
   detection, scalar signals over response bodies, request conditions as a fourth
   coordinate of a cell (geo, KYC, device — the part of ABAC that permissions cannot
   express), write methods behind `--unsafe-methods` with the skip recorded when the
-  flag is absent, a per-cell verdict in the report, JSON report and exit codes.
+  flag is absent, a `--dry-run` that shows the plan without sending anything, a JSON
+  Schema for editor completion, a per-cell verdict in the report, JSON report and
+  exit codes.
 - **Not yet** — see the limitation below, plus [tasks.md](tasks.md).
 
 ### Declare your tenant tree, or the old failure mode is still yours
@@ -88,8 +90,14 @@ a template to edit, not a demo to run:
 barbican run --config examples/minimal/barbican.run.yaml --endpoints examples/minimal/endpoints.yaml
 ```
 
-The package ships `docs/` and `examples/`, so after an install those files are under
-`node_modules/barbican/` — copy the pair out and edit them in place.
+The package ships `docs/`, `examples/` and `schema/`, so after an install those files
+are under `node_modules/barbican/` — copy the config pair out and edit them in place.
+The starter carries a `$schema` line, so an editor with the YAML language server
+completes and validates the format as you type.
+
+Add `--dry-run` to any run to see the endpoint identifiers, what will be skipped and
+the exact number of cells, **without sending anything**. That is the right first
+command against a deployment you do not own.
 
 For something that actually answers, run against the reference platform in
 [`polygon/`](polygon/): a multi-tenant target with switchable defects and a hand-written

@@ -10,7 +10,12 @@
 import { describe, expect, it } from "vitest";
 import { parseRunConfig } from "../../src/io/config.js";
 import type { ReportFinding, RunReport } from "../../src/report/build.js";
-import { buildReport, exitCodeFor, REPORT_SCHEMA_VERSION } from "../../src/report/build.js";
+import {
+  buildReport,
+  exitCodeFor,
+  REPORT_SCHEMA_VERSION,
+  runVerdict,
+} from "../../src/report/build.js";
 
 const CONFIG = parseRunConfig(`
 target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
@@ -713,5 +718,69 @@ describe("exitCodeFor", () => {
   it("2 — half the matrix or more failed", () => {
     expect(exitCodeFor(report({ observations: 4, probeErrors: 2 }))).toBe(2);
     expect(exitCodeFor(report({ observations: 4, probeErrors: 3 }))).toBe(2);
+  });
+});
+
+/**
+ * A cold read of 14 August: the summary printed "Distinct defects: at least 1"
+ * and the run exited 0. Both were correct — a low-severity probe error does not
+ * fail a run — and together they read as "a defect was found and the build is
+ * green", from which the honest conclusion is that the exit code is unreliable.
+ *
+ * The verdict carries its own sentence so the two cannot be read apart. The
+ * sentence is derived where the code is derived: two sets of rules for the same
+ * decision agree until the day they do not.
+ */
+describe("the reason travelling with the exit code", () => {
+  it("says out loud that the rows are notes when a run passes with findings", () => {
+    const base = report({ observations: 4, probeErrors: 1 });
+    const verdict = runVerdict({ ...base, summary: { ...base.summary, findings: 1 } });
+
+    expect(verdict.code).toBe(0);
+    expect(verdict.reason).toContain("no discrepancy that fails a run");
+  });
+
+  it("distinguishes a clean run from one that passed despite findings", () => {
+    expect(runVerdict(report({ observations: 4 })).reason).toBe(
+      "no discrepancy with the declared policy",
+    );
+  });
+
+  it("names the count when an escalation fails the run", () => {
+    const verdict = runVerdict(report({ observations: 4, escalations: 3 }));
+
+    expect(verdict.code).toBe(1);
+    expect(verdict.reason).toContain("3 cells");
+  });
+
+  it("names the numbers behind an untrustworthy verdict", () => {
+    const verdict = runVerdict(report({ observations: 4, probeErrors: 2 }));
+
+    expect(verdict.code).toBe(2);
+    expect(verdict.reason).toContain("2 of 4 cells");
+  });
+
+  it("names the accounts that were granted access nowhere", () => {
+    const verdict = runVerdict(report({ observations: 4, unauthenticated: ["alice", "bob"] }));
+
+    expect(verdict.code).toBe(2);
+    expect(verdict.reason).toContain("alice, bob");
+  });
+
+  // The code stays the single number CI acts on, and it must not drift from the
+  // verdict it is now derived from.
+  it("agrees with exitCodeFor in every case above", () => {
+    const cases = [
+      report({ observations: 4 }),
+      report({ observations: 4, probeErrors: 1 }),
+      report({ observations: 4, escalations: 3 }),
+      report({ observations: 4, probeErrors: 2 }),
+      report({ observations: 0 }),
+      report({ observations: 4, truncated: true }),
+    ];
+
+    for (const one of cases) {
+      expect(exitCodeFor(one)).toBe(runVerdict(one).code);
+    }
   });
 });

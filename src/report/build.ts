@@ -94,6 +94,16 @@ export interface CanaryOutcome {
   readonly endpointId: string;
   readonly status: number;
   readonly authenticated: boolean;
+  /**
+   * The transport failure's code, when there was no status to report at all —
+   * `ECONNREFUSED`, `ENOTFOUND` and their like.
+   *
+   * `status: 0` says only that nothing came back, and a reader of the report
+   * cannot tell a wrong port from a platform that dropped the connection. A
+   * code and never a message: this is serialized, and a bounded vocabulary of
+   * symbols cannot carry a URL with a token in it.
+   */
+  readonly failure?: string;
 }
 
 /**
@@ -896,23 +906,6 @@ export function buildReport(options: BuildReportOptions): RunReport {
 }
 
 /**
- * The process exit code.
- *
- * Privilege escalation is the only thing that makes a run failed: the other
- * discrepancies call for attention but do not mean a hole in access.
- */
-/**
- * The process exit code.
- *
- * 0 — tested and clean, 1 — an escalation was found, 2 — the run is untrustworthy.
- *
- * Telling 0 from 2 matters on principle. Adversarial review showed three ways to
- * get a 'clean' report having tested nothing: a specification without a single
- * endpoint, a deployment answering with nothing but errors, and an exhausted
- * request budget. In all three cases there are no findings exactly because there
- * was no testing either — and a 0 would read as confirmation of being protected.
- */
-/**
  * The share of failed requests past which the result cannot be trusted.
  *
  * Half. A smaller share is ordinary partial failure: it is visible in `failures`
@@ -922,18 +915,50 @@ export function buildReport(options: BuildReportOptions): RunReport {
  */
 const UNTRUSTWORTHY_ERROR_SHARE = 0.5;
 
-export function exitCodeFor(report: RunReport): number {
+/** The verdict on a run: the code CI acts on, and the sentence a human reads. */
+export interface RunVerdict {
+  readonly code: 0 | 1 | 2;
+  readonly reason: string;
+}
+
+/**
+ * The verdict on a run.
+ *
+ * 0 — tested and clean, 1 — a discrepancy was found, 2 — the run is untrustworthy.
+ *
+ * Telling 0 from 2 matters on principle. Adversarial review showed three ways to
+ * get a 'clean' report having tested nothing: a specification without a single
+ * endpoint, a deployment answering with nothing but errors, and an exhausted
+ * request budget. In all three cases there are no findings exactly because there
+ * was no testing either — and a 0 would read as confirmation of being protected.
+ *
+ * The reason travels with the code because the summary could not explain itself.
+ * A cold read of 14 August saw "Distinct defects: at least 1" printed next to
+ * exit 0 and concluded the exit code could not be trusted — it was a
+ * low-severity probe error, which by the contract does not fail a run. The
+ * contract was right and invisible. Deriving the sentence anywhere else would
+ * give two sets of rules that agree until they do not.
+ */
+export function runVerdict(report: RunReport): RunVerdict {
   if (report.summary.observations === 0) {
-    return 2;
+    return { code: 2, reason: "not a single cell was probed — there is nothing to conclude from" };
   }
   // A run cut short did not test the tail of the matrix: there are no findings
   // there because nothing ever got to them. Found by adversarial review — an
   // exhausted request ceiling gave exit code 0 with a cross-tenant leak untested.
   if (report.truncated) {
-    return 2;
+    return {
+      code: 2,
+      reason:
+        "the run was cut short: the tail of the matrix was never probed, and the " +
+        "absence of findings there means nothing",
+    };
   }
   if (report.unauthenticated.length > 0) {
-    return 2;
+    return {
+      code: 2,
+      reason: `accounts granted access nowhere: ${report.unauthenticated.join(", ")} — most likely the tokens, not the policy`,
+    };
   }
   // Not a single canary means authentication is confirmed by nothing. The
   // `findUnauthenticated` safeguard does not help here by construction: it is
@@ -949,37 +974,71 @@ export function exitCodeFor(report: RunReport): number {
   // 'check that nobody at all can get in here' — has nothing to authenticate, and
   // demanding a canary of it would forbid a legitimate scenario.
   if (report.canariesChecked === 0 && report.accounts.some((account) => !account.anonymous)) {
-    return 2;
+    return {
+      code: 2,
+      reason: "no canary was checked: nothing confirms the accounts were authenticated at all",
+    };
   }
   // A threshold, not 'every single one'. The previous condition required **all**
   // cells to fail: 99 errors out of a hundred gave exit code 0, that is 'tested,
   // clean' about a matrix of which one percent survived. Half is the line past
   // which the report stops claiming anything; it is declared here as a constant,
   // because a number hidden inside an expression is one nobody will dispute.
-  if (
-    (report.summary.byKind["probe-error"] ?? 0) >=
-    report.summary.observations * UNTRUSTWORTHY_ERROR_SHARE
-  ) {
-    return 2;
+  const probeErrors = report.summary.byKind["probe-error"] ?? 0;
+  if (probeErrors >= report.summary.observations * UNTRUSTWORTHY_ERROR_SHARE) {
+    return {
+      code: 2,
+      reason:
+        `${probeErrors} of ${report.summary.observations} cells failed to answer: the ` +
+        `report describes the state of the network or of the deployment, not the platform`,
+    };
   }
   // A discrepancy is a discrepancy whichever way it points. The tool cannot tell
   // which side is wrong — the platform or the declaration — and since it cannot,
   // it has no right to stay silent. Found while checking the platform's oracle:
   // the holding was denied its own brand, and the run returned 0. See ADR-0014.
-  if (
-    (report.summary.byKind["privilege-escalation"] ?? 0) > 0 ||
-    (report.summary.byKind["unexpected-denial"] ?? 0) > 0
-  ) {
-    return 1;
+  const escalations = report.summary.byKind["privilege-escalation"] ?? 0;
+  const denials = report.summary.byKind["unexpected-denial"] ?? 0;
+  if (escalations > 0 || denials > 0) {
+    return {
+      code: 1,
+      reason:
+        escalations > 0
+          ? `privilege escalation: ${escalations} ${escalations === 1 ? "cell" : "cells"}`
+          : `unexpected denials: ${denials} — the platform and the declaration disagree, and the tool cannot tell which is wrong`,
+    };
   }
   // A check finding is the same discrepancy as an escalation, just seen by
   // something other than the status. Staying silent about it in the exit code
   // would mean a run with a cross-tenant leak found looks successful in CI.
-  return report.findings.some(
+  const bySignal = report.findings.filter(
     (finding) =>
       finding.source === "check" &&
       (finding.severity === "high" || finding.severity === "critical"),
-  )
-    ? 1
-    : 0;
+  ).length;
+  if (bySignal > 0) {
+    return { code: 1, reason: `${bySignal} found by the response body rather than by status` };
+  }
+
+  // The line a cold read needed: "Distinct defects: at least 1" next to exit 0
+  // reads as "a defect was found and the build is green" unless the summary says
+  // out loud that nothing above the threshold was among them.
+  return {
+    code: 0,
+    reason:
+      report.summary.findings === 0
+        ? "no discrepancy with the declared policy"
+        : "no discrepancy that fails a run — the rows above are notes, not access holes",
+  };
+}
+
+/**
+ * The process exit code. The reasoning behind it — {@link runVerdict}.
+ *
+ * Kept as a function of its own because that is what a library consumer wants
+ * from CI, and because every caller that only needs the number should not have
+ * to reach through an object to get it.
+ */
+export function exitCodeFor(report: RunReport): number {
+  return runVerdict(report).code;
 }

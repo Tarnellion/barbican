@@ -131,7 +131,7 @@ const authSchema = z.discriminatedUnion("kind", [
  */
 const contextValueSchema = z.union([z.string(), z.strictObject({ env: z.string().min(1) })]);
 
-const configSchema = z.object({
+export const configSchema = z.object({
   target: z.object({
     baseUrl: z.url({ protocol: /^https?$/ }),
     allowedHosts: z
@@ -700,13 +700,54 @@ export class UnknownContextAccountError extends Error {
   }
 }
 
+/**
+ * How many parsed identifiers the error lists.
+ *
+ * A specification with two hundred operations would otherwise bury the sentence
+ * that explains the problem under the answer to it.
+ */
+const LISTED_ENDPOINTS = 12;
+
+/**
+ * The parsed identifiers, nearest first.
+ *
+ * A typo keeps the prefix — `invoices.reed` for `invoices.read`, `orders.lst`
+ * for `orders.list` — so the longest shared prefix puts the intended name at the
+ * top of a truncated list far more often than alphabetical order does.
+ */
+function nearestFirst(target: string, known: readonly string[]): readonly string[] {
+  const sharedPrefix = (id: string): number => {
+    let length = 0;
+    while (length < id.length && length < target.length && id[length] === target[length]) {
+      length += 1;
+    }
+    return length;
+  };
+
+  return [...known].sort((a, b) => sharedPrefix(b) - sharedPrefix(a) || a.localeCompare(b));
+}
+
 export class UnknownEndpointReferenceError extends Error {
-  constructor(where: string, endpointId: string) {
+  constructor(where: string, endpointId: string, known: readonly string[]) {
+    const ordered = nearestFirst(endpointId, known);
+    const shown = ordered.slice(0, LISTED_ENDPOINTS);
+    const hidden = ordered.length - shown.length;
+
+    // An empty list is a different fact, and a worse one: the source gave no
+    // endpoints at all, and every reference in the configuration is about to
+    // fail for a reason that has nothing to do with this one.
+    const parsed =
+      ordered.length === 0
+        ? `\n\nNothing was parsed from the endpoint source — check it before this reference.`
+        : `\n\nParsed (${ordered.length}): ${shown.join(", ")}` +
+          (hidden > 0 ? `, and ${hidden} more` : "");
+
     super(
       `${where} references endpoint "${endpointId}", which is not among the parsed ones. ` +
         `A typo here is not harmless: a rule silently stops applying and a resource ` +
         `silently stops binding — both change the verdict without leaving a trace ` +
-        `in the report.`,
+        `in the report.` +
+        parsed,
     );
     this.name = "UnknownEndpointReferenceError";
   }
@@ -742,7 +783,7 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
         continue;
       }
       if (!known.has(entry)) {
-        throw new UnknownEndpointReferenceError(`Policy rule #${index}`, entry);
+        throw new UnknownEndpointReferenceError(`Policy rule #${index}`, entry, [...known]);
       }
     }
   });
@@ -750,7 +791,9 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
   for (const resource of config.resources) {
     for (const endpointId of resource.endpointIds ?? []) {
       if (!known.has(endpointId)) {
-        throw new UnknownEndpointReferenceError(`Resource "${resource.id}"`, endpointId);
+        throw new UnknownEndpointReferenceError(`Resource "${resource.id}"`, endpointId, [
+          ...known,
+        ]);
       }
     }
   }
@@ -758,7 +801,7 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
   for (const context of config.contexts) {
     for (const endpointId of context.endpointIds) {
       if (!known.has(endpointId)) {
-        throw new UnknownEndpointReferenceError(`Context "${context.id}"`, endpointId);
+        throw new UnknownEndpointReferenceError(`Context "${context.id}"`, endpointId, [...known]);
       }
     }
   }
@@ -768,6 +811,7 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
       throw new UnknownEndpointReferenceError(
         `The canary of account "${account.id}"`,
         account.canary,
+        [...known],
       );
     }
   }
@@ -780,6 +824,7 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
       throw new UnknownEndpointReferenceError(
         "The responseMustDifferByTenant declaration",
         endpointId,
+        [...known],
       );
     }
   }
@@ -792,7 +837,7 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
     seenNames.add(signal.name);
     for (const endpointId of signal.endpoints) {
       if (!known.has(endpointId)) {
-        throw new UnknownEndpointReferenceError(`Signal "${signal.name}"`, endpointId);
+        throw new UnknownEndpointReferenceError(`Signal "${signal.name}"`, endpointId, [...known]);
       }
     }
   }
@@ -950,6 +995,34 @@ function assertNoUncarriableKeys(node: unknown, path = ""): void {
     }
     assertNoUncarriableKeys((node as Record<string, unknown>)[key], where);
   }
+}
+
+/** Where the published schema answers to, so `$schema:` in a file can find it. */
+export const CONFIG_SCHEMA_ID =
+  "https://raw.githubusercontent.com/Tarnellion/barbican/main/schema/barbican.run.schema.json";
+
+/**
+ * The run configuration as a JSON Schema.
+ *
+ * Every field of this format is written by hand, and an editor offered no
+ * completion for any of it — a cold read of 14 August spent its first minutes
+ * guessing at the shape of the whole file, which appears nowhere in the guide as
+ * a whole file.
+ *
+ * Derived from the same zod schema that validates a run, never written out by
+ * hand: a second description of one format is a description that disagrees with
+ * the first, silently, in the direction of whichever one is read.
+ *
+ * `io: "input"` — the schema describes what a person writes, before defaults are
+ * applied and shorthands expanded. Draft-07 because that is what editors and the
+ * YAML language server understand; the later drafts buy nothing here.
+ */
+export function configJsonSchema(): Record<string, unknown> {
+  return {
+    $id: CONFIG_SCHEMA_ID,
+    title: "barbican run configuration",
+    ...z.toJSONSchema(configSchema, { io: "input", target: "draft-07" }),
+  };
 }
 
 export function parseRunConfig(source: string): RunConfig {

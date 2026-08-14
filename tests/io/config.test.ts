@@ -472,6 +472,50 @@ policy:
   });
 
   /**
+   * A cold read of 14 August: the error explained why the mismatch mattered and
+   * left the reader to guess what the right name was. With `--spec` the answer is
+   * not guessable at all — the identifier is the `operationId`, and an operation
+   * without one becomes `"GET /v1/admin/users"`. The reader reverse-engineered it
+   * out of `endpoints[]` in the report.
+   */
+  it("lists the parsed identifiers, nearest first", () => {
+    const many = [
+      ...endpoints,
+      { id: "orders.list", method: "GET", path: "/v1/orders" },
+      { id: "admin.users", method: "GET", path: "/v1/admin/users" },
+    ] as const;
+    const config = parseRunConfig(
+      base.replace("endpoints: [orders.read]", "endpoints: [orders.raed]"),
+    );
+
+    let message = "";
+    try {
+      assertReferencesResolve(config, many);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+
+    expect(message).toContain("Parsed (4):");
+    // A typo keeps the prefix, so the two `orders.*` come before the rest — on a
+    // truncated list that is the difference between an answer and a hint.
+    expect(message).toMatch(/Parsed \(4\): orders\.(read|list), orders\.(read|list), /);
+    expect(message).toContain("admin.users");
+  });
+
+  // An empty list is a different fact and a worse one: the source yielded no
+  // endpoints, and every reference is about to fail for an unrelated reason.
+  it("says so when nothing was parsed at all", () => {
+    let message = "";
+    try {
+      assertReferencesResolve(parseRunConfig(base), []);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+
+    expect(message).toContain("Nothing was parsed from the endpoint source");
+  });
+
+  /**
    * A typo here fails silently and closed: the body is not read, the check
    * does not fire, the report looks clean. The same class as a typo in a
    * tenant name.

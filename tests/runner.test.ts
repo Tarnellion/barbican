@@ -20,6 +20,7 @@ import {
   classifyStatus,
   collectObservations,
   ExcludedCanaryError,
+  planEndpoints,
   probeCanaries,
   TemplatedCanaryError,
   UnknownCanaryEndpointError,
@@ -135,6 +136,117 @@ describe("request signing", () => {
     });
 
     expect(asked).toEqual([{ method: "GET", url: "https://api.test/v1/me" }]);
+  });
+
+  /**
+   * A cold read of 14 August ran against a stand that was not up, and the canary
+   * answered "401 reads as a denial" — so the reader went looking for a stale
+   * token instead of a wrong port. `status: 0` alone cannot tell the two apart;
+   * the code can.
+   *
+   * A code and never the error text: this field is serialized into the report.
+   */
+  it("keeps the transport failure's code apart from a refusal", async () => {
+    const refused = Object.assign(new Error("fetch failed"), {
+      cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:8791"), {
+        code: "ECONNREFUSED",
+      }),
+    });
+
+    const results = await probeCanaries({
+      baseUrl: "https://api.test",
+      endpoints: [
+        { id: "whoami", method: "GET", path: "/v1/me" },
+        { id: "orders", method: "GET", path: "/v1/orders" },
+      ],
+      canaries: [
+        { accountId: "player-a", endpointId: "whoami" },
+        { accountId: "player-b", endpointId: "orders" },
+      ],
+      credentials: { headersFor: () => ({}) },
+      client: {
+        send: (request) => {
+          if (request.url.endsWith("/v1/me")) {
+            return Promise.reject(refused);
+          }
+          return Promise.resolve({ status: 401, headers: {} });
+        },
+      },
+    });
+
+    expect(results[0]).toMatchObject({ status: 0, authenticated: false, failure: "ECONNREFUSED" });
+    // A refusal is a different fact and carries no code: the platform answered.
+    expect(results[1]).toMatchObject({ status: 401, authenticated: false });
+    expect(results[1]).not.toHaveProperty("failure");
+  });
+
+  // An error with no code at all still has to be distinguishable from a status.
+  it("falls back to a placeholder when the failure carries no code", async () => {
+    const results = await probeCanaries({
+      baseUrl: "https://api.test",
+      endpoints: [{ id: "whoami", method: "GET", path: "/v1/me" }],
+      canaries: [{ accountId: "player-a", endpointId: "whoami" }],
+      credentials: { headersFor: () => ({}) },
+      client: { send: () => Promise.reject(new Error("something went wrong")) },
+    });
+
+    expect(results[0]).toMatchObject({ status: 0, failure: "TRANSPORT" });
+  });
+});
+
+/**
+ * The split into "will be probed" and "will not" is a function of its own so that
+ * `--dry-run` prints the same answer the run acts on. A preview computed beside
+ * the run would agree with it until one of the two was edited — and on someone
+ * else's deployment a preview that lies about what will be touched is worse than
+ * no preview at all.
+ */
+describe("planEndpoints", () => {
+  const all: readonly Endpoint[] = [
+    { id: "orders.list", method: "GET", path: "/v1/orders" },
+    { id: "orders.read", method: "GET", path: "/v1/orders/{orderId}" },
+    { id: "orders.cancel", method: "POST", path: "/v1/orders/{orderId}/cancel" },
+    { id: "reset", method: "GET", path: "/v1/reset" },
+  ];
+  const resources = [{ id: "own", tenantId: "t", ownerId: "a", params: { orderId: "1" } }] as const;
+
+  it("holds a write method back until the flag is given", () => {
+    const plan = planEndpoints({ endpoints: all, baseUrl: "https://api.test", resources });
+
+    expect(plan.skipped).toContainEqual({ endpointId: "orders.cancel", reason: "unsafe-method" });
+    expect(plan.probeable.map((one) => one.id)).not.toContain("orders.cancel");
+  });
+
+  it("lets it through when it is", () => {
+    const plan = planEndpoints({
+      endpoints: all,
+      baseUrl: "https://api.test",
+      resources,
+      allowUnsafeMethods: true,
+    });
+
+    expect(plan.probeable.map((one) => one.id)).toContain("orders.cancel");
+  });
+
+  // A GET is not obliged to be safe: the exclusion list is the answer to a read
+  // that resets the database, and it outranks the method.
+  it("puts an excluded endpoint ahead of every other reason", () => {
+    const plan = planEndpoints({
+      endpoints: all,
+      baseUrl: "https://api.test",
+      resources,
+      exclude: ["reset", "orders.cancel"],
+      allowUnsafeMethods: true,
+    });
+
+    expect(plan.skipped).toContainEqual({ endpointId: "reset", reason: "excluded" });
+    expect(plan.skipped).toContainEqual({ endpointId: "orders.cancel", reason: "excluded" });
+  });
+
+  it("skips a parameterised path no resource fills in", () => {
+    const plan = planEndpoints({ endpoints: all, baseUrl: "https://api.test" });
+
+    expect(plan.skipped).toContainEqual({ endpointId: "orders.read", reason: "path-parameters" });
   });
 });
 
@@ -822,6 +934,9 @@ describe("a run cut short", () => {
       endpointId: "e1",
       status: 0,
       authenticated: false,
+      // The error here carries no code, so the placeholder stands in — but the
+      // field is present, and that is what tells "did not answer" from "refused".
+      failure: "TRANSPORT",
     });
   });
 });

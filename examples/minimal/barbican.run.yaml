@@ -1,8 +1,17 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Tarnellion/barbican/main/schema/barbican.run.schema.json
+
 # A minimal run configuration.
 #
 # Two tenants, three accounts, three endpoints. The walk-through of the format is
 # in `docs/guide.md`; why it looks like this is ADR-0008. A working example with a
 # deployment and an oracle — the `polygon/` directory.
+#
+# The line above gives an editor completion and validation as you type. The schema
+# is printed by `barbican schema` and comes from the same validator the run uses,
+# so it cannot describe a different format than the one that will be accepted.
+#
+# Before a first run against anything you do not own, try `--dry-run`: it prints
+# what would be probed and sends nothing.
 
 target:
   # What was checked, in the words of whoever will read the report. Without it a

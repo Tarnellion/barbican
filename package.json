@@ -41,7 +41,8 @@
   "files": [
     "dist",
     "docs",
-    "examples"
+    "examples",
+    "schema"
   ],
   "publishConfig": {
     "access": "public",
@@ -55,6 +56,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "schema": "node dist/cli.js schema > schema/barbican.run.schema.json && biome check --write schema",
     "check": "pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run build",
     "hooks:install": "lefthook install"
   },

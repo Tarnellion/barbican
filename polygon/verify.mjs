@@ -129,7 +129,7 @@ function stopServer(child) {
   });
 }
 
-function runCli(reportPath, environment, unsafeMethods) {
+function runCli(reportPath, environment, unsafeMethods, extra = []) {
   return new Promise((done) => {
     // The flag comes from the variant rather than from the command line: whether a
     // write endpoint is probed is a property of the claim being checked, and a
@@ -138,7 +138,18 @@ function runCli(reportPath, environment, unsafeMethods) {
     const flags = unsafeMethods ? [...RUN_FLAGS, "--unsafe-methods"] : RUN_FLAGS;
     const child = spawn(
       process.execPath,
-      [CLI, "run", "-c", CONFIG, "-e", ENDPOINTS, "-r", reportPath, ...flags],
+      [
+        CLI,
+        "run",
+        "-c",
+        CONFIG,
+        "-e",
+        ENDPOINTS,
+        // A dry run writes no report, and giving it a path would say it did.
+        ...(reportPath === undefined ? [] : ["-r", reportPath]),
+        ...flags,
+        ...extra,
+      ],
       { env: environment, stdio: ["ignore", "pipe", "pipe"] },
     );
     let stdout = "";
@@ -151,6 +162,32 @@ function runCli(reportPath, environment, unsafeMethods) {
     });
     child.on("exit", (code) => done({ code: code ?? -1, stdout, stderr }));
   });
+}
+
+/**
+ * `--dry-run` sends nothing.
+ *
+ * Proved rather than asserted, and proved the only way that admits no argument:
+ * the platform is not running. The configuration points at a port nothing is
+ * listening on, so a single request would fail — and the dry run has to come
+ * back with the endpoint list and exit code 0 all the same.
+ *
+ * Without this the flag is a promise about traffic on someone else's deployment
+ * held up by nothing but the order of two lines in `cli.ts`.
+ */
+async function assertDryRunSendsNothing(baseUrl) {
+  const environment = { ...process.env, POLYGON_PORT: baseUrl.port };
+  const { code, stderr } = await runCli(undefined, environment, false, ["--dry-run"]);
+
+  if (code !== 0) {
+    fail(`--dry-run against a platform that is not up ended with ${code}:\n${stderr}`);
+  }
+  // The endpoint identifiers are the point of the mode: a reader who does not
+  // know them cannot write a policy rule.
+  if (!stderr.includes("orders.cancel")) {
+    fail(`--dry-run printed no endpoint list:\n${stderr}`);
+  }
+  process.stdout.write("--dry-run: nothing sent, the platform was not even up\n");
 }
 
 const README = "polygon/README.md";
@@ -255,6 +292,8 @@ async function main() {
   if (combinations.length === 0) {
     fail(`no combination matched the filter: ${selected.join(", ")}`);
   }
+
+  await assertDryRunSendsNothing(baseUrl);
 
   // The tokens are random on every launch: they are not in the files and must not be.
   const tokens = Object.fromEntries(

@@ -480,9 +480,49 @@ source:
 A specification without `operationId` therefore gives identifiers with a space
 in them, and a rule has to quote them: `endpoints: ["GET /v1/admin/users"]`.
 Referring to an endpoint that is not among the parsed ones stops the run — the
-alternative is a rule that silently never applies. The parsed list is written
-into the report as `endpoints[]`, which is the place to look when a name does
-not match.
+alternative is a rule that silently never applies. The error names the parsed
+identifiers, nearest first, so a typo answers itself.
+
+### Seeing the plan before running it
+
+```bash
+barbican run --config barbican.run.yaml --spec openapi.json --dry-run
+```
+
+Parses and validates everything, prints the endpoint identifiers with what will
+happen to each, the number of matrix rows and the exact number of cells a run
+would probe — and **sends nothing**. On someone else's deployment that is the
+answer to "what exactly are you going to touch", given before the first request
+rather than after the last. It is also the fastest way to learn the identifiers
+of a specification you did not write:
+
+```
+Endpoints (7):
+  orders.list    (GET /v1/orders)                    probe
+  orders.cancel  (POST /v1/orders/{orderId}/cancel)  skip: a write method, and --unsafe-methods was not given
+Matrix rows: 27 (declared accounts 9)
+Cells a run would probe: 144, plus 8 canary requests
+```
+
+The skips come from the same function the run uses, so the preview cannot drift
+away from what actually happens. A test proves the silence the hard way: the run
+is made against a platform that is not up, where a single request would fail.
+
+### Completion in the editor
+
+```bash
+barbican schema > barbican.run.schema.json
+```
+
+Prints the JSON Schema of the configuration, derived from the same validator the
+run uses. The published copy lives at
+[`schema/barbican.run.schema.json`](https://github.com/Tarnellion/barbican/blob/main/schema/barbican.run.schema.json);
+with the YAML language server a file picks it up from a comment on the first
+line:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Tarnellion/barbican/main/schema/barbican.run.schema.json
+```
 
 ### Manual endpoint list
 

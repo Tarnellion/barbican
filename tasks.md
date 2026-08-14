@@ -705,19 +705,30 @@ was the packaging.
       print** — `severity` was missing and the key order was wrong. A "run this,
       see that" claim is the cheapest kind to check and the most embarrassing to
       get wrong.
-- [ ] **The error "endpoint is not among the parsed ones" does not list the parsed
-      ones.** It explains why the mismatch matters and leaves the reader to guess
-      what the right name was. The list is right there at the point the error is
-      raised.
-- [ ] **The canary blames a stale token for a dead port.** `ECONNREFUSED` produces
-      "401 reads as a refusal, and the report would have looked clean" — the
-      reader went looking for a token problem. Transport failure and a refusal are
-      different facts and deserve different sentences.
-- [ ] **The summary says "at least 1 defect" next to exit code 0.** Correct by the
-      contract — a low-severity `probe-error` does not fail a run — and still reads
-      in CI as "a defect was found and the build is green".
-- [ ] **No JSON schema for the configuration ships with the package**, so an editor
-      offers no completion for a format whose every field is hand-written.
+- [x] **The error "endpoint is not among the parsed ones" now lists them**, nearest
+      first: a typo keeps the prefix, so on a truncated list the intended name comes
+      out on top. An empty list says so instead — that is a different fact and a
+      worse one.
+- [x] **The canary no longer blames a stale token for a dead port.** The transport
+      failure's code travels with the result (`ECONNREFUSED`, `ENOTFOUND`), and the
+      message says "the platform did not answer at all — this says nothing about the
+      tokens". A code and never the error text: the field is serialized, and a
+      bounded vocabulary cannot carry a URL with a token in it.
+- [x] **The exit code now explains itself.** `runVerdict` returns the reason
+      alongside the code, derived where the code is derived, and the CLI prints it
+      as the last line. "Distinct defects: at least 1" is now followed by "Exit code
+      0: no discrepancy that fails a run — the rows above are notes, not access
+      holes".
+- [x] **A JSON Schema ships with the package** and `barbican schema` prints it,
+      derived from the same zod schema that validates a run. A test compares the
+      checked-in copy against the generated one; the starter config carries a
+      `$schema` line.
+- [x] **`--dry-run`** — the answer to "what exactly will you touch", given before
+      the first request. Prints the identifiers, what is skipped and why, the matrix
+      rows and the exact number of cells; sends nothing. The plan comes from
+      `planEndpoints`, the same function the run uses, so the preview cannot drift.
+      Proved in `verify.mjs` the only way that admits no argument: the run is made
+      against a platform that is not up.
 
 ## Blockers for a run on someone else's platform
 

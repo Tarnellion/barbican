@@ -20,6 +20,7 @@ import type { SpecParser } from "./adapters/ports.js";
 import { createPostmanCollectionParser } from "./adapters/postman.js";
 import { createSignalExtractor } from "./adapters/signals.js";
 import { createThrottle } from "./adapters/throttle.js";
+import type { Endpoint } from "./core/index.js";
 import {
   buildAccessMatrix,
   CheckRegistry,
@@ -28,19 +29,23 @@ import {
   describeCells,
   diffAccess,
   expandPolicy,
+  resourceApplies,
 } from "./core/index.js";
+import type { RunConfig } from "./io/config.js";
 import {
   applyBodySignals,
   assertContextsCannotWrite,
   assertReferencesResolve,
+  configJsonSchema,
   parseRunConfig,
   resolveContextValues,
   resolveTokens,
   toAccounts,
 } from "./io/config.js";
 import { findUnauthenticated } from "./report/authenticity.js";
-import { buildReport, exitCodeFor } from "./report/build.js";
-import { collectObservations, probeCanaries } from "./runner.js";
+import type { CanaryOutcome } from "./report/build.js";
+import { buildReport, runVerdict } from "./report/build.js";
+import { collectObservations, planEndpoints, probeCanaries } from "./runner.js";
 
 // The version is read from package.json rather than duplicated in a constant:
 // once they drift apart, the duplicate makes the CLI lie about its own version
@@ -53,11 +58,27 @@ function paint(text: string, format: Parameters<typeof styleText>[0]): string {
   return process.stderr.isTTY === true ? styleText(format, text) : text;
 }
 
-const SKIP_LABELS: Readonly<Record<string, string>> = {
-  "path-parameters": "have path parameters",
-  "unsafe-method": "use an unsafe method",
-  excluded: "excluded by hand",
-  "escapes-target": "path leaves the target",
+/**
+ * Why an endpoint is not probed, in two lengths.
+ *
+ * One map and not two: the summary counts the reasons and `--dry-run` explains
+ * them one endpoint at a time, and a second list of the same keys goes stale the
+ * first time a reason is added — silently, in the half nobody was editing.
+ */
+const SKIP_REASONS: Readonly<Record<string, { readonly short: string; readonly long: string }>> = {
+  "path-parameters": {
+    short: "have path parameters",
+    long: "has path parameters and no resource declares values for them",
+  },
+  "unsafe-method": {
+    short: "use an unsafe method",
+    long: "a write method, and --unsafe-methods was not given",
+  },
+  excluded: { short: "excluded by hand", long: "named in exclude" },
+  "escapes-target": {
+    short: "path leaves the target",
+    long: "the path leads outside the target address",
+  },
 };
 
 /** Skips broken down: one number with no reasons reads as 'something was not tested'. */
@@ -68,7 +89,9 @@ function skipBreakdown(report: {
   for (const item of report.skipped) {
     counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1);
   }
-  const parts = [...counts].map(([reason, count]) => `${SKIP_LABELS[reason] ?? reason} ${count}`);
+  const parts = [...counts].map(
+    ([reason, count]) => `${SKIP_REASONS[reason]?.short ?? reason} ${count}`,
+  );
   return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
 }
 
@@ -87,9 +110,87 @@ interface RunFlags {
   readonly postman?: string;
   readonly report?: string;
   readonly unsafeMethods?: boolean;
+  readonly dryRun?: boolean;
   readonly concurrency?: number;
   readonly rps?: number;
   readonly maxRequests?: number;
+}
+
+/**
+ * What a run would do, printed without touching the platform.
+ *
+ * Two things sent a cold read of 14 August guessing. The identifiers: with
+ * `--spec` they come from `operationId`, and the reader recovered them by
+ * running against the platform and reading `endpoints[]` out of the report —
+ * a probe of someone else's deployment to answer a question about a local file.
+ * And the skips: which endpoints a run will leave alone is a fair question to
+ * ask before the run, not after.
+ *
+ * The plan comes from `planEndpoints`, the same function the run itself uses.
+ * A preview computed separately would agree with reality only until one of the
+ * two was edited.
+ */
+function describePlan(config: RunConfig, endpoints: readonly Endpoint[], flags: RunFlags): number {
+  const tenantBaseUrls = new Map(
+    (config.tenants ?? [])
+      .filter((tenant) => tenant.baseUrl !== undefined)
+      .map((tenant) => [tenant.id, tenant.baseUrl ?? ""]),
+  );
+  const { probeable, skipped } = planEndpoints({
+    endpoints,
+    baseUrl: config.target.baseUrl,
+    resources: config.resources,
+    ...(config.exclude === undefined ? {} : { exclude: config.exclude }),
+    allowUnsafeMethods: flags.unsafeMethods === true,
+    tenantBaseUrls,
+  });
+
+  const byId = new Map(skipped.map((entry) => [entry.endpointId, entry.reason]));
+  const rows = endpoints.map((endpoint) => {
+    const reason = byId.get(endpoint.id);
+    const mark =
+      reason === undefined
+        ? paint("probe", "green")
+        : `${paint("skip", "yellow")}: ${SKIP_REASONS[reason]?.long ?? reason}`;
+    return `  ${endpoint.id}  (${endpoint.method} ${endpoint.path})  ${mark}`;
+  });
+
+  // An endpoint without parameters costs one request; one with parameters, a
+  // request per resource that covers them. Counted the way the run counts it.
+  const costOf = (endpoint: Endpoint): number =>
+    Math.max(config.resources.filter((resource) => resourceApplies(endpoint, resource)).length, 1);
+
+  // A row under conditions walks only the endpoints its context names — that is
+  // why a context has to name them. An estimate that ignored this overstated the
+  // matrix by roughly a factor of two, and a wrong number about traffic is worse
+  // on someone else's deployment than no number at all.
+  const contextEndpoints = new Map(
+    config.contexts.map((context) => [context.id, new Set(context.endpointIds)]),
+  );
+  const { accounts } = toAccounts(config, new Map());
+  const cells = accounts.reduce((total, account) => {
+    const named =
+      account.contextId === undefined ? undefined : contextEndpoints.get(account.contextId);
+    const reachable =
+      named === undefined ? probeable : probeable.filter((one) => named.has(one.id));
+    return total + reachable.reduce((sum, endpoint) => sum + costOf(endpoint), 0);
+  }, 0);
+
+  const withCanary = config.accounts.filter((account) => account.canary !== undefined).length;
+
+  process.stderr.write(
+    `${[
+      `${paint("Dry run:", "green")} nothing was sent to ${config.target.baseUrl}.`,
+      `Target: ${config.target.label ?? paint("unnamed", "yellow")}`,
+      `Endpoints (${endpoints.length}):`,
+      ...rows,
+      `Matrix rows: ${accounts.length} (declared accounts ${config.accounts.length})`,
+      `Cells a run would probe: ${cells}, plus ${withCanary} canary requests`,
+      `The identifiers above are what policy, resources, contexts and canaries refer to.`,
+    ].join("\n")}\n`,
+  );
+
+  return 0;
 }
 
 async function run(flags: RunFlags): Promise<number> {
@@ -139,6 +240,14 @@ async function run(flags: RunFlags): Promise<number> {
   // no endpoint must fail at startup instead of dropping the pairs into fallback.
   const policy = expandPolicy(config.policy, endpoints);
 
+  // Everything above this line is validation and parsing; nothing has reached the
+  // network. That is what makes this the honest place to stop and show what a run
+  // would do — on someone else's deployment the question "what exactly will you
+  // touch" deserves an answer before the first request, not after.
+  if (flags.dryRun === true) {
+    return describePlan(config, endpoints, flags);
+  }
+
   const credentials = createCredentialProvider(
     config.auth,
     resolveTokens(config, process.env),
@@ -180,12 +289,9 @@ async function run(flags: RunFlags): Promise<number> {
     .map((account) => ({ accountId: account.id, endpointId: account.canary ?? "" }));
 
   let canariesChecked = 0;
-  let canaryOutcomes: readonly {
-    readonly accountId: string;
-    readonly endpointId: string;
-    readonly status: number;
-    readonly authenticated: boolean;
-  }[] = [];
+  // The report's own type rather than a structural copy: a copy drifts, and a
+  // field it has not heard of is dropped in silence.
+  let canaryOutcomes: readonly CanaryOutcome[] = [];
   if (canaries.length === 0) {
     process.stderr.write(
       `${paint("Authentication is unverified:", "yellow")} no account has a canary. ` +
@@ -211,16 +317,33 @@ async function run(flags: RunFlags): Promise<number> {
     const broken = results.filter((result) => !result.authenticated);
     if (broken.length > 0) {
       const details = broken
-        .map(
-          (r) =>
-            `  ${r.accountId}: ${r.endpointId} returned ${r.status === 0 ? "a failure" : r.status}`,
+        .map((r) =>
+          r.status === 0
+            ? `  ${r.accountId}: ${r.endpointId} did not answer (${r.failure ?? "TRANSPORT"})`
+            : `  ${r.accountId}: ${r.endpointId} returned ${r.status}`,
         )
         .join("\n");
-      throw new Error(
-        `Accounts are not authenticated, the run stopped:\n${details}\n` +
-          `Continuing is not an option: 401 reads as a denial, and the report would ` +
-          `come out clean.`,
-      );
+
+      // Two different facts, and the message used to name only one of them. A
+      // cold read hit a dead port and was told "401 reads as a denial", so it
+      // went looking for a stale token instead of a wrong address.
+      const unreachable = broken.some((r) => r.status === 0);
+      const refused = broken.some((r) => r.status !== 0);
+      const why = [
+        unreachable
+          ? `The platform did not answer at all: nothing reached the application, so ` +
+            `this says nothing about the tokens. Check the address, the port and that ` +
+            `the deployment is up.`
+          : undefined,
+        refused
+          ? `Continuing past a denial is not an option: 401 reads as a denial, and the ` +
+            `report would come out clean.`
+          : undefined,
+      ]
+        .filter((line) => line !== undefined)
+        .join("\n");
+
+      throw new Error(`The canaries did not pass, the run stopped:\n${details}\n${why}`);
     }
   }
 
@@ -315,6 +438,7 @@ async function run(flags: RunFlags): Promise<number> {
   }
 
   const { summary } = report;
+  const verdict = runVerdict(report);
   const escalations = summary.byKind["privilege-escalation"] ?? 0;
   if (truncated) {
     process.stderr.write(
@@ -382,10 +506,14 @@ async function run(flags: RunFlags): Promise<number> {
       ? paint(`Of those, found by body rather than status: ${summary.checkFindings}`, "red")
       : undefined,
     flags.report === undefined ? undefined : `Report: ${flags.report}`,
+    // The last line, and the one CI acts on. Without it the reader is left to
+    // reconcile "Distinct defects: at least 1" with a zero exit code by himself,
+    // and the honest conclusion from that pair is that the exit code is unreliable.
+    paint(`Exit code ${verdict.code}: ${verdict.reason}`, verdict.code === 0 ? "green" : "red"),
   ].filter((line): line is string => line !== undefined);
 
   process.stderr.write(`${lines.join("\n")}\n`);
-  return exitCodeFor(report);
+  return verdict.code;
 }
 
 const program = new Command();
@@ -404,6 +532,7 @@ program
   .option("-p, --postman <path>", "Postman collection v2.1")
   .option("-r, --report <path>", "where to write the JSON report (stdout by default)")
   .option("--unsafe-methods", "allow methods that change state")
+  .option("--dry-run", "print what would be probed and stop, sending nothing")
   .option("--concurrency <n>", "concurrent requests", positiveInteger)
   .option("--rps <n>", "requests per second", positiveInteger)
   .option("--max-requests <n>", "per-run request budget", positiveInteger)
@@ -415,6 +544,16 @@ program
       process.stderr.write(`${paint("Run aborted:", "red")} ${message}\n`);
       process.exitCode = 2;
     }
+  });
+
+program
+  .command("schema")
+  .description("Print the JSON Schema of the run configuration")
+  .action(() => {
+    // stdout, so it can be redirected into a file; everything else the CLI says
+    // goes to stderr, and mixing the two would make the redirect produce invalid
+    // JSON on the first warning.
+    process.stdout.write(`${JSON.stringify(configJsonSchema(), null, 2)}\n`);
   });
 
 await program.parseAsync();
