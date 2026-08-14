@@ -411,22 +411,7 @@
               "minLength": 1
             },
             "additionalProperties": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "env": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  },
-                  "required": ["env"],
-                  "additionalProperties": false
-                }
-              ]
+              "type": "string"
             }
           },
           "endpoints": {

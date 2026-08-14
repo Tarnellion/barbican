@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertContextsCannotWrite,
+  ConfigValidationError,
   ForbiddenContextHeaderError,
   ForbiddenContextQueryError,
   InvalidContextValueError,
@@ -124,6 +125,71 @@ contexts:
 `),
       ),
     ).toThrow(ForbiddenContextHeaderError);
+  });
+});
+
+/**
+ * Found by the audit of 14 August, and the one finding that put a live secret in
+ * an artifact people attach to tickets.
+ *
+ * A token declared as a query attribute through `{ env: … }` appeared in the
+ * report 24 times, across nine accounts, in `observations[].url` — because query
+ * parameters are substituted into the address and addresses are printed as they
+ * were sent. The same token declared as a header leaked nothing: headers keep the
+ * declared form all the way through.
+ *
+ * The guard at the time was a denylist of thirteen key names. `sig`, `hmac`,
+ * `secret` walked through it, and the project had already decided once, in the
+ * ADR-0005 addendum, that a list of every name that will ever carry a secret
+ * cannot be written. Now the type refuses the form outright, in the one place a
+ * configuration cannot get past.
+ */
+describe("a secret cannot be declared as a query attribute", () => {
+  const withQuerySecret = `${GEO_RULE}
+contexts:
+  - id: geo-blocked
+    query: { sig: { env: DEVICE_SIGNATURE } }
+    endpoints: [orders.list]
+`;
+
+  it("refuses { env: NAME } in a query attribute", () => {
+    expect(() => parseRunConfig(config(withQuerySecret))).toThrow(ConfigValidationError);
+  });
+
+  it("says why, and where the secret does belong", () => {
+    expect(() => parseRunConfig(config(withQuerySecret))).toThrow(
+      /printed in the report as they were sent|Declare a secret as a header/,
+    );
+  });
+
+  // The counterpart has to keep working, or the advice in that message is empty.
+  it("keeps accepting it in a header, where the declaration travels instead", () => {
+    const withHeaderSecret = `${GEO_RULE}
+contexts:
+  - id: geo-blocked
+    headers: { x-device-sig: { env: DEVICE_SIGNATURE } }
+    endpoints: [orders.list]
+`;
+    const parsed = parseRunConfig(config(withHeaderSecret));
+    const resolved = resolveContextValues(parsed, { DEVICE_SIGNATURE: "s3cr3t-value" });
+
+    expect(parsed.contexts[0]?.headers).toEqual({ "x-device-sig": { env: "DEVICE_SIGNATURE" } });
+    expect(resolved.get("geo-blocked")?.headers).toEqual({ "x-device-sig": "s3cr3t-value" });
+    // The parsed configuration is serialized into the report: the value is not in it.
+    expect(JSON.stringify(parsed)).not.toContain("s3cr3t-value");
+  });
+
+  // A literal in the query stays allowed: it is already in the configuration,
+  // and the configuration is in the report either way.
+  it("still accepts a literal", () => {
+    const withLiteral = `${GEO_RULE}
+contexts:
+  - id: geo-blocked
+    query: { scope: all }
+    endpoints: [orders.list]
+`;
+
+    expect(parseRunConfig(config(withLiteral)).contexts[0]?.query).toEqual({ scope: "all" });
   });
 });
 

@@ -321,7 +321,36 @@ export const configSchema = z.object({
         /** A human description: what exactly these attributes declare. */
         description: z.string().min(1).optional(),
         headers: z.record(z.string().min(1), contextValueSchema).optional(),
-        query: z.record(z.string().min(1), contextValueSchema).optional(),
+        /**
+         * A literal only — `{ env: NAME }` is not accepted here, and the type is
+         * what refuses it rather than a check somewhere later.
+         *
+         * A query attribute is substituted into the address, and addresses are
+         * printed in the report verbatim: the observation's `url`, the request
+         * of every finding. The audit of 14 August put a token in a query
+         * attribute through `{ env: … }` and found 24 copies of it in the report,
+         * across nine accounts. The guard at the time was a denylist of thirteen
+         * key names — `sig`, `hmac`, `secret` walked straight through it, and a
+         * list of every name that will ever carry a secret cannot be written.
+         *
+         * A header keeps the declared form all the way into the report, so that
+         * is where a secret goes. There is nothing to lose here: a per-request
+         * signature cannot come from a static variable anyway, and a key that
+         * authenticates belongs to a scheme, not to conditions (ADR-0018).
+         */
+        query: z
+          .record(
+            z.string().min(1),
+            z.string({
+              error:
+                "a query attribute takes a literal, not { env: NAME }. Query " +
+                "parameters are substituted into the address, and addresses are " +
+                "printed in the report as they were sent — the value would land " +
+                "there in the clear. Declare a secret as a header instead: there " +
+                "the report keeps the declaration and never the value",
+            }),
+          )
+          .optional(),
         endpoints: z.array(z.string().min(1)).min(1),
         /** The accounts the conditions apply to. Absent means all of them. */
         accounts: z.array(z.string().min(1)).min(1).optional(),
@@ -510,7 +539,8 @@ export interface RequestContextConfig {
   readonly id: string;
   readonly description?: string | undefined;
   readonly headers: Readonly<Record<string, ContextAttributeValue>>;
-  readonly query: Readonly<Record<string, ContextAttributeValue>>;
+  /** Literals only: a query value is printed in the report, so it cannot be a secret. */
+  readonly query: Readonly<Record<string, string>>;
   /** The endpoints the conditions apply on. Never empty. */
   readonly endpointIds: readonly string[];
   /** The accounts they apply to. Empty means all of them. */
@@ -1311,6 +1341,9 @@ export class InvalidContextValueError extends Error {
  * rather than read from inside. A value from the environment never lands in the
  * report — the declaration `{ env: NAME }` stays there.
  *
+ * Only headers can carry one. A query attribute is a literal by its type, because
+ * it is substituted into the address and addresses are printed as they were sent.
+ *
  * @throws {MissingContextValueError} the variable is unset or empty
  * @throws {InvalidContextValueError} the value cannot be sent in a request
  */
@@ -1344,7 +1377,8 @@ export function resolveContextValues(
     };
     resolved.set(context.id, {
       headers: take(context.headers, "header"),
-      query: take(context.query, "query parameter"),
+      // Nothing to resolve: the schema admits no `{ env: … }` here.
+      query: { ...context.query },
     });
   }
   return resolved;
@@ -1445,7 +1479,8 @@ function normalizeContexts(
     readonly id: string;
     readonly description?: string | undefined;
     readonly headers?: Readonly<Record<string, ContextAttributeValue>> | undefined;
-    readonly query?: Readonly<Record<string, ContextAttributeValue>> | undefined;
+    /** A literal: the schema admits no `{ env: … }` here, and the report prints it. */
+    readonly query?: Readonly<Record<string, string>> | undefined;
     readonly endpoints: readonly string[];
     readonly accounts?: readonly string[] | undefined;
   }[],
@@ -1539,9 +1574,7 @@ function normalizeContexts(
           context.id,
           key,
           "credentials are presented through this: the platform would serve the " +
-            "request as a different account while the report names the original one — " +
-            "and the value itself would land in the report in the clear, because " +
-            "request URLs are printed there",
+            "request as a different account while the report names the original one",
         );
       }
       // A resource's key rewritten by conditions is the quietest substitution of

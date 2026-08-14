@@ -459,7 +459,11 @@ Nothing here is fixed yet. The order of work is at the end.
       "refused everywhere" and stays silent by construction once the first half
       succeeded. At the default 5 rps a matrix of 10 accounts x 60 endpoints x 3
       resources takes about an hour — longer than a typical JWT.
-- [ ] **A-3. A secret from the environment reaches the report in the clear.** A
+- [x] **A-3. A secret from the environment reaches the report in the clear.** Closed
+      14 August: the schema admits a literal only under `query`, so the form is
+      unrepresentable rather than filtered by name. The denylist stays for what it
+      is actually for — impersonation through a credential in the query string.
+      Original finding: A
       context attribute declared under `query` as `{ env: NAME }` is substituted
       into the address, and addresses are printed verbatim: 24 occurrences of a
       live token across 9 accounts. The same secret declared as a **header**

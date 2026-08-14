@@ -203,7 +203,10 @@ contexts:
 ```
 
 What goes into the report is the declaration — `{ "env": "PARTNER_KEY" }` — never
-the value. An unset variable, or a value that cannot be sent in a request, is a
+the value. **A secret goes in a header, never in `query`:** a query
+attribute is substituted into the address, and addresses are printed in the report
+as they were sent, so `{ env: … }` is not accepted there at all — the schema
+refuses it. A literal in `query` is fine; it is in the configuration already. An unset variable, or a value that cannot be sent in a request, is a
 refusal at startup rather than an empty header mid-run.
 
 **A context attribute is an arbitrary header sent into someone else's system, and
