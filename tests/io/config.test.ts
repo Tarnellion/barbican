@@ -28,6 +28,7 @@ import {
   InvalidCredentialError,
   MissingCredentialError,
   parseRunConfig,
+  ReservedSignalNameError,
   resolveTokens,
   toAccounts,
   UnknownAuthSchemeError,
@@ -579,6 +580,40 @@ policy:
       );
 
       expect(() => assertReferencesResolve(config, endpoints)).toThrow(DuplicateSignalNameError);
+    });
+
+    /**
+     * Found by the audit of 14 August, and the worst configuration-reachable
+     * defect it found. A signal named `digest` took the place of the one the
+     * tool computes itself: with `kind: present` eighteen cross-tenant findings
+     * became zero and `coverage.checksRun` still named the check; with
+     * `kind: count` sixteen findings appeared on a healthy platform.
+     *
+     * Refused at parsing rather than resolved somehow — an operator who wanted a
+     * scalar of their own renames it, and nobody gets a report that lies without
+     * saying so.
+     */
+    it("rejects the reserved name the tool computes for itself", () => {
+      const declaration = `${base}bodySignals:
+  responseMustDifferByTenant: [orders.read]
+  signals:
+    - { name: digest, kind: present, path: orders, endpoints: [orders.read] }
+`;
+
+      expect(() => parseRunConfig(declaration)).toThrow(ReservedSignalNameError);
+    });
+
+    // The refusal does not depend on the digest being computed on that same
+    // endpoint: the name is reserved outright, not "reserved where the collision
+    // would happen to occur today".
+    it("rejects it on an endpoint the digest is not computed for", () => {
+      const declaration = `${base}bodySignals:
+  responseMustDifferByTenant: [me]
+  signals:
+    - { name: digest, kind: count, path: orders, endpoints: [orders.read] }
+`;
+
+      expect(() => parseRunConfig(declaration)).toThrow(ReservedSignalNameError);
     });
   });
 

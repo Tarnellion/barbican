@@ -201,12 +201,7 @@ export function createSignalExtractor(options: SignalExtractorOptions = {}): Sig
 
       for (const spec of specs) {
         if (spec.kind === "digest") {
-          const hash = createHash("sha256").update(salt).update(bytes).digest();
-          let value = 0;
-          for (let index = 0; index < DIGEST_BYTES; index += 1) {
-            value = value * 256 + (hash[index] ?? 0);
-          }
-          signals[spec.name] = value;
+          // Written after the loop — see below.
           continue;
         }
 
@@ -224,6 +219,29 @@ export function createSignalExtractor(options: SignalExtractorOptions = {}): Sig
         if (Array.isArray(target)) {
           signals[spec.name] = target.length;
         }
+      }
+
+      /**
+       * The digests go in last, so a declared signal sharing the name cannot
+       * take their place.
+       *
+       * Configuration refuses that name outright (`ReservedSignalNameError`);
+       * this is the guarantee for whoever assembles the specs through the
+       * library. The asymmetry is deliberate: losing a declared scalar is
+       * visible in the report, while losing the digest disables the
+       * tenant-isolation check in silence and leaves `checksRun` claiming it
+       * ran. Between two ways to lose, take the one that shows.
+       */
+      for (const spec of specs) {
+        if (spec.kind !== "digest") {
+          continue;
+        }
+        const hash = createHash("sha256").update(salt).update(bytes).digest();
+        let value = 0;
+        for (let index = 0; index < DIGEST_BYTES; index += 1) {
+          value = value * 256 + (hash[index] ?? 0);
+        }
+        signals[spec.name] = value;
       }
 
       return signals;

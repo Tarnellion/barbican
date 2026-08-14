@@ -67,6 +67,45 @@ describe("the digest", () => {
   });
 
   /**
+   * Found by the audit of 14 August. A declared signal sharing the digest's name
+   * used to overwrite it — the specs are written in order, and the implied
+   * digest goes first. With `kind: present` the value became `true`, `digestOf`
+   * in the check returned `undefined`, and the observation dropped out of the
+   * comparison entirely: eighteen cross-tenant findings became zero while the
+   * report went on saying the check had run.
+   *
+   * A configuration cannot reach this any more — the name is refused at parsing
+   * (`ReservedSignalNameError`). This is the same guarantee for the library,
+   * where the specs are assembled by hand: a declared scalar may be lost, and
+   * that shows in the report; the digest may not, because losing it is silent.
+   */
+  it("survives a declared signal that shares its name", async () => {
+    const extractor = createSignalExtractor({ salt: SALT });
+    const shadowing: readonly SignalSpec[] = [
+      { name: "digest", kind: "digest" },
+      { name: "digest", kind: "present", path: "orders" },
+    ];
+
+    const signals = await extractor.extract(streamOf('{"orders":[1,2]}'), shadowing);
+
+    expect(typeof signals["digest"]).toBe("number");
+    expect(signals["digest"]).toBe(await digestOf('{"orders":[1,2]}'));
+  });
+
+  // The other order of declaration must not change the answer either.
+  it("survives it whichever way round the specs are given", async () => {
+    const extractor = createSignalExtractor({ salt: SALT });
+    const shadowing: readonly SignalSpec[] = [
+      { name: "digest", kind: "count", path: "orders" },
+      { name: "digest", kind: "digest" },
+    ];
+
+    const signals = await extractor.extract(streamOf('{"orders":[1,2]}'), shadowing);
+
+    expect(signals["digest"]).toBe(await digestOf('{"orders":[1,2]}'));
+  });
+
+  /**
    * The salt is not decoration. Without it the digest of a predictable body can
    * be brute-forced, and the report starts confirming guesses about the content.
    */

@@ -420,7 +420,12 @@ Nothing here is fixed yet. The order of work is at the end.
 
 ### Blockers
 
-- [ ] **C-1. The signal name `digest` is not reserved.** One line in a user's
+- [x] **C-1. The signal name `digest` is not reserved.** Closed 14 August: the name
+      is refused at parsing (`ReservedSignalNameError`), and the extractor writes
+      digests after the declared scalars so the library path cannot lose one
+      either. Both halves proven by mutation — removing either makes a new test
+      red.
+      Original finding: One line in a user's
       configuration — `{ name: digest, kind: present, path: orders, endpoints:
       [orders.list] }` — turns 18 cross-tenant findings into 0 and leaves
       `coverage.checksRun` claiming the check ran. With `kind: count` the mirror

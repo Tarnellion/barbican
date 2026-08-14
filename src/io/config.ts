@@ -24,6 +24,7 @@ import {
   assertIndependentMemberships,
   assertPolicyIsSound,
   createTenantHierarchy,
+  DEFAULT_DIGEST_SIGNAL,
   FLAT_HIERARCHY,
   RESOURCE_RELATIONS,
 } from "../core/index.js";
@@ -434,6 +435,34 @@ export class DuplicateSignalNameError extends Error {
         `observation, so a repeated name would silently overwrite the previous scalar.`,
     );
     this.name = "DuplicateSignalNameError";
+  }
+}
+
+/**
+ * The name the tool computes for itself is not available to a declaration.
+ *
+ * Found by the audit of 14 August. One line — a declared signal named `digest`
+ * on an endpoint marked `responseMustDifferByTenant` — turned eighteen
+ * cross-tenant findings into zero while `coverage.checksRun` went on saying the
+ * check had run. With `kind: count` the mirror image: sixteen fabricated
+ * findings on a healthy platform.
+ *
+ * Neither direction announced itself. That is the exact failure this tool exists
+ * to prevent, reachable from a configuration file, so the name is refused rather
+ * than resolved: an operator who wanted a scalar of their own gets to rename it,
+ * and nobody gets a report that lies in silence.
+ */
+export class ReservedSignalNameError extends Error {
+  constructor(name: string) {
+    super(
+      `Signal name "${name}" is reserved: the tool computes a signal of that name ` +
+        `itself on every endpoint declared under responseMustDifferByTenant, and ` +
+        `the tenant-isolation check reads it. A declared signal with this name ` +
+        `would take its place — the check would then compare something else, or ` +
+        `stop comparing altogether, and the report would say neither. Pick ` +
+        `another name.`,
+    );
+    this.name = "ReservedSignalNameError";
   }
 }
 
@@ -1047,6 +1076,15 @@ export function parseRunConfig(source: string): RunConfig {
       throw new DuplicateAccountIdError(account.id);
     }
     seen.add(account.id);
+  }
+
+  // Here rather than beside the duplicate-name check in assertReferencesResolve:
+  // this one needs nothing but the configuration, and parsing is the one gate a
+  // library consumer cannot walk past.
+  for (const signal of config.bodySignals?.signals ?? []) {
+    if (signal.name === DEFAULT_DIGEST_SIGNAL) {
+      throw new ReservedSignalNameError(signal.name);
+    }
   }
 
   const accountAuth = resolveAccountAuth(config.authSchemes, config.accounts);

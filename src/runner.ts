@@ -17,7 +17,7 @@ import type {
   SignalValue,
   TenantId,
 } from "./core/index.js";
-import { principalOf, resourceApplies, SAFE_METHODS } from "./core/index.js";
+import { DEFAULT_DIGEST_SIGNAL, principalOf, resourceApplies, SAFE_METHODS } from "./core/index.js";
 
 /**
  * What is computed over the body of a marked endpoint.
@@ -28,7 +28,7 @@ import { principalOf, resourceApplies, SAFE_METHODS } from "./core/index.js";
  * body read.
  */
 const DIGEST_SIGNALS = [
-  { name: "digest", kind: "digest" },
+  { name: DEFAULT_DIGEST_SIGNAL, kind: "digest" },
 ] as const satisfies readonly SignalSpec[];
 
 /**
