@@ -190,6 +190,30 @@ async function assertDryRunSendsNothing(baseUrl) {
   process.stdout.write("--dry-run: nothing sent, the platform was not even up\n");
 }
 
+/**
+ * An unusable --report path is refused before the first request.
+ *
+ * The audit of 14 August spent 152 requests against the platform and then died
+ * on ENOENT with nothing to show for them. Proved the same way as the dry run:
+ * the platform is not up, so a check that ran after the walk would fail on the
+ * connection instead, and the message tells the two apart.
+ */
+async function assertReportPathIsCheckedFirst(baseUrl) {
+  const environment = { ...process.env, POLYGON_PORT: baseUrl.port };
+  const { code, stderr } = await runCli(undefined, environment, false, [
+    "-r",
+    "/nonexistent-dir-for-verify/report.json",
+  ]);
+
+  if (code === 0) {
+    fail("a run with an unusable --report path ended with 0");
+  }
+  if (!stderr.includes("--report cannot be written")) {
+    fail(`an unusable --report path was not refused up front:\n${stderr}`);
+  }
+  process.stdout.write("--report: an unusable path is refused before the first request\n");
+}
+
 const README = "polygon/README.md";
 const TABLE_BEGIN = "<!-- verify:begin -->";
 const TABLE_END = "<!-- verify:end -->";
@@ -294,6 +318,7 @@ async function main() {
   }
 
   await assertDryRunSendsNothing(baseUrl);
+  await assertReportPathIsCheckedFirst(baseUrl);
 
   // The tokens are random on every launch: they are not in the files and must not be.
   const tokens = Object.fromEntries(

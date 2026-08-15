@@ -8,8 +8,10 @@
  * redirects live in the HTTP client and hold whatever the CLI passes in.
  */
 
-import { readFile, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, readFile, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
 import { styleText } from "node:util";
 import { Command, InvalidArgumentError } from "commander";
 import { createCredentialProvider } from "./adapters/credentials.js";
@@ -107,6 +109,50 @@ const TERMINAL_FAILURES: ReadonlySet<string> = new Set([
   "RunBudgetExhaustedError",
   "CircuitOpenError",
 ]);
+
+/**
+ * Whether the report can be written, asked before anything is requested.
+ *
+ * Found by the audit of 14 August. The write sat 86 lines below the walk, so a
+ * typo in `-r` cost the whole run: 152 requests against the deployment, then
+ * `ENOENT`, no report on disk, nothing on stdout, and "Run aborted" — which is
+ * false besides, since the run had finished and only the file had not. Throttling
+ * is deliberately timid because traffic against someone else's system is
+ * expensive; spending it twice for a wrong path is the same cost with none of
+ * the caution.
+ *
+ * A check rather than a touch: creating the file here would leave an empty one
+ * behind whenever the run stops for any other reason. The race it leaves — the
+ * directory disappearing mid-run — is covered where the report is written, by
+ * printing it instead of losing it.
+ *
+ * @throws {Error} with the flag named, because a command line carries several paths
+ */
+async function assertReportPathIsWritable(path: string): Promise<void> {
+  const directory = dirname(resolve(path));
+  try {
+    const info = await stat(directory);
+    if (!info.isDirectory()) {
+      throw new Error(`"${directory}" is not a directory`);
+    }
+    await access(directory, constants.W_OK);
+  } catch (cause) {
+    throw new Error(
+      `--report cannot be written to "${path}": ${
+        cause instanceof Error ? cause.message : String(cause)
+      }. Checked now rather than after the walk: the report is written at the end, ` +
+        `and a path that fails then costs the whole run's traffic against the platform.`,
+    );
+  }
+
+  const existing = await stat(path).catch(() => undefined);
+  if (existing?.isDirectory() === true) {
+    throw new Error(
+      `--report points at the directory "${path}", not at a file. The report is ` +
+        `one JSON document and needs a name to be written under.`,
+    );
+  }
+}
 
 function positiveInteger(raw: string): number {
   const value = Number(raw);
@@ -269,6 +315,11 @@ async function run(flags: RunFlags): Promise<number> {
   // Patterns are expanded here, before the matrix is built: a pattern that matched
   // no endpoint must fail at startup instead of dropping the pairs into fallback.
   const policy = expandPolicy(config.policy, endpoints);
+
+  // Before anything is sent: a path that fails at the end costs the whole run.
+  if (flags.report !== undefined) {
+    await assertReportPathIsWritable(flags.report);
+  }
 
   // Everything above this line is validation and parsing; nothing has reached the
   // network. That is what makes this the honest place to stop and show what a run
@@ -524,7 +575,25 @@ async function run(flags: RunFlags): Promise<number> {
   if (flags.report === undefined) {
     process.stdout.write(json);
   } else {
-    await writeFile(flags.report, json, "utf8");
+    try {
+      // 0o600, not the umask's answer. The file carries every request address,
+      // every response header and the identifiers of accounts, resources and
+      // tenants. The project keeps tokens and bodies out of it by construction
+      // and then wrote it world-readable on a shared build agent.
+      await writeFile(flags.report, json, { encoding: "utf8", mode: 0o600 });
+    } catch (cause) {
+      // The path was checked before the first request, so getting here means the
+      // directory went away underneath us or the disk filled. The run is already
+      // paid for in traffic against someone else's deployment: losing the result
+      // now would mean spending it twice.
+      process.stdout.write(json);
+      process.stderr.write(
+        `${paint("The report could not be written:", "red")} ${
+          cause instanceof Error ? cause.message : String(cause)
+        }\nIt has been printed to stdout instead — the run is done and its result ` +
+          `is not worth losing to a filesystem error.\n`,
+      );
+    }
   }
 
   const { summary } = report;

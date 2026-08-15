@@ -668,7 +668,12 @@ the run. Generation does not reach a number inside a sentence.
 - [ ] **G-7.** `--dry-run --report path` silently ignores `--report`. No file, no
       warning, and the previous report stays in place — a pipeline that publishes
       it will publish yesterday's.
-- [ ] **G-8 / K-3.** An unusable `--report` path is checked neither at startup nor
+- [x] **G-8 / K-3.** Closed 14 August: the path is checked before the first
+      request and before `--dry-run` returns, and a write that still fails prints
+      the report to stdout rather than losing a run already paid for in traffic.
+      Proved in `verify.mjs` against a platform that is not up, so a check running
+      after the walk would fail on the connection instead. Original finding: an
+      unusable `--report` path is checked neither at startup nor
       in the dry run. `writeFile` sits 86 lines below `collectObservations`: the
       run spends 152 requests on someone else's deployment and then dies on
       ENOENT with nothing to show.
@@ -890,7 +895,8 @@ H-3 above.
       and never removes it: **209 directories, 2 440 report files, 214 MB** on this
       machine — the very files `.gitignore` describes as possibly carrying a
       customer's personal data.
-- [ ] **K-2.** The report is written 0644, world-readable: `writeFile(path, json,
+- [x] **K-2.** Closed 14 August: `{ encoding: "utf8", mode: 0o600 }`. Original
+      finding: the report is written 0644, world-readable: `writeFile(path, json,
       "utf8")` with no `{ mode }`. It holds full request URLs, all response
       headers, and account, resource and tenant identifiers.
 - [ ] **L-10.** `.claude/settings.local.json` is excluded only by the owner's
