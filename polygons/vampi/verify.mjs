@@ -24,7 +24,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { checkCoverage, compareVariant, loadGroundTruth } from "../../tools/oracle/index.mjs";
@@ -290,6 +290,7 @@ async function main() {
   assertOracleIsSound(groundTruth);
 
   const keep = process.argv.includes("--keep");
+  const keepReports = process.argv.includes("--keep-reports");
   const selected = process.argv.slice(2).filter((argument) => !argument.startsWith("--"));
   const modes = groundTruth.variants.filter(
     (mode) => selected.length === 0 || selected.includes(mode.id),
@@ -321,11 +322,15 @@ async function main() {
     }
   }
 
-  process.stdout.write(
-    `\nTotal: ${modes.length} modes, ${mismatched} mismatches. Reports: ${reportDir}\n`,
-  );
+  process.stdout.write(`\nTotal: ${modes.length} modes, ${mismatched} mismatches.\n`);
   if (keep) {
     process.stdout.write(`The deployment was left running: docker compose -f ${COMPOSE} down -v\n`);
+  }
+  // The reports go with the run unless asked for: kept always and removed never,
+  // they had grown to 214 MB by the audit of 14 August, and against a real
+  // platform their contents are not synthetic.
+  if (!keepReports) {
+    await rm(reportDir, { recursive: true, force: true });
   }
   return mismatched === 0 ? 0 : 1;
 }

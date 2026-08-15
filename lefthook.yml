@@ -16,6 +16,14 @@ pre-commit:
     - name: gitleaks
       run: gitleaks git --staged --redact --no-banner
 
+# The message, not the diff: the language guard in the test suite reads
+# git ls-files and never sees history. 100 of the first 131 messages were Russian
+# before anything checked.
+commit-msg:
+  jobs:
+    - name: language
+      run: node tools/commit-msg-language.mjs {1}
+
 pre-push:
   parallel: false
   jobs:

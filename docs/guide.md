@@ -621,6 +621,17 @@ the oracle
 pins the cells they light up. That is what keeps the flag honest: without those
 cells `--unsafe-methods` would be a code path nothing had ever walked.
 
+## Before a run against something you do not own
+
+Get the owner's agreement, in writing, naming the deployment and the window.
+Everything in this guide describes how to keep a run small and honest; none of
+it makes a run permitted. From the other side — the logs, a WAF, whoever is on
+call — several accounts sweeping the surface for places where one reaches
+another's data is indistinguishable from the thing this tool is used to find.
+
+`--unsafe-methods` deserves its own sentence in that agreement: it changes
+state, and the change outlives the report.
+
 ## What the tool does not do
 
 - **Does not issue write methods** without `--unsafe-methods`. GET and HEAD only.

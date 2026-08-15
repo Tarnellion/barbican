@@ -21,7 +21,7 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { checkCoverage, compareVariant, loadGroundTruth } from "../tools/oracle/index.mjs";
@@ -302,6 +302,8 @@ async function main() {
     fail(`the ground truth is incomplete:\n  ${gaps.join("\n  ")}`);
   }
   const argv = process.argv.slice(2);
+  // The reports are a debugging aid, not an artefact: kept only when asked.
+  const keepReports = argv.includes("--keep-reports");
   // Checking the table in the README is a modifier of an ordinary run, not a mode of
   // its own: the numbers in the document must come from the same run as the verdict.
   const checkReadme = argv.includes("--check-readme");
@@ -423,10 +425,7 @@ async function main() {
     }
   }
 
-  process.stdout.write(
-    `\nTotal: ${combinations.length} combinations, ${mismatched} mismatches. ` +
-      `Reports: ${reportDir}\n`,
-  );
+  process.stdout.write(`\nTotal: ${combinations.length} combinations, ${mismatched} mismatches.\n`);
 
   if (updateReadme) {
     await writeReadmeTable(renderTable(rows));
@@ -439,6 +438,24 @@ async function main() {
     } else {
       process.stdout.write(`\nThe table in ${README} matches this run.\n`);
     }
+  }
+
+  /**
+   * The reports go with the run unless asked for.
+   *
+   * They were kept always, and nothing ever removed them: 209 directories and
+   * 214 MB had accumulated on the author's machine by the audit of 14 August.
+   * On a disposable CI runner that is invisible, which is why it went unnoticed
+   * for months. What leaks is exactly the class of file `.gitignore` describes
+   * as possibly carrying a customer's personal data — and against a real
+   * platform the contents are not synthetic.
+   *
+   * `--keep-reports` when they are wanted; the path is printed either way.
+   */
+  if (keepReports) {
+    process.stdout.write(`The reports are kept in ${reportDir}\n`);
+  } else {
+    await rm(reportDir, { recursive: true, force: true });
   }
 
   process.exitCode = mismatched === 0 ? 0 : 1;

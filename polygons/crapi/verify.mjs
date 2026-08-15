@@ -26,7 +26,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { checkCoverage, compareVariant, loadGroundTruth } from "../../tools/oracle/index.mjs";
@@ -331,6 +331,7 @@ async function main() {
   }
 
   const keep = process.argv.includes("--keep");
+  const keepReports = process.argv.includes("--keep-reports");
   const named = process.argv.slice(2).filter((argument) => !argument.startsWith("--"));
   const chosen = (variant) => named.length === 0 || named.includes(variant.id);
   const variants = groundTruth.variants.filter(chosen);
@@ -363,9 +364,15 @@ async function main() {
 
   say("");
   const tail = `Total: ${variants.length} variants, ${mismatched} mismatches`;
-  say(`${tail}. Reports: ${reportDir}`);
+  say(tail);
   if (keep) {
     say("The deployment was left running. To stop it: docker compose down -v in the crAPI tree.");
+  }
+  // The reports go with the run unless asked for: kept always and removed never,
+  // they had grown to 214 MB by the audit of 14 August, and against a real
+  // platform their contents are not synthetic.
+  if (!keepReports) {
+    await rm(reportDir, { recursive: true, force: true });
   }
   return mismatched === 0 ? 0 : 1;
 }

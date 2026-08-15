@@ -891,7 +891,9 @@ H-3 above.
 
 ### Hygiene of files, process and repository
 
-- [ ] **K-1.** `verify.mjs` on all three polygons creates a temporary directory
+- [x] **K-1.** Closed 15 August: all three polygons remove the directory unless
+      `--keep-reports` is given, and the path is printed only when it survives.
+      Original finding: `verify.mjs` on all three polygons creates a temporary directory
       and never removes it: **209 directories, 2 440 report files, 214 MB** on this
       machine — the very files `.gitignore` describes as possibly carrying a
       customer's personal data.
@@ -938,14 +940,18 @@ H-3 above.
 
 ### Legal, language, and platform assumptions
 
-- [ ] **J-1.** **100 of 131 commits are written in Russian**, which CLAUDE.md
+- [x] **J-1.** Closed 15 August by decision: the history stays, the rule holds
+      from 13 August 2026, and `tools/commit-msg-language.mjs` guards the next
+      message through a lefthook `commit-msg` job. Original finding: **100 of 131 commits are written in Russian**, which CLAUDE.md
       forbids without exception, commit messages included. **J-18**: the guard
       reads `git ls-files`, that is the contents of tracked files; the history is
       outside its scope entirely and there is no `commit-msg` hook. Thirteen merge
       commits also fail conventional commits. The last Russian commit is `1b3ed47`
       of 13 August, so the rule holds de facto from that date — the decision to
       make is whether to say so in CLAUDE.md and add the hook, or rewrite history.
-- [ ] **L-6.** Not one line anywhere in the user documentation says that testing
+- [x] **L-6.** Closed 15 August: a section in the README before the safety
+      defaults, and a shorter one in the guide before "What the tool does not do".
+      Original finding: Not one line anywhere in the user documentation says that testing
       someone else's system needs their permission. The README says outright
       "meant to run against systems you do not own outright" and answers that with
       technical defaults. A search for `permission | authoriz | consent | legal`

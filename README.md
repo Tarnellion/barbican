@@ -171,6 +171,31 @@ observed behaviour, and a disagreement is a disagreement whichever way it points
 It cannot tell whether your declaration or the platform is wrong, so it does not
 stay silent. See [ADR-0014](docs/adr/0014-severity-and-exit-codes.md).
 
+## Permission comes first
+
+**Get the system owner's agreement before you run this against anything you do
+not own.** In writing, naming the deployment and the window.
+
+The tool issues authenticated requests as several accounts across a platform's
+whole surface, looking specifically for places where one account reaches
+another's data. That is what an intrusion looks like from the inside — from the
+logs, from a WAF, from whoever is on call. Nothing below changes that: the
+defaults keep the traffic small and the report clean, and they are not a
+substitute for being allowed.
+
+Two things are worth agreeing separately rather than assuming:
+
+- **`--unsafe-methods`** issues requests that change state. A cancelled order
+  stays cancelled after the report is written; barbican does not undo what it
+  did.
+- **A shared or production deployment.** Even at the default five requests a
+  second, a run appears in somebody's monitoring, and an unannounced one gets
+  treated as what it resembles.
+
+This is not legal advice, and the licence disclaims warranty — but the reason to
+ask is simpler than the law: someone has to know that the traffic in their logs
+is yours.
+
 ## Safety defaults
 
 barbican is meant to run against systems you do not own outright, so the defaults are

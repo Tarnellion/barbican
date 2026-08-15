@@ -69,6 +69,13 @@ the source of truth is the English files in the repository. Two language
 versions do not stay in agreement, and a silent divergence is exactly the class
 of problem this whole tool is written against.
 
+**The rule holds from 13 August 2026**, the day the repository was translated.
+Before it, 100 of the first 131 commit messages were Russian, and nothing
+checked them: the guard in `tests/docs/language.test.ts` reads `git ls-files`,
+which is the contents of tracked files, and history is outside it entirely.
+That history stays as it is — rewriting it would break every link to a commit
+and buy little — and a `commit-msg` hook now guards the next message instead.
+
 Talking to the project owner in chat happens in Russian. This applies only to
 what goes into the repository.
 
