@@ -202,14 +202,23 @@ export interface RequestRecord {
 /**
  * An observation together with the verdict on its cell.
  *
- * `match: true` means 'tested and agreed with what was declared'; this is the only
- * place in the report where a positive result is visible cell by cell rather than
- * as a total. The verdict comes from the same walk as the discrepancies
- * (ADR-0020).
+ * `match: true` means 'tested and agreed with what was declared, by every channel
+ * that judged this cell'; this is the only place in the report where a positive
+ * result is visible cell by cell rather than as a total. The verdict comes from
+ * the same walk as the discrepancies (ADR-0020), narrowed by the checks
+ * (ADR-0022).
  */
 export interface ReportedObservation extends AccessObservation {
   readonly expected?: ExpectedOutcome;
   readonly match?: boolean;
+  /**
+   * The kinds of finding recorded against this cell. Absent means none.
+   *
+   * The reason `match` is `false`, on the line where `match` is. A discrepancy
+   * over the status code can be read off the row itself; a body finding cannot —
+   * there the expectation, the outcome and the status all agree.
+   */
+  readonly findingKinds?: readonly string[];
   readonly relation?: ResourceRelation;
   readonly ruleIndex?: number;
 }
@@ -319,13 +328,23 @@ export interface Coverage {
    */
   readonly contextsProbed: Readonly<Record<string, number>>;
   /**
-   * How many cells were observed and agreed with the expectation.
+   * How many cells were observed and nothing was found on them.
    *
    * The reader computed `cellsObserved − findings` himself, and 'tested and clean'
-   * existed in the report only as a subtraction. As a number it is checkable: its
-   * sum with the discrepancies must give `cellsObserved`.
+   * existed in the report only as a subtraction. As a number it is checkable:
+   * `cellsMatched + cellsWithFindings === cellsObserved`.
    */
   readonly cellsMatched?: number;
+  /**
+   * How many observed cells carry at least one finding.
+   *
+   * `summary.findings` counts rows, and one cell can produce several of them at
+   * once — a discrepancy over the status code and a body one — so the reader who
+   * added `cellsMatched` to it got a number larger than `cellsObserved` and had
+   * every reason to conclude the report was lying. Present exactly when
+   * `cellsMatched` is: half of an identity is worse than none of it.
+   */
+  readonly cellsWithFindings?: number;
   /**
    * Resources every account was answered 404 for.
    *
@@ -387,10 +406,9 @@ export interface RunReport {
    *
    * The audit of 14 August looked for a reference to the documentation and found
    * none: the report carried `schemaVersion: "1"` and a version number, and
-   * everything a reader needs to interpret it — what `basis` means, why a cell
-   * can be `match: true` and still appear in the findings, how to tell "clean"
-   * from "nothing was checked" — is in `docs/report.md`, which the artifact did
-   * not name. The receiver of a ticket has the JSON and nothing else.
+   * everything a reader needs to interpret it — what `basis` means, what
+   * `findingKinds` says about a cell, how to tell "clean" from "nothing was
+   * checked" — is in `docs/report.md`, which the artifact did not name. The receiver of a ticket has the JSON and nothing else.
    *
    * Pinned to the version that produced the file rather than to `main`: a
    * document read a year later must describe the tool that wrote the report, not
@@ -608,6 +626,21 @@ function countBySeverity(findings: readonly ReportFinding[]): Readonly<Record<Se
  * Joined on the triple 'account × endpoint × resource' — the same key a cell is
  * identified by everywhere in the project.
  */
+/**
+ * The key of a matrix cell: account, endpoint, resource.
+ *
+ * Written out by hand in five places, and the sixth had to agree with all five
+ * for a verdict and a finding to meet on the same cell. A separator that cannot
+ * occur in an identifier, so that `a|b` and `a` + `|b` are different keys.
+ */
+function cellKey(of: {
+  readonly accountId: string;
+  readonly endpointId: string;
+  readonly resourceId?: string;
+}): string {
+  return `${of.accountId}\u0000${of.endpointId}\u0000${of.resourceId ?? ""}`;
+}
+
 function mergeFindings(
   diffs: readonly AccessDiff[],
   checks: readonly Finding[],
@@ -623,18 +656,11 @@ function mergeFindings(
       .filter((context) => Object.keys(context.headers).length > 0)
       .map((c) => [c.id, c.headers]),
   );
-  const byCell = new Map(
-    observations.map((observation) => [
-      `${observation.accountId}\u0000${observation.endpointId}\u0000${observation.resourceId ?? ""}`,
-      observation,
-    ]),
-  );
+  const byCell = new Map(observations.map((observation) => [cellKey(observation), observation]));
   function withRequest<
     T extends { accountId: string; endpointId: string; resourceId?: string; contextId?: string },
   >(finding: T): T & { request?: RequestRecord } {
-    const observation = byCell.get(
-      `${finding.accountId}\u0000${finding.endpointId}\u0000${finding.resourceId ?? ""}`,
-    );
+    const observation = byCell.get(cellKey(finding));
     if (observation?.url === undefined || observation.method === undefined) {
       return finding;
     }
@@ -662,7 +688,7 @@ function mergeFindings(
     if (typeof other !== "string" || check.endpointId === undefined) {
       return {};
     }
-    const observation = byCell.get(`${other}\u0000${check.endpointId}\u0000`);
+    const observation = byCell.get(cellKey({ accountId: other, endpointId: check.endpointId }));
     if (observation?.url === undefined || observation.method === undefined) {
       return {};
     }
@@ -796,28 +822,66 @@ function withContextAccounts(
  * existed only as a total: to check a single cell, the reader of the report was
  * rewriting the core in his own language. See ADR-0020.
  */
-function withVerdicts(options: BuildReportOptions): readonly ReportedObservation[] {
+function withVerdicts(
+  options: BuildReportOptions,
+  findings: readonly ReportFinding[],
+): readonly ReportedObservation[] {
   const cells = options.cells ?? [];
   if (cells.length === 0) {
     return options.observations;
   }
-  const byCell = new Map(
-    cells.map((cell) => [
-      `${cell.accountId}\u0000${cell.endpointId}\u0000${cell.resourceId ?? ""}`,
-      cell,
-    ]),
-  );
+  const byCell = new Map(cells.map((cell) => [cellKey(cell), cell]));
+  // Every kind recorded against the cell, from both channels at once.
+  //
+  // The walk is not the only thing that judges a cell. A check over response
+  // bodies judges it too, and against a declaration made by the same human in the
+  // same configuration: `responseMustDifferByTenant` is not a heuristic the tool
+  // brought along. A cell where the bodies did not differ has not "agreed with
+  // what was declared", whatever the status code was.
+  const kindsOf = new Map<string, string[]>();
+  for (const finding of findings) {
+    // Unreachable today, and a type guard rather than a decision: matrix
+    // discrepancies always name both, and `mergeFindings` drops a check finding
+    // that names neither — reporting it under
+    // `coverage.checksWithUnusableFindings` rather than in silence. A finding
+    // with no cell cannot narrow the verdict on one.
+    if (finding.accountId === undefined || finding.endpointId === undefined) {
+      continue;
+    }
+    const key = cellKey({
+      accountId: finding.accountId,
+      endpointId: finding.endpointId,
+      ...(finding.resourceId === undefined ? {} : { resourceId: finding.resourceId }),
+    });
+    const kinds = kindsOf.get(key);
+    if (kinds === undefined) {
+      kindsOf.set(key, [finding.kind]);
+    } else if (!kinds.includes(finding.kind)) {
+      kinds.push(finding.kind);
+    }
+  }
   return options.observations.map((observation) => {
-    const cell = byCell.get(
-      `${observation.accountId}\u0000${observation.endpointId}\u0000${observation.resourceId ?? ""}`,
-    );
+    const key = cellKey(observation);
+    const cell = byCell.get(key);
     if (cell === undefined) {
       return observation;
     }
+    const kinds = kindsOf.get(key);
     return {
       ...observation,
       expected: cell.expected,
-      match: cell.match,
+      // The walk's verdict **and** the checks. `match` used to be the walk alone,
+      // so a cell could be `match: true` and carry a body finding at the same
+      // time: twelve of them did on the reference run. A reader who started from
+      // the observation closed it as works-as-designed, and both arithmetic
+      // self-checks this report offers came out wrong. Found by the audit of
+      // 14 August 2026.
+      match: cell.match && kinds === undefined,
+      // Why it did not agree, next to the cell itself. Without this a body
+      // finding leaves an unexplainable row behind: expectation `allowed`,
+      // outcome `allowed`, `match: false`, and nothing on the line saying which
+      // channel objected.
+      ...(kinds === undefined ? {} : { findingKinds: [...kinds].sort() }),
       ...(cell.relation === undefined ? {} : { relation: cell.relation }),
       ...(cell.ruleIndex === undefined ? {} : { ruleIndex: cell.ruleIndex }),
     };
@@ -896,13 +960,15 @@ function countByContext(options: BuildReportOptions): Readonly<Record<string, nu
 }
 
 export function buildReport(options: BuildReportOptions): RunReport {
-  const observations = withVerdicts(options);
+  // The findings first: a verdict on a cell depends on them, and merging depends
+  // on the raw observations rather than on the verdicts, so the order is forced.
   const merged = mergeFindings(
     options.findings,
     options.checks ?? [],
     options.observations,
     options.config.contexts,
   );
+  const observations = withVerdicts(options, merged);
   const notObserved = options.findings.filter((finding) => finding.kind === "not-observed").length;
   // The other side of a paired finding sits in `evidence`: grouping does not see
   // it, and without it a group names one side of the leak out of two.
@@ -1013,6 +1079,15 @@ export function buildReport(options: BuildReportOptions): RunReport {
         ? {}
         : {
             cellsMatched: observations.filter((observation) => observation.match === true).length,
+            // Cells, not rows of `findings`. One cell can carry several findings
+            // at once — a discrepancy over the status code and a body one — and
+            // `summary.findings` counts them separately, so the identity the
+            // documentation offered the reader did not hold on any run with more
+            // than one channel firing. Counting the cells here means the reader
+            // adds two numbers instead of deduplicating a list by three fields.
+            cellsWithFindings: observations.filter(
+              (observation) => observation.findingKinds !== undefined,
+            ).length,
           }),
     },
     inputs: {

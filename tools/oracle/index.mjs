@@ -193,11 +193,6 @@ export function cellKey(finding) {
  * These are the invariants that need no ground truth: they hold for any run
  * whatever the platform answered, so they cost nothing to state and catch a
  * regression in the aggregation that leaves the finding list itself correct.
- *
- * Not here: `cellsMatched + findings === cellsObserved`. It is documented in
- * `docs/report.md` and does **not** hold today — a cell can be `match: true` and
- * carry a body finding at once. That is an open finding of its own, and
- * asserting it now would make this gate red for a reason it did not find.
  */
 function checkReportConsistency(report) {
   const problems = [];
@@ -226,6 +221,52 @@ function checkReportConsistency(report) {
     (report.defects ?? []).reduce((total, group) => total + group.violations, 0),
     findings.length,
   );
+
+  // The identity `docs/report.md` offers its reader, asserted where a reader
+  // cannot: on every one of the 28 combinations at once. It was documented and
+  // untrue for as long as two channels have judged cells — the verdict came from
+  // the walk alone, so a cell could be `match: true` and carry a body finding.
+  // Kept over cells rather than over `summary.findings`, because one cell can
+  // produce several findings.
+  const observations = report.observations ?? [];
+  const coverage = report.coverage ?? {};
+  if (coverage.cellsMatched !== undefined) {
+    say(
+      "cellsMatched",
+      coverage.cellsMatched,
+      observations.filter((one) => one.match === true).length,
+    );
+    say(
+      "cellsWithFindings",
+      coverage.cellsWithFindings,
+      observations.filter((one) => one.findingKinds !== undefined).length,
+    );
+    if (coverage.cellsMatched + coverage.cellsWithFindings !== coverage.cellsObserved) {
+      problems.push(
+        `cellsMatched ${coverage.cellsMatched} + cellsWithFindings ` +
+          `${coverage.cellsWithFindings} is not cellsObserved ${coverage.cellsObserved}`,
+      );
+    }
+  }
+
+  // A cell listed as agreed while carrying a finding is the contradiction the
+  // two numbers above only summarise. Named per cell, because "the arithmetic is
+  // off by twelve" does not tell you which twelve.
+  const withFinding = new Set(
+    findings
+      .filter((one) => one.accountId !== undefined && one.endpointId !== undefined)
+      .map((one) => `${one.accountId} ${one.endpointId} ${one.resourceId ?? "—"}`),
+  );
+  for (const one of observations) {
+    if (one.match !== true) {
+      continue;
+    }
+    if (withFinding.has(`${one.accountId} ${one.endpointId} ${one.resourceId ?? "—"}`)) {
+      problems.push(
+        `${one.accountId} × ${one.endpointId} is listed as agreed and appears in the findings`,
+      );
+    }
+  }
 
   // Grouping is by the signature "endpoint × kind × relation × conditions", so
   // the two sets of signatures are the same set seen twice. A group that lost

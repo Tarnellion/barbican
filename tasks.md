@@ -541,7 +541,16 @@ everything downstream of it.
       dropped (`build.ts:614`), and the counter that the comment promises will
       keep it visible counts the already-filtered list. Latent today; a blocker
       for Module 2, where run-level findings are the point.
-- [ ] **B-2 / H-3.** A cell is `match: true` and carries a body finding at the
+- [x] **B-2 / H-3.** Closed 15 August, [ADR-0022](docs/adr/0022-one-verdict-per-cell.md):
+      a cell is `match: true` only when nothing was found on it by either
+      channel, `findingKinds` names the reason on the row itself, and
+      `coverage.cellsWithFindings` makes the documented identity checkable —
+      `cellsMatched + cellsWithFindings === cellsObserved` — because
+      `summary.findings` counts rows and one cell can carry several. The oracle
+      asserts both numbers and the contradiction itself on all 28 combinations;
+      reverting the fix turns it red naming the six offending cells. On the
+      reference run `cellsMatched` went 80 → 74.
+      Original finding: a cell is `match: true` and carries a body finding at the
       same time — 12 of 18 on the reference run. `cellsMatched 100 + findings 98
       = 198` against `cellsObserved 180`, which breaks the self-check
       `docs/report.md` teaches the reader to perform, and contradicts ADR-0020 in
@@ -711,8 +720,9 @@ the run. Generation does not reach a number inside a sentence.
 - [x] **B-15.** The oracle reads four summary counters — closed 14 August together
       with C-3: `checkReportConsistency` in `tools/oracle/index.mjs` compares the
       counters against the body and the defect signatures against the findings',
-      for all three polygons. `cellsMatched + findings === cellsObserved` is
-      deliberately not among them: it is documented and does not hold (B-2).
+      for all three polygons. The identity over cells was added on 15 August with
+      B-2; the note that stood here — "documented and does not hold" — is gone
+      with the defect.
       Original finding: and the exit code;
       `bySeverity`, `defectGroups` and `coverage.cellsMatched` are not checked. It
       compares **sets**, so duplicated rows are invisible by construction.
@@ -766,10 +776,10 @@ mutants the type checker rejects) **7 real gaps**, not 29.
 
 ### The report is not self-sufficient for a ticket
 
-Five of six criteria pass. The arithmetic is exact — 22 quantities recomputed
-independently, zero divergence — and seven of seven `curl` commands assembled
-from the report reproduced on the first attempt. The failing criterion is B-2 /
-H-3 above.
+Six of six criteria pass as of 15 August. The arithmetic is exact — 22
+quantities recomputed independently, zero divergence — and seven of seven `curl`
+commands assembled from the report reproduced on the first attempt. The sixth,
+readability, failed on B-2 / H-3 above and was closed with it.
 
 - [x] **H-1.** Closed 14 August: `basis` says `"rule"` or `"fallback"` in a field of
       its own, filled where the verdict is resolved rather than derived a second
@@ -994,30 +1004,38 @@ Mutation testing of `src/io`, `src/adapters` and `src/report` — `config.ts` at
 
 ### Order of work, by risk over cost
 
-1. **nanoid** — tonight, in the window 16:41-24:00 UTC.
-2. **C-1** reserve the name `digest`.
-3. **A-3** allowlist instead of a denylist for query attributes, or redact the
-   value inside the printed URL.
-4. **A-1** unwrap `cause` when matching terminal errors.
-5. **D-1** `pathSegment` instead of `encodeURIComponent`.
-6. **L-2** a canary for resources.
-7. **L-1** re-probe the canaries at the end of the walk.
-8. **F-2** the release runs all four gates.
-9. **B-1** stop discarding registry findings.
-10. **I-3** cache the path parse in `resourceApplies` — also fixes I-4.
-11. **C-2** an exact `toEqual` on the four remaining default constants.
-12. **H-1 + H-2** `basis: "fallback"` beside `expected`, and a documentation link
-    in the JSON.
-13. **G-8 / K-3** check the report path before the first request.
-14. **J-2, J-3, J-4** bring CLAUDE.md and the `http.ts` header back to the code.
-15. **K-1 + K-2** clean the temporary directories, write the report `0o600`.
-16. **L-6** a paragraph about the system owner's permission.
+Struck through means closed and proven; the rest is the remaining work in the
+order it was ranked on 14 August. Item 9 is the one exception to "closed means
+finished" — see B-1.
+
+1. ~~**nanoid** — tonight, in the window 16:41-24:00 UTC.~~
+2. ~~**C-1** reserve the name `digest`.~~
+3. ~~**A-3** allowlist instead of a denylist for query attributes, or redact the
+   value inside the printed URL.~~
+4. ~~**A-1** unwrap `cause` when matching terminal errors.~~
+5. ~~**D-1** `pathSegment` instead of `encodeURIComponent`.~~
+6. ~~**L-2** a canary for resources.~~
+7. ~~**L-1** re-probe the canaries at the end of the walk.~~
+8. ~~**F-2** the release runs all four gates.~~
+9. **B-1** stop discarding registry findings. Half closed: the report names them
+   in `coverage.checksWithUnusableFindings` instead of dropping them in silence.
+   Keeping such a finding needs a cell it does not have, which is L-4.
+10. ~~**I-3** cache the path parse in `resourceApplies` — also fixes I-4.~~
+11. ~~**C-2** an exact `toEqual` on the four remaining default constants.~~
+12. ~~**H-1 + H-2** `basis: "fallback"` beside `expected`, and a documentation
+    link in the JSON.~~
+13. ~~**G-8 / K-3** check the report path before the first request.~~
+14. ~~**J-2, J-3, J-4** bring CLAUDE.md and the `http.ts` header back to the
+    code.~~
+15. ~~**K-1 + K-2** clean the temporary directories, write the report `0o600`.~~
+16. ~~**L-6** a paragraph about the system owner's permission.~~
 17. **G-5** a distinct exit code for usage errors.
-18. **B-2 / H-3** a single source for the per-cell verdict.
+18. ~~**B-2 / H-3** a single source for the per-cell verdict.~~
 19. **I-1** a parallel walk, or drop the flag honestly.
 20. **D-6** branded types in `src/io/untrusted.ts`.
-21. **J-1** decide about the history, and add a `commit-msg` hook.
+21. ~~**J-1** decide about the history, and add a `commit-msg` hook.~~
 22. **L-4** rework `Finding` and `CheckContext` before phase 5 is scheduled.
+    Deferred by the owner until the rest of the audit is closed.
 23. **L-3** a warning about platforms that refuse with an envelope.
 
 ## Readiness for different authentication surfaces

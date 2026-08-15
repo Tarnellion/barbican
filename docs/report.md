@@ -200,18 +200,19 @@ no findings there precisely because it was never reached.
 
 The `coverage` section answers the question without which the numbers above mean
 nothing. The numbers in this example come from one particular run — the reference
-polygon with all nine defects switched on, 13 August 2026 — and they are here to
+polygon with all nine defects switched on, 15 August 2026 — and they are here to
 show the shape of the section, not to be compared with yours. Your run will
 differ in every one of them:
 
 ```jsonc
 "coverage": {
-  "endpointsTotal": 6,          // how many the source gave
+  "endpointsTotal": 7,          // how many the source gave
   "endpointsProbed": 6,         // how many were actually probed
   "cellsObserved": 144,
-  "cellsMatched": 80,           // observed and agreed with the expectation
+  "cellsMatched": 74,           // observed, and nothing was found on them
+  "cellsWithFindings": 70,      // observed, and something was
   "cellsNotObserved": 0,        // declared by the policy, but not observed
-  "notProbed": {},              // why an endpoint was not probed, by reason
+  "notProbed": { "unsafe-method": 1 },   // why an endpoint was not probed, by reason
   "bodiesComparedOn": ["orders.list"],    // where bodies were compared
   "writeMethodsProbed": false,
   "checksRun": ["identical-response-across-tenants"],
@@ -229,8 +230,16 @@ differ in every one of them:
 
 **`cellsMatched` is "tested and agreed".** It used to be something you had to get
 by subtraction, and "it is clean here" existed in the report only as the reader's
-own arithmetic. Its sum with the discrepancies must give `cellsObserved`; if it
-does not, the report is lying, and that is checkable on the spot.
+own arithmetic. As a number it is checkable:
+
+    cellsMatched + cellsWithFindings === cellsObserved
+
+If that does not hold, the report is lying. **Note that the second term is not
+`summary.findings`:** that counts rows, and one cell can produce several of them
+at once — a discrepancy over the status code and a body one on the same cell are
+two findings and one cell. This document offered the sum over
+`summary.findings` until 15 August 2026, and on the run above it gave 156 against
+144 observed.
 
 **`bodiesComparedOn` matters more than it looks.** On every other endpoint the
 absence of a finding means "no comparison was made", not "nothing matched".
@@ -336,12 +345,38 @@ are declared, `signals`.
 `match: true` is **the only place in the report where a positive result is
 visible cell by cell and not as a total**. It was absent on principle before, and
 "it is clean here" had to be obtained by subtraction: a reader checking a single
-cell was rewriting the tool's core in his own language. The verdict comes from
-the same walk as the findings: a cell cannot be listed as agreed and land in
-`findings` at the same time ([ADR-0020](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0020-verdict-next-to-observation.md)).
+cell was rewriting the tool's core in his own language
+([ADR-0020](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0020-verdict-next-to-observation.md)).
+
+**A cell cannot be listed as agreed and appear in `findings` at the same time.**
+Two things judge a cell: the walk over the matrix, by status code, and the checks
+over response bodies. Both have to be satisfied, and it is worth knowing that
+until 15 August 2026 only the first reached this field — on the reference run
+twelve cells were printed as agreed while carrying a high-severity leak.
+
+Which is why a `false` here sometimes has no visible cause on the row. This one
+is a real cell from that run:
+
+```jsonc
+{
+  "accountId": "alice-a", "endpointId": "orders.list",
+  "status": 200, "outcome": "allowed",
+  "expected": "allowed",      // declared allowed, and allowed is what happened
+  "match": false,             // and still it did not agree
+  "findingKinds": ["identical-response-across-tenants"],
+  "ruleIndex": 1
+}
+```
+
+Access was declared allowed and was allowed; by status code there is nothing
+here. What failed is the other declaration — `responseMustDifferByTenant` on this
+endpoint — and `findingKinds` names it. **Without that field the row would be
+unreadable**, and reading it as a bug in the tool would be the reasonable
+conclusion.
 
 Checkable on the spot: the number of observations with `match: true` must equal
-`coverage.cellsMatched`.
+`coverage.cellsMatched`, and the number carrying `findingKinds` must equal
+`coverage.cellsWithFindings`.
 
 The same field makes a mistake in **your** policy visible, as opposed to one in
 the platform: a rule that accidentally declared access allowed used to give the
