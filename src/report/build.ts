@@ -382,7 +382,25 @@ export interface RunReport {
    * declaration'.
    */
   readonly configDigest: string;
-  readonly tool: { readonly name: string; readonly version: string };
+  /**
+   * Who produced this file, and where its shape is explained.
+   *
+   * The audit of 14 August looked for a reference to the documentation and found
+   * none: the report carried `schemaVersion: "1"` and a version number, and
+   * everything a reader needs to interpret it — what `basis` means, why a cell
+   * can be `match: true` and still appear in the findings, how to tell "clean"
+   * from "nothing was checked" — is in `docs/report.md`, which the artifact did
+   * not name. The receiver of a ticket has the JSON and nothing else.
+   *
+   * Pinned to the version that produced the file rather than to `main`: a
+   * document read a year later must describe the tool that wrote the report, not
+   * the one that exists now.
+   */
+  readonly tool: {
+    readonly name: string;
+    readonly version: string;
+    readonly documentation: string;
+  };
   readonly startedAt: string;
   readonly finishedAt: string;
   readonly target: {
@@ -807,6 +825,19 @@ function withVerdicts(options: BuildReportOptions): readonly ReportedObservation
 }
 
 /**
+ * Where the shape of this report is explained, for the version that wrote it.
+ *
+ * A tag when the version looks like a release, `main` otherwise — a development
+ * build has no tag to point at, and a link into nothing is worse than a link
+ * into the newest text.
+ */
+function documentationUrl(version: string): string {
+  const base = "https://github.com/Tarnellion/barbican/blob";
+  const ref = /^\d+\.\d+\.\d+$/.test(version) ? `v${version}` : "main";
+  return `${base}/${ref}/docs/report.md`;
+}
+
+/**
  * The checks whose findings could not be placed in the report.
  *
  * A finding naming neither an account nor an endpoint has no cell, and every
@@ -888,7 +919,11 @@ export function buildReport(options: BuildReportOptions): RunReport {
       .update(JSON.stringify(options.config))
       .digest("hex")
       .slice(0, 16),
-    tool: { name: "barbican", version: options.version },
+    tool: {
+      name: "barbican",
+      version: options.version,
+      documentation: documentationUrl(options.version),
+    },
     startedAt: options.startedAt.toISOString(),
     finishedAt: options.finishedAt.toISOString(),
     target: {

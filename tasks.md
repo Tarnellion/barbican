@@ -766,11 +766,19 @@ independently, zero divergence — and seven of seven `curl` commands assembled
 from the report reproduced on the first attempt. The failing criterion is B-2 /
 H-3 above.
 
-- [ ] **H-1.** **37 of 80** matrix findings carry no `ruleIndex`, and **22 of 34
+- [x] **H-1.** Closed 14 August: `basis` says `"rule"` or `"fallback"` in a field of
+      its own, filled where the verdict is resolved rather than derived a second
+      time downstream. On the reference run all 37 indexless findings now carry a
+      reason, and none of the 34 critical ones is without one. Original finding:
+      **37 of 80** matrix findings carry no `ruleIndex`, and **22 of 34
       critical**. The basis for "access was not expected" is expressed by the
       absence of a field, and "the fallback applied" cannot be told from "the tool
       forgot to fill it in".
-- [ ] **H-2.** The JSON contains no reference to its own documentation or schema.
+- [x] **H-2.** Closed 14 August: `tool.documentation` points at `docs/report.md`
+      for the version that wrote the file — a tag for a release, `main` for a
+      development build, because a link into nothing is worse than a link into the
+      newest text. Original finding: the JSON contains no reference to its own
+      documentation or schema.
       Everything the reader is missing is described in `docs/report.md`, and the
       artifact does not say where to find it. The cheapest fix on this list.
 - [ ] **H-4.** The identity of the system tested rests on the optional

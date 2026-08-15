@@ -217,6 +217,7 @@ describe("the diff over triples", () => {
         resourceId: "profile-b",
         relation: "foreign-tenant",
         expected: "denied",
+        basis: "fallback",
         actual: "allowed",
         kind: "privilege-escalation",
         // A leak into a foreign tenant is the only case that gets critical: it

@@ -537,6 +537,19 @@ matching.
 
 ## Which rule gave the verdict
 
+Two fields answer this, and the second exists because the first could not.
+
+`basis` says what declared the expectation: `"rule"` or `"fallback"`. `ruleIndex`
+is the rule's position in `inputs.policy.rules`, present only when `basis` is
+`"rule"`.
+
+The absence of `ruleIndex` used to be the whole answer, and it was not a good
+one: on the reference run 37 of 80 matrix findings carried no index, and 22 of
+the 34 critical ones. On most of the most expensive findings the grounds for
+"access was not expected" were expressed by a missing key — and a missing key
+cannot be told from a field the tool failed to fill in. That is the point where
+a ticket comes back.
+
 A finding from the matrix has `ruleIndex` — the number of the rule in
 `inputs.policy.rules` that declared the expectation:
 

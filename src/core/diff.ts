@@ -4,7 +4,7 @@
  * A pure function: the same input always gives the same output, order included.
  */
 
-import type { ResolvedAccessPolicy } from "./expected.js";
+import type { ExpectedVerdict, ResolvedAccessPolicy } from "./expected.js";
 import { resolveExpectedVerdict } from "./expected.js";
 import { indexObservations, resourceApplies } from "./matrix.js";
 import { createTenantHierarchy, FLAT_HIERARCHY } from "./tenancy.js";
@@ -59,7 +59,9 @@ export interface CellVerdict {
   readonly relation?: ResourceRelation;
   readonly expected: ExpectedOutcome;
   readonly actual?: AccessOutcome;
-  /** The rule that declared the expectation. Absence means `fallback`. */
+  /** Which declared the expectation: a rule of the policy, or `fallback`. */
+  readonly basis: "rule" | "fallback";
+  /** The rule that declared the expectation. Present only when `basis` is `rule`. */
   readonly ruleIndex?: number;
   /** Whether the observed matched the declared. */
   readonly match: boolean;
@@ -105,55 +107,72 @@ function walk(
   const diffs: AccessDiff[] = [];
   const cells: CellVerdict[] = [];
 
+  /**
+   * Where a cell sits in the matrix, and what the platform answered there.
+   *
+   * An object rather than a tail of optional positional arguments. There were
+   * nine of them, four optional, and the call sites carried placeholders like
+   * `undefined, undefined, account.contextId` — a shape where adding a
+   * coordinate means editing every caller and getting the order right by eye.
+   */
+  interface Cell {
+    readonly accountId: string;
+    readonly endpointId: string;
+    readonly resourceId?: string;
+    readonly relation?: ResourceRelation;
+    readonly contextId?: string;
+  }
+
   /** A verdict on a cell is always written, a discrepancy only when there is one. */
   function verdictOf(
-    accountId: string,
-    endpointId: string,
-    expected: ExpectedOutcome,
+    cell: Cell,
+    verdict: ExpectedVerdict,
     actual: AccessOutcome | undefined,
     match: boolean,
-    ruleIndex?: number,
-    resourceId?: string,
-    relation?: ResourceRelation,
-    contextId?: string,
   ): void {
     cells.push({
-      accountId,
-      endpointId,
-      expected,
+      accountId: cell.accountId,
+      endpointId: cell.endpointId,
+      expected: verdict.outcome,
+      // Which of the two declared it. Said in a field rather than by the absence
+      // of `ruleIndex`: on the reference run 37 of 80 findings carried no index,
+      // and "the fallback fired" was indistinguishable from "the tool did not
+      // fill this in".
+      basis: verdict.basis,
       match,
       ...(actual === undefined ? {} : { actual }),
-      ...(ruleIndex === undefined ? {} : { ruleIndex }),
-      ...(resourceId === undefined ? {} : { resourceId }),
-      ...(relation === undefined ? {} : { relation }),
-      ...(contextId === undefined ? {} : { contextId }),
+      ...(verdict.ruleIndex === undefined ? {} : { ruleIndex: verdict.ruleIndex }),
+      ...(cell.resourceId === undefined ? {} : { resourceId: cell.resourceId }),
+      ...(cell.relation === undefined ? {} : { relation: cell.relation }),
+      ...(cell.contextId === undefined ? {} : { contextId: cell.contextId }),
     });
   }
 
   function record(
-    accountId: string,
-    endpointId: string,
-    expected: ExpectedOutcome,
+    cell: Cell,
+    verdict: ExpectedVerdict,
     actual: AccessOutcome | undefined,
     kind: DiffKind,
-    ruleIndex?: number,
-    resourceId?: string,
-    relation?: ResourceRelation,
-    contextId?: string,
   ): void {
     const base = {
-      accountId,
-      endpointId,
-      expected,
+      accountId: cell.accountId,
+      endpointId: cell.endpointId,
+      expected: verdict.outcome,
+      basis: verdict.basis,
       kind,
-      severity: severityOf(kind, relation),
-      // Absence means `fallback`: no rule matched.
-      ...(ruleIndex === undefined ? {} : { ruleIndex }),
+      severity: severityOf(kind, cell.relation),
+      ...(verdict.ruleIndex === undefined ? {} : { ruleIndex: verdict.ruleIndex }),
       // Absence means baseline request conditions.
-      ...(contextId === undefined ? {} : { contextId }),
+      ...(cell.contextId === undefined ? {} : { contextId: cell.contextId }),
     };
     const withResource =
-      resourceId === undefined ? base : { ...base, resourceId, ...(relation && { relation }) };
+      cell.resourceId === undefined
+        ? base
+        : {
+            ...base,
+            resourceId: cell.resourceId,
+            ...(cell.relation && { relation: cell.relation }),
+          };
     diffs.push(actual === undefined ? withResource : { ...withResource, actual });
   }
 
@@ -203,32 +222,18 @@ function walk(
             relation,
             account.contextId,
           );
-          const expected = verdict.outcome;
           const actual = byEndpoint?.get(endpoint.id)?.get(resource.id)?.outcome;
-          const kind = classify(expected, actual);
-          verdictOf(
-            account.id,
-            endpoint.id,
-            expected,
-            actual,
-            kind === null,
-            verdict.ruleIndex,
-            resource.id,
+          const kind = classify(verdict.outcome, actual);
+          const cell: Cell = {
+            accountId: account.id,
+            endpointId: endpoint.id,
+            resourceId: resource.id,
             relation,
-            account.contextId,
-          );
+            ...(account.contextId === undefined ? {} : { contextId: account.contextId }),
+          };
+          verdictOf(cell, verdict, actual, kind === null);
           if (kind !== null) {
-            record(
-              account.id,
-              endpoint.id,
-              expected,
-              actual,
-              kind,
-              verdict.ruleIndex,
-              resource.id,
-              relation,
-              account.contextId,
-            );
+            record(cell, verdict, actual, kind);
           }
         }
         continue;
@@ -241,32 +246,16 @@ function walk(
         undefined,
         account.contextId,
       );
-      const expected = verdict.outcome;
       const actual = byEndpoint?.get(endpoint.id)?.get(undefined)?.outcome;
-      const kind = classify(expected, actual);
-      verdictOf(
-        account.id,
-        endpoint.id,
-        expected,
-        actual,
-        kind === null,
-        verdict.ruleIndex,
-        undefined,
-        undefined,
-        account.contextId,
-      );
+      const kind = classify(verdict.outcome, actual);
+      const cell: Cell = {
+        accountId: account.id,
+        endpointId: endpoint.id,
+        ...(account.contextId === undefined ? {} : { contextId: account.contextId }),
+      };
+      verdictOf(cell, verdict, actual, kind === null);
       if (kind !== null) {
-        record(
-          account.id,
-          endpoint.id,
-          expected,
-          actual,
-          kind,
-          verdict.ruleIndex,
-          undefined,
-          undefined,
-          account.contextId,
-        );
+        record(cell, verdict, actual, kind);
       }
     }
   }

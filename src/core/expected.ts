@@ -116,15 +116,23 @@ export function assertPolicyIsSound(policy: ExpectedAccessPolicy): void {
  * and narrow it with the ones that follow.
  */
 /**
- * The expected outcome together with the rule that produced it.
+ * The expected outcome together with what produced it.
  *
  * The rule number is for the reader of the report: the policy is in the report,
  * but hunting through a dozen rules for the one that declared access forbidden
- * is work the tool can do itself. Its absence means "no rule matched, `fallback`
- * fired" — and that is a separate, meaningful message, not an omission.
+ * is work the tool can do itself.
+ *
+ * `basis` says which of the two answered, in a field rather than by the absence
+ * of one. The audit of 14 August put the cost on it: 37 of 80 matrix findings
+ * carried no `ruleIndex`, and 22 of 34 critical ones — so on most of the most
+ * expensive findings the grounds for "access was not expected" were expressed by
+ * a missing key, and "the fallback fired" could not be told from "the tool
+ * failed to fill this in". That is the point where a ticket gets sent back.
  */
 export interface ExpectedVerdict {
   readonly outcome: ExpectedOutcome;
+  /** Which of the two declared this outcome: a rule of the policy, or `fallback`. */
+  readonly basis: "rule" | "fallback";
   /** The rule's number in `policy.rules`. Absent when `fallback` fired. */
   readonly ruleIndex?: number;
 }
@@ -136,7 +144,7 @@ export function resolveExpectedVerdict(
   relation?: ResourceRelation,
   contextId?: string,
 ): ExpectedVerdict {
-  let verdict: ExpectedVerdict = { outcome: policy.fallback };
+  let verdict: ExpectedVerdict = { outcome: policy.fallback, basis: "fallback" };
   // The last match wins, so the loop runs to the end rather than stopping at the
   // first one: the number must point at the same rule as the outcome.
   for (const [index, rule] of policy.rules.entries()) {
@@ -148,7 +156,7 @@ export function resolveExpectedVerdict(
       continue;
     }
     if (matches(rule.roles, roleId) && matches(rule.endpoints, endpointId)) {
-      verdict = { outcome: rule.outcome, ruleIndex: index };
+      verdict = { outcome: rule.outcome, basis: "rule", ruleIndex: index };
     }
   }
   return verdict;

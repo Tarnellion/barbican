@@ -173,6 +173,7 @@ policy:
           accountId: "player-a",
           endpointId: "users.list",
           expected: "denied",
+          basis: "fallback",
           actual: "allowed",
           kind: "privilege-escalation",
           source: "matrix",

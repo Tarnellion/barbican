@@ -59,7 +59,7 @@ function report(overrides: {
       checksWithUnusableFindings: [],
       cellsMatched: 0,
     },
-    tool: { name: "barbican", version: "test" },
+    tool: { name: "barbican", version: "test", documentation: "https://example.test" },
     startedAt: "2026-08-12T00:00:00.000Z",
     finishedAt: "2026-08-12T00:00:01.000Z",
     target: { baseUrl: "https://api.test", allowedHosts: ["api.test"] },
@@ -377,6 +377,25 @@ describe("coverage and run identification", () => {
   });
 
   /**
+   * Found by the audit of 14 August. The report named its schema version and its
+   * tool version and pointed at no explanation of either. Everything a receiver
+   * needs to interpret it — what `basis` means, how "clean" differs from
+   * "nothing was checked" — lives in `docs/report.md`, and the artifact did not
+   * say so. Whoever gets the ticket has the JSON and nothing else.
+   */
+  it("says where its own shape is explained", () => {
+    expect(build({ version: "0.2.0" }).tool.documentation).toBe(
+      "https://github.com/Tarnellion/barbican/blob/v0.2.0/docs/report.md",
+    );
+  });
+
+  // A development build has no tag to point at, and a link into nothing is worse
+  // than a link into the newest text.
+  it("points at main when the version is not a release", () => {
+    expect(build({ version: "0.3.0-dev.1" }).tool.documentation).toContain("/blob/main/");
+  });
+
+  /**
    * A check that someone forgot to register, or that crashed, gave a report
    * indistinguishable from a clean one: its key shows up in `byKind` only once
    * it has found something. Found by a second cold read.
@@ -663,6 +682,7 @@ contexts:
           endpointId: "a",
           contextId: "geo",
           expected: "denied",
+          basis: "fallback" as const,
           actual: "denied",
           match: true,
         },

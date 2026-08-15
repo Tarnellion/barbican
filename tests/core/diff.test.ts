@@ -58,18 +58,23 @@ describe("the reference to a rule", () => {
 
     expect(resolveExpectedVerdict(policy, "player", "a")).toEqual({
       outcome: "denied",
+      basis: "rule",
       ruleIndex: 1,
     });
   });
 
   /**
-   * A missing index is a meaningful answer — "no rule matched" — not an omitted
-   * field.
+   * Said in a field rather than by the absence of one: on the reference run 37
+   * of 80 findings carried no index, and "the fallback fired" could not be told
+   * from "the tool failed to fill this in". Found by the audit of 14 August.
    */
-  it("names no rule when the fallback fired", () => {
+  it("says the fallback fired, and names no rule", () => {
     const policy: ResolvedAccessPolicy = { fallback: "denied", rules: [] };
 
-    expect(resolveExpectedVerdict(policy, "player", "a")).toEqual({ outcome: "denied" });
+    expect(resolveExpectedVerdict(policy, "player", "a")).toEqual({
+      outcome: "denied",
+      basis: "fallback",
+    });
   });
 
   /** The last rule that matched wins — the index must point at that one. */
@@ -101,6 +106,7 @@ describe("diffAccess", () => {
         accountId: "acc.player.a",
         endpointId: "ep.users.list",
         expected: "denied",
+        basis: "fallback",
         actual: "allowed",
         kind: "privilege-escalation",
         severity: "high",
@@ -116,6 +122,7 @@ describe("diffAccess", () => {
         accountId: "acc.support.a",
         endpointId: "ep.tickets.list",
         expected: "allowed",
+        basis: "rule",
         actual: "denied",
         kind: "unexpected-denial",
         // The rule that declared access granted. The finding names it itself so
@@ -138,6 +145,7 @@ describe("diffAccess", () => {
         accountId: "acc.player.a",
         endpointId: "ep.users.list",
         expected: "denied",
+        basis: "fallback",
         kind: "not-observed",
         severity: "low",
       },
@@ -158,6 +166,7 @@ describe("diffAccess", () => {
         accountId: "acc.player.a",
         endpointId: "ep.users.list",
         expected: "denied",
+        basis: "fallback",
         actual: "error",
         kind: "probe-error",
         severity: "low",
