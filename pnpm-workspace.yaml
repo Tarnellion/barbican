@@ -25,3 +25,24 @@ allowBuilds:
 
 # Exact versions in package.json — no ranges.
 savePrefix: ''
+
+# Versions forced on a transitive dependency the direct ones will not lift.
+#
+# Every entry here is a standing decision, so every entry says when it stops
+# being needed. An override nobody removes becomes a pin nobody notices — the
+# same failure as an exception in osv-scanner.toml with no expiry.
+#
+# `pnpm update nanoid` does nothing for a transitive dependency: it matches
+# against what package.json declares, and answers "Already up to date" while
+# leaving the lockfile alone. pnpm's own documentation recommends an override
+# for this, and this is that.
+overrides:
+  # nanoid 3.3.17 loops forever in customAlphabet when size = 0
+  # (GHSA-2v37-7h3g-55p8). It reaches us through vitest -> vite -> postcss, so
+  # it is development-only and never in the published package; postcss asks for
+  # ^3.3.16, so 3.3.18 satisfies it without touching anything else.
+  #
+  # Remove when postcss itself moves past 3.3.17 in a version this project
+  # installs — then the override stops changing anything and only hides the
+  # fact that it stopped.
+  nanoid: ^3.3.18

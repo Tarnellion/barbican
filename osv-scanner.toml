@@ -5,33 +5,3 @@
 # today. An exception without an expiry is the same as switching the scanner off
 # for that dependency — in which case it would be more honest to switch the
 # scanner off entirely and say so in the README.
-
-[[IgnoredVulns]]
-id = "GHSA-2v37-7h3g-55p8"
-# A day beyond the moment the fix becomes installable: 3.3.18 was released on
-# 7 August, and `minimumReleaseAge` in this project is 7 days, so the version
-# becomes available on 14 August. The margin is there to update the lockfile
-# by hand.
-ignoreUntil = 2026-08-15
-reason = """
-nanoid 3.3.17: an infinite loop in customAlphabet/customRandom when size = 0 (DoS).
-
-It is not reachable, and that was checked rather than assumed:
-- the dependency is transitive and development-only — vitest -> vite -> postcss ->
-  nanoid; it is not among the runtime dependencies (those are swagger-parser,
-  commander, yaml, zod);
-- it does not reach the published package: `files: ["dist"]`, and the 0.2.0
-  tarball contains no nanoid file at all;
-- postcss calls `nanoid(6)` with a constant (lib/input.js); the size never comes
-  from someone else's input.
-
-Why it is not fixed today: the fix 3.3.18 was released on 7 August, and this
-project's own cooldown on fresh releases (`minimumReleaseAge: 10080`) does not
-admit packages younger than seven days. Lowering the threshold for a finding that
-cannot be reached would trade protection against a compromised fresh release for
-protection against a DoS that does not exist here. The right trade is to wait
-a day.
-
-Action: on 14 August 2026 update the lockfile to nanoid 3.3.18 and delete this
-entry entirely.
-"""
