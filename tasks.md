@@ -609,13 +609,13 @@ everything downstream of it.
 The dangerous class: a fix made *by the document* reopens a hole adversarial
 review already closed.
 
-- [ ] **J-2.** CLAUDE.md calls response-header redaction "a hardcoded list" — a
+- [x] **J-2.** Closed 15 August. Original finding: CLAUDE.md calls response-header redaction "a hardcoded list" — a
       denylist. The code says "An allowlist, precisely, and not a denylist". The
       header of `http.ts` repeats the wrong version twenty lines above its own code.
-- [ ] **J-3.** CLAUDE.md describes the context-attribute ban as one layer.
+- [x] **J-3.** Closed 15 August. Original finding: CLAUDE.md describes the context-attribute ban as one layer.
       ADR-0019 says the first version "was **wrong**" and was rewritten into
       three; the code holds three.
-- [ ] **J-4.** The header of `http.ts` says the response body is "never read";
+- [x] **J-4.** Closed 15 August. Original finding: The header of `http.ts` says the response body is "never read";
       line 323 reads it. ADR-0011 changed the invariant from "not read" to "not
       stored" and the header stayed.
 - [ ] **J-11.** ADR-0016 and ADR-0017 describe debts in the report that the code

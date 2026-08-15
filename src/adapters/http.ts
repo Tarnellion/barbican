@@ -6,9 +6,12 @@
  *
  * Limits built into the construction rather than left to call-site discipline:
  *
- * - The response body is **never read**. The stream is cancelled to free the
- *   connection. The body holds client data, and the path by which it would reach
- *   the report is physically absent.
+ * - The response body is **never stored**. By default it is not even read: the
+ *   stream is cancelled to free the connection. Where a human declared
+ *   `bodySignals`, it is read in transit and stays inside the extractor, which
+ *   returns numbers and booleans only (ADR-0011) — so the path by which a body
+ *   could reach the report is absent by type, not by discipline. This header
+ *   said "never read" for a while after that stopped being true.
  * - A mandatory host allowlist. An empty list is an error, not "allow
  *   everything".
  * - Redirects are not followed (`redirect: "manual"`). Following a 3xx to
@@ -16,7 +19,11 @@
  *   around the check.
  * - Without explicit permission only the methods from `SAFE_METHODS` are
  *   performed.
- * - Sensitive response headers are redacted by a hardcoded list.
+ * - Response header **values** are kept by an allowlist and redacted otherwise.
+ *   A denylist stood here first and was replaced: the names that will ever carry
+ *   a secret cannot be enumerated, and `x-auth-token` on an unfamiliar platform
+ *   would have gone into the report. The names are always kept — that a header
+ *   is present is itself a signal.
  */
 
 import type { HttpMethod } from "../core/types.js";

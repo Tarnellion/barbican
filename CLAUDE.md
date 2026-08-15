@@ -29,10 +29,10 @@ The build is `tsc`, no bundler. Exact versions, no ranges.
 - **Throttling is always on:** a concurrency limit, a requests-per-second limit, an overall ceiling per run, exponential backoff, a circuit breaker on runs of 5xx/429, respect for `Retry-After`. The defaults are conservative.
 - **Response bodies are not stored.** The `HttpResponse` port deliberately carries no body. By default the stream is cancelled without being read. Where a human declared `bodySignals.responseMustDifferByTenant`, the body is read in transit for the sake of irreversible scalars (`SignalValue` — a number or a boolean only) and is stored nowhere. `SignalValue` must not be extended with a string or an object without an ADR: the ban on PII in the report rests on this type. See ADR-0011.
 - **Redirects are not followed** (`redirect: "manual"`). Following a 3xx to another host would take the request outside the allowlist — that is a bypass of the scope. Proven by a test: with `follow` the request really does go to a host outside the list.
-- **Sensitive response headers are redacted** by a hardcoded list (`set-cookie` and the others that carry credentials): otherwise the platform's session token would end up in the report.
+- **Response header values are kept by an allowlist**, everything else is redacted; the names are always kept, because a header being present is itself a signal. A denylist stood here first and was replaced (ADR-0005 addendum): the names that will ever carry a secret cannot be enumerated, and `x-auth-token` on an unfamiliar platform would have reached the report. Do not turn this back into a list of forbidden names.
 - **External `$ref`s in OpenAPI are not resolved** — neither over http nor through the file system. Protection against SSRF and path traversal. A proving test is required.
 - **Sensitive data is redacted along hardcoded paths.** Redaction paths are never taken from user input.
-- **Request-condition attributes do not replace the basis of the request.** `authorization`, `cookie`, `host`, the transport headers and the header name of any declared authentication scheme are rejected at startup. The list is hardcoded. See ADR-0019.
+- **Request-condition attributes do not replace the basis of the request.** Three layers, not one, and the first version of this rule was wrong with only the first (ADR-0019): exact names (`authorization`, `cookie`, `host`, the transport headers, the header name of any declared authentication scheme); family prefixes (`x-http-method*`, `x-original-*`, `x-rewrite-*`, `x-forwarded-*`); and a check by **value**, which is what catches a method override smuggled through an attribute. Query attributes take a literal only — `{ env: NAME }` is refused there, because a query parameter goes into the address and addresses are printed in the report verbatim. All of it is hardcoded.
 - **Scope is mandatory:** without an explicitly set host allowlist the tool refuses to work.
 - **Secrets only through environment variables.** Nothing into the repository, nothing into the logs.
 
@@ -75,7 +75,8 @@ what goes into the repository.
 ## Rules
 
 - A new package only after vetting: the age of the last release, the number of maintainers, the number of transitive dependencies, provenance. Minimize aggressively; whatever Node's built-ins solve, solve with the built-ins.
-- `pnpm install --frozen-lockfile`. The settings `minimumReleaseAge: 10080`, `strictDepBuilds` and the empty `allowBuilds` must not be weakened without an ADR entry.
+- `pnpm install --frozen-lockfile`. The settings `minimumReleaseAge: 10080`, `strictDepBuilds` and `allowBuilds` must not be weakened without an ADR entry. `allowBuilds` holds `lefthook: false` rather than nothing at all — an explicit refusal, with the reasoning beside it; the effect is the same as an empty map, and describing it as empty stopped being accurate.
+- An entry under `overrides` in `pnpm-workspace.yaml` carries the condition for its own removal. It is a standing decision about somebody else's dependency tree, and one nobody removes is a pin nobody notices — the same failure as an exception in `osv-scanner.toml` with no expiry.
 - Every core feature comes with fixtures and tests. The core coverage thresholds (`vitest.config.ts`) are part of the CI gate, not a report to read; they must not be lowered.
 - Fixtures are written by hand. A "reference" generated from the policy turns a test into a check that a function agrees with itself.
 - A non-trivial decision gets a short ADR in `docs/adr/`: context, decision, alternatives, consequences.
