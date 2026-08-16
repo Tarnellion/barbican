@@ -20,6 +20,7 @@ import {
   UnsupportedProtocolError,
 } from "../../src/adapters/http.js";
 import { createThrottle } from "../../src/adapters/throttle.js";
+import { safeHeaders } from "../../src/io/untrusted.js";
 import { createTestClock } from "../fixtures/clock.js";
 
 type Handler = (request: IncomingMessage, response: ServerResponse) => void;
@@ -263,6 +264,42 @@ describe("the response body and sensitive headers", () => {
     }
   });
 
+  /**
+   * The promise made two tests above — "names are kept: the presence of a header
+   * is a signal" — did not hold for one name. Assigning `__proto__` into a plain
+   * object literal calls the prototype setter, so the header vanished and the
+   * report was silently short one. Found by the audit of 14 August (D-4).
+   *
+   * `__proto__` is a legal header name by RFC 9110, so a target can send it —
+   * which is the difference between a curiosity and a way to blind a run.
+   */
+  it("keeps a response header named __proto__ like any other", async () => {
+    const server = await startServer((_request, response) => {
+      // `setHeader`, and not an object literal: in a literal `__proto__:` is
+      // syntax rather than a key — it sets the prototype and sends no header at
+      // all. The first version of this test did that and proved nothing, which
+      // is the same trap one layer up.
+      response.setHeader("__proto__", "polluted");
+      response.setHeader("content-type", "application/json");
+      response.writeHead(200);
+      response.end();
+    });
+    try {
+      const { client } = clientFor();
+
+      const response = await client.send(GET(server.port));
+
+      // Present, redacted like any name not on the allowlist, and not a
+      // prototype: the object still behaves as a record of headers.
+      expect(Object.keys(response.headers)).toContain("__proto__");
+      // biome-ignore lint/suspicious/noProto: the literal key is the subject of the test — that this name is carried as data, not as a prototype
+      expect(response.headers["__proto__"]).toBe("[REDACTED]");
+      expect(response.headers["content-type"]).toBe("application/json");
+    } finally {
+      await server.close();
+    }
+  });
+
   it("strips the query and the fragment from location: an OAuth token arrives there", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(302, {
@@ -412,6 +449,45 @@ describe("a network failure", () => {
     await expect(client.send(GET(closedPort))).rejects.toThrow(RequestFailedError);
     // Two pauses between three attempts.
     expect(clock.sleeps).toEqual([50, 100]);
+  });
+});
+
+describe("the address inside an error message", () => {
+  /**
+   * The text of a failure lands in `failures[].reason`, that is, in the JSON
+   * report. A full URL used to drag query parameters — `?api_key=…` — and
+   * credentials from userinfo in there.
+   *
+   * The audit of 14 August found the redaction covered by nothing: making
+   * `safeUrl` return the address unchanged left all 574 tests green (A-4). Two
+   * checks, because they fail apart: the secret is gone, and the part that makes
+   * the message useful — which endpoint failed — is still there.
+   */
+  it("keeps the path and drops the query and the credentials", async () => {
+    const server = await startServer((_request, response) => {
+      response.destroy();
+    });
+    try {
+      const { client } = clientFor();
+      const url = `http://alice:hunter2@127.0.0.1:${server.port}/v1/orders?api_key=SECRET-KEY`;
+
+      const failure = await client
+        .send({ method: "GET", url, headers: safeHeaders([]) })
+        .then(() => undefined)
+        .catch((cause: unknown) => cause);
+
+      expect(failure).toBeInstanceOf(RequestFailedError);
+      const message = failure instanceof Error ? failure.message : "";
+      expect(message).not.toContain("SECRET-KEY");
+      expect(message).not.toContain("hunter2");
+      expect(message).not.toContain("alice");
+      // Still says which endpoint failed, or the redaction has cost more than
+      // it saved.
+      expect(message).toContain("/v1/orders");
+      expect(message).toContain("?[REDACTED]");
+    } finally {
+      await server.close();
+    }
   });
 });
 

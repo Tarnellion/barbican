@@ -11,6 +11,7 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
+import { openRecord } from "../io/untrusted.js";
 import type { SignalSpec, SignalValue } from "./ports.js";
 
 export const DEFAULT_MAX_BODY_BYTES = 256 * 1024;
@@ -170,7 +171,11 @@ export function createSignalExtractor(options: SignalExtractorOptions = {}): Sig
       body: ReadableStream<Uint8Array> | null,
       specs: readonly SignalSpec[],
     ): Promise<Readonly<Record<string, SignalValue>>> {
-      const signals: Record<string, SignalValue> = {};
+      // Without a prototype: a signal a human named `__proto__` used to call the
+      // prototype setter instead of becoming a key, so it disappeared from every
+      // observation and the report was short one declared signal without saying
+      // so. Found by the audit of 14 August (D-2).
+      const signals = openRecord<SignalValue>();
       if (specs.length === 0 || body === null) {
         await body?.cancel();
         return signals;

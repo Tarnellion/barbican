@@ -28,6 +28,7 @@
 
 import type { HttpMethod } from "../core/types.js";
 import { SAFE_METHODS } from "../core/types.js";
+import { openRecord } from "../io/untrusted.js";
 import type { HttpClient, HttpRequest, HttpResponse, Throttle } from "./ports.js";
 import type { SignalExtractor } from "./signals.js";
 import { createSignalExtractor } from "./signals.js";
@@ -243,7 +244,13 @@ export function parseRetryAfter(value: string | null, now: number): number | und
 }
 
 function toHttpResponse(response: Response): HttpResponse {
-  const headers: Record<string, string> = {};
+  // Without a prototype. A response header named `__proto__` assigned into a
+  // plain object literal calls the prototype setter and vanishes — eighteen
+  // lines below a comment promising that the name of a header is always kept,
+  // because the presence of a header is itself a signal. Found by the audit of
+  // 14 August (D-4). Nothing is validated here on purpose: the target chooses
+  // these names, and refusing one would hand it a way to blind the run.
+  const headers = openRecord<string>();
   response.headers.forEach((value, name) => {
     const key = name.toLowerCase();
     // The name is kept even for redacted ones: the fact that a header is present

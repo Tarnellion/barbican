@@ -29,6 +29,8 @@ import {
   isUsablePathSegment,
   RESOURCE_RELATIONS,
 } from "../core/index.js";
+import type { HeaderValue } from "./untrusted.js";
+import { isHeaderName, isHeaderValue, lookup, safeHeaders } from "./untrusted.js";
 
 /** The same limit on alias expansion as for specifications. */
 const MAX_ALIAS_COUNT = 100;
@@ -1345,7 +1347,7 @@ export function assertContextsCannotWrite(
 
 /** The resolved attribute values of one set of conditions. */
 export interface ContextValues {
-  readonly headers: Readonly<Record<string, string>>;
+  readonly headers: Readonly<Record<string, HeaderValue>>;
   readonly query: Readonly<Record<string, string>>;
 }
 
@@ -1403,11 +1405,14 @@ export function resolveContextValues(
           continue;
         }
         const where = `${kind} "${name}"`;
-        const value = environment[declared.env];
+        // Not `environment[declared.env]`: the name comes from the configuration
+        // and the lookup walks the prototype chain. `{ env: constructor }`
+        // returned a function and the caller got `value.trim is not a function`.
+        const value = lookup(environment, declared.env);
         if (value === undefined || value.trim() === "") {
           throw new MissingContextValueError(context.id, where, declared.env);
         }
-        if (!CONTEXT_VALUE_SAFE.test(value)) {
+        if (!isHeaderValue(value)) {
           throw new InvalidContextValueError(context.id, where, declared.env);
         }
         out[name] = value;
@@ -1415,7 +1420,11 @@ export function resolveContextValues(
       return out;
     };
     resolved.set(context.id, {
-      headers: take(context.headers, "header"),
+      // Through `safeHeaders`, the only producer of the type the client accepts.
+      // The names were checked when the configuration was parsed and the values
+      // just now; this is the seam where both are turned into something the
+      // compiler will carry the rest of the way.
+      headers: safeHeaders(Object.entries(take(context.headers, "header"))),
       // Nothing to resolve: the schema admits no `{ env: … }` here.
       query: { ...context.query },
     });
@@ -1499,12 +1508,6 @@ const FORBIDDEN_QUERY_KEYS: ReadonlySet<string> = new Set([
   "token",
 ]);
 
-/** A header value: visible ASCII and tab only — otherwise `fetch` will not send it. */
-const CONTEXT_VALUE_SAFE = /^[\t\x20-\x7e]*$/;
-
-/** A header name per RFC 9110: visible ASCII without separators. */
-const CONTEXT_HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
-
 /**
  * Brings the declared conditions into working form and rejects the unfit ones.
  *
@@ -1572,7 +1575,7 @@ function normalizeContexts(
     const headers: Record<string, ContextAttributeValue> = Object.create(null);
     for (const [name, value] of Object.entries(context.headers ?? {})) {
       const lower = name.toLowerCase();
-      if (!CONTEXT_HEADER_NAME.test(name)) {
+      if (!isHeaderName(name)) {
         throw new ForbiddenContextHeaderError(
           context.id,
           name,
@@ -1582,7 +1585,7 @@ function normalizeContexts(
       }
       // A value from the environment cannot be checked here — it does not exist
       // yet. It is verified at resolution time, exactly like an account's token.
-      if (typeof value === "string" && !CONTEXT_VALUE_SAFE.test(value)) {
+      if (typeof value === "string" && !isHeaderValue(value)) {
         throw new ForbiddenContextHeaderError(
           context.id,
           name,
@@ -1629,7 +1632,7 @@ function normalizeContexts(
             "for the declared one",
         );
       }
-      if (typeof value === "string" && !CONTEXT_VALUE_SAFE.test(value)) {
+      if (typeof value === "string" && !isHeaderValue(value)) {
         throw new ForbiddenContextQueryError(
           context.id,
           key,
@@ -1744,7 +1747,7 @@ function literalValues(context: RequestContextConfig): ContextValues {
     return out;
   };
   return {
-    headers: take(context.headers, "header"),
+    headers: safeHeaders(Object.entries(take(context.headers, "header"))),
     query: take(context.query, "query parameter"),
   };
 }
@@ -1788,9 +1791,6 @@ export class InvalidCredentialError extends Error {
   }
 }
 
-/** A header value admits visible ASCII and the tab character only. */
-const HEADER_SAFE = /^[\t\x20-\x7e]+$/;
-
 /**
  * Takes the tokens out of the environment.
  *
@@ -1815,11 +1815,15 @@ export function resolveTokens(
       // An anonymous account: there are no credentials on purpose.
       continue;
     }
-    const value = environment[account.tokenEnv];
+    // `tokenEnv: constructor` used to return `Object.prototype.constructor` and
+    // fail with `TypeError: value.trim is not a function` instead of naming the
+    // variable. The class was already recognised and closed once in this file,
+    // which is what makes it a class. Found by the audit of 14 August (D-3).
+    const value = lookup(environment, account.tokenEnv);
     if (value === undefined || value.trim() === "") {
       throw new MissingCredentialError(account.id, account.tokenEnv);
     }
-    if (!HEADER_SAFE.test(value)) {
+    if (!isHeaderValue(value)) {
       throw new InvalidCredentialError(account.id, account.tokenEnv);
     }
     tokens.set(account.id, value);

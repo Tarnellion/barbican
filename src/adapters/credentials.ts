@@ -13,6 +13,8 @@
  * given.
  */
 
+import type { HeaderValue } from "../io/untrusted.js";
+import { headerName, safeHeaders } from "../io/untrusted.js";
 import type { CredentialProvider } from "./ports.js";
 
 /**
@@ -42,9 +44,6 @@ export class InvalidAuthSchemeError extends Error {
   }
 }
 
-/** A header name per RFC 9110: visible ASCII only, no separators. */
-const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
-
 /**
  * Checks that the scheme can be sent at all.
  *
@@ -56,25 +55,45 @@ const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
  * @throws {InvalidAuthSchemeError}
  */
 export function assertAuthSchemeIsSound(scheme: AuthScheme, where?: string): void {
-  if (scheme.kind === "header" && !HEADER_NAME.test(scheme.header)) {
-    throw new InvalidAuthSchemeError(`"${scheme.header}" is not a header name`, where);
+  // The grammar comes from `src/io/untrusted.ts`, where it is written once. It
+  // used to be a second copy of the same regular expression, character for
+  // character — the state a duplicate is in right up until it is not.
+  if (scheme.kind === "header") {
+    try {
+      headerName(scheme.header);
+    } catch {
+      throw new InvalidAuthSchemeError(`"${scheme.header}" is not a header name`, where);
+    }
   }
-  if (scheme.kind === "cookie" && !HEADER_NAME.test(scheme.name)) {
-    throw new InvalidAuthSchemeError(`"${scheme.name}" is not a cookie name`, where);
+  if (scheme.kind === "cookie") {
+    try {
+      headerName(scheme.name);
+    } catch {
+      throw new InvalidAuthSchemeError(`"${scheme.name}" is not a cookie name`, where);
+    }
   }
 }
 
-/** The headers by which one token is presented under one scheme. */
-function headersFrom(scheme: AuthScheme, token: string): Readonly<Record<string, string>> {
+/**
+ * The headers by which one token is presented under one scheme.
+ *
+ * Through `safeHeaders`, which is the only producer of the type the client
+ * accepts. The token was checked when it was read out of the environment; the
+ * check here is the one that holds for a consumer of the library, who never went
+ * through `resolveTokens`.
+ */
+function headersFrom(scheme: AuthScheme, token: string): Readonly<Record<string, HeaderValue>> {
   switch (scheme.kind) {
     case "bearer":
-      return { authorization: `Bearer ${token}` };
+      return safeHeaders([["authorization", `Bearer ${token}`]]);
     case "header":
-      return { [scheme.header.toLowerCase()]: token };
+      return safeHeaders([[scheme.header.toLowerCase(), token]]);
     case "cookie":
-      return { cookie: `${scheme.name}=${token}` };
+      return safeHeaders([["cookie", `${scheme.name}=${token}`]]);
     case "basic":
-      return { authorization: `Basic ${Buffer.from(token, "utf8").toString("base64")}` };
+      return safeHeaders([
+        ["authorization", `Basic ${Buffer.from(token, "utf8").toString("base64")}`],
+      ]);
   }
 }
 
@@ -104,12 +123,12 @@ export function createCredentialProvider(
   }
 
   return {
-    headersFor(accountId: string): Readonly<Record<string, string>> {
+    headersFor(accountId: string): Readonly<Record<string, HeaderValue>> {
       const token = tokens.get(accountId);
       if (token === undefined) {
         // An anonymous request is a legitimate case: this is how one checks
         // whether an endpoint is open to everyone at all.
-        return {};
+        return safeHeaders([]);
       }
 
       return headersFrom(schemesByAccount.get(accountId) ?? defaultScheme, token);

@@ -16,6 +16,7 @@ import type {
   SignedRequest,
 } from "../src/adapters/ports.js";
 import type { Account, Endpoint } from "../src/core/index.js";
+import { safeHeaders } from "../src/io/untrusted.js";
 import {
   classifyStatus,
   collectObservations,
@@ -96,7 +97,9 @@ describe("request signing", () => {
     const signing: CredentialProvider = {
       headersFor(accountId, request) {
         asked.push(request);
-        return { "x-signature": `${accountId}:${request.method}:${new URL(request.url).pathname}` };
+        return safeHeaders([
+          ["x-signature", `${accountId}:${request.method}:${new URL(request.url).pathname}`],
+        ]);
       },
     };
 

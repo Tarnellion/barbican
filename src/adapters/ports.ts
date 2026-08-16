@@ -7,13 +7,25 @@
  */
 
 import type { Endpoint, HttpMethod, SignalSpec, SignalValue } from "../core/types.js";
+import type { HeaderValue } from "../io/untrusted.js";
 
 export type { SignalSpec, SignalValue };
 
 export interface HttpRequest {
   readonly method: HttpMethod;
   readonly url: string;
-  readonly headers: Readonly<Record<string, string>>;
+  /**
+   * Checked values, not any strings.
+   *
+   * The brand is what makes the guarantee reach a consumer of the library. The
+   * CLI path validated header names and values on the way in; a caller building
+   * a request by hand went past all four checks and got
+   * `RequestFailedError: Cannot convert argument to a ByteString` out of the
+   * retry loop, after three attempts, naming neither the header nor the account.
+   * `safeHeaders` in `src/io/untrusted.ts` is now the only way to obtain this
+   * type. Found by the audit of 14 August 2026 (D-6).
+   */
+  readonly headers: Readonly<Record<string, HeaderValue>>;
   /**
    * The signals for the sake of which the body will be read. Empty or absent —
    * the stream is cancelled unread, as it was before ADR-0011.
@@ -79,7 +91,7 @@ export interface CredentialProvider {
    * The four built-in schemes ignore the argument: their header is the same for
    * every request of the account.
    */
-  headersFor(accountId: string, request: SignedRequest): Readonly<Record<string, string>>;
+  headersFor(accountId: string, request: SignedRequest): Readonly<Record<string, HeaderValue>>;
 }
 
 /**
@@ -97,7 +109,7 @@ export interface CredentialProvider {
  */
 export interface ContextAttributes {
   readonly contextId: string;
-  readonly headers: Readonly<Record<string, string>>;
+  readonly headers: Readonly<Record<string, HeaderValue>>;
   readonly query: Readonly<Record<string, string>>;
 }
 

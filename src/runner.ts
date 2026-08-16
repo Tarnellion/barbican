@@ -17,13 +17,8 @@ import type {
   SignalValue,
   TenantId,
 } from "./core/index.js";
-import {
-  DEFAULT_DIGEST_SIGNAL,
-  isUsablePathSegment,
-  principalOf,
-  resourceApplies,
-  SAFE_METHODS,
-} from "./core/index.js";
+import { DEFAULT_DIGEST_SIGNAL, principalOf, resourceApplies, SAFE_METHODS } from "./core/index.js";
+import { pathSegment } from "./io/untrusted.js";
 
 /**
  * What is computed over the body of a marked endpoint.
@@ -265,10 +260,15 @@ function substitute(path: string, resource: Resource): string {
       return "";
     }
     const value = resource.params[name] ?? "";
-    if (!isUsablePathSegment(value)) {
+    // `pathSegment` checks and escapes in one step. Written out here as two, the
+    // check and the escaping could be separated by an edit — and it is the pair
+    // that holds: `encodeURIComponent` leaves the dot alone, so a value of `.`
+    // survives escaping and navigates.
+    try {
+      return pathSegment(value);
+    } catch {
       throw new UnusablePathValueError(resource.id, name, value);
     }
-    return encodeURIComponent(value);
   });
 }
 

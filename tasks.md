@@ -506,21 +506,38 @@ Nothing here is fixed yet. The order of work is at the end.
 Eleven point fixes of one shape across four files, two of which have already
 drifted apart (`CONTEXT_VALUE_SAFE` uses `*` where `HEADER_SAFE` uses `+`).
 
-- [ ] **D-2.** A signal named `__proto__` disappears from every observation:
-      `signals.ts:173` builds a plain object literal, and the assignment calls
-      the prototype setter.
-- [ ] **D-3.** `tokenEnv: constructor` gives `TypeError: value.trim is not a
-      function` instead of `MissingCredentialError`. The same class is already
-      recognised and closed elsewhere in that file (`config.ts:914`).
-- [ ] **D-4.** A response header named `__proto__` vanishes, breaking the promise
-      made ten lines above it that the name is kept even for redacted headers.
-- [ ] **D-6.** The class is closed on the CLI path only. A library consumer
-      building a request themselves passes all four regular expressions by and
-      gets `RequestFailedError` with "Cannot convert argument to a ByteString"
-      after three attempts.
-- [ ] **A-4.** The redaction of URLs inside error text (`safeUrl`) is covered by
-      no test: making it return the URL unchanged leaves 574 tests green.
-- [ ] **The cure for the class rather than a fifth point fix:**
+- [x] **D-2.** Closed 15 August with the whole class, [ADR-0024](docs/adr/0024-strings-from-outside.md):
+      `openRecord()` from `src/io/untrusted.ts`.
+      Original finding: a signal named `__proto__` disappears from every
+      observation: `signals.ts:173` builds a plain object literal, and the
+      assignment calls the prototype setter.
+- [x] **D-3.** Closed 15 August with the whole class: `lookup()` instead of
+      indexing, at both sites that read a name from the configuration.
+      Original finding: `tokenEnv: constructor` gives `TypeError: value.trim is
+      not a function` instead of `MissingCredentialError`. The same class is
+      already recognised and closed elsewhere in that file (`config.ts:914`).
+- [x] **D-4.** Closed 15 August with the whole class. The test sets the header
+      with `setHeader`, not in an object literal — where `__proto__:` is syntax
+      rather than a key, so the first version of it sent nothing and passed.
+      Original finding: a response header named `__proto__` vanishes, breaking
+      the promise made ten lines above it that the name is kept even for redacted
+      headers.
+- [x] **D-6.** Closed 15 August: `HttpRequest.headers` and
+      `CredentialProvider.headersFor` ask for the branded `HeaderValue`, whose
+      only producer is `safeHeaders()`. Proven by `pnpm run typecheck`, which
+      reads the test: removing the brand makes tsc report the
+      `@ts-expect-error` as unused and the gate fails.
+      Original finding: the class is closed on the CLI path only. A library
+      consumer building a request themselves passes all four regular expressions
+      by and gets `RequestFailedError` with "Cannot convert argument to a
+      ByteString" after three attempts.
+- [x] **A-4.** Closed 15 August: a request against a URL with userinfo and a
+      query fails, and the message is checked to carry the path and neither the
+      key nor the password. Making `safeUrl` return its argument turns it red.
+      Original finding: the redaction of URLs inside error text (`safeUrl`) is
+      covered by no test: making it return the URL unchanged leaves 574 tests
+      green.
+- [x] **The cure, done 15 August rather than a fifth point fix:**
       `src/io/untrusted.ts` with branded constructors — `HeaderValue`,
       `HeaderName`, `PathSegment`, `safeRecord()`, `lookup()` — and
       `HttpRequest.headers: Readonly<Record<HeaderName, HeaderValue>>` in
@@ -1065,7 +1082,8 @@ finished" — see B-1.
 18. ~~**B-2 / H-3** a single source for the per-cell verdict.~~
 19. ~~**I-1** a parallel walk, or drop the flag honestly.~~ Parallel; I-8 came
     out of it.
-20. **D-6** branded types in `src/io/untrusted.ts`.
+20. ~~**D-6** branded types in `src/io/untrusted.ts`.~~ With D-2, D-3, D-4 and
+    A-4, which are the same mistake.
 21. ~~**J-1** decide about the history, and add a `commit-msg` hook.~~
 22. **L-4** rework `Finding` and `CheckContext` before phase 5 is scheduled.
     Deferred by the owner until the rest of the audit is closed.
