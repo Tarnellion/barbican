@@ -103,6 +103,19 @@ export interface CollectOptions {
    * See ADR-0019.
    */
   readonly contextAttributes?: ReadonlyMap<string, ContextAttributes>;
+  /**
+   * How many cells may be in flight at once.
+   *
+   * Taken from `throttle.limits`, the single place where the defaults and the
+   * flags are merged — not re-derived here, or the walk and the limiter would
+   * disagree about the same number and the report would print one of the two.
+   * Absent means one at a time, which is what the walk did unconditionally
+   * before: the flag was documented, printed into the report and had no effect.
+   *
+   * It bounds the walk, not the traffic. The ceiling lives in the throttle and
+   * holds whatever this says.
+   */
+  readonly concurrency?: number;
 }
 
 export interface CollectResult {
@@ -601,6 +614,21 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     }
   }
 
+  // Every cell of the run, laid out before the first request.
+  //
+  // The walk used to be two nested loops with `await client.send` in the middle,
+  // so exactly one request was ever in flight and `--concurrency` changed
+  // nothing — 615 requests at 20 ms latency took 13 766 ms at 1 and 13 754 ms at
+  // 128, while the report printed the number as if it had been honoured. A flat
+  // list is what a pool of workers can be handed. Found by the audit of
+  // 14 August 2026.
+  const tasks: Array<{
+    readonly account: Account;
+    readonly endpoint: Endpoint;
+    readonly resource?: Resource;
+    readonly credentialAccountId: string;
+    readonly attributes?: ContextAttributes;
+  }> = [];
   for (const account of options.accounts) {
     const attributes = options.contextAttributes?.get(account.id);
     // Conditions do not change the account: it presents itself, and what changes
@@ -613,85 +641,110 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       if (account.endpointIds !== undefined && !account.endpointIds.includes(endpoint.id)) {
         continue;
       }
-      const startedAt = Date.now();
-      const tenantId = resource?.tenantId ?? account.tenantId;
-      const baseUrl = baseUrlForTenant(tenantId, options.tenantBaseUrls, options.baseUrl);
-      // The scope check is over the finished path, not over the template: a
-      // resource value with `..` led the request above the declared base path,
-      // because the template was checked before substitution.
-      let url: string;
-      try {
-        const path = resource === undefined ? endpoint.path : substitute(endpoint.path, resource);
-        url = withQuery(joinUrl(baseUrl, path), resource, attributes?.query);
-      } catch (cause) {
-        failures.push({
+      tasks.push({
+        account,
+        endpoint,
+        ...(resource === undefined ? {} : { resource }),
+        credentialAccountId,
+        ...(attributes === undefined ? {} : { attributes }),
+      });
+    }
+  }
+
+  /** What one cell produced. A cell can yield a failure and an observation both. */
+  interface CellResult {
+    readonly failure?: ProbeFailure;
+    readonly observation?: AccessObservation;
+    readonly truncated?: true;
+  }
+
+  async function probe(task: (typeof tasks)[number]): Promise<CellResult> {
+    const { account, endpoint, resource, credentialAccountId, attributes } = task;
+    const startedAt = Date.now();
+    const tenantId = resource?.tenantId ?? account.tenantId;
+    const baseUrl = baseUrlForTenant(tenantId, options.tenantBaseUrls, options.baseUrl);
+    // The scope check is over the finished path, not over the template: a
+    // resource value with `..` led the request above the declared base path,
+    // because the template was checked before substitution.
+    let url: string;
+    try {
+      const path = resource === undefined ? endpoint.path : substitute(endpoint.path, resource);
+      url = withQuery(joinUrl(baseUrl, path), resource, attributes?.query);
+    } catch (cause) {
+      return {
+        failure: {
           accountId: account.id,
           endpointId: endpoint.id,
           ...(resource === undefined ? {} : { resourceId: resource.id }),
           reason: cause instanceof Error ? cause.message : String(cause),
-        });
-        continue;
-      }
-      // The body is read only where a human declared `responseMustDifferByTenant`:
-      // where it is not declared, the stream is cancelled unread. See ADR-0011.
-      // The digest is implied by that declaration itself — there is nothing else
-      // to compare responses between tenants with — while the other scalars are
-      // declared by a human explicitly. Empty means the body is not read at all.
-      const specs: readonly SignalSpec[] = [
-        ...(endpoint.responseMustDifferByTenant === true ? DIGEST_SIGNALS : []),
-        ...(endpoint.signals ?? []),
-      ];
-      // The headers are taken for every request rather than once per account:
-      // the signature depends on the method and the address, and a value hoisted
-      // out of the loop would silently sign every cell with the first request.
-      // See ADR-0018.
-      //
-      // The condition attributes are added **after** the credential ones: they
-      // cannot replace a credential header — that is checked when the
-      // configuration is parsed — and the order here is the second line of the
-      // same defence, not a matter of style.
-      const request = {
-        method: endpoint.method,
-        url,
-        headers: {
-          ...options.credentials.headersFor(credentialAccountId, {
-            method: endpoint.method,
-            url,
-          }),
-          ...attributes?.headers,
         },
-        ...(specs.length === 0 ? {} : { signals: specs }),
       };
+    }
+    // The body is read only where a human declared `responseMustDifferByTenant`:
+    // where it is not declared, the stream is cancelled unread. See ADR-0011.
+    // The digest is implied by that declaration itself — there is nothing else
+    // to compare responses between tenants with — while the other scalars are
+    // declared by a human explicitly. Empty means the body is not read at all.
+    const specs: readonly SignalSpec[] = [
+      ...(endpoint.responseMustDifferByTenant === true ? DIGEST_SIGNALS : []),
+      ...(endpoint.signals ?? []),
+    ];
+    // The headers are taken for every request rather than once per account:
+    // the signature depends on the method and the address, and a value hoisted
+    // out of the loop would silently sign every cell with the first request.
+    // See ADR-0018.
+    //
+    // The condition attributes are added **after** the credential ones: they
+    // cannot replace a credential header — that is checked when the
+    // configuration is parsed — and the order here is the second line of the
+    // same defence, not a matter of style.
+    const request = {
+      method: endpoint.method,
+      url,
+      headers: {
+        ...options.credentials.headersFor(credentialAccountId, {
+          method: endpoint.method,
+          url,
+        }),
+        ...attributes?.headers,
+      },
+      ...(specs.length === 0 ? {} : { signals: specs }),
+    };
 
-      let status: number;
-      let headers: Readonly<Record<string, string>>;
-      let signals: Readonly<Record<string, SignalValue>> | undefined;
-      try {
-        const response = await options.client.send(request);
-        status = response.status;
-        headers = response.headers;
-        signals = response.signals;
-      } catch (cause) {
-        const terminal = terminalCause(cause);
-        if (terminal !== undefined) {
-          truncated = true;
-        }
-        // A failed request is the absence of a conclusion, not a denial of access.
-        status = 0;
-        headers = {};
-        failures.push({
-          accountId: account.id,
-          endpointId: endpoint.id,
-          ...(resource === undefined ? {} : { resourceId: resource.id }),
-          // The terminal error's own words, not the wrapper's. "The request
-          // failed after 3 attempts" describes the symptom and blames the
-          // network; "the per-run request budget is exhausted" names the cause
-          // and says it was our own doing.
-          reason: reasonOf(terminal ?? cause),
-        });
+    let status: number;
+    let headers: Readonly<Record<string, string>>;
+    let signals: Readonly<Record<string, SignalValue>> | undefined;
+    let failure: ProbeFailure | undefined;
+    let stopped: true | undefined;
+    try {
+      const response = await options.client.send(request);
+      status = response.status;
+      headers = response.headers;
+      signals = response.signals;
+    } catch (cause) {
+      const terminal = terminalCause(cause);
+      if (terminal !== undefined) {
+        stopped = true;
       }
+      // A failed request is the absence of a conclusion, not a denial of access.
+      status = 0;
+      headers = {};
+      failure = {
+        accountId: account.id,
+        endpointId: endpoint.id,
+        ...(resource === undefined ? {} : { resourceId: resource.id }),
+        // The terminal error's own words, not the wrapper's. "The request
+        // failed after 3 attempts" describes the symptom and blames the
+        // network; "the per-run request budget is exhausted" names the cause
+        // and says it was our own doing.
+        reason: reasonOf(terminal ?? cause),
+      };
+    }
 
-      observations.push({
+    return {
+      ...(failure === undefined ? {} : { failure }),
+      ...(stopped === undefined ? {} : { truncated: stopped }),
+      observation: {
         accountId: account.id,
         endpointId: endpoint.id,
         method: endpoint.method,
@@ -705,7 +758,62 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         // nothing to match the finding against the platform's log.
         at: new Date(startedAt).toISOString(),
         ...(signals === undefined ? {} : { signals }),
-      });
+      },
+    };
+  }
+
+  // A pool of workers pulling from one list, sized by the throttle's own limit.
+  //
+  // Not "start every task and let the throttle queue them": admission is honest
+  // either way, but twenty thousand pending promises are held for the whole run,
+  // and the first terminal error would still have to be dealt out to all of
+  // them. The pool keeps exactly as many in flight as are allowed to be.
+  //
+  // The traffic ceiling does not move. `client.send` goes through
+  // `throttle.run`, which is where concurrency, the rate window and the per-run
+  // budget are enforced; the walk only stops starving it. What does change is
+  // the circuit breaker's "consecutive": failures interleave now, so it means
+  // "this many with no success in between", and up to `concurrency - 1`
+  // requests are already in flight when it trips.
+  const results = new Array<CellResult>(tasks.length);
+  let next = 0;
+  const workers = Array.from(
+    // `next++` needs no lock — nothing awaits between the read and the
+    // increment, and there is one thread.
+    { length: Math.max(1, Math.min(options.concurrency ?? 1, tasks.length)) },
+    async () => {
+      for (;;) {
+        const index = next;
+        next += 1;
+        if (index >= tasks.length) {
+          return;
+        }
+        const task = tasks[index];
+        if (task === undefined) {
+          return;
+        }
+        results[index] = await probe(task);
+      }
+    },
+  );
+  await Promise.all(workers);
+
+  // Drained in the order the cells were laid out, not the order they came back
+  // in. Two runs of the same matrix have to produce the same file, or a diff
+  // between two reports is unreadable and `configDigest` promises more than it
+  // delivers.
+  for (const result of results) {
+    if (result === undefined) {
+      continue;
+    }
+    if (result.failure !== undefined) {
+      failures.push(result.failure);
+    }
+    if (result.observation !== undefined) {
+      observations.push(result.observation);
+    }
+    if (result.truncated === true) {
+      truncated = true;
     }
   }
 

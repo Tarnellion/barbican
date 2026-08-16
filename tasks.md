@@ -825,11 +825,27 @@ readability, failed on B-2 / H-3 above and was closed with it.
 | 36 080 | 391 ms | 7 469 ms | 6 053 ms | 409 MB | 26.1 MB |
 | 144 320 | 875 ms | 28 570 ms | **104 112 ms** | 1 003 MB | 102.4 MB |
 
-- [ ] **I-1.** `--concurrency` does nothing: `await client.send(request)` sits
-      inside the nested loop, one request in flight always. 615 requests at 20 ms
-      latency take 13 766 ms at `--concurrency 1` and 13 754 ms at 128. The flag
-      is documented **and written into the report**, so the report asserts
+- [x] **I-1.** Closed 15 August, [ADR-0023](docs/adr/0023-the-walk-is-parallel.md):
+      the walk pulls from a flat list of cells with a pool of workers sized by
+      `throttle.limits.concurrency`. 610 cells at 20 ms latency with the rate
+      ceiling lifted: 14 127 ms at 1, 3 776 at 4, 1 137 at 16, 543 at 64, all 610
+      observed in an identical order every time. At the defaults nothing changes
+      — 60 cells at `--rps 5` take 11 407 ms at 1 and 11 308 at 8, the rate binds
+      first. The in-flight peak equals the limit and never exceeds it; reverting
+      the pool to sequential turns one test red, removing the cap turns three.
+      Original finding: `--concurrency` does nothing: `await client.send(request)`
+      sits inside the nested loop, one request in flight always. 615 requests at
+      20 ms latency take 13 766 ms at `--concurrency 1` and 13 754 ms at 128. The
+      flag is documented **and written into the report**, so the report asserts
       something about the run that did not happen.
+- [ ] **I-8.** What the target sees in a wall-clock second exceeds `--rps`, and
+      the parallel walk widened it: at `--rps 5` a server counting arrivals saw a
+      worst second of 6 at concurrency 1, 7 at the default 2, 9 at 8. The
+      throttle's own admissions are exact — instrumented, three per window at
+      rps 3 — so the excess is arrival compression between admission and the
+      socket. Fixing it means pacing admissions at `1000 / rps` instead of
+      refilling the window in a burst, which costs no throughput but changes a
+      declared invariant and wants an ADR of its own. Found while closing I-1.
 - [x] **I-3 and I-4.** Closed 14 August by hoisting rather than by caching: which
       resources apply to an endpoint does not depend on the account, so it is
       computed once per endpoint in `walk` and in `describePlan`. A memo inside
@@ -855,8 +871,10 @@ readability, failed on B-2 / H-3 above and was closed with it.
 - [ ] **I-6.** The full matrix lives in memory and is serialised as one string;
       observations are 70 % of both the memory and the file and are row-independent.
 - [ ] **The practical ceiling is about 20 000 cells** — 400 endpoints x 40
-      accounts at 80 resources. What binds first is walk time, because the walk is
-      sequential: 15 minutes at 50 ms RTT, and nothing shortens it. Then report
+      accounts at 80 resources. What bound first was walk time, because the walk
+      was sequential: 15 minutes at 50 ms RTT, and nothing shortened it. Since
+      I-1 the walk is parallel and that number now moves with `--concurrency`;
+      the rest of this entry stands and has not been re-measured. Then report
       size (0.72 KB per cell), then quadratic post-processing, which overtakes the
       walk between 36 000 and 72 000 cells. **Memory does not bind at all** in the
       range measured — a useful negative result. Note that the default
@@ -1045,7 +1063,8 @@ finished" — see B-1.
 17. ~~**G-5 + G-6** a distinct exit code for usage errors, and the table says
     what the tool actually returns.~~
 18. ~~**B-2 / H-3** a single source for the per-cell verdict.~~
-19. **I-1** a parallel walk, or drop the flag honestly.
+19. ~~**I-1** a parallel walk, or drop the flag honestly.~~ Parallel; I-8 came
+    out of it.
 20. **D-6** branded types in `src/io/untrusted.ts`.
 21. ~~**J-1** decide about the history, and add a `commit-msg` hook.~~
 22. **L-4** rework `Finding` and `CheckContext` before phase 5 is scheduled.

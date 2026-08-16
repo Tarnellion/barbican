@@ -122,6 +122,43 @@ describe("the rate limit", () => {
 
     expect(clock.sleeps.length).toBe(before);
   });
+
+  /**
+   * The rate limit under a walk that is now parallel.
+   *
+   * Both tests above hand over one task at a time. Since 15 August the walk
+   * feeds the throttle as many cells at once as `--concurrency` allows, and
+   * "does the sliding window still hold when the callers arrive together" had no
+   * answer in the suite: the concurrency limit had one — twelve tasks at once —
+   * the rate limit did not.
+   *
+   * Asserted on the pauses and not on a clock reading taken inside the task.
+   * The first version of this test did the latter and appeared to catch four
+   * admissions in a second where three were declared; instrumenting `admit`
+   * showed it lets through exactly three per window. The reading was the
+   * artifact: the clock is shared and moves in jumps, so by the time a task
+   * admitted at 0 runs its body, another caller's `sleep` has already moved the
+   * clock to 1000. What a task sees is not when it was let through.
+   */
+  it("holds when the callers arrive all at once", async () => {
+    const clock = createTestClock();
+    const throttle = createThrottle({ concurrency: 8, requestsPerSecond: 3 }, clock);
+    let ran = 0;
+
+    await Promise.all(
+      Array.from({ length: 12 }, () =>
+        throttle.run(() => {
+          ran += 1;
+          return Promise.resolve();
+        }),
+      ),
+    );
+
+    expect(ran).toBe(12);
+    // Twelve at three a second is three full windows of waiting. A burst let
+    // through on arrival would show up here as fewer pauses, or as none.
+    expect(clock.sleeps).toEqual([1000, 1000, 1000]);
+  });
 });
 
 describe("the per-run ceiling", () => {

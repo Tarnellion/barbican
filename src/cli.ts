@@ -450,6 +450,11 @@ async function run(flags: RunFlags): Promise<number> {
     resources: config.resources,
     tenantBaseUrls,
     contextAttributes,
+    // From the throttle's own merge of defaults and flags, so the walk and the
+    // limiter cannot end up with two different numbers for the same limit. A
+    // port implementation that declares no limits gets a walk of one: the walk
+    // must never be the wider of the two.
+    ...(throttle.limits === undefined ? {} : { concurrency: throttle.limits.concurrency }),
   });
   const finishedAt = new Date();
 

@@ -242,6 +242,14 @@ are deliberately timid, and the numbers are these:
 | Requests per second | 5 | `--rps` |
 | Requests per run | 2000 | `--max-requests` |
 
+Which of the three binds depends on the deployment. At the defaults it is the
+rate: 60 cells at `--rps 5` take the same 11.4 seconds whether one request is in
+flight or eight. `--concurrency` earns its keep once the rate ceiling is lifted —
+610 cells against a target answering in 20 ms go from 14.1 s at 1 to 0.5 s at 64
+— which is to say on a deployment you have been allowed to probe faster. It is
+honoured by the walk since 15 August 2026; before that it was printed into the
+report and had no effect ([ADR-0023](docs/adr/0023-the-walk-is-parallel.md)).
+
 One cell is one request. A run costs roughly `accounts × endpoints × resources`
 requests — the reference polygon with 9 accounts, 6 resources and 7 endpoints
 comes to 144 cells and finishes in about a minute. One of those endpoints is a
