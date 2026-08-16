@@ -13,7 +13,7 @@ import { access, readFile, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { styleText } from "node:util";
-import { Command, InvalidArgumentError } from "commander";
+import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { createCredentialProvider } from "./adapters/credentials.js";
 import { createEndpointListParser } from "./adapters/endpoint-list.js";
 import { createHttpClient } from "./adapters/http.js";
@@ -696,6 +696,33 @@ async function run(flags: RunFlags): Promise<number> {
   return verdict.code;
 }
 
+/**
+ * A mistake in the command line, not a finding about the platform.
+ *
+ * commander exits 1 on an unknown option or a missing required one, and 1 is
+ * this tool's way of saying "checked, and reality does not match what you
+ * declared". So `--unsafe-metods` reported as a privilege escalation, and in CI
+ * — the one place the exit code is the whole interface — it reported as one
+ * silently: the message goes to stderr, which a pipeline usually does not read
+ * when the code already says "failed for a known reason".
+ *
+ * 64 is `EX_USAGE` from `sysexits.h`: the conventional "the command line was
+ * wrong" of Unix CLIs, and outside the 0/1/2 the CI contract uses. Found by the
+ * audit of 14 August 2026.
+ */
+const USAGE_ERROR = 64;
+
+/**
+ * The exit code for something commander threw.
+ *
+ * `--help` and `--version` come through here too — commander treats printing
+ * them as an exit — and they are not failures. It marks them with `exitCode: 0`,
+ * which is the only thing that separates them from a usage error.
+ */
+function exitCodeFrom(error: CommanderError): number {
+  return error.exitCode === 0 ? 0 : USAGE_ERROR;
+}
+
 const program = new Command();
 
 program
@@ -736,4 +763,30 @@ program
     process.stdout.write(`${JSON.stringify(configJsonSchema(), null, 2)}\n`);
   });
 
-await program.parseAsync();
+// `exitOverride` rather than letting commander call `process.exit()` itself:
+// with the report going to stdout by default, a hard exit can truncate a write
+// that has not drained. Setting `process.exitCode` lets Node finish and leave
+// on its own.
+//
+// On every command, not only the root: commander does not pass the callback
+// down to subcommands, and it is the subcommand that handles `barbican run
+// --unsafe-metods` — that is, every usage error that matters here. Set on the
+// list rather than in each chain, so a command added later cannot be forgotten.
+program.exitOverride();
+for (const command of program.commands) {
+  command.exitOverride();
+}
+
+try {
+  await program.parseAsync();
+} catch (error) {
+  if (error instanceof CommanderError) {
+    process.exitCode = exitCodeFrom(error);
+  } else {
+    // Nothing else should reach here — the `run` action catches its own — but
+    // an escape must not look like a clean run.
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${paint("Aborted:", "red")} ${message}\n`);
+    process.exitCode = 2;
+  }
+}

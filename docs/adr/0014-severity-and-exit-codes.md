@@ -112,3 +112,44 @@ the CHANGELOG at the next release, not left to be discovered on one's own.
 Revisit if a need appears to tell severities apart within one relation — for
 example, to separate reading payment data from reading a reference list. That
 would require a declaration from a human and therefore a separate decision.
+
+## Addendum of 2026-08-15: a usage error is not a discrepancy
+
+The three-valued contract above was stated as if the tool were the only thing
+that ever sets an exit code. It is not. commander exits **1** on an unknown
+option, a missing required one, or a value its parser rejects — and 1 in this
+document means "tested, there are discrepancies".
+
+So `barbican run --unsafe-metods` reported as a privilege escalation. In CI,
+where the exit code is the whole interface, it reported as one silently: the
+explanation goes to stderr, which a pipeline usually does not read once the code
+has already said "failed for a known reason". The failure mode is the same one
+the 2 exists to prevent, pointing the other way — there, an untested run looks
+clean; here, an unstarted run looks like a finding.
+
+**A usage error exits 64**, `EX_USAGE` from `sysexits.h`. The line is drawn at
+the start of the run: what the argument parser rejects is 64, and anything that
+fails after it — an unreadable configuration, an unwritable report path, a
+platform that does not answer — stays 2. Nothing was sent in the 64 case, and
+that is the whole difference the code is carrying.
+
+`--help` and `--version` needed a condition rather than being separate paths:
+commander reports printing them as an exit too, and marks them with `exitCode:
+0`. They stay 0.
+
+The callback is set on every command and not only on the root — commander does
+not pass it down to subcommands, and it is the subcommand that handles
+`barbican run`, which is where every usage error that matters happens. Set by a
+loop over the registered commands, so a command added later cannot be forgotten.
+Proved by mutation: removing the loop turns the polygon gate red naming the
+case.
+
+`process.exitCode` rather than `process.exit()`, which is what commander would
+otherwise call: the report goes to stdout by default, and a hard exit can
+truncate a write that has not drained.
+
+**130 is documented, not introduced.** An interrupt part-way through the walk
+gives the ordinary `128 + SIGINT`, and no report is written. It was missing from
+the table, which listed three codes for a tool that can return five.
+
+Found by the audit of 14 August 2026 (G-5, G-6).

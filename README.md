@@ -164,6 +164,14 @@ to confuse:
 | `0` | checked, and reality matches what you declared |
 | `1` | checked, and it does not — a privilege escalation, an unexpectedly denied access, or a high-severity check finding |
 | `2` | **the result cannot be trusted** — no observations were made, the run was cut short, or the accounts were not authenticated |
+| `64` | the command line was wrong — an unknown flag, a missing required one, a bad value. Nothing was sent |
+| `130` | interrupted from the keyboard, part-way through the walk |
+
+`64` is `EX_USAGE` from `sysexits.h`, and it exists because the alternative was
+worse: a typo in a flag name used to exit `1`, which in CI is indistinguishable
+from "a privilege escalation was found". The line is drawn where the run starts —
+what the argument parser rejects is `64`, and anything that fails after that is
+`2`.
 
 Code `2` takes priority over `1`: an unverified run is never clean. Note that an
 *unexpected denial* also fails the run — the tool compares declared intent with

@@ -156,6 +156,16 @@ The reasoning — [ADR-0014](https://github.com/Tarnellion/barbican/blob/main/do
 | 0 | tested, no discrepancies |
 | 1 | tested, there are discrepancies |
 | 2 | **the result cannot be trusted** |
+| 64 | the command line was wrong; nothing was sent |
+| 130 | interrupted from the keyboard part-way through the walk |
+
+The last two are about the invocation, not about the platform. **64** is
+`EX_USAGE`, and it is separate for one reason: until 15 August 2026 an unknown
+flag exited 1, which is this table's "tested, there are discrepancies" — a typo
+reported as a privilege escalation, in the one place where the exit code is the
+whole interface. The line is drawn at the start of the run: what the argument
+parser rejects is 64, and anything failing after that is 2. **130** is the
+ordinary `128 + SIGINT`; a run that ends this way has written no report.
 
 A 2 outranks a 1: what was not tested is never clean. It is returned when any of
 these holds:

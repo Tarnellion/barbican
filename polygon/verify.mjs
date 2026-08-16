@@ -214,6 +214,47 @@ async function assertReportPathIsCheckedFirst(baseUrl) {
   process.stdout.write("--report: an unusable path is refused before the first request\n");
 }
 
+/**
+ * A mistake in the command line does not report as a finding about the platform.
+ *
+ * commander exits 1 on an unknown option, and 1 is this tool's "checked, and
+ * reality does not match what you declared" — so `--unsafe-metods` reported as a
+ * privilege escalation, in the one place where the exit code is the whole
+ * interface. Found by the audit of 14 August.
+ *
+ * Spawned rather than unit-tested because the number under test is produced by
+ * commander and by `process.exitCode` between them, and neither is visible from
+ * inside the process. `--help` is here for the same reason the fix needed a
+ * condition: commander reports printing it as an exit too.
+ */
+async function assertUsageErrorsHaveTheirOwnCode() {
+  const cases = [
+    { argv: ["run", "--unsafe-metods"], want: 64, what: "an unknown option" },
+    { argv: ["run"], want: 64, what: "a missing required option" },
+    { argv: ["run", "-c", CONFIG, "--concurrency", "abc"], want: 64, what: "a bad option value" },
+    { argv: ["nosuchcommand"], want: 64, what: "an unknown command" },
+    { argv: ["--help"], want: 0, what: "--help" },
+    { argv: ["run", "--help"], want: 0, what: "--help on a subcommand" },
+    { argv: ["--version"], want: 0, what: "--version" },
+  ];
+
+  for (const { argv, want, what } of cases) {
+    const code = await new Promise((done) => {
+      // No POLYGON_PORT and no platform: none of these may get as far as a
+      // request, and if one does it fails on the connection instead of here.
+      const child = spawn(process.execPath, [CLI, ...argv], {
+        env: process.env,
+        stdio: ["ignore", "ignore", "ignore"],
+      });
+      child.on("exit", (one) => done(one ?? -1));
+    });
+    if (code !== want) {
+      fail(`${what} (${argv.join(" ")}) ended with ${code}, expected ${want}`);
+    }
+  }
+  process.stdout.write("exit codes: a usage error is 64, not 1; --help and --version stay 0\n");
+}
+
 const README = "polygon/README.md";
 const TABLE_BEGIN = "<!-- verify:begin -->";
 const TABLE_END = "<!-- verify:end -->";
@@ -321,6 +362,7 @@ async function main() {
 
   await assertDryRunSendsNothing(baseUrl);
   await assertReportPathIsCheckedFirst(baseUrl);
+  await assertUsageErrorsHaveTheirOwnCode();
 
   // The tokens are random on every launch: they are not in the files and must not be.
   const tokens = Object.fromEntries(

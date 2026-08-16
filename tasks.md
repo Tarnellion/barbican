@@ -935,10 +935,23 @@ readability, failed on B-2 / H-3 above and was closed with it.
       the polygon itself has that guard.
 - [ ] **K-9.** The "am I main" idiom in both external polygons' `tokens.mjs` is
       false when the path goes through a symlink.
-- [ ] **G-5.** A CLI usage error exits **1** — the same code as "checked, and it
-      does not match". A typo in a flag name reports as a privilege escalation.
-- [ ] **G-6.** The exit-code table covers neither a failed startup nor `SIGINT`,
-      which gives **130**.
+- [x] **G-5.** Closed 15 August, addendum to
+      [ADR-0014](docs/adr/0014-severity-and-exit-codes.md): a usage error exits
+      **64** (`EX_USAGE`), set through `exitOverride` on every command — commander
+      does not pass the callback down, and it is the subcommand that handles
+      `barbican run`. `--help` and `--version` stay 0 by their `exitCode`.
+      `process.exitCode` rather than `process.exit()`, so a report going to stdout
+      cannot be truncated. The polygon gate checks seven invocations; removing the
+      loop over the subcommands turns it red naming the case.
+      Original finding: a CLI usage error exits **1** — the same code as "checked,
+      and it does not match". A typo in a flag name reports as a privilege
+      escalation.
+- [x] **G-6.** Closed 15 August with G-5: both tables now list 64 and 130, and
+      say that the line runs at the start of the run — the parser rejects with 64,
+      anything after it is 2. 130 was measured, not assumed: SIGINT part-way
+      through a walk against the polygon.
+      Original finding: the exit-code table covers neither a failed startup nor
+      `SIGINT`, which gives **130**.
 - [ ] **G-9.** Policy rule numbering is zero-based and presented as an ordinal:
       a typo in the fourth rule reports `Policy rule #3`.
 - [ ] **G-10.** `EISDIR` names neither the file nor the flag, with at least two
@@ -1029,7 +1042,8 @@ finished" — see B-1.
     code.~~
 15. ~~**K-1 + K-2** clean the temporary directories, write the report `0o600`.~~
 16. ~~**L-6** a paragraph about the system owner's permission.~~
-17. **G-5** a distinct exit code for usage errors.
+17. ~~**G-5 + G-6** a distinct exit code for usage errors, and the table says
+    what the tool actually returns.~~
 18. ~~**B-2 / H-3** a single source for the per-cell verdict.~~
 19. **I-1** a parallel walk, or drop the flag honestly.
 20. **D-6** branded types in `src/io/untrusted.ts`.
