@@ -29,6 +29,8 @@ import { createHttpClient } from "../src/adapters/http.js";
 import { createThrottle } from "../src/adapters/throttle.js";
 import type { Account, Endpoint } from "../src/core/index.js";
 import { collectObservations } from "../src/runner.js";
+import type { TestClock } from "./fixtures/clock.js";
+import { createTestClock } from "./fixtures/clock.js";
 
 const ACCOUNTS: readonly Account[] = [{ id: "a", roleId: "r", tenantId: "t" }];
 const CREDENTIALS = createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "tok"]]));
@@ -61,6 +63,8 @@ async function walk(options: {
   readonly cells: number;
   readonly maxRequests: number;
   readonly status?: number;
+  readonly retry?: { readonly maxAttempts: number; readonly baseDelayMs?: number };
+  readonly clock?: TestClock;
 }) {
   const server = await startServer(options.status);
   try {
@@ -71,9 +75,11 @@ async function walk(options: {
         requestsPerSecond: 1000,
         maxRequests: options.maxRequests,
       }),
-      // One attempt: the retries are a separate question, and three of them per
-      // dead cell would make this test measure backoff.
-      retry: { maxAttempts: 1 },
+      // One attempt by default: the retries are a separate question, and three
+      // of them per dead cell would make this test measure backoff. The test
+      // that is about the retries passes its own.
+      retry: options.retry ?? { maxAttempts: 1 },
+      ...(options.clock === undefined ? {} : { clock: options.clock }),
     });
 
     return await collectObservations({
@@ -98,7 +104,57 @@ describe("an exhausted request budget", () => {
     const result = await walk({ cells: 6, maxRequests: 2 });
 
     expect(result.truncated).toBe(true);
-    expect(result.failures).toHaveLength(4);
+  });
+
+  /**
+   * And it stops there. The walk used to carry on to the end of the matrix, so
+   * every remaining cell hit the exhausted budget and became a `probe-error`
+   * row: at 18 040 cells that was 16 040 dead ones, 16 139 finding rows against
+   * 109, and a 16.3 MB report against 12.8 MB for the complete run — a truncated
+   * run costing more than a full one and saying less. Found by the audit of
+   * 14 August (L-9).
+   *
+   * One failure, not four: the cell that met the exhausted budget. The rest were
+   * never asked, `truncated` says the tail was not tested, and that is the
+   * report's existing shape for exactly this.
+   */
+  it("stops walking instead of collecting a failure for every cell left", async () => {
+    const result = await walk({ cells: 6, maxRequests: 2 });
+
+    expect(result.failures).toHaveLength(1);
+    // Two observed, one refused, three never reached.
+    expect(result.observations.filter((one) => one.status > 0)).toHaveLength(2);
+  });
+
+  /**
+   * A decision to stop is not a network condition.
+   *
+   * Every attempt past an exhausted budget was retried three times with two
+   * backoffs, and none of them could ever succeed: `admit()` throws before it
+   * increments the counter, so the budget cannot recover. Measured before the
+   * fix — `--max-requests 149` took 32.1 s against 30.3 s for the whole run
+   * while making three fewer requests. Found by the audit of 14 August (A-2).
+   *
+   * Asserted on the pauses the client asked for, not on how long the test took.
+   * The first version measured wall time and passed with the retries put back:
+   * the backoff carries jitter, so a timing threshold is a coin toss dressed as
+   * a proof. A pause requested is a fact.
+   */
+  it("does not retry an exhausted budget", async () => {
+    const clock = createTestClock();
+
+    const result = await walk({
+      cells: 6,
+      maxRequests: 2,
+      retry: { maxAttempts: 3, baseDelayMs: 2000 },
+      clock,
+    });
+
+    expect(result.truncated).toBe(true);
+    // Not one backoff. The budget cannot recover — `admit()` throws before it
+    // increments the counter — so every one of them would be spent waiting for
+    // something that cannot happen.
+    expect(clock.sleeps).toEqual([]);
   });
 
   // A single leftover cell: the smallest tail there is, and the one that used to

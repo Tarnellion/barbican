@@ -793,12 +793,34 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
   // requests are already in flight when it trips.
   const results = new Array<CellResult>(tasks.length);
   let next = 0;
+  /**
+   * Set by the first terminal error, and after it no worker takes another cell.
+   *
+   * The walk used to carry on to the end of the matrix. Every remaining cell
+   * then met an exhausted budget, was retried three times with two backoffs, and
+   * became a `probe-error` row — "we asked and it broke" about a request that
+   * was never sent. Measured on 610 cells with a budget of 149: 3 184 ms and a
+   * **512 KB report against 322 KB for the complete run**. A truncated run cost
+   * more than a full one and said less. Found by the audit of 14 August (L-9).
+   *
+   * The cells not reached are simply not observed, and `truncated: true` is what
+   * says the tail was never tested. The same run now takes 1 181 ms and 193 KB,
+   * and its 461 rows are `not-observed` — which is true — instead of
+   * `probe-error`, which was not.
+   *
+   * Up to `concurrency - 1` requests are already in flight when this is set;
+   * they finish. That is bounded by the limit the operator agreed to.
+   */
+  let stop = false;
   const workers = Array.from(
     // `next++` needs no lock — nothing awaits between the read and the
     // increment, and there is one thread.
     { length: Math.max(1, Math.min(options.concurrency ?? 1, tasks.length)) },
     async () => {
       for (;;) {
+        if (stop) {
+          return;
+        }
         const index = next;
         next += 1;
         if (index >= tasks.length) {
@@ -808,7 +830,11 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         if (task === undefined) {
           return;
         }
-        results[index] = await probe(task);
+        const result = await probe(task);
+        results[index] = result;
+        if (result.truncated === true) {
+          stop = true;
+        }
       }
     },
   );

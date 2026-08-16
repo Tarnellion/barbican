@@ -597,12 +597,22 @@ everything downstream of it.
 
 ### Terminal errors lost at a layer boundary
 
-- [ ] **A-2.** Past an exhausted budget each cell still makes three attempts with
-      two sleeps. `--max-requests 149` takes **32.1 s** against 30.3 s for the
-      full run while making three fewer requests. The throttle counter does not
-      advance — `admit()` throws before `started += 1` — so the budget cannot
-      recover and the retries are futile by construction. The silence boundary is
-      exactly **4 cells**: from the fifth the circuit breaker fires and masks A-1.
+- [x] **A-2.** Closed 15 August with L-9: `RunBudgetExhaustedError` and
+      `CircuitOpenError` are rethrown out of the retry loop instead of being
+      swallowed into `lastCause`. A decision to stop is not a network condition,
+      and the breaker no longer counts one as a failed response — which is what
+      made it fire from the fifth exhausted cell and report the wrong reason.
+      Proven on the pauses the client asked for, not on wall time: the first
+      version of that test measured elapsed milliseconds and **passed with the
+      retries put back**, because the backoff carries jitter and a timing
+      threshold is a coin toss dressed as a proof.
+      Original finding: past an exhausted budget each cell still makes three
+      attempts with two sleeps. `--max-requests 149` takes **32.1 s** against
+      30.3 s for the full run while making three fewer requests. The throttle
+      counter does not advance — `admit()` throws before `started += 1` — so the
+      budget cannot recover and the retries are futile by construction. The
+      silence boundary is exactly **4 cells**: from the fifth the circuit breaker
+      fires and masks A-1.
 - [x] **G-4.** An exhausted budget sends the reader to check the port. Closed with
       A-1: the canary now names `RunBudgetExhaustedError` and the message says to
       raise the ceiling rather than to check the deployment. Original finding:
@@ -611,9 +621,17 @@ everything downstream of it.
       Check the address, the port". The error's own text — "a guard against
       uncontrolled load, not a configuration error" — goes into `cause` and never
       reaches the reader.
-- [ ] **L-9.** After a truncation the loop has no `break` and walks the rest of
-      the matrix. At 18 040 cells with the default budget: 5 267 ms spent on
-      16 040 dead cells, 16 139 finding rows against 109, and a report of
+- [x] **L-9.** Closed 15 August: the first terminal error sets a flag and no
+      worker takes another cell. Measured on 610 cells with a budget of 149 —
+      3 184 ms and a **512 KB report against 322 KB for the complete run** became
+      1 181 ms and 193 KB. The 461 rows are still there and have changed kind:
+      `not-observed`, "we never asked", instead of `probe-error`, "we asked and
+      it broke" about a request that was never sent. Up to `concurrency - 1`
+      requests are in flight when the flag is set and they finish, which is
+      bounded by the limit the operator agreed to.
+      Original finding: after a truncation the loop has no `break` and walks the
+      rest of the matrix. At 18 040 cells with the default budget: 5 267 ms spent
+      on 16 040 dead cells, 16 139 finding rows against 109, and a report of
       **16.3 MB against 12.8 MB for the complete run**. A truncated run costs more
       than a full one.
 
@@ -1191,11 +1209,11 @@ nowhere, and it drops accordingly.
 
 1. ~~**E-2** — the only library example in the README does not compile.~~ Done
    15 August: it is compiled, run and compared with the README by a test.
-2. **L-9 + A-2** — after a truncation the walk does not stop, and past an
+2. ~~**L-9 + A-2** — after a truncation the walk does not stop, and past an
    exhausted budget every remaining cell still makes three attempts with two
-   sleeps (`--max-requests 149` takes 32× longer than it should). Traffic on
-   somebody else's deployment after the tool has decided to stop is the worst
-   thing on this list.
+   sleeps.~~ Done 15 August: a truncated run is now cheaper than a full one
+   instead of dearer, and its rows say "never asked" rather than "asked and it
+   broke".
 3. **B-3 + B-4** — the exit code is the CI contract and it has two thresholds and
    one flat key space: a check registered as `privilege-escalation` reports as
    one, and a check finding needs `high|critical` to exit 1 where a matrix

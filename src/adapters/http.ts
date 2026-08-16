@@ -33,7 +33,7 @@ import type { HttpClient, HttpRequest, HttpResponse, Throttle } from "./ports.js
 import type { SignalExtractor } from "./signals.js";
 import { createSignalExtractor } from "./signals.js";
 import type { Clock } from "./throttle.js";
-import { systemClock } from "./throttle.js";
+import { RunBudgetExhaustedError, systemClock } from "./throttle.js";
 
 /**
  * Response headers whose values are kept. **Everything else is redacted.**
@@ -370,6 +370,18 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
         try {
           response = await options.throttle.run(() => attemptOnce(request, signal));
         } catch (cause) {
+          // A decision to stop is not a network condition, and retrying it can
+          // only waste time on somebody else's deployment. The budget cannot
+          // recover — `admit()` throws before it increments the counter — and
+          // the breaker is latched once open, so all three attempts and both
+          // backoffs were futile by construction. Measured: `--max-requests 149`
+          // took 32.1 s against 30.3 s for the whole run while making three
+          // fewer requests. It also inflated `consecutiveFailures` on the last
+          // attempt, so from the fifth exhausted cell the breaker fired and
+          // reported the wrong reason. Found by the audit of 14 August (A-2).
+          if (cause instanceof RunBudgetExhaustedError || cause instanceof CircuitOpenError) {
+            throw cause;
+          }
           lastCause = cause;
         }
 
