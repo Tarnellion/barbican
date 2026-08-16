@@ -24,6 +24,40 @@ export class DuplicateCheckIdError extends Error {
  * typo's only trace in `checksRun` — an entry missing that nobody was looking
  * for — and the run would read as "checked, and clean here".
  */
+/**
+ * The kinds of matrix discrepancy, which a check may not take for its id.
+ *
+ * `summary.byKind` is one key space for both: a check id lands in it beside
+ * `privilege-escalation` and the rest. A check registered under one of these
+ * names would have its findings counted as matrix discrepancies — reported to
+ * the reader as privilege escalations, and read by the exit code as such. The
+ * names are reserved at registration for the same reason the signal name
+ * `digest` is reserved when a configuration is parsed: a collision that can be
+ * refused should not be left to be noticed. Found by the audit of 14 August
+ * 2026 (B-4).
+ */
+const RESERVED_CHECK_IDS: readonly string[] = [
+  "privilege-escalation",
+  "unexpected-denial",
+  "not-observed",
+  "probe-error",
+];
+
+export class ReservedCheckIdError extends Error {
+  override readonly name = "ReservedCheckIdError";
+  readonly checkId: string;
+
+  constructor(checkId: string) {
+    super(
+      `A check cannot be registered as "${checkId}": that is a kind of matrix ` +
+        `discrepancy, and summary.byKind holds both in one key space. Its ` +
+        `findings would be counted as matrix ones and read by the exit code as ` +
+        `such. Reserved: ${RESERVED_CHECK_IDS.join(", ")}`,
+    );
+    this.checkId = checkId;
+  }
+}
+
 export class UnknownCheckError extends Error {
   override readonly name = "UnknownCheckError";
   readonly checkId: string;
@@ -49,6 +83,9 @@ export class CheckRegistry {
   register(check: Check): void {
     if (this.#checks.has(check.id)) {
       throw new DuplicateCheckIdError(check.id);
+    }
+    if (RESERVED_CHECK_IDS.includes(check.id)) {
+      throw new ReservedCheckIdError(check.id);
     }
     this.#checks.set(check.id, check);
   }

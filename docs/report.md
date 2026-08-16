@@ -178,6 +178,12 @@ these holds:
 | **no canary was checked**, while at least one account carries credentials | authentication is confirmed by nothing. A policy made only of denials leaves the safety net above with nothing to say: nothing is declared accessible, so "no access anywhere" never triggers |
 | **half or more of the requests failed** | the report describes the state of the network or the deployment, not the platform. Fewer failures are ordinary partial failures: they are visible in `failures` and in `byKind`, and they do not cancel the verdicts on the cells that survived |
 
+**A check finding fails the run at any severity but `info`**, which is the same
+line the matrix channel has. Until 15 August 2026 it needed `high` or
+`critical`, so the same disagreement between platform and declaration failed a
+build when the status showed it and passed when the response body did. `info` is
+what a check uses to say something without failing anybody's build.
+
 An unexpected denial also gives **1**. The tool compares the declared intent
 against observed behaviour, and a discrepancy is a discrepancy whichever way it
 points. It cannot tell which side is wrong — the platform or your declaration —

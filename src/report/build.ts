@@ -1341,8 +1341,18 @@ export function runVerdict(report: RunReport): RunVerdict {
   // which side is wrong — the platform or the declaration — and since it cannot,
   // it has no right to stay silent. Found while checking the platform's oracle:
   // the holding was denied its own brand, and the run returned 0. See ADR-0014.
-  const escalations = report.summary.byKind["privilege-escalation"] ?? 0;
-  const denials = report.summary.byKind["unexpected-denial"] ?? 0;
+  //
+  // Counted from the findings and by **source**, not out of `summary.byKind`.
+  // That map holds kinds of matrix discrepancy and check identifiers in one key
+  // space, so a check registered under `privilege-escalation` had its findings
+  // read here as matrix ones. Registering such a check is refused now, but this
+  // function takes a `RunReport` from anywhere — a consumer assembling one by
+  // hand never passes the registry. Found by the audit of 14 August (B-4).
+  const ofKind = (kind: DiffKind) =>
+    report.findings.filter((finding) => finding.source === "matrix" && finding.kind === kind)
+      .length;
+  const escalations = ofKind("privilege-escalation");
+  const denials = ofKind("unexpected-denial");
   if (escalations > 0 || denials > 0) {
     return {
       code: 1,
@@ -1355,10 +1365,16 @@ export function runVerdict(report: RunReport): RunVerdict {
   // A check finding is the same discrepancy as an escalation, just seen by
   // something other than the status. Staying silent about it in the exit code
   // would mean a run with a cross-tenant leak found looks successful in CI.
+  //
+  // **Any severity but `info`**, which is the same threshold the matrix channel
+  // has. It used to demand `high|critical`, so a check reporting a `medium`
+  // disagreement between the platform and a declaration left the run green while
+  // an identical disagreement seen by status failed it — two thresholds for one
+  // principle, and ADR-0014 states the principle. `info` is the level for a note
+  // rather than a disagreement, and it is what a check uses to say something
+  // without failing a build. Found by the audit of 14 August (B-3).
   const bySignal = report.findings.filter(
-    (finding) =>
-      finding.source === "check" &&
-      (finding.severity === "high" || finding.severity === "critical"),
+    (finding) => finding.source === "check" && finding.severity !== "info",
   ).length;
   if (bySignal > 0) {
     return { code: 1, reason: `${bySignal} found by the response body rather than by status` };

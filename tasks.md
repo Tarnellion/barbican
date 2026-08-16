@@ -575,12 +575,28 @@ everything downstream of it.
       = 198` against `cellsObserved 180`, which breaks the self-check
       `docs/report.md` teaches the reader to perform, and contradicts ADR-0020 in
       the same file.
-- [ ] **B-3.** Different thresholds per channel: any matrix discrepancy exits 1,
-      a check finding needs `high|critical`. ADR-0014 states the opposite
-      principle.
-- [ ] **B-4.** `summary.byKind` is one flat key space for diff kinds and check
-      ids, and `runVerdict` reads escalations out of it. A check registered as
-      `privilege-escalation` reports as one.
+- [x] **B-3.** Closed 15 August, addendum to
+      [ADR-0014](docs/adr/0014-severity-and-exit-codes.md): a check finding fails
+      the run at any severity but `info`, the same line the matrix channel has,
+      where `not-observed` and `probe-error` do not fail either. Nothing
+      registered today emits below `high`, so no run changes today — which is
+      when a threshold is cheapest to fix.
+      Original finding: different thresholds per channel: any matrix discrepancy
+      exits 1, a check finding needs `high|critical`. ADR-0014 states the
+      opposite principle.
+- [x] **B-4.** Closed 15 August, two guards for two callers. Registering a check
+      under one of the four matrix kinds is refused (`ReservedCheckIdError`), for
+      the same reason the signal name `digest` is refused when a configuration is
+      parsed. And `runVerdict` counts rows by `source` instead of reading
+      `summary.byKind`, because it takes a `RunReport` from anywhere and a
+      consumer assembling one by hand never passes the registry.
+      The second half was invisible until the test helper was fixed: it set the
+      counters from numbers and left `findings` empty — a report `buildReport`
+      cannot produce — so the mutation "read the map again" stayed green. It now
+      builds the rows and counts the map from them.
+      Original finding: `summary.byKind` is one flat key space for diff kinds and
+      check ids, and `runVerdict` reads escalations out of it. A check registered
+      as `privilege-escalation` reports as one.
 - [ ] **B-5.** `coverage.bodiesComparedOn` names endpoints that were never
       probed: it filters all endpoints where the check filters probed ones.
 - [ ] **B-6.** `groupDefects` never merges the channels, so one platform defect
@@ -806,9 +822,15 @@ mutants the type checker rejects) **7 real gaps**, not 29.
 - [ ] **The third `$ref` barrier** is called separately proven by ADR-0005 and has
       no such test. Verified by hand (zero requests, zero reads), but the mutation
       `resolve: { external: true }` alone is not caught.
-- [ ] **B-14.** The exit-code tests assemble a `RunReport` by hand, bypassing
-      `buildReport`, and assemble objects `buildReport` cannot produce. The seam
-      `buildReport -> runVerdict` is uncovered — which is where B-3 and B-4 live.
+- [~] **B-14.** Half closed 15 August with B-3 and B-4: the helper now builds
+      finding rows and counts `byKind` from them, so it no longer assembles
+      objects `buildReport` cannot produce — which is what hid the second half of
+      B-4. Still open: the seam itself is not covered, the tests still assemble
+      a `RunReport` rather than going through `buildReport`.
+      Original finding: the exit-code tests assemble a `RunReport` by hand,
+      bypassing `buildReport`, and assemble objects `buildReport` cannot produce.
+      The seam `buildReport -> runVerdict` is uncovered — which is where B-3 and
+      B-4 live.
 - [ ] **K-6.** `existsSync` is case-blind on macOS: a link with the wrong case
       passes locally and fails on Linux CI. No current divergence.
 
@@ -1214,10 +1236,8 @@ nowhere, and it drops accordingly.
    sleeps.~~ Done 15 August: a truncated run is now cheaper than a full one
    instead of dearer, and its rows say "never asked" rather than "asked and it
    broke".
-3. **B-3 + B-4** — the exit code is the CI contract and it has two thresholds and
-   one flat key space: a check registered as `privilege-escalation` reports as
-   one, and a check finding needs `high|critical` to exit 1 where a matrix
-   discrepancy does not. Both contradict ADR-0014.
+3. ~~**B-3 + B-4** — the exit code is the CI contract and it has two thresholds
+   and one flat key space.~~ Done 15 August; B-14 is half closed with them.
 4. **B-7** — a failure before the address is built yields no observation, hence
    no `probe-error`, hence the untrustworthiness threshold cannot see it. The
    "clean against untested" class, which is what the 2 exists for.

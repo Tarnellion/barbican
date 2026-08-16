@@ -18,7 +18,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { CheckRegistry, UnknownCheckError } from "../../src/core/checks/registry.js";
+import {
+  CheckRegistry,
+  ReservedCheckIdError,
+  UnknownCheckError,
+} from "../../src/core/checks/registry.js";
 import type { Check, CheckContext, CheckCoverage, Finding } from "../../src/core/checks/types.js";
 import type { AccessMatrix } from "../../src/core/types.js";
 
@@ -69,6 +73,37 @@ describe("assembling a registry for a particular run", () => {
 
   it("selects nothing when asked for nothing", () => {
     expect(registry.select("")).toEqual([]);
+  });
+});
+
+describe("a check may not take the name of a matrix discrepancy", () => {
+  /**
+   * `summary.byKind` holds kinds of matrix discrepancy and check identifiers in
+   * one key space, so a check registered under one of those names would have its
+   * findings reported to the reader as privilege escalations. Refused at
+   * registration for the same reason the signal name `digest` is refused when a
+   * configuration is parsed: a collision that can be refused should not be left
+   * to be noticed. Found by the audit of 14 August (B-4).
+   */
+  it("refuses all four of them", () => {
+    for (const reserved of [
+      "privilege-escalation",
+      "unexpected-denial",
+      "not-observed",
+      "probe-error",
+    ]) {
+      expect(() => new CheckRegistry().register(stub(reserved))).toThrow(ReservedCheckIdError);
+    }
+  });
+
+  it("says which names are taken, so the message is a fix", () => {
+    expect(() => new CheckRegistry().register(stub("probe-error"))).toThrow(
+      /privilege-escalation, unexpected-denial, not-observed, probe-error/,
+    );
+  });
+
+  it("lets any other name through", () => {
+    expect(() => new CheckRegistry().register(stub("identical-response"))).not.toThrow();
   });
 });
 

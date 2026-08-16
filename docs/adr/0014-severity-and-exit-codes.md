@@ -153,3 +153,37 @@ gives the ordinary `128 + SIGINT`, and no report is written. It was missing from
 the table, which listed three codes for a tool that can return five.
 
 Found by the audit of 14 August 2026 (G-5, G-6).
+
+
+## Addendum of 2026-08-15: one threshold, and a name that cannot be borrowed
+
+The decision above says a discrepancy is a discrepancy whichever way it points.
+The code had two thresholds. A matrix discrepancy failed the run at any
+severity; a check finding needed `high` or `critical`. So the same statement —
+the platform disagrees with what a human declared — failed a build when the
+status showed it and passed when the response body did.
+
+**A check finding fails the run at any severity but `info`.** That is the same
+line the matrix channel has, where `not-observed` and `probe-error` do not fail
+either: `info` is the level for a note rather than a disagreement, and it is what
+a check uses to say something without failing somebody's build. Nothing
+registered today emits below `high`, so no run changes today — which is exactly
+when a threshold should be fixed.
+
+**And the verdict counts rows, by source, instead of reading `summary.byKind`.**
+That map holds kinds of matrix discrepancy and check identifiers in one key
+space. A check registered as `privilege-escalation` had its findings counted
+there as matrix ones: reported to the reader as privilege escalations and read by
+the exit code as such. Registering such a check is refused now —
+`ReservedCheckIdError`, for the same reason the signal name `digest` is refused
+when a configuration is parsed — but `runVerdict` takes a `RunReport` from
+anywhere, and a consumer assembling one by hand never passes the registry. Both
+guards, because they cover different callers.
+
+The test helper had to be fixed to see any of this. It set the counters from
+numbers and left `findings` empty — a report `buildReport` cannot produce — so a
+verdict reading counters instead of rows looked correct. It now builds the rows
+and counts the map from them, which is what B-14 is about and half of what it
+asked for.
+
+Found by the audit of 14 August 2026 (B-3, B-4).

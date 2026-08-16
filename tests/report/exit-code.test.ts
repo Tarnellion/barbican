@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import type { DiffKind } from "../../src/core/index.js";
 import { parseRunConfig } from "../../src/io/config.js";
 import type { ReportFinding, RunReport } from "../../src/report/build.js";
 import {
@@ -40,6 +41,24 @@ function report(overrides: {
   }[];
 }): RunReport {
   const observations = overrides.observations ?? 4;
+  // The rows, not only the counters. This helper used to set `byKind` and leave
+  // `findings` empty — a report `buildReport` cannot produce, and the reason
+  // `runVerdict` reading counters instead of rows went unnoticed. Whatever the
+  // caller asks for as a number exists here as a row. See B-4 and B-14.
+  const matrixRows = (kind: DiffKind, howMany: number): readonly ReportFinding[] =>
+    Array.from({ length: howMany }, (_, index) => ({
+      kind,
+      source: "matrix" as const,
+      severity: "high" as const,
+      accountId: `a${index}`,
+      endpointId: `e${index}`,
+    }));
+  const findings: readonly ReportFinding[] = [
+    ...matrixRows("privilege-escalation", overrides.escalations ?? 0),
+    ...matrixRows("unexpected-denial", overrides.denials ?? 0),
+    ...matrixRows("probe-error", overrides.probeErrors ?? 0),
+    ...(overrides.checks ?? []),
+  ];
   return {
     schemaVersion: "1",
     runId: "00000000-0000-4000-8000-000000000000",
@@ -81,7 +100,7 @@ function report(overrides: {
     },
     truncated: overrides.truncated ?? false,
     observations: [],
-    findings: overrides.checks ?? [],
+    findings,
     defects: [],
     summary: {
       endpoints: 0,
@@ -91,13 +110,23 @@ function report(overrides: {
       observations,
       skipped: 0,
       failures: 0,
-      findings: 0,
-      byKind: {
-        "privilege-escalation": overrides.escalations ?? 0,
-        "unexpected-denial": overrides.denials ?? 0,
-        "not-observed": 0,
-        "probe-error": overrides.probeErrors ?? 0,
-      },
+      findings: findings.length,
+      // Counted from the rows, the way `buildReport` counts them. Built from
+      // the override numbers instead, this map disagreed with `findings` — so a
+      // check finding whose kind collides with a matrix one was absent here,
+      // and a verdict reading the map rather than the rows looked correct.
+      byKind: findings.reduce<Record<string, number>>(
+        (counts, finding) => {
+          counts[finding.kind] = (counts[finding.kind] ?? 0) + 1;
+          return counts;
+        },
+        {
+          "privilege-escalation": 0,
+          "unexpected-denial": 0,
+          "not-observed": 0,
+          "probe-error": 0,
+        },
+      ),
       checkFindings: (overrides.checks ?? []).length,
       bySeverity: { info: 0, low: 0, medium: 0, high: 0, critical: 0 },
       defectGroups: 0,
@@ -907,6 +936,52 @@ describe("exitCodeFor", () => {
     };
 
     expect(exitCodeFor(report({ checks: [leak] }))).toBe(1);
+  });
+
+  /**
+   * One threshold for both channels, which is what ADR-0014 states and the code
+   * did not do: a matrix discrepancy of any severity failed the run, a check
+   * finding needed `high|critical`. So the same disagreement between platform
+   * and declaration failed a build when the status showed it and passed when the
+   * body did. Found by the audit of 14 August (B-3).
+   */
+  it("1 — a check finding of medium severity, like any other disagreement", () => {
+    const finding: ReportFinding = {
+      kind: "response-count-differs",
+      source: "check",
+      severity: "medium",
+      accountId: "alice",
+      endpointId: "orders.list",
+      title: "two tenants saw the same number of records",
+    };
+
+    expect(exitCodeFor(report({ checks: [finding] }))).toBe(1);
+    expect(exitCodeFor(report({ checks: [{ ...finding, severity: "low" }] }))).toBe(1);
+  });
+
+  /**
+   * `summary.byKind` holds matrix kinds and check identifiers in one key space.
+   * A check registered as `privilege-escalation` had its findings counted here
+   * as matrix ones — registering one is refused now, but this function takes a
+   * report from anywhere and a consumer assembling one by hand never passes the
+   * registry. Found by the audit of 14 August (B-4).
+   */
+  it("does not take a check finding for a matrix escalation", () => {
+    const disguised: ReportFinding = {
+      kind: "privilege-escalation",
+      source: "check",
+      severity: "info",
+      accountId: "alice",
+      endpointId: "orders.list",
+      title: "a note that happens to share a name",
+    };
+
+    // `info` from a check is a note and fails nothing. Read as a matrix
+    // escalation it would fail the run and say "privilege escalation: 1 cell".
+    expect(runVerdict(report({ checks: [disguised] })).reason).not.toContain(
+      "privilege escalation",
+    );
+    expect(exitCodeFor(report({ checks: [disguised] }))).toBe(0);
   });
 
   it("0 — the check finding is informational only", () => {
