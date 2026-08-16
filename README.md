@@ -11,7 +11,7 @@ BOLA/IDOR, and cross-tenant leaks.
 
 Early development, but end-to-end: `barbican run` walks a live API and writes a report.
 Validated against three targets — [crAPI](docs/polygons/crapi.md), VAmPI, and a
-[reference platform](polygon/) with switchable defects and a hand-written oracle.
+[reference platform](https://github.com/Tarnellion/barbican/tree/main/polygon) with switchable defects and a hand-written oracle.
 
 - **Works today** — OpenAPI/Postman/manual endpoint sources, throttled probing across
   accounts and roles, path and query parameter substitution, cross-tenant and BOLA
@@ -21,7 +21,7 @@ Validated against three targets — [crAPI](docs/polygons/crapi.md), VAmPI, and 
   flag is absent, a `--dry-run` that shows the plan without sending anything, a JSON
   Schema for editor completion, a per-cell verdict in the report, JSON report and
   exit codes.
-- **Not yet** — see the limitation below, plus [tasks.md](tasks.md).
+- **Not yet** — see the limitation below, plus [tasks.md](https://github.com/Tarnellion/barbican/blob/main/tasks.md).
 
 ### Declare your tenant tree, or the old failure mode is still yours
 
@@ -39,7 +39,7 @@ escalation, *and* misses a real leak into a brand owned by a different holding, 
 
 A clean run against a holding-structured platform with no declared tree is not evidence
 of isolation. This is demonstrated, not theorised — see
-[tests/core/tenant-hierarchy.test.ts](tests/core/tenant-hierarchy.test.ts), which pins
+[tests/core/tenant-hierarchy.test.ts](https://github.com/Tarnellion/barbican/blob/main/tests/core/tenant-hierarchy.test.ts), which pins
 both behaviours side by side, and [docs/guide.md](docs/guide.md) for how to declare it.
 
 An account whose reach is a *set* of tenants rather than a subtree — support staff
@@ -47,7 +47,7 @@ covering brands under two different holdings, an affiliate working two of a grou
 three brands — declares `tenants: [brand-a, brand-c]` instead of `tenant`. The relation
 is then computed against every membership, and the nearest one wins; there is no sixth
 relation value. Forcing such an account into a single node fails in the familiar way,
-and [tests/core/tenant-set.test.ts](tests/core/tenant-set.test.ts) pins all three
+and [tests/core/tenant-set.test.ts](https://github.com/Tarnellion/barbican/blob/main/tests/core/tenant-set.test.ts) pins all three
 workarounds and what each of them gets wrong. See
 [ADR-0017](docs/adr/0017-account-tenant-set.md).
 
@@ -86,7 +86,7 @@ where two language versions disagree, the English files are the source of truth.
 - **[docs/report.md](docs/report.md)** — reading the report: every summary field,
   exit codes, and how to tell *"checked and clean"* from *"nothing was checked"*.
 
-See [plan.md](plan.md) for the roadmap and [docs/adr/](docs/adr/) for the reasoning
+See [plan.md](https://github.com/Tarnellion/barbican/blob/main/plan.md) for the roadmap and [docs/adr/](docs/adr/) for the reasoning
 behind each design decision.
 
 ## Install
@@ -121,7 +121,7 @@ the exact number of cells, **without sending anything**. That is the right first
 command against a deployment you do not own.
 
 For something that actually answers, run against the reference platform in
-[`polygon/`](polygon/): a multi-tenant target with switchable defects and a hand-written
+[`polygon/`](https://github.com/Tarnellion/barbican/tree/main/polygon): a multi-tenant target with switchable defects and a hand-written
 oracle, needing no Docker, only Node. It comes with a clone rather than with the package —
 a deliberately vulnerable server has no business landing in everyone's `node_modules`:
 
@@ -327,7 +327,7 @@ and provenance needs an OIDC witness that a local machine cannot provide — a m
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-The tag triggers [`release.yml`](.github/workflows/release.yml): it runs the same
+The tag triggers [`release.yml`](https://github.com/Tarnellion/barbican/blob/main/.github/workflows/release.yml): it runs the same
 gate as CI, checks that the tag equals `package.json`'s version, and publishes with
 short-lived credentials issued over OIDC. No long-lived npm token exists anywhere.
 

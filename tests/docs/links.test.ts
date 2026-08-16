@@ -12,28 +12,44 @@
  * and the reader finds out exactly when the decision needed disputing.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const SKIP = new Set(["node_modules", ".git", "dist", "coverage", "_local"]);
 
-function markdownFiles(directory: string): readonly string[] {
-  const found: string[] = [];
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (SKIP.has(entry.name)) {
-      continue;
-    }
-    const full = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      found.push(...markdownFiles(full));
-    } else if (entry.name.endsWith(".md")) {
-      found.push(full);
-    }
-  }
-  return found;
+/**
+ * The documents in the repository, from git rather than from the disk.
+ *
+ * Walking the file system meant descending into `.claude/worktrees/`: of the 93
+ * markdown files this visited, 41 were not the repository at all — checkouts of
+ * other branches, whose broken links say nothing about this one and whose count
+ * depends on what happened to be lying around. `language.test.ts` next door had
+ * it right from the start. Found by the audit of 14 August 2026 (K-5).
+ */
+function markdownFiles(): readonly string[] {
+  return execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "utf8" })
+    .split("\u0000")
+    .filter((one) => one.endsWith(".md"))
+    .map((one) => join(ROOT, one));
+}
+
+/**
+ * What `npm pack` puts in the tarball.
+ *
+ * `files` in `package.json`, plus the three npm always includes. A link is only
+ * usable by whoever installed the package if its target is in here too.
+ */
+const SHIPPED = ["dist", "docs", "examples", "schema"];
+const ALWAYS = new Set(["README.md", "LICENSE", "package.json"]);
+
+function ships(repoPath: string): boolean {
+  return (
+    ALWAYS.has(repoPath) ||
+    SHIPPED.some((directory) => repoPath === directory || repoPath.startsWith(`${directory}/`))
+  );
 }
 
 /** Relative links only: external addresses need the network and are not checked here. */
@@ -45,7 +61,7 @@ function relativeLinks(file: string): readonly string[] {
 }
 
 describe("links in the documentation", () => {
-  const files = markdownFiles(ROOT);
+  const files = markdownFiles();
 
   it("finds documents instead of staying silent on an empty list", () => {
     // A test that found nothing is green for the same reason a passing one is.
@@ -63,5 +79,36 @@ describe("links in the documentation", () => {
     }
 
     expect(broken).toEqual([]);
+  });
+
+  /**
+   * And they lead somewhere for a reader who **installed** rather than cloned.
+   *
+   * `files: ["dist", "docs", "examples", "schema"]` leaves `polygon/`,
+   * `tasks.md`, `plan.md`, the tests and the workflows outside the tarball, so
+   * nine relative links in the shipped documents pointed at nothing under
+   * `node_modules/barbican/`. The guard above stayed green on every one of them:
+   * it resolves against the repository, where they all exist. Found by the audit
+   * of 14 August 2026 (E-3).
+   *
+   * The fix for such a link is an absolute address on GitHub, which is what the
+   * rest of the documents already use.
+   */
+  it("lead somewhere for a reader who installed the package", () => {
+    const dead: string[] = [];
+    for (const file of files) {
+      const from = relative(ROOT, file);
+      if (!ships(from)) {
+        continue;
+      }
+      for (const target of relativeLinks(file)) {
+        const to = relative(ROOT, resolve(dirname(file), target));
+        if (!ships(to)) {
+          dead.push(`${from} -> ${target}`);
+        }
+      }
+    }
+
+    expect(dead).toEqual([]);
   });
 });

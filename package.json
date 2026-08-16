@@ -36,13 +36,16 @@
     "./core": {
       "types": "./dist/core/index.d.ts",
       "default": "./dist/core/index.js"
-    }
+    },
+    "./schema/*": "./schema/*",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "docs",
     "examples",
-    "schema"
+    "schema",
+    "!dist/**/*.map"
   ],
   "publishConfig": {
     "access": "public",

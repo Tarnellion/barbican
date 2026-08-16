@@ -255,3 +255,24 @@ jobs:
             --config node_modules/barbican/examples/minimal/barbican.run.yaml \
             --endpoints node_modules/barbican/examples/minimal/endpoints.yaml \
             --dry-run
+          # The README tells the reader the schema is under `node_modules/barbican/`
+          # and an editor picks it up from there. `exports` declared neither it nor
+          # `package.json`, so neither could be resolved by name — the directory
+          # shipped and the door was locked. Resolved here rather than read off the
+          # disk: what is under test is `exports`, and a file that exists is not
+          # the same as a file a tool can ask for.
+          node --input-type=module -e "
+            import { createRequire } from 'node:module';
+            const require = createRequire(process.cwd() + '/');
+            for (const name of ['barbican/package.json', 'barbican/schema/barbican.run.schema.json']) {
+              const at = require.resolve(name);
+              console.log(name, '->', at);
+            }
+          "
+          # Source maps that point at sources the package does not carry are 212 KB
+          # of files resolving to nothing. They stay in the build for local
+          # debugging and out of the tarball.
+          if find node_modules/barbican/dist -name '*.map' | grep -q .; then
+            echo "the package ships source maps that point at sources it does not carry" >&2
+            exit 1
+          fi

@@ -77,3 +77,40 @@ after an install.
 Revisit if the polygon grows a variant that is safe by construction (a recorded
 transcript rather than a server), or if `docs/` grows past a size where shipping
 it stops being free — a few megabytes, not a few hundred kilobytes.
+
+
+## Addendum of 2026-08-15: the door, the maps, and the guard that missed both
+
+A cold install found three things this decision had not covered, and one reason
+all three survived.
+
+**`exports` declared neither `./schema/*` nor `./package.json`.** The README
+tells the reader that after an install the schema is under
+`node_modules/barbican/` and an editor completes the configuration from it. The
+directory shipped and the door was locked: `require.resolve` answered
+`ERR_PACKAGE_PATH_NOT_EXPORTED`. A shipped file nothing can ask for is not a
+shipped file. Both are declared now, and the package job resolves them by name
+rather than reading them off the disk — what is under test is `exports`.
+
+**Fifty-two source maps shipped dangling.** They point at `../src/*.ts`, which
+`files` does not carry, and none has `sourcesContent`: 212 KB of a 658 KB `dist`
+resolving to nothing. Three ways out were on the table — embed the sources with
+`inlineSources`, ship `src`, or stop shipping the maps. The first two roughly
+double a 308 KB tarball to make debugging work for a library whose compiled
+output reads very much like its source; the third costs a consumer nothing they
+had. `files` gains `!dist/**/*.map`, the build keeps emitting them for local
+debugging, and the tarball went 308 KB to 264 KB.
+
+**Nine relative links died on install.** `polygon/`, `tasks.md`, `plan.md`, two
+tests and a workflow are outside `files`, so links to them work in the repository
+and point at nothing under `node_modules/barbican/`. They are absolute GitHub
+addresses now, which is what the rest of the documents already use.
+
+And the reason all three lived: **the guard walked the file system.** It
+descended into `.claude/worktrees/` — 41 of the 93 markdown files it visited were
+checkouts of other branches — and it resolved every link against the repository
+root, where all nine of them exist. It reads `git ls-files` now, like its
+neighbour `language.test.ts` always did, and it has a second assertion: a link in
+a document that ships must point at something that also ships.
+
+Found by the audit of 14 August 2026 (E-3, E-4, E-5, K-5).

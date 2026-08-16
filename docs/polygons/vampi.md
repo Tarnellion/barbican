@@ -4,7 +4,7 @@ A run of 12 August 2026 against a live deployment: the image `erev0s/vampi@sha25
 Docker Desktop 4.46, the port published on `127.0.0.1` only. Below is what was
 measured, not what was inferred from the documentation.
 
-The deployment, the tokens, the configuration and the oracle are gathered in [`polygons/vampi/`](../../polygons/vampi/README.md):
+The deployment, the tokens, the configuration and the oracle are gathered in [`polygons/vampi/`](https://github.com/Tarnellion/barbican/blob/main/polygons/vampi/README.md):
 the run is repeated with `node polygons/vampi/verify.mjs`. It used to be assembled by hand.
 
 The oracle is a hand-written list of defects ([ADR-0009](../adr/0009-validation-oracle.md)),
@@ -148,4 +148,4 @@ classes of defect, 13 cells, zero false ones.
 What it does not cover: cross-tenant isolation — the polygon is single-tenant, and
 there is no "other tenant" in it. And the check "the tool does not fabricate
 findings on a correct deployment": even in the secure mode VAmPI stays vulnerable.
-Both of those are for the reference platform in [`polygon/`](../../polygon/README.md).
+Both of those are for the reference platform in [`polygon/`](https://github.com/Tarnellion/barbican/blob/main/polygon/README.md).

@@ -787,12 +787,18 @@ the run. Generation does not reach a number inside a sentence.
       Original finding: and the exit code;
       `bySeverity`, `defectGroups` and `coverage.cellsMatched` are not checked. It
       compares **sets**, so duplicated rows are invisible by construction.
-- [ ] **E-3.** The published package carries **9 broken relative links**
+- [x] **E-3.** Closed 15 August: all nine are absolute GitHub addresses now, and
+      the guard gained the assertion that was missing — a link in a document that
+      ships must point at something that also ships. Reverting one link turns it
+      red.
+      Original finding: the published package carries **9 broken relative links**
       (`polygon/`, `tasks.md`, `plan.md`, `tests/…`, `.github/…`). The guard test
       resolves them against the repository root and stays green.
-- [ ] **K-5.** The link guard walks the file system rather than git and descends
-      into `.claude/worktrees/`: **135 of 182** files it visits are not the
-      repository. Its neighbour `language.test.ts` does it correctly.
+- [x] **K-5.** Closed 15 August: the guard reads `git ls-files`, like its
+      neighbour always did. Measured today rather than carried over — 41 of the
+      93 markdown files it visited were not the repository; the audit's 135 of
+      182 was the same defect with more worktrees lying around, which is itself
+      the point: the number depended on what was checked out.
 - [ ] **F-6.** `pnpm audit` runs nowhere — not in CI, not in the hooks. The
       declared two layers are one. It exits 1 today.
 
@@ -982,10 +988,18 @@ readability, failed on B-2 / H-3 above and was closed with it.
 - [ ] **E-6.** 217 exported names against 5 documented, including 66 error classes
       and the internal validators. `configSchema` is exported as a raw
       `z.ZodObject`, which makes a zod major a breaking change for consumers.
-- [ ] **E-4.** `exports` declares neither `./package.json` nor `./schema/*`, so the
-      schema the README says ships in `node_modules/barbican/` cannot be resolved.
-- [ ] **E-5.** 50 source maps ship dangling — they point at `../src/*.ts`, absent
-      from the package, with no `sourcesContent`. 316 KB of 784 KB in `dist`.
+- [x] **E-4.** Closed 15 August: both are declared, and the package job resolves
+      them **by name** from a real install rather than reading them off the disk —
+      what is under test is `exports`, and a file that exists is not the same as
+      a file a tool can ask for. Removing `./schema/*` gives
+      `ERR_PACKAGE_PATH_NOT_EXPORTED`, verified.
+- [x] **E-5.** Closed 15 August: `files` gains `!dist/**/*.map`. The build keeps
+      emitting them for local debugging and the tarball went 308 KB to 264 KB.
+      Measured today: 52 maps, 212 KB of a 658 KB `dist`, none with
+      `sourcesContent`. The alternatives — `inlineSources` or shipping `src` —
+      roughly double the tarball to make debugging work for a library whose
+      compiled output reads very much like its source. See the addendum to
+      ADR-0021.
 - [ ] **L-8.** `Check.severity` and `Check.description` are read by nobody, and
       severity is declared twice — on the check and inside `run()` — where the
       compiler cannot see them diverge.
@@ -1255,9 +1269,10 @@ nowhere, and it drops accordingly.
    technique is set up.
 7. **G-1 + G-2 + G-3 + G-7** — the dry run lies in four ways, and the README
    calls it the right first command against a deployment you do not own.
-8. **K-5, then E-3 + E-4 + E-5** — the link guard walks the file system instead
-   of git and spends 135 of 182 checks on worktree files, which is why nine
-   broken links ship. The guard first, then what it should have caught.
+8. ~~**K-5, then E-3 + E-4 + E-5** — the link guard walks the file system instead
+   of git, which is why nine broken links ship.~~ Done 15 August, taken ahead of
+   items 5–7 because it is what separated `main` from the `0.3.0` release that
+   closes phase 4.
 9. **H-11** — `configDigest` is `JSON.stringify` with no canonicalisation, so it
    depends on key order and answers nothing, while standing in the report as the
    identity of the inputs.
