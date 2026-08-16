@@ -22,8 +22,9 @@ import type {
 import {
   createTenantHierarchy,
   FLAT_HIERARCHY,
+  indexPolicy,
   relationOf,
-  resolveExpected,
+  resolveIndexedVerdict,
 } from "../core/index.js";
 
 export interface AuthenticitySuspicion {
@@ -66,6 +67,11 @@ export function findUnauthenticated(
   const hierarchy = tenants === undefined ? FLAT_HIERARCHY : createTenantHierarchy(tenants);
   const suspicions: AuthenticitySuspicion[] = [];
   const byId = new Map(resources.map((resource) => [resource.id, resource]));
+  // Once for the whole pass, not once per observation: the expectation is asked
+  // accounts × observations times, and asking it of the policy directly scans
+  // every rule every time. The audit of 14 August measured 275 ms here against
+  // 21 ms with the same policy trimmed to two rules.
+  const rules = indexPolicy(policy);
 
   for (const account of accounts) {
     let expectedAllowed = 0;
@@ -90,13 +96,13 @@ export function findUnauthenticated(
       // denying, 'no access anywhere' is the declared result, not a sign of broken
       // credentials, and the safeguard would call a healthy run untrustworthy.
       if (
-        resolveExpected(
-          policy,
+        resolveIndexedVerdict(
+          rules,
           account.roleId,
           observation.endpointId,
           relation,
           account.contextId,
-        ) !== "allowed"
+        ).outcome !== "allowed"
       ) {
         continue;
       }

@@ -1046,13 +1046,48 @@ readability, failed on B-2 / H-3 above and was closed with it.
       quadratic source. Control: trimming the policy from 440 rules to 2 takes
       `describeCells` from 622 ms to 344 ms, and the remainder is exactly the
       measured 333.6 ms of regex work.
-- [ ] **I-2.** The walk happens twice: `describeCells` and `diffAccess` are called
-      on consecutive lines with identical arguments and each performs its own
-      `walk`. The comment above `describeCells` — "One walk for both answers… Two
-      independent passes would drift" — describes an intent the call site cancels.
-- [ ] **I-7.** `resolveExpectedVerdict` scans every policy rule per cell and never
-      breaks. Control: 440 rules to 2 takes `findUnauthenticated` from 275 ms to
-      21 ms.
+- [x] **I-2.** Closed 16 August, addendum to
+      [ADR-0020](docs/adr/0020-verdict-next-to-observation.md): `describeMatrix`
+      returns both answers from one walk and is what the run calls;
+      `describeCells` and `diffAccess` stay for a consumer who wants one of them.
+      Measured on 41 accounts x 200 endpoints x 20 resources (47 150 cells): the
+      pair 100.7 ms, the single call 49.8 ms, the same 47 150 verdicts and 21 639
+      discrepancies digest for digest. On the build before I-7 the same pair cost
+      2 204.4 ms against a single walk of 1 095.6. Two guards in `tests/one-walk.test.ts`,
+      because the halves do not imply each other — that asking for both answers
+      walks once (counted on the input; the walk is not exported), and that
+      `src/cli.ts` asks for them at once. Reverting either turns two named tests
+      red. Nothing came out wrong while it stood, and that is the point: a pure
+      walk agrees with itself, so only the bill showed.
+      Original finding: the walk happens twice: `describeCells` and `diffAccess`
+      are called on consecutive lines with identical arguments and each performs
+      its own `walk`. The comment above `describeCells` — "One walk for both
+      answers… Two independent passes would drift" — describes an intent the call
+      site cancels.
+- [x] **I-7.** Closed 16 August, [ADR-0028](docs/adr/0028-the-policy-is-indexed-once.md):
+      the policy is arranged once per run — by conditions, then by endpoint — and
+      the arrangement is passed in, the caller holding it exactly as I-3 has the
+      caller hold the applicable resources. On the same 47 150 cells with a
+      440-rule policy: `describeCells` 1 095.6 -> 51.6 ms, `findUnauthenticated`
+      1 118.3 -> 46.0 ms, verdicts unchanged digest for digest. With the policy
+      trimmed to 2 rules the walk takes 32.8 ms before and 34.4 after, so the
+      policy's share of it went from about 1 063 ms to about 17 ms.
+      **"Never breaks" was the wrong diagnosis** — the missing `break` is not the
+      defect and must not be added: the last rule that matches wins, so a forward
+      loop cannot stop, and the backward scan that could stop reaches the broad
+      opening rule of a policy last, which is the shape policies are written in.
+      The cost was scanning the policy at all. Mutations, each caught by a named
+      test: preferring an endpoint-specific rule over a later broad one (1),
+      keeping the first match instead of the last (3), ignoring a rule's scope
+      (11), not consulting the rules that name any endpoint (18), answering
+      unknown conditions from the baseline rules (1), not grouping by conditions
+      (4). The price paid: the one-shot `resolveExpectedVerdict` now builds an
+      index and drops it — 0.21 -> 1.83 us on a 5-rule policy, 17.7 -> 98.4 us on
+      a 440-rule one — and the alternative was a second way to resolve a cell,
+      which ADR-0020 forbids.
+      Original finding: `resolveExpectedVerdict` scans every policy rule per cell
+      and never breaks. Control: 440 rules to 2 takes `findUnauthenticated` from
+      275 ms to 21 ms.
 - [ ] **I-5.** The isolation check emits O(accounts^2) **rows**: 11 -> 37,
       21 -> 150, 41 -> 600, 81 -> 2 400. One missing tenant filter on a platform
       with a hundred accounts is some 4 000 rows per endpoint.
@@ -1382,9 +1417,9 @@ nowhere, and it drops accordingly.
    closes phase 4.
 9. ~~**H-11** — `configDigest` answers nothing.~~ Done 15 August. Key order was
    never the problem; a `Map` serialising to `{}` was.
-10. **I-2 + I-7** — the walk happens twice on consecutive lines with identical
-    arguments, and the policy scan is linear per cell (440 rules down to 2 takes
-    `findUnauthenticated` from 275 ms to 21 ms). Both already measured.
+10. ~~**I-2 + I-7** — the walk happens twice, and the policy is scanned per
+    cell.~~ Done 16 August. I-7's diagnosis was wrong — the missing `break` is
+    not the defect and must not be added — and the fix is an index built once.
 11. ~~**J-5 … J-16** — twelve documents that contradict the code.~~ Done
     16 August. Three and a half were already closed when re-checked, which is why
     each was verified against the code before being touched.

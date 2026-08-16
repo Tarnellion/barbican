@@ -28,8 +28,7 @@ import {
   buildAccessMatrix,
   CheckRegistry,
   createIdenticalResponseCheck,
-  describeCells,
-  diffAccess,
+  describeMatrix,
   expandPolicy,
   resourceApplies,
 } from "./core/index.js";
@@ -601,8 +600,11 @@ async function run(flags: RunFlags): Promise<number> {
   // matching ones included. A second pass would diverge, and the report would
   // claim 'tested and agreed' about a cell that landed in the findings.
   // See ADR-0020.
-  const cells = describeCells(matrix, policy);
-  const findings = diffAccess(matrix, policy);
+  //
+  // One call, and not `describeCells` followed by `diffAccess`: those are two
+  // walks, which is what stood here until the audit of 14 August found it — the
+  // comment above promising a shared walk while the lines below took two.
+  const { cells, diffs: findings } = describeMatrix(matrix, policy);
 
   // The registry is created explicitly and locally: there is no global state in
   // ADR-0003 speaks of "a registry assembled for a particular run", and there was

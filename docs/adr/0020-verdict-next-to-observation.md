@@ -85,3 +85,27 @@ total answers the question "how many", and the question asked is "which ones".
   observations instead of from the diff. The safeguard is the shared walk and
   the test that the sets coincide; if a second way to obtain a verdict appears,
   it must be deleted, not reconciled.
+
+## Addendum, 16 August 2026: the call site
+
+The shared walk was built and then not used. `src/cli.ts` called `describeCells`
+and `diffAccess` on consecutive lines with identical arguments, and each of them
+walks — under the comment quoted from this ADR, promising one walk. The audit of
+14 August filed it as I-2.
+
+Nothing came out wrong. The walk is pure, so the second pass agreed with the
+first, and that is precisely why nothing noticed for as long as it stood: the
+property this ADR calls a correctness property was being upheld by the walk
+happening to be deterministic, not by there being one of it. The bill was the
+whole walk again — on a matrix of 47 150 cells, 100.7 ms against 49.8 ms, and
+2 204.4 ms against 1 095.6 ms before the policy index of
+[ADR-0028](0028-the-policy-is-indexed-once.md) took the constant down.
+
+`describeMatrix(matrix, policy)` now returns both answers from one walk and is
+what the run calls. `describeCells` and `diffAccess` stay: a consumer of the
+library uses them one at a time, and each remains a single walk. Two guards, in
+`tests/one-walk.test.ts`: that asking for both answers at once walks the matrix
+once — counted on the input, since the walk is not exported — and that `src/cli.ts`
+asks for them at once. The second is a check on the text of a source file,
+because the difference it protects cannot be seen in the output; the same shape
+as `tests/docs/envelope-limitation.test.ts`, and taken for the same reason.

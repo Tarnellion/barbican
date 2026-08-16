@@ -5,7 +5,7 @@
  */
 
 import type { ExpectedVerdict, ResolvedAccessPolicy } from "./expected.js";
-import { resolveExpectedVerdict } from "./expected.js";
+import { indexPolicy, resolveIndexedVerdict } from "./expected.js";
 import { indexObservations, resourceApplies } from "./matrix.js";
 import { createTenantHierarchy, FLAT_HIERARCHY } from "./tenancy.js";
 import type {
@@ -68,17 +68,46 @@ export interface CellVerdict {
 }
 
 /**
+ * Both answers about the matrix, from one walk over it.
+ *
+ * `diffs` are the same cells as the ones in `cells` with `match: false`, and
+ * they are that by construction rather than by agreement between two passes.
+ * See ADR-0020.
+ */
+export interface MatrixVerdicts {
+  readonly cells: readonly CellVerdict[];
+  readonly diffs: readonly AccessDiff[];
+}
+
+/**
+ * Verdicts on every cell of the matrix and the discrepancies among them.
+ *
+ * The function to call when both answers are wanted — which is what a run wants.
+ * `describeCells` and `diffAccess` each walk the matrix on their own, so asking
+ * them one after the other walks it twice: the same work, and, worse, the same
+ * work done twice over inputs that are only *expected* to be identical. The
+ * audit of 14 August found exactly that on two consecutive lines of `src/cli.ts`
+ * — the comment there promising one walk while the call site took two.
+ */
+export function describeMatrix(matrix: AccessMatrix, policy: ResolvedAccessPolicy): MatrixVerdicts {
+  return walk(matrix, policy);
+}
+
+/**
  * Verdicts on every cell of the matrix, the matching ones and the rest.
  *
  * One walk for both answers: discrepancies are the same cells, the ones with
  * `match: false`. Two independent passes would drift, and the report would claim
  * "tested and agreed" about a cell that landed in the findings.
+ *
+ * Wanting the discrepancies as well means {@link describeMatrix}, not this
+ * function and `diffAccess` next to each other.
  */
 export function describeCells(
   matrix: AccessMatrix,
   policy: ResolvedAccessPolicy,
 ): readonly CellVerdict[] {
-  return walk(matrix, policy).cells;
+  return describeMatrix(matrix, policy).cells;
 }
 
 /**
@@ -87,12 +116,16 @@ export function describeCells(
  * Matches are not returned: the result is a list of what needs attention. The
  * order is deterministic — by accounts, then by endpoints, in the order they are
  * declared in the matrix.
+ *
+ * Wanting the verdicts on the matching cells as well means
+ * {@link describeMatrix}, not this function and `describeCells` next to each
+ * other.
  */
 export function diffAccess(
   matrix: AccessMatrix,
   policy: ResolvedAccessPolicy,
 ): readonly AccessDiff[] {
-  return walk(matrix, policy).diffs;
+  return describeMatrix(matrix, policy).diffs;
 }
 
 function walk(
@@ -104,6 +137,9 @@ function walk(
   // cycle) must fire before the walk, not in the middle of it.
   const hierarchy =
     matrix.tenants === undefined ? FLAT_HIERARCHY : createTenantHierarchy(matrix.tenants);
+  // The policy, arranged for lookup, built once for the whole walk. Resolving a
+  // cell used to scan every rule of the policy — see `indexPolicy`.
+  const rules = indexPolicy(policy);
   const diffs: AccessDiff[] = [];
   const cells: CellVerdict[] = [];
 
@@ -215,8 +251,8 @@ function walk(
       if (applicable.length > 0) {
         for (const resource of applicable) {
           const relation = relationOf(account, resource, hierarchy);
-          const verdict = resolveExpectedVerdict(
-            policy,
+          const verdict = resolveIndexedVerdict(
+            rules,
             account.roleId,
             endpoint.id,
             relation,
@@ -239,8 +275,8 @@ function walk(
         continue;
       }
 
-      const verdict = resolveExpectedVerdict(
-        policy,
+      const verdict = resolveIndexedVerdict(
+        rules,
         account.roleId,
         endpoint.id,
         undefined,

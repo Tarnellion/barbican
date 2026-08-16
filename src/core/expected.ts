@@ -110,12 +110,6 @@ export function assertPolicyIsSound(policy: ExpectedAccessPolicy): void {
 }
 
 /**
- * Resolves the policy into an expected outcome for a "role × endpoint" pair.
- *
- * The **last** matching rule wins: that makes it possible to state a broad rule
- * and narrow it with the ones that follow.
- */
-/**
  * The expected outcome together with what produced it.
  *
  * The rule number is for the reader of the report: the policy is in the report,
@@ -137,6 +131,166 @@ export interface ExpectedVerdict {
   readonly ruleIndex?: number;
 }
 
+/**
+ * A rule of the policy under the number the report cites it by.
+ *
+ * The rule itself, not a copy of its selectors: the index **groups** the policy,
+ * it does not restate it. A restatement is a second description of the same
+ * thing, and the one that is not read is the one that goes wrong — which is the
+ * failure this file's own comments keep coming back to.
+ */
+export interface IndexedAccessRule {
+  /** The rule's number in `policy.rules`. */
+  readonly index: number;
+  readonly rule: ResolvedAccessRule;
+}
+
+/**
+ * The rules declared under one set of request conditions.
+ *
+ * Conditions are the outer key because they are compared exactly: a cell under
+ * conditions nobody declared is answered by `fallback`, and an empty bucket says
+ * that without looking at a single rule.
+ */
+export interface ContextRules {
+  /** For an endpoint the policy names: the rules naming it, in declaration order. */
+  readonly byEndpoint: ReadonlyMap<string, readonly IndexedAccessRule[]>;
+  /** The rules that match any endpoint, in declaration order. */
+  readonly anyEndpoint: readonly IndexedAccessRule[];
+}
+
+/**
+ * The policy arranged for lookup by cell.
+ *
+ * Built once per policy and passed in, rather than cached inside the resolution:
+ * a memo in the core would be mutable state, and the core has none by design.
+ * The same decision was taken for `resourceApplies` — see the comment in
+ * `walk` — and for the same reason: hoisting removes the work, caching only
+ * hides it.
+ *
+ * The audit of 14 August measured the cost of not having this: the policy was
+ * scanned in full for every cell, and trimming a policy from 440 rules to 2 took
+ * `findUnauthenticated` from 275 ms to 21 ms.
+ */
+export interface PolicyIndex {
+  readonly fallback: ExpectedOutcome;
+  readonly byContext: ReadonlyMap<string | undefined, ContextRules>;
+}
+
+/**
+ * Arranges the policy for repeated lookup. Pure: the policy is not touched.
+ *
+ * A `Map` keyed by conditions and by endpoint identifiers, not an object: both
+ * keys come from a human's configuration, and an object literal answers for
+ * `constructor` and swallows `__proto__` (ADR-0024).
+ */
+export function indexPolicy(policy: ResolvedAccessPolicy): PolicyIndex {
+  interface Bucket {
+    readonly byEndpoint: Map<string, IndexedAccessRule[]>;
+    readonly anyEndpoint: IndexedAccessRule[];
+  }
+  const byContext = new Map<string | undefined, Bucket>();
+
+  policy.rules.forEach((rule, index) => {
+    let bucket = byContext.get(rule.context);
+    if (bucket === undefined) {
+      bucket = { byEndpoint: new Map(), anyEndpoint: [] };
+      byContext.set(rule.context, bucket);
+    }
+    const indexed: IndexedAccessRule = { index, rule };
+
+    if (rule.endpoints === ANY) {
+      bucket.anyEndpoint.push(indexed);
+      return;
+    }
+
+    // A rule that names one endpoint twice lands in its list twice, and that is
+    // left alone: the same rule matched twice is the same verdict, and a guard
+    // against it would be a branch no test can distinguish from its absence.
+    for (const endpointId of rule.endpoints) {
+      const candidates = bucket.byEndpoint.get(endpointId);
+      if (candidates === undefined) {
+        bucket.byEndpoint.set(endpointId, [indexed]);
+      } else {
+        candidates.push(indexed);
+      }
+    }
+  });
+
+  return { fallback: policy.fallback, byContext };
+}
+
+/**
+ * The last rule of a list that applies to this role under this relation.
+ *
+ * The one place a rule's selectors are read in order to decide a cell: the index
+ * has already picked the candidates by conditions and by endpoint, and what is
+ * left is the scope and the role. The loop runs to the end rather than stopping
+ * at the first hit — **the last match wins**, and an early exit would answer with
+ * the wrong rule, citing in the report a rule that decided nothing.
+ */
+function lastMatch(
+  candidates: readonly IndexedAccessRule[],
+  roleId: RoleId,
+  relation: ResourceRelation | undefined,
+): IndexedAccessRule | undefined {
+  let matched: IndexedAccessRule | undefined;
+  for (const candidate of candidates) {
+    const { rule } = candidate;
+    if (rule.scope !== undefined && rule.scope !== relation) {
+      continue;
+    }
+    if (!matches(rule.roles, roleId)) {
+      continue;
+    }
+    matched = candidate;
+  }
+  return matched;
+}
+
+/**
+ * Resolves a cell against an index built by {@link indexPolicy}.
+ *
+ * Two lists are consulted — the rules that name this endpoint and the rules that
+ * name any — and the later of the two answers wins, which is the same "last rule
+ * wins" read across the whole policy: the rule numbers are the positions in it.
+ * They are kept apart rather than merged so that a policy of broad rules does not
+ * cost a copy of them per endpoint; both lists are short, and the whole point is
+ * that neither is the policy.
+ */
+export function resolveIndexedVerdict(
+  index: PolicyIndex,
+  roleId: RoleId,
+  endpointId: string,
+  relation?: ResourceRelation,
+  contextId?: string,
+): ExpectedVerdict {
+  // Conditions are compared exactly, including "both are absent": conditions
+  // nobody declared a rule under have no bucket at all, and the fallback is the
+  // whole answer.
+  const bucket = index.byContext.get(contextId);
+  if (bucket !== undefined) {
+    const named = bucket.byEndpoint.get(endpointId);
+    const broad = lastMatch(bucket.anyEndpoint, roleId, relation);
+    const exact = named === undefined ? undefined : lastMatch(named, roleId, relation);
+    const matched =
+      exact !== undefined && (broad === undefined || exact.index > broad.index) ? exact : broad;
+    if (matched !== undefined) {
+      return { outcome: matched.rule.outcome, basis: "rule", ruleIndex: matched.index };
+    }
+  }
+  return { outcome: index.fallback, basis: "fallback" };
+}
+
+/**
+ * The verdict on one cell, straight from the policy.
+ *
+ * Builds an index and throws it away, which is what a single question costs.
+ * Asking about many cells — a walk over the matrix, a pass over the
+ * observations — means calling {@link indexPolicy} once and
+ * {@link resolveIndexedVerdict} per cell; the index is the same for every cell,
+ * and rebuilding it inside the loop is the work this pair exists to remove.
+ */
 export function resolveExpectedVerdict(
   policy: ResolvedAccessPolicy,
   roleId: RoleId,
@@ -144,22 +298,7 @@ export function resolveExpectedVerdict(
   relation?: ResourceRelation,
   contextId?: string,
 ): ExpectedVerdict {
-  let verdict: ExpectedVerdict = { outcome: policy.fallback, basis: "fallback" };
-  // The last match wins, so the loop runs to the end rather than stopping at the
-  // first one: the number must point at the same rule as the outcome.
-  for (const [index, rule] of policy.rules.entries()) {
-    if (rule.scope !== undefined && rule.scope !== relation) {
-      continue;
-    }
-    // Conditions are compared exactly, including "both are absent".
-    if (rule.context !== contextId) {
-      continue;
-    }
-    if (matches(rule.roles, roleId) && matches(rule.endpoints, endpointId)) {
-      verdict = { outcome: rule.outcome, basis: "rule", ruleIndex: index };
-    }
-  }
-  return verdict;
+  return resolveIndexedVerdict(indexPolicy(policy), roleId, endpointId, relation, contextId);
 }
 
 export function resolveExpected(
