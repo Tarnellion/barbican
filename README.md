@@ -137,18 +137,37 @@ configuration says `role` and `tenant`, the TypeScript types say `roleId` and
 own harness, declare what access you intended, and get back only what disagrees:
 
 ```ts
-import { ANY, buildAccessMatrix, diffAccess } from "barbican";
-import type { ExpectedAccessPolicy } from "barbican";
+import { ANY, buildAccessMatrix, diffAccess, expandPolicy } from "barbican";
+import type { Endpoint, ExpectedAccessPolicy } from "barbican";
+
+// Declared once: `expandPolicy` needs them to turn patterns into names, and a
+// pattern that matches nothing has to fail there rather than quietly stop
+// applying.
+const endpoints: Endpoint[] = [
+  { id: "profile.read", method: "GET", path: "/v1/players/{playerId}" },
+  { id: "users.list", method: "GET", path: "/v1/admin/users" },
+];
 
 const matrix = buildAccessMatrix({
-  endpoints: [
-    { id: "profile.read", method: "GET", path: "/v1/players/{playerId}" },
-    { id: "users.list", method: "GET", path: "/v1/admin/users" },
-  ],
+  endpoints,
   accounts: [{ id: "player-1", roleId: "player", tenantId: "tenant-a" }],
   observations: [
-    { accountId: "player-1", endpointId: "profile.read", status: 200, headers: {}, outcome: "allowed", durationMs: 12 },
-    { accountId: "player-1", endpointId: "users.list", status: 200, headers: {}, outcome: "allowed", durationMs: 15 },
+    {
+      accountId: "player-1",
+      endpointId: "profile.read",
+      status: 200,
+      headers: {},
+      outcome: "allowed",
+      durationMs: 12,
+    },
+    {
+      accountId: "player-1",
+      endpointId: "users.list",
+      status: 200,
+      headers: {},
+      outcome: "allowed",
+      durationMs: 15,
+    },
   ],
 });
 
@@ -158,8 +177,8 @@ const policy: ExpectedAccessPolicy = {
   rules: [{ roles: ANY, endpoints: ["profile.read"], outcome: "allowed" }],
 };
 
-console.log(diffAccess(matrix, policy));
-// [
+const found = diffAccess(matrix, expandPolicy(policy, endpoints));
+// found = [
 //   {
 //     accountId: 'player-1',
 //     endpointId: 'users.list',
