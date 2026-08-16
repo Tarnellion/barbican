@@ -601,9 +601,16 @@ everything downstream of it.
       probed: it filters all endpoints where the check filters probed ones.
 - [ ] **B-6.** `groupDefects` never merges the channels, so one platform defect
       visible both by status and by body counts as two.
-- [ ] **B-7.** A failure before the address is built produces no observation,
-      hence no `probe-error`, hence the untrustworthiness threshold cannot see
-      it: four failed cells out of five exit 0.
+- [x] **B-7.** Closed 15 August: a cell that could not be addressed leaves a row
+      with status 0 — which is what this report already means by "no answer" —
+      and no `url` or `method`, because the address is exactly what could not be
+      built and inventing one would say a request went somewhere. It then becomes
+      a `probe-error` like any other and the threshold sees it. Covered by a test
+      that spans the walk, the diff and the verdict, because that is where the
+      defect lived: each piece was defensible on its own.
+      Original finding: a failure before the address is built produces no
+      observation, hence no `probe-error`, hence the untrustworthiness threshold
+      cannot see it: four failed cells out of five exit 0.
 - [ ] **B-9.** `findings` is not sorted — 80 matrix rows, then 18 check rows —
       while `defects[]` is sorted by severity.
 - [ ] **B-16.** The screen summary never prints `info`, the level introduced for
@@ -1238,9 +1245,8 @@ nowhere, and it drops accordingly.
    broke".
 3. ~~**B-3 + B-4** — the exit code is the CI contract and it has two thresholds
    and one flat key space.~~ Done 15 August; B-14 is half closed with them.
-4. **B-7** — a failure before the address is built yields no observation, hence
-   no `probe-error`, hence the untrustworthiness threshold cannot see it. The
-   "clean against untested" class, which is what the 2 exists for.
+4. ~~**B-7** — a failure before the address is built yields no observation,
+   hence no `probe-error`.~~ Done 15 August.
 5. **B-5** — `bodiesComparedOn` names endpoints that were never probed: the
    report claims a comparison that did not happen.
 6. **C-5 + C-4 + C-6 + C-7 + A-5 + A-6 + B-14** — assertions that do not assert.

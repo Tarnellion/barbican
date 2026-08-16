@@ -1328,7 +1328,16 @@ export function runVerdict(report: RunReport): RunVerdict {
   // clean' about a matrix of which one percent survived. Half is the line past
   // which the report stops claiming anything; it is declared here as a constant,
   // because a number hidden inside an expression is one nobody will dispute.
-  const probeErrors = report.summary.byKind["probe-error"] ?? 0;
+  // Counted from the findings and by **source**, not out of `summary.byKind`.
+  // That map holds kinds of matrix discrepancy and check identifiers in one key
+  // space, so a check registered under `privilege-escalation` had its findings
+  // read here as matrix ones. Registering such a check is refused now, but this
+  // function takes a `RunReport` from anywhere — a consumer assembling one by
+  // hand never passes the registry. Found by the audit of 14 August (B-4).
+  const ofKind = (kind: DiffKind) =>
+    report.findings.filter((finding) => finding.source === "matrix" && finding.kind === kind)
+      .length;
+  const probeErrors = ofKind("probe-error");
   if (probeErrors >= report.summary.observations * UNTRUSTWORTHY_ERROR_SHARE) {
     return {
       code: 2,
@@ -1341,16 +1350,6 @@ export function runVerdict(report: RunReport): RunVerdict {
   // which side is wrong — the platform or the declaration — and since it cannot,
   // it has no right to stay silent. Found while checking the platform's oracle:
   // the holding was denied its own brand, and the run returned 0. See ADR-0014.
-  //
-  // Counted from the findings and by **source**, not out of `summary.byKind`.
-  // That map holds kinds of matrix discrepancy and check identifiers in one key
-  // space, so a check registered under `privilege-escalation` had its findings
-  // read here as matrix ones. Registering such a check is refused now, but this
-  // function takes a `RunReport` from anywhere — a consumer assembling one by
-  // hand never passes the registry. Found by the audit of 14 August (B-4).
-  const ofKind = (kind: DiffKind) =>
-    report.findings.filter((finding) => finding.source === "matrix" && finding.kind === kind)
-      .length;
   const escalations = ofKind("privilege-escalation");
   const denials = ofKind("unexpected-denial");
   if (escalations > 0 || denials > 0) {

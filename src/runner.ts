@@ -694,6 +694,28 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
           ...(resource === undefined ? {} : { resourceId: resource.id }),
           reason: cause instanceof Error ? cause.message : String(cause),
         },
+        // A row, and not only an entry in `failures`. A cell that could not even
+        // be addressed used to leave no observation, so it produced no
+        // `probe-error` and the untrustworthiness threshold could not see it:
+        // four cells out of five failing this way exited 0 — "checked, clean" —
+        // because the fifth was the whole denominator. Found by the audit of
+        // 14 August (B-7).
+        //
+        // Status 0 is what the report already means by "no answer", and it says
+        // the same thing here as it does for a request that failed on the wire.
+        // No `url` and no `method`, because there are none: the address is
+        // exactly what could not be built, and inventing one would tell the
+        // reader a request went somewhere.
+        observation: {
+          accountId: account.id,
+          endpointId: endpoint.id,
+          ...(resource === undefined ? {} : { resourceId: resource.id }),
+          status: 0,
+          headers: {},
+          outcome: "error",
+          durationMs: Date.now() - startedAt,
+          at: new Date(startedAt).toISOString(),
+        },
       };
     }
     // The body is read only where a human declared `responseMustDifferByTenant`:
