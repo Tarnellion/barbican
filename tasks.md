@@ -915,7 +915,20 @@ readability, failed on B-2 / H-3 above and was closed with it.
       while the check that consumes them is exported, and `http.d.ts` declares a
       public `signalExtractor?: SignalExtractor` — a type the consumer cannot
       name. The comment in `src/index.ts` states exactly the policy this breaks.
-- [ ] **E-2.** The only library example in the README does not compile:
+- [x] **E-2.** Closed 15 August. The example calls `expandPolicy` and says in two
+      lines why the endpoint list is declared separately. It is no longer a copy
+      of anything: `tests/docs/readme-example.test.ts` carries the same text
+      between markers, runs it, asserts the printed result, and compares the
+      region with the README block character for character — exactly one
+      substitution allowed, the module specifier, because a reader installs the
+      package and the test sits inside it. `pnpm run typecheck` is the compile
+      half. Editing either side alone turns one of the two tests red; restoring
+      `diffAccess(matrix, policy)` fails the gate at `tsc`.
+      Biome formats the marked region, so the block grew from 34 lines to 53.
+      Accepted rather than suppressed: a reader copying it gets code that passes
+      this project's own linter, and the alternatives were a tooling comment in
+      the front-door document or an unguarded copy.
+      Original finding: the only library example in the README does not compile:
       `diffAccess` takes a `ResolvedAccessPolicy`, the example passes an
       `ExpectedAccessPolicy`, and `expandPolicy` is never called. It runs, which
       is why it reads as correct.
@@ -1156,6 +1169,14 @@ finished" — see B-1.
 23. ~~**L-3** a warning about platforms that refuse with an envelope.~~ Warned
     in four places and guarded by a test; L-11 is the fix, and is not done.
 
+- [ ] **E-8.** `AccessObservation` requires `headers` and `durationMs`, which
+      `diffAccess` never reads — they are there for the report. A library
+      consumer feeding observations from their own harness, which is what the
+      README invites, has to invent `headers: {}` for every row, and that is most
+      of the example's bulk. Making them optional is a change to a core type and
+      wants weighing against what the report then has to tolerate. Noticed while
+      closing E-2 on 15 August.
+
 ### Second ranking, 15 August — what is left
 
 The first list was written on 14 August over everything the audit produced and is
@@ -1168,8 +1189,8 @@ the README's only library example still does not compile, `diffAccess` wants a
 so it is no longer "a declared layer that would fail", only one that runs
 nowhere, and it drops accordingly.
 
-1. **E-2** — the only library example in the README does not compile. It is the
-   first thing a reader copies, and the fix is minutes.
+1. ~~**E-2** — the only library example in the README does not compile.~~ Done
+   15 August: it is compiled, run and compared with the README by a test.
 2. **L-9 + A-2** — after a truncation the walk does not stop, and past an
    exhausted budget every remaining cell still makes three attempts with two
    sleeps (`--max-requests 149` takes 32× longer than it should). Traffic on
