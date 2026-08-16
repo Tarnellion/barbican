@@ -221,13 +221,20 @@ not there.
 
 Two things in the report say it, and neither of them is a field of its own:
 
+- **`coverage.outcomes.denied` is `0`.** The signature, in one field. Not one
+  request in the whole run was refused — which is either a platform where nothing
+  is protected or one that refuses with 200. The tool says this on stderr too,
+  before you get as far as reading the findings; it does not turn it into an exit
+  code, because a genuinely wide-open platform is the worst finding there is and
+  hiding it behind "cannot be trusted" would be the opposite mistake.
 - **`byKind["privilege-escalation"]` is roughly the number of cells your policy
   denies.** A real platform fails in places. One that fails everywhere, in the
   same direction, on every account including the anonymous one, is more likely
   being misread than uniformly broken.
-- **Every observation carries `status: 200`.** Open one cell you are certain
-  about — an ordinary account against an admin endpoint — and read it. A `200`
-  where a `403` was expected settles it in one look.
+- **Open one cell you are certain about** — an ordinary account against an admin
+  endpoint — and read it. A `200` where a `403` was expected settles it in one
+  look. Nothing in the report can do this for you: from status codes alone the
+  two readings are the same picture.
 
 If that is your platform, **no** part of this report can be believed, and there
 is no flag that fixes it. Not the matrix, and not the body checks either — the

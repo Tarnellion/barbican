@@ -56,6 +56,7 @@ function report(overrides: {
       byCheck: [],
       contextsProbed: {},
       resourcesNotFound: [],
+      outcomes: { allowed: 0, denied: 0, "not-found": 0, error: 0 },
       cellsMatched: 0,
     },
     tool: { name: "barbican", version: "test", documentation: "https://example.test" },
@@ -668,6 +669,61 @@ policy: { fallback: denied, rules: [] }
     expect(accounts.find((a) => a.id === "u")?.anonymous).toBe(false);
     expect(accounts.find((a) => a.id === "anon")?.anonymous).toBe(true);
   });
+
+  it("counts them by conclusion, with every key present", () => {
+    const built = build({
+      observations: [
+        {
+          accountId: "alice",
+          endpointId: "a",
+          status: 200,
+          outcome: "allowed",
+          headers: {},
+          durationMs: 1,
+        },
+        {
+          accountId: "alice",
+          endpointId: "b",
+          status: 403,
+          outcome: "denied",
+          headers: {},
+          durationMs: 1,
+        },
+      ],
+    });
+
+    // A zero key is the point of the field: `denied: 0` is the signature, and a
+    // missing key would have to be read as a zero by whoever thought to look.
+    expect(built.coverage.outcomes).toEqual({
+      allowed: 1,
+      denied: 1,
+      "not-found": 0,
+      error: 0,
+    });
+  });
+
+  /**
+   * The signature itself. It does not settle which of the two readings is right
+   * and cannot: from status codes alone "refuses with 200" and "grants
+   * everything" are the same picture. Both are worth stopping for.
+   */
+  it("says denied: 0 when nothing was refused", () => {
+    const built = build({
+      observations: [
+        {
+          accountId: "alice",
+          endpointId: "a",
+          status: 200,
+          outcome: "allowed",
+          headers: {},
+          durationMs: 1,
+        },
+      ],
+    });
+
+    expect(built.coverage.outcomes.denied).toBe(0);
+    expect(built.summary.observations).toBe(1);
+  });
 });
 
 describe("accounts under request conditions", () => {
@@ -804,6 +860,17 @@ contexts:
     expect(built.coverage).not.toHaveProperty("cellsMatched");
   });
 
+  /**
+   * The one question worth asking of a report full of findings, answerable from
+   * the report rather than by scanning the observations: **was anything ever
+   * refused?**
+   *
+   * A platform answering `200 OK` with the outcome in the body reads as
+   * "allowed" on every cell, so every cell the policy denies becomes a privilege
+   * escalation and the whole report is wrong while looking like a catastrophe.
+   * Measured on a six-cell demo of one: four false escalations, one false leak,
+   * exit code 1. See L-3.
+   */
   /** 9 accounts x 6 endpoints did not give 135 cells, and the arithmetic did not add up. */
   it("tells declared accounts apart from matrix rows", () => {
     const built = build();

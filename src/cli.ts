@@ -666,6 +666,24 @@ async function run(flags: RunFlags): Promise<number> {
     summary.failures > 0
       ? paint(`Requests that failed: ${summary.failures} (reasons in the report)`, "yellow")
       : undefined,
+    // Nothing was ever refused. The one question worth asking of a report full
+    // of findings, asked by the tool instead of left to the reader: a platform
+    // that answers 200 with the outcome in the body reads as "allowed"
+    // everywhere, and every cell the policy denies becomes a privilege
+    // escalation. Both readings are named because from status codes alone they
+    // are the same picture — and both are worth stopping for. Not an exit code:
+    // a genuinely wide-open platform is the worst finding there is, and hiding
+    // it behind "cannot be trusted" would be the opposite mistake. See L-3.
+    report.summary.observations > 0 && report.coverage.outcomes.denied === 0
+      ? paint(
+          `Not one of the ${report.summary.observations} requests was refused. ` +
+            `Either nothing on this platform is protected, or it refuses with 200 ` +
+            `and states the outcome in the body — which this tool reads as ` +
+            `"allowed" everywhere, making every finding above false. Open one cell ` +
+            `you are sure about before believing this report.`,
+          "red",
+        )
+      : undefined,
     // A resource nobody could reach settles nothing about isolation: a 404
     // satisfies a denial whether the object is protected or simply absent. Said
     // out loud, because the cells for it otherwise read as "tested and agreed".

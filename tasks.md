@@ -1070,17 +1070,30 @@ readability, failed on B-2 / H-3 above and was closed with it.
       as allowed. The risk named first in `plan.md` — "a tool that finds things
       that do not exist loses trust on the first run" — realised in full, and the
       guide's "What the tool does not do" says nothing about it.
-- [ ] **L-11.** No way to declare what a refusal looks like on a platform that
-      answers 200 with an envelope. Two shapes are worth weighing before either is
-      built. A **negative canary** — an endpoint an account must *not* reach —
-      would catch it in one request at startup and cost nothing per cell: it is
-      the dual of the canary that already exists, and it also catches an
-      authorization layer switched off entirely, which nothing catches today. A
-      **declared refusal predicate** over a body scalar would let the matrix work
-      on such a platform, but it means the tool reads a body to decide access,
-      which is a change to ADR-0011 and wants its own decision. The negative
-      canary is the smaller of the two and does not preclude the other. Came out
-      of L-3 on 15 August.
+- [~] **L-11.** Half built on 15 August, and the other half is blocked on a
+      decision rather than on work.
+      **The negative canary does not work, and that was my error in this entry**,
+      not a detail: an endpoint an account must not reach, answering 200, is
+      indistinguishable from a genuine privilege escalation. It has to be —
+      **from status codes alone "refuses with 200" and "grants everything" are
+      the same picture**, and no declaration changes that. Only reading the body
+      does, which is the second shape and a change to ADR-0011.
+      **What was built instead:** `coverage.outcomes` counts the observations by
+      conclusion, and a run where `denied` is 0 with observations present says so
+      on stderr, in red, naming both readings. Not an exit code: a genuinely
+      wide-open platform is the worst finding there is, and hiding it behind
+      "cannot be trusted" is the opposite mistake.
+      **Still open:** a declared refusal predicate over a body scalar, which
+      would make the matrix work on such a platform. It needs an ADR against
+      ADR-0011 first — the tool would be reading a body to decide access.
+      **Not covered by a gate:** the stderr line itself. `coverage.outcomes` is
+      unit-tested and it is the whole of the condition, but the three lines
+      wiring it into the summary are not. Three cheap routes to a polygon
+      assertion were tried and each cost more than the assertion is worth; the
+      fourth was to add an "authorization off entirely" flag to the reference
+      platform, and editing the thing the ground truth rests on to test a
+      stderr line is the wrong trade. Said here rather than left as a silent gap.
+      Came out of L-3 on 15 August.
 
 ### A contradiction between tracks, left unreconciled
 

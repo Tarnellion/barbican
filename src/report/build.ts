@@ -367,6 +367,22 @@ export interface Coverage {
    */
   readonly byCheck: readonly CheckCoverage[];
   /**
+   * How the observations came out, by conclusion.
+   *
+   * Here so that the one question worth asking of a report full of findings can
+   * be answered from the report: **was anything ever refused?** A platform that
+   * answers `200 OK` with the outcome in the body reads as "allowed" on every
+   * cell, and every cell the policy denies then becomes a privilege escalation —
+   * a whole report that is wrong, looking exactly like a catastrophe.
+   *
+   * `denied: 0` with observations present is the signature. It does not settle
+   * which of the two it is, and cannot: from status codes alone "refuses with
+   * 200" and "grants everything" are the same picture. Both are worth stopping
+   * for, which is why the number is stated rather than turned into a verdict.
+   * See L-3 and `docs/report.md`.
+   */
+  readonly outcomes: Readonly<Record<AccessOutcome, number>>;
+  /**
    * How many cells were observed under each declared set of conditions.
    *
    * A zero here means 'the conditions are declared but were not tested': their
@@ -972,6 +988,28 @@ function documentationUrl(version: string): string {
 }
 
 /**
+ * The observations by conclusion, with every key present.
+ *
+ * Every key, a zero one included: `denied: 0` is the whole point of the field,
+ * and a missing key would have to be read as a zero by a reader who thought to
+ * look for it.
+ */
+function countByOutcome(
+  observations: readonly AccessObservation[],
+): Readonly<Record<AccessOutcome, number>> {
+  const counts: Record<AccessOutcome, number> = {
+    allowed: 0,
+    denied: 0,
+    "not-found": 0,
+    error: 0,
+  };
+  for (const observation of observations) {
+    counts[observation.outcome] += 1;
+  }
+  return counts;
+}
+
+/**
  * Resources that answered 404 to every account that asked.
  *
  * Only cells that produced an answer count: a request that failed says nothing
@@ -1134,6 +1172,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
       byCheck: options.byCheck ?? [],
       contextsProbed: countByContext(options),
       resourcesNotFound: resourcesNeverFound(options.observations),
+      outcomes: countByOutcome(options.observations),
       // Counted from the verdicts themselves, not by subtraction. Subtraction
       // lied: among the discrepancies there are `not-observed` ones that have no
       // observation at all, and the number came out too low. ADR-0020 promises
