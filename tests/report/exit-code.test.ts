@@ -53,10 +53,9 @@ function report(overrides: {
       bodiesComparedOn: [],
       writeMethodsProbed: false,
       checksRun: [],
-      bodyComparison: [],
+      byCheck: [],
       contextsProbed: {},
       resourcesNotFound: [],
-      checksWithUnusableFindings: [],
       cellsMatched: 0,
     },
     tool: { name: "barbican", version: "test", documentation: "https://example.test" },
@@ -198,18 +197,17 @@ describe("coverage and run identification", () => {
   });
 
   /**
-   * Found by the audit of 14 August. A check finding that names neither an
-   * account nor an endpoint cannot be placed in the report — everything below
-   * the finding list is keyed by the cell — and was dropped, behind a comment
-   * claiming the counter kept it visible. The counter counts the list after the
-   * drop, so a critical finding left no trace at all: `findings: 0`,
-   * `checkFindings: 0`, verdict clean, and `checksRun` naming the check.
+   * Found by the audit of 14 August, closed on 15 August with L-4. A check
+   * finding naming neither an account nor an endpoint was dropped, behind a
+   * comment claiming a counter kept it visible; the counter counted the list
+   * **after** the drop, so a critical finding left no trace at all —
+   * `findings: 0`, `checkFindings: 0`, verdict clean, and `checksRun` naming the
+   * check as having run.
    *
-   * The drop stands; the silence does not. Giving such a finding a shape of its
-   * own is the evidence pack's business (phase 5) and a rework of `Finding`,
-   * `CheckContext` and `Coverage` — not a bug fix.
+   * A run-level finding is the natural shape for the evidence pack — "this
+   * clause is covered by nothing" — and it is now carried like any other.
    */
-  it("names the check whose finding could not be placed", () => {
+  it("carries a finding that names no cell", () => {
     const built = build({
       checks: [
         {
@@ -219,16 +217,46 @@ describe("coverage and run identification", () => {
           evidence: {},
         },
       ],
-      checksRun: ["evidence-coverage-insufficient"],
+      checksRun: [
+        {
+          id: "evidence-coverage-insufficient",
+          standards: [{ standard: "OWASP-ASVS-5.0", clause: "1.2.3" }],
+        },
+      ],
     });
+    const finding = built.findings.find((one) => one.kind === "evidence-coverage-insufficient");
 
-    expect(built.coverage.checksWithUnusableFindings).toEqual(["evidence-coverage-insufficient"]);
-    // Still dropped, and the counters still say so honestly.
-    expect(built.summary.findings).toBe(0);
-    expect(built.summary.checkFindings).toBe(0);
+    expect(built.summary.findings).toBe(1);
+    expect(built.summary.checkFindings).toBe(1);
+    // Nothing invented in place of the cell: an endpoint id here would tell the
+    // reader a request was made.
+    expect(finding).not.toHaveProperty("accountId");
+    expect(finding).not.toHaveProperty("endpointId");
+    expect(finding?.standards).toEqual([{ standard: "OWASP-ASVS-5.0", clause: "1.2.3" }]);
   });
 
-  it("says nothing about a check whose findings name their cell", () => {
+  /**
+   * A defect group answers "how many distinct breakages of the platform". A
+   * statement about the run is not one, and a signature built from an endpoint
+   * it does not have would be a category error.
+   */
+  it("does not group a finding that names no cell as a defect", () => {
+    const built = build({
+      checks: [
+        {
+          checkId: "evidence-coverage-insufficient",
+          severity: "critical",
+          title: "the clause is not covered by any probe",
+          evidence: {},
+        },
+      ],
+    });
+
+    expect(built.summary.findings).toBe(1);
+    expect(built.summary.defectGroups).toBe(0);
+  });
+
+  it("carries a finding that names its cell as before", () => {
     const built = build({
       checks: [
         {
@@ -242,8 +270,8 @@ describe("coverage and run identification", () => {
       ],
     });
 
-    expect(built.coverage.checksWithUnusableFindings).toEqual([]);
     expect(built.summary.checkFindings).toBe(1);
+    expect(built.summary.defectGroups).toBe(1);
   });
 
   /**
@@ -446,6 +474,9 @@ describe("coverage and run identification", () => {
           title: "the digest matched",
           accountId: "alice",
           endpointId: "a",
+          // The field, since L-4. `evidence` keeps the key for a reader of
+          // one finding, but the report no longer reads a contract out of it.
+          relatedAccountId: "carol-b",
           evidence: { otherAccountId: "carol-b", bodyDigestsEqual: true },
         },
       ],
@@ -491,6 +522,7 @@ describe("coverage and run identification", () => {
           title: "the digest matched",
           accountId: "alice",
           endpointId: "a",
+          relatedAccountId: "carol",
           evidence: { otherAccountId: "carol", bodyDigestsEqual: true },
         },
       ],

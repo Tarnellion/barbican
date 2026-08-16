@@ -13,7 +13,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { AuthScheme } from "../adapters/credentials.js";
 import type { ThrottleLimits } from "../adapters/throttle.js";
-import type { BodyComparisonCoverage } from "../core/checks/tenant-isolation.js";
+import type { CheckCoverage, StandardRef } from "../core/checks/types.js";
 import type {
   AccessDiff,
   AccessObservation,
@@ -43,8 +43,24 @@ import type { ProbeFailure, SkippedEndpoint } from "../runner.js";
 
 /**
  * The version of the report's shape. Bumped on an incompatible change of structure.
+ *
+ * `2` since 15 August 2026, and every part of it is incompatible rather than
+ * additive — a reader written against `1` breaks on all four, which is what the
+ * field is for (L-4, ADR-0025):
+ *
+ * - `coverage.checksRun` holds `{ id, standards }` where it held bare ids. The
+ *   clauses a check answers for were declared, filled and read by no line of
+ *   code, so the traceability the plan promises could not be built from a saved
+ *   report at all.
+ * - `coverage.bodyComparison` became `coverage.byCheck`, generic over checks.
+ *   The old field was one check's shape, and this file imported its type from
+ *   that check's module.
+ * - `coverage.checksWithUnusableFindings` is gone: nothing is dropped any more,
+ *   and a field that can only ever be empty is its own kind of lie.
+ * - `findings[].accountId` and `.endpointId` are optional. A run-level finding —
+ *   "this clause is covered by nothing" — has no cell, and used to be discarded.
  */
-export const REPORT_SCHEMA_VERSION = "1";
+export const REPORT_SCHEMA_VERSION = "2";
 
 export interface ReportSummary {
   readonly endpoints: number;
@@ -133,9 +149,26 @@ export interface ReportFinding {
   /** How it was found: by comparing the matrix, or by a check from the registry. */
   readonly source: "matrix" | "check";
   readonly severity: Severity;
-  readonly accountId: string;
-  readonly endpointId: string;
+  /**
+   * The cell, when there is one.
+   *
+   * Both absent on a run-level finding — "this clause is covered by nothing" —
+   * which is the shape the evidence pack needs and which the report used to drop
+   * on the floor. Nothing is substituted in their place: a reader who sees an
+   * endpoint id believes a request was made to it.
+   */
+  readonly accountId?: string;
+  readonly endpointId?: string;
   readonly resourceId?: string;
+  /**
+   * The clauses of external standards this finding answers for.
+   *
+   * From the check that produced it. Matrix discrepancies carry none: they come
+   * from the declared policy, not from a check mapped onto a standard.
+   */
+  readonly standards?: readonly StandardRef[];
+  /** The second account of a paired finding. See `Finding.relatedAccountId`. */
+  readonly relatedAccountId?: string;
   readonly relation?: ResourceRelation;
   /**
    * The request conditions. Absent means baseline, with no attributes added.
@@ -299,24 +332,40 @@ export interface Coverage {
   /** Whether methods that change state were performed. */
   readonly writeMethodsProbed: boolean;
   /**
-   * The checks that actually ran.
+   * The checks that actually ran, and the clauses each one answers for.
    *
    * All of them are listed, the ones that found nothing included. Otherwise a
    * check that someone forgot to register, or that crashed, gives a report
    * indistinguishable from a clean one: its key shows up in `byKind` only once it
    * has found something.
-   */
-  readonly checksRun: readonly string[];
-  /**
-   * What exactly was compared by body on each declared endpoint.
    *
-   * `bodiesComparedOn` names the endpoints, but saying nothing about a particular
-   * pair reads as 'nothing matched'. On the run against the reference platform the
-   * holding and the support account with a set of memberships matched by digest
-   * lawfully — they are related — and without this number there was nothing to
-   * tell 'it was skipped' from 'it was compared and they differed'.
+   * The clauses are here because they were nowhere. `Check.standards` was
+   * declared, filled and **read by no line of code** — the word did not occur in
+   * a report at all — so the traceability the plan promises, from a finding to a
+   * clause of an external standard, could not be built out of a saved artifact.
+   * Both directions are needed and both are now present: a finding carries its
+   * clauses, and this list says which clauses were exercised at all, including by
+   * a check that found nothing. That second direction is the whole difference
+   * between an evidence pack and a list of findings. Found by the audit of
+   * 14 August 2026 (L-4).
    */
-  readonly bodyComparison: readonly BodyComparisonCoverage[];
+  readonly checksRun: readonly CheckRun[];
+  /**
+   * What each check examined, in the check's own terms.
+   *
+   * This was `bodyComparison`, a shape belonging to one particular check, and
+   * this file imported the type from that check's module — the report layer
+   * knowing one plugin by name, which is the arrangement ADR-0003 exists to
+   * prevent. A check now reports its own reach through `Check.coverage` and the
+   * report carries the counters without knowing what they mean.
+   *
+   * Why any of it: `bodiesComparedOn` names the endpoints, but saying nothing
+   * about a particular pair reads as "nothing matched". On the reference
+   * platform the holding and the support account with a set of memberships
+   * matched by digest lawfully — they are related — and without the number there
+   * was nothing to tell "skipped" from "compared and they differed".
+   */
+  readonly byCheck: readonly CheckCoverage[];
   /**
    * How many cells were observed under each declared set of conditions.
    *
@@ -365,21 +414,18 @@ export interface Coverage {
    * resource says anything about isolation.
    */
   readonly resourcesNotFound: readonly string[];
-  /**
-   * Checks that produced a finding naming neither an account nor an endpoint.
-   *
-   * Such a finding cannot be placed in the report — every downstream structure
-   * is keyed by the cell — so it is dropped. It used to be dropped in silence,
-   * behind a comment claiming the counter kept it visible; the counter counts
-   * the list after the drop, so a critical finding could arrive and leave no
-   * trace anywhere while `checksRun` named the check as having run.
-   *
-   * Empty on every run today: no registered check produces one. It stops being
-   * empty exactly when someone writes the first run-level check, which is when
-   * the report needs a shape for it (phase 5), and this field is what will say
-   * so instead of nothing saying anything.
-   */
-  readonly checksWithUnusableFindings: readonly string[];
+}
+
+/**
+ * A check that ran, and the clauses it answers for.
+ *
+ * A pair rather than a bare id: an evidence pack is read from the clause
+ * inwards — "what covers ASVS 8.4.1" — and a list of identifiers answers only
+ * the other direction.
+ */
+export interface CheckRun {
+  readonly id: string;
+  readonly standards: readonly StandardRef[];
 }
 
 export interface RunReport {
@@ -573,7 +619,7 @@ export interface BuildReportOptions {
   /** Findings from the registry's checks. Absent means 'no checks were run'. */
   readonly checks?: readonly Finding[];
   /** The identifiers of the checks that ran, the ones that found nothing included. */
-  readonly checksRun?: readonly string[];
+  readonly checksRun?: readonly CheckRun[];
   /**
    * The verdicts on the cells — from the same walk that gave the discrepancies.
    *
@@ -584,7 +630,7 @@ export interface BuildReportOptions {
   /** The request limits in force — as throttling resolved them, not as flags said. */
   readonly throttle?: ThrottleLimits;
   /** What was compared by body: the pairs compared and those skipped as related. */
-  readonly bodyComparison?: readonly BodyComparisonCoverage[];
+  readonly byCheck?: readonly CheckCoverage[];
   readonly startedAt: Date;
   readonly finishedAt: Date;
 }
@@ -646,7 +692,12 @@ function mergeFindings(
   checks: readonly Finding[],
   observations: readonly AccessObservation[],
   contexts: readonly RequestContextConfig[] = [],
+  checksRun: readonly CheckRun[] = [],
 ): readonly ReportFinding[] {
+  // The clauses a check answers for, by its id. Declared on the check since
+  // ADR-0003 and read by nothing until L-4.
+  const clausesOf = new Map(checksRun.map((check) => [check.id, check.standards]));
+  const standardsOf = (checkId: string): readonly StandardRef[] => clausesOf.get(checkId) ?? [];
   // The headers of the declared conditions, keyed by the name of the conditions.
   // A human declared the values in the configuration, and there are no secrets
   // there and cannot be: credentials come only from the environment and never land
@@ -658,9 +709,20 @@ function mergeFindings(
   );
   const byCell = new Map(observations.map((observation) => [cellKey(observation), observation]));
   function withRequest<
-    T extends { accountId: string; endpointId: string; resourceId?: string; contextId?: string },
+    T extends { accountId?: string; endpointId?: string; resourceId?: string; contextId?: string },
   >(finding: T): T & { request?: RequestRecord } {
-    const observation = byCell.get(cellKey(finding));
+    // A run-level finding names no cell, so there is no request to attach and
+    // none is invented.
+    if (finding.accountId === undefined || finding.endpointId === undefined) {
+      return finding;
+    }
+    const observation = byCell.get(
+      cellKey({
+        accountId: finding.accountId,
+        endpointId: finding.endpointId,
+        ...(finding.resourceId === undefined ? {} : { resourceId: finding.resourceId }),
+      }),
+    );
     if (observation?.url === undefined || observation.method === undefined) {
       return finding;
     }
@@ -684,8 +746,11 @@ function mergeFindings(
 
   /** The other side's request in a paired finding, if there was one. */
   function relatedRequestOf(check: Finding): { relatedRequest?: RequestRecord } {
-    const other = check.evidence.otherAccountId;
-    if (typeof other !== "string" || check.endpointId === undefined) {
+    // The field, not `evidence.otherAccountId`. That was a contract between two
+    // layers held together by a key name: typed as "some scalar", documented
+    // nowhere, and undiscoverable by whoever writes the next check.
+    const other = check.relatedAccountId;
+    if (other === undefined || check.endpointId === undefined) {
       return {};
     }
     const observation = byCell.get(cellKey({ accountId: other, endpointId: check.endpointId }));
@@ -710,9 +775,9 @@ function mergeFindings(
   /**
    * A check finding that names neither an account nor an endpoint is dropped.
    *
-   * The `Finding` type makes both optional, and a finding with neither cannot be
-   * placed in the report: everything downstream — the request, the defect
-   * signature, the whole idea of a cell — is keyed by them.
+   * The `Finding` type makes both optional, and everything downstream — the
+   * request, the defect signature, the whole idea of a cell — used to be keyed
+   * by them.
    *
    * The comment that used to stand here said such findings "stay visible only
    * through the counter". That was untrue: `summary.checkFindings` counts the
@@ -721,39 +786,44 @@ function mergeFindings(
    * `checkFindings: 0`, verdict clean, while `coverage.checksRun` named the
    * check as having run. Found by the audit of 14 August.
    *
-   * The silence is what is fixed here — `coverage.checksWithUnusableFindings`
-   * names the checks it happened to. The limitation is not: a run-level finding
-   * ("this clause is not covered") is the natural shape for the evidence pack,
-   * and giving it one is a rework of `Finding`, `CheckContext` and `Coverage`
-   * that belongs to phase 5 rather than to a bug fix. Today no registered check
-   * produces one, so nothing is lost and the report stops lying about it.
+   * **The filter is gone as of 15 August.** A run-level finding — "this clause
+   * is not covered by anything" — is the natural shape for the evidence pack,
+   * and dropping it was never a property of the report but of one line here.
+   * What it needed was for everything downstream to stop assuming a cell:
+   * `withRequest` has nothing to attach and attaches nothing, the cell verdict
+   * skips it, and the defect signature carries `—` in place of the endpoint. The
+   * interim counter `coverage.checksWithUnusableFindings` is gone with it: a
+   * field that could only ever be empty is its own kind of lie.
    */
-  const fromChecks: readonly ReportFinding[] = checks
-    .filter(
-      (check): check is Finding & { accountId: string; endpointId: string } =>
-        check.accountId !== undefined && check.endpointId !== undefined,
-    )
-    .map((check) =>
-      withRequest({
-        kind: check.checkId,
-        source: "check" as const,
-        severity: check.severity,
-        accountId: check.accountId,
-        endpointId: check.endpointId,
-        // The conditions are carried over like everything else. The fields were
-        // copied by naming each one, and a new one was silently lost: a check
-        // finding made under conditions looked like a baseline one, grouping
-        // merged it with the baseline one, and `request` was printed without the
-        // attributes. Found by a cold read.
-        ...(check.contextId === undefined ? {} : { contextId: check.contextId }),
-        title: check.title,
-        evidence: check.evidence,
-        // The second request of the pair. Taken from the observations by the name
-        // of the other side: the check knows nothing about transport and stores
-        // no addresses.
-        ...relatedRequestOf(check),
-      }),
-    );
+  const fromChecks: readonly ReportFinding[] = checks.map((check) =>
+    withRequest({
+      kind: check.checkId,
+      source: "check" as const,
+      severity: check.severity,
+      // Both absent on a run-level finding, and both stay absent rather than
+      // being filled with a placeholder: a reader who sees an endpoint id
+      // believes there was a request.
+      ...(check.accountId === undefined ? {} : { accountId: check.accountId }),
+      ...(check.endpointId === undefined ? {} : { endpointId: check.endpointId }),
+      // The conditions are carried over like everything else. The fields were
+      // copied by naming each one, and a new one was silently lost: a check
+      // finding made under conditions looked like a baseline one, grouping
+      // merged it with the baseline one, and `request` was printed without the
+      // attributes. Found by a cold read.
+      ...(check.contextId === undefined ? {} : { contextId: check.contextId }),
+      title: check.title,
+      // Which clauses this finding answers for. Declared on the check since
+      // ADR-0003 and read by nothing until now, so the traceability the plan
+      // promises could not be built from a saved report.
+      ...(standardsOf(check.checkId).length === 0 ? {} : { standards: standardsOf(check.checkId) }),
+      ...(check.relatedAccountId === undefined ? {} : { relatedAccountId: check.relatedAccountId }),
+      evidence: check.evidence,
+      // The second request of the pair. Taken from the observations by the name
+      // of the other side: the check knows nothing about transport and stores
+      // no addresses.
+      ...relatedRequestOf(check),
+    }),
+  );
 
   return [...fromMatrix, ...fromChecks];
 }
@@ -902,20 +972,6 @@ function documentationUrl(version: string): string {
 }
 
 /**
- * The checks whose findings could not be placed in the report.
- *
- * A finding naming neither an account nor an endpoint has no cell, and every
- * structure below the finding list is keyed by one. Dropping it is the only
- * thing to do with it today; dropping it without a word is what this prevents.
- */
-function checksWithUnusableFindings(checks: readonly Finding[]): readonly string[] {
-  const unusable = checks
-    .filter((check) => check.accountId === undefined || check.endpointId === undefined)
-    .map((check) => check.checkId);
-  return [...new Set(unusable)].sort();
-}
-
-/**
  * Resources that answered 404 to every account that asked.
  *
  * Only cells that produced an answer count: a request that failed says nothing
@@ -967,16 +1023,29 @@ export function buildReport(options: BuildReportOptions): RunReport {
     options.checks ?? [],
     options.observations,
     options.config.contexts,
+    options.checksRun ?? [],
   );
   const observations = withVerdicts(options, merged);
   const notObserved = options.findings.filter((finding) => finding.kind === "not-observed").length;
   // The other side of a paired finding sits in `evidence`: grouping does not see
   // it, and without it a group names one side of the leak out of two.
   const groups = groupDefects(
-    merged.map((finding) => {
-      const other = finding.evidence?.otherAccountId;
-      return typeof other === "string" ? { ...finding, counterpartAccountId: other } : finding;
-    }),
+    merged
+      // A defect group answers "how many distinct breakages of the platform".
+      // A run-level finding — "this clause is covered by nothing" — is a
+      // statement about the run, not about the platform, and grouping it by a
+      // signature made of an endpoint it does not have would be a category
+      // error. It still counts in `summary.findings`; what holds is
+      // `sum(defects[].violations) + run-level findings === summary.findings`.
+      .filter(
+        (finding): finding is ReportFinding & { accountId: string; endpointId: string } =>
+          finding.accountId !== undefined && finding.endpointId !== undefined,
+      )
+      .map((finding) =>
+        finding.relatedAccountId === undefined
+          ? finding
+          : { ...finding, counterpartAccountId: finding.relatedAccountId },
+      ),
   );
   return {
     schemaVersion: REPORT_SCHEMA_VERSION,
@@ -1062,10 +1131,9 @@ export function buildReport(options: BuildReportOptions): RunReport {
         .map((endpoint) => endpoint.id),
       writeMethodsProbed: options.unsafeMethods ?? false,
       checksRun: options.checksRun ?? [],
-      bodyComparison: options.bodyComparison ?? [],
+      byCheck: options.byCheck ?? [],
       contextsProbed: countByContext(options),
       resourcesNotFound: resourcesNeverFound(options.observations),
-      checksWithUnusableFindings: checksWithUnusableFindings(options.checks ?? []),
       // Counted from the verdicts themselves, not by subtraction. Subtraction
       // lied: among the discrepancies there are `not-observed` ones that have no
       // observation at all, and the number came out too low. ADR-0020 promises

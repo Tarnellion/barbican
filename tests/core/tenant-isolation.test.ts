@@ -7,10 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-  createIdenticalResponseCheck,
-  describeBodyComparison,
-} from "../../src/core/checks/tenant-isolation.js";
+import { createIdenticalResponseCheck } from "../../src/core/checks/tenant-isolation.js";
 import type { AccessMatrix, AccessObservation, Account, Endpoint } from "../../src/core/types.js";
 
 const ACCOUNTS: readonly Account[] = [
@@ -79,8 +76,14 @@ describe("coverage of body comparison", () => {
     };
 
     // holding x op-a are related and skipped. The other two pairs were compared.
-    expect(describeBodyComparison({ matrix })).toEqual([
-      { endpointId: "orders-list", comparedPairs: 2, skippedRelatedPairs: 1 },
+    // Through the check's own `coverage`, which is how the report gets it: a
+    // second exported entry point called by name was the coupling L-4 removed.
+    expect(createIdenticalResponseCheck().coverage?.({ matrix })).toEqual([
+      {
+        checkId: "identical-response-across-tenants",
+        endpointId: "orders-list",
+        counters: { comparedPairs: 2, skippedRelatedPairs: 1 },
+      },
     ]);
   });
 
@@ -92,7 +95,7 @@ describe("coverage of body comparison", () => {
       observations: [observed("alice-a", 1), observed("carol-b", 1)],
     };
 
-    expect(describeBodyComparison({ matrix })).toEqual([]);
+    expect(createIdenticalResponseCheck().coverage?.({ matrix })).toEqual([]);
   });
 });
 

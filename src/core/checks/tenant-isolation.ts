@@ -10,7 +10,7 @@ import type { TenantHierarchy } from "../tenancy.js";
 import { createTenantHierarchy, FLAT_HIERARCHY } from "../tenancy.js";
 import type { AccessObservation, Account, TenantId } from "../types.js";
 import { tenantIdsOf } from "../types.js";
-import type { Check, CheckContext, Finding } from "./types.js";
+import type { Check, CheckContext, CheckCoverage, Finding } from "./types.js";
 
 export const IDENTICAL_RESPONSE_CHECK_ID = "identical-response-across-tenants";
 
@@ -161,6 +161,10 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
       { standard: "CWE", clause: "285" },
     ],
 
+    coverage(context: CheckContext): readonly CheckCoverage[] {
+      return describeBodyComparison(context, options);
+    },
+
     run(context: CheckContext): readonly Finding[] {
       const { endpoints, accounts, observations } = context.matrix;
 
@@ -241,6 +245,13 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
               // in the baseline merged into a single defect group, and the report
               // declared two breakages one. Found by a cold read.
               ...(leftAccount.contextId === undefined ? {} : { contextId: leftAccount.contextId }),
+              // A field, not a key in `evidence`. The report reads this to print
+              // the other side's request and to group both sides as one defect,
+              // and it used to dig it out of `evidence.otherAccountId` — a
+              // convention typed as "some scalar", documented nowhere, and
+              // undiscoverable by a new check. It stays in `evidence` as well,
+              // for whoever is reading one finding rather than the schema.
+              relatedAccountId: rightAccount.id,
               evidence: {
                 // The values, not only the verdict. "The digests matched"
                 // without the digests themselves forces the reader to go into
@@ -286,41 +297,35 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
   };
 }
 
-/** What the check compared on one endpoint. */
-export interface BodyComparisonCoverage {
-  readonly endpointId: string;
-  /** Pairs of accounts whose responses were actually compared. */
-  readonly comparedPairs: number;
-  /**
-   * Pairs skipped because of tenant kinship.
-   *
-   * Named separately, because the report's silence about these pairs reads as
-   * "there are no matches". On the reference-platform run the holding and the
-   * support account with a set of memberships matched by digest — legitimately,
-   * they are kin — and without this number there was nothing to tell "skipped"
-   * from "compared and differed".
-   */
-  readonly skippedRelatedPairs: number;
-  /**
-   * Pairs skipped because of different request conditions.
-   *
-   * Separate from kinship: the reasons differ, and one number for both would
-   * hide both. Absent when no conditions are declared at all.
-   */
-  readonly skippedDifferentContextPairs?: number;
-}
-
 /**
- * Recomputes what the check compared, without running the check itself.
+ * What the check compared, endpoint by endpoint.
+ *
+ * Reported through `Check.coverage`, in the generic shape every check uses. It
+ * was a type of its own that `src/report/build.ts` imported from this module —
+ * the report layer knowing one plugin by name, which is what ADR-0003 exists to
+ * prevent. Closed with L-4.
+ *
+ * The three counters and why each is separate:
+ *
+ * `comparedPairs` — pairs actually compared.
+ *
+ * `skippedRelatedPairs` — skipped for tenant kinship. Named apart because the
+ * report's silence about them reads as "there were no matches". On the reference
+ * platform the holding and the support account with a set of memberships match
+ * by digest, legitimately, and without this number there is nothing to tell
+ * "skipped" from "compared and differed".
+ *
+ * `skippedDifferentContextPairs` — skipped because the request conditions
+ * differed. A different reason from kinship, and one number for both would hide
+ * both. Absent when no conditions are declared.
  *
  * It lives next to the check on purpose: the pair-skipping rule is described
- * there, and repeating it in report assembly would mean introducing a duplicate
- * that will drift.
+ * here, and repeating it in report assembly would mean a duplicate that drifts.
  */
-export function describeBodyComparison(
+function describeBodyComparison(
   context: CheckContext,
   options: IdenticalResponseCheckOptions = {},
-): readonly BodyComparisonCoverage[] {
+): readonly CheckCoverage[] {
   const digestSignal = options.digestSignal ?? DEFAULT_DIGEST_SIGNAL;
   const hierarchy =
     context.matrix.tenants === undefined
@@ -361,10 +366,13 @@ export function describeBodyComparison(
         }
       }
       return {
+        checkId: IDENTICAL_RESPONSE_CHECK_ID,
         endpointId: endpoint.id,
-        comparedPairs: compared,
-        skippedRelatedPairs: skipped,
-        ...(skippedByContext === 0 ? {} : { skippedDifferentContextPairs: skippedByContext }),
+        counters: {
+          comparedPairs: compared,
+          skippedRelatedPairs: skipped,
+          ...(skippedByContext === 0 ? {} : { skippedDifferentContextPairs: skippedByContext }),
+        },
       };
     });
 }

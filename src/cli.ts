@@ -22,12 +22,11 @@ import type { SpecParser } from "./adapters/ports.js";
 import { createPostmanCollectionParser } from "./adapters/postman.js";
 import { createSignalExtractor } from "./adapters/signals.js";
 import { createThrottle } from "./adapters/throttle.js";
-import type { Endpoint } from "./core/index.js";
+import type { Check, Endpoint, RunScope } from "./core/index.js";
 import {
   buildAccessMatrix,
   CheckRegistry,
   createIdenticalResponseCheck,
-  describeBodyComparison,
   describeCells,
   diffAccess,
   expandPolicy,
@@ -170,6 +169,7 @@ interface RunFlags {
   readonly report?: string;
   readonly unsafeMethods?: boolean;
   readonly dryRun?: boolean;
+  readonly checks?: string;
   readonly concurrency?: number;
   readonly rps?: number;
   readonly maxRequests?: number;
@@ -189,7 +189,12 @@ interface RunFlags {
  * A preview computed separately would agree with reality only until one of the
  * two was edited.
  */
-function describePlan(config: RunConfig, endpoints: readonly Endpoint[], flags: RunFlags): number {
+function describePlan(
+  config: RunConfig,
+  endpoints: readonly Endpoint[],
+  flags: RunFlags,
+  checks: readonly Check[],
+): number {
   const tenantBaseUrls = new Map(
     (config.tenants ?? [])
       .filter((tenant) => tenant.baseUrl !== undefined)
@@ -262,6 +267,13 @@ function describePlan(config: RunConfig, endpoints: readonly Endpoint[], flags: 
       ...rows,
       `Matrix rows: ${accounts.length} (declared accounts ${config.accounts.length})`,
       `Cells a run would probe: ${cells}, plus ${withCanary} canary requests`,
+      // Which checks will run, because `--checks` can leave one out and a check
+      // left out is coverage left out. Named here for the same reason the
+      // endpoint list is: the preview has to answer "what exactly will you do"
+      // before the first request, not after.
+      checks.length === 0
+        ? paint("Checks: none will run — nothing will be compared by body.", "yellow")
+        : `Checks: ${checks.map((check) => check.id).join(", ")}`,
       `The identifiers above are what policy, resources, contexts and canaries refer to.`,
     ].join("\n")}\n`,
   );
@@ -321,12 +333,21 @@ async function run(flags: RunFlags): Promise<number> {
     await assertReportPathIsWritable(flags.report);
   }
 
+  // The registry is created explicitly and locally: there is no global state in
+  // the core (ADR-0003). Assembled here, before the first request, and not next
+  // to where the checks run — a typo in `--checks` discovered after the walk is
+  // the same waste `--report` used to cost, and a `--dry-run` that says nothing
+  // about it is a preview that hides the mistake it exists to surface.
+  const registry = new CheckRegistry();
+  registry.register(createIdenticalResponseCheck());
+  const selected = registry.select(flags.checks);
+
   // Everything above this line is validation and parsing; nothing has reached the
   // network. That is what makes this the honest place to stop and show what a run
   // would do — on someone else's deployment the question "what exactly will you
   // touch" deserves an answer before the first request, not after.
   if (flags.dryRun === true) {
-    return describePlan(config, endpoints, flags);
+    return describePlan(config, endpoints, flags, selected);
   }
 
   const credentials = createCredentialProvider(
@@ -525,16 +546,24 @@ async function run(flags: RunFlags): Promise<number> {
   const findings = diffAccess(matrix, policy);
 
   // The registry is created explicitly and locally: there is no global state in
-  // the core (ADR-0003). The check stays silent by itself if no endpoint carries
-  // a responseMustDifferByTenant declaration.
-  const registry = new CheckRegistry();
-  registry.register(createIdenticalResponseCheck());
-  const checksRun = registry.list().map((check) => check.id);
-  // What the check compared and what it skipped as related. Recomputed next to
-  // the check itself: the skip rule is described there, and a duplicate here
-  // would drift apart from it.
-  const bodyComparison = describeBodyComparison({ matrix });
-  const checks = registry.list().flatMap((check) => check.run({ matrix }));
+  // ADR-0003 speaks of "a registry assembled for a particular run", and there was
+  // no way to assemble one: every registered check ran, always. The selection was
+  // made above, before the first request. A check stays silent by itself when
+  // nothing in the configuration concerns it.
+  const checksRun = selected.map((check) => ({ id: check.id, standards: check.standards }));
+  // What a run touched and what it did not, so that a check can say "this clause
+  // was covered enough" rather than only "here is what I found".
+  const scope: RunScope = {
+    probedEndpointIds: probed.map((endpoint) => endpoint.id),
+    skipped: skipped.map((one) => ({ endpointId: one.endpointId, reason: one.reason })),
+    truncated,
+  };
+  const context = { matrix, scope };
+  // Each check reports its own reach. It used to be one function exported from
+  // one check and called by name here, with its type imported into the report
+  // layer — the arrangement ADR-0003 exists to prevent.
+  const byCheck = selected.flatMap((check) => check.coverage?.(context) ?? []);
+  const checks = selected.flatMap((check) => check.run(context));
   const suspicions = findUnauthenticated(
     accounts,
     observations,
@@ -567,7 +596,7 @@ async function run(flags: RunFlags): Promise<number> {
     checks,
     cells,
     checksRun,
-    bodyComparison,
+    byCheck,
     // As throttling itself resolved them, not as the flags spelled them out: the
     // defaults live in the adapter, and a second source of them in the report
     // would drift silently.
@@ -640,16 +669,6 @@ async function run(flags: RunFlags): Promise<number> {
     // A resource nobody could reach settles nothing about isolation: a 404
     // satisfies a denial whether the object is protected or simply absent. Said
     // out loud, because the cells for it otherwise read as "tested and agreed".
-    // A check that produced a finding with no cell: it is not in the list, and
-    // without this line it is nowhere at all.
-    report.coverage.checksWithUnusableFindings.length > 0
-      ? paint(
-          `Checks whose findings named no cell: ${report.coverage.checksWithUnusableFindings.join(", ")}. ` +
-            `Those findings are not in the report — a finding with no account and ` +
-            `no endpoint has nowhere to go in it.`,
-          "yellow",
-        )
-      : undefined,
     report.coverage.resourcesNotFound.length > 0
       ? paint(
           `Resources answered 404 to everyone: ${report.coverage.resourcesNotFound.join(", ")}. ` +
@@ -743,6 +762,7 @@ program
   .option("-e, --endpoints <path>", "hand-written endpoint list, when there is no spec")
   .option("-p, --postman <path>", "Postman collection v2.1")
   .option("-r, --report <path>", "where to write the JSON report (stdout by default)")
+  .option("--checks <ids>", "run only these checks, comma separated (all by default)")
   .option("--unsafe-methods", "allow methods that change state")
   .option("--dry-run", "print what would be probed and stop, sending nothing")
   .option("--concurrency <n>", "concurrent requests", positiveInteger)

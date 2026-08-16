@@ -259,13 +259,25 @@ differ in every one of them:
   "notProbed": { "unsafe-method": 1 },   // why an endpoint was not probed, by reason
   "bodiesComparedOn": ["orders.list"],    // where bodies were compared
   "writeMethodsProbed": false,
-  "checksRun": ["identical-response-across-tenants"],
-  "bodyComparison": [
+  "checksRun": [
     {
+      "id": "identical-response-across-tenants",
+      "standards": [                      // which clauses this check answers for
+        { "standard": "OWASP-API-2023", "clause": "API1" },
+        { "standard": "OWASP-ASVS-5.0", "clause": "8.4.1" },
+        { "standard": "CWE", "clause": "285" }
+      ]
+    }
+  ],
+  "byCheck": [                            // what each check examined, in its own terms
+    {
+      "checkId": "identical-response-across-tenants",
       "endpointId": "orders.list",
-      "comparedPairs": 24,
-      "skippedRelatedPairs": 39,          // shared tenant or kinship in the tree
-      "skippedDifferentContextPairs": 147 // different conditions — cannot compare
+      "counters": {
+        "comparedPairs": 24,
+        "skippedRelatedPairs": 39,          // shared tenant or kinship in the tree
+        "skippedDifferentContextPairs": 147 // different conditions — cannot compare
+      }
     }
   ],
   "contextsProbed": { "geo-blocked": 45, "wide-scope": 9 }
@@ -292,14 +304,28 @@ Without this list you cannot see the difference.
 **`checksRun` lists the checks that ran, including the ones that found nothing.**
 Without it, a check that someone forgot to register, or that crashed, would give
 a report indistinguishable from a clean one: its key shows up in `byKind` only
-once it has found something.
+once it has found something. Since `--checks` exists, it also says which ones the
+operator left out — a check left out is coverage left out.
+
+**Each entry names the clauses that check answers for**, and so does every
+finding it produced. Both directions are needed and both are here: from a finding
+to a clause, and from a clause to what exercised it at all — including a check
+that found nothing, which is the whole difference between an evidence pack and a
+list of findings. Until 15 August 2026 `Check.standards` was declared, filled and
+read by no line of code: the word did not occur in a report, so neither direction
+could be built from a saved artifact.
 
 **`skippedDifferentContextPairs` — pairs under different conditions.** They are
 not compared on purpose: in such a pair the tenant and the context attributes
 differ at once, and equal digests would say nothing about either. What the check
 asserts is "different tenants get different responses **all else being equal**".
 
-**`bodyComparison` answers the question "was this pair compared at all".**
+**`byCheck` answers the question "was this pair compared at all".** It was
+`bodyComparison` before 15 August 2026 — one check's shape, with the report
+layer importing its type from that check's module. A check now reports its own
+reach and the report carries the counters without knowing what they mean, which
+is what "checks are plugins" has to mean if it means anything. The counters below
+are that check's; another check names its own.
 `bodiesComparedOn` names the endpoint but stays silent about a particular pair of
 accounts, and that silence reads as "nothing matched". Yet not every pair is
 compared: accounts of the same tenant are skipped (a match between them is
@@ -510,7 +536,7 @@ startup.
 
 | Field | What for |
 |---|---|
-| `schemaVersion` | the shape of the report has changed and will change again; without a version a parser breaks silently |
+| `schemaVersion` | the shape of the report has changed and will change again; without a version a parser breaks silently. **`2` since 15 August 2026** — `checksRun` holds objects where it held bare ids, `bodyComparison` became `byCheck`, `checksWithUnusableFindings` is gone, and `findings[].accountId` and `.endpointId` are optional. A reader written against `1` breaks on all four |
 | `runId` | otherwise two reports cannot be told apart |
 | `configDigest` | to tell "the platform changed" from "we changed the declaration" |
 
@@ -646,6 +672,26 @@ the default, not by a rule of its own.
 
 The number points at the **last rule that matched**: that is the one that wins,
 and pointing at the first match would name the wrong source of the verdict.
+
+## A finding that names no cell
+
+Most findings are about a cell: this account, this endpoint, this resource. Some
+are about the run — "this clause is covered by nothing at all" — and those carry
+neither `accountId` nor `endpointId`. Nothing is put in their place: an endpoint
+id there would tell you a request was made to it.
+
+Two consequences worth knowing before you write a parser:
+
+- **They are in `summary.findings` and in `byKind`,** like any other. Until
+  15 August 2026 they were dropped on the floor and the report said
+  `findings: 0` about a critical one.
+- **They are not in `defects`.** A defect group answers "how many distinct
+  breakages of the platform", and a statement about the run is not one of those.
+  So the identity is `sum(defects[].violations) + findings with no cell ===
+  summary.findings`.
+
+No check registered today produces one; the shape exists because the evidence
+pack is made of them.
 
 ## What the report still does not have
 

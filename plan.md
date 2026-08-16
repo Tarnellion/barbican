@@ -147,25 +147,29 @@ audit, come before the release.
 
 ## Phase 5 — Module 2: the evidence pack
 
-**The claim that this is architecturally prepared did not survive the audit of 14
-August.** It rested on one registered check, and that check happens to use only
-the fields that reach the report. Five gaps, each proven: `standards` is declared
-and filled and **read by no line of code**, so the promised "finding ↔ standard
-clause" matrix cannot be built from a saved report at all; a finding that names
-neither an account nor an endpoint — the natural shape of "this clause is not
-covered" — is silently discarded before the report; the report layer imports a
-specific check; `evidence.otherAccountId` is an undocumented contract between
-layers; and `CheckContext` carries only the matrix, so a check cannot see the
-policy, the coverage or the failures and the whole class "was enough tested for
-this clause" is inexpressible rather than unwritten.
+**The claim that this was architecturally prepared did not survive the audit of
+14 August**, and the rework it called for was done on 15 August rather than at
+the start of this phase — see [ADR-0025](docs/adr/0025-checks-are-plugins-in-fact.md).
+Five gaps, each proven, all now closed: `standards` was declared and filled and
+**read by no line of code**, so the promised "finding ↔ standard clause" matrix
+could not be built from a saved report at all; a finding naming neither an
+account nor an endpoint — the natural shape of "this clause is not covered" — was
+silently discarded; the report layer imported a specific check;
+`evidence.otherAccountId` was an undocumented contract between layers; and
+`CheckContext` carried only the matrix, so the whole class "was enough tested for
+this clause" was inexpressible rather than unwritten.
 
-The first task of phase 5 is therefore a rework of `Finding`, `CheckContext`,
-`mergeFindings` and `Coverage` — a change of `REPORT_SCHEMA_VERSION` and edits to
-the core. The estimate of ~20 h above was made under the opposite assumption and
-should be treated as unknown until that rework is scoped.
+What that leaves for this phase: the shapes exist and are tested, and nothing
+uses them yet. No registered check produces a run-level finding, and none reads
+`CheckContext.scope`. **The estimate of ~20 h above was made under the assumption
+the audit refuted; treat it as unknown.** It is smaller than it was — the schema
+change and the core edits are behind us — and the part that was never estimated
+is still ahead: the clause-by-clause content itself.
 
-What does hold: the registry itself ([ADR-0003](docs/adr/0003-check-registry.md))
-— registration, duplicate ids, a synchronous pure `run`.
+What holds, and held: the registry ([ADR-0003](docs/adr/0003-check-registry.md))
+— registration, duplicate ids, a synchronous pure `run` — and now also a registry
+assembled for a particular run, which that ADR described and the CLI did not
+offer.
 
 Content: a mapping of checks onto clauses of external standards (the reference point from
 the report — GLI-19, the AGCO requirements), report generation from JSON as a separate

@@ -216,10 +216,17 @@ function checkReportConsistency(report) {
     findings.filter((one) => one.source === "check").length,
   );
   say("defectGroups", summary.defectGroups, (report.defects ?? []).length);
+  // Findings that name a cell, because a defect group answers "how many distinct
+  // breakages of the platform" and a run-level finding — "this clause is covered
+  // by nothing" — is a statement about the run. It is deliberately not grouped
+  // (L-4), so the identity is over the ones that are.
+  const placed = findings.filter(
+    (one) => one.accountId !== undefined && one.endpointId !== undefined,
+  );
   say(
     "violations across the defect groups",
     (report.defects ?? []).reduce((total, group) => total + group.violations, 0),
-    findings.length,
+    placed.length,
   );
 
   // The identity `docs/report.md` offers its reader, asserted where a reader
@@ -268,13 +275,51 @@ function checkReportConsistency(report) {
     }
   }
 
+  // Every check that ran names the clauses it answers for, and every finding it
+  // produced carries them too. `Check.standards` was declared, filled and read by
+  // no line of code until 15 August: the word did not occur in a report, so the
+  // finding-to-clause traceability the plan promises could not be built from a
+  // saved artifact. A gate that does not check this lets it rot back.
+  for (const check of coverage.checksRun ?? []) {
+    if (typeof check !== "object" || check === null) {
+      problems.push(`coverage.checksRun holds a bare id: ${JSON.stringify(check)}`);
+      continue;
+    }
+    if (!Array.isArray(check.standards) || check.standards.length === 0) {
+      problems.push(`the check ${check.id} names no clause of any standard`);
+    }
+  }
+  for (const one of findings.filter((f) => f.source === "check")) {
+    if (!Array.isArray(one.standards) || one.standards.length === 0) {
+      problems.push(`the finding ${one.kind} carries no clause of any standard`);
+    }
+  }
+
+  // A paired finding names its other side, and the report prints that side's
+  // request. Both used to hang off `evidence.otherAccountId` — a convention, not
+  // a contract — and when the field moved, nothing here noticed the check had
+  // stopped setting it: 28 combinations stayed green while every leak in the
+  // report lost the account it leaked to. Found by reverting the file by
+  // accident, which is the cheapest way this could have been found.
+  for (const one of findings) {
+    const pairedInEvidence = typeof one.evidence?.otherAccountId === "string";
+    if (pairedInEvidence && one.relatedAccountId === undefined) {
+      problems.push(
+        `${one.kind} on ${one.accountId} names its pair in evidence but not as a field`,
+      );
+    }
+    if (one.relatedAccountId !== undefined && one.relatedRequest === undefined) {
+      problems.push(`${one.kind} on ${one.accountId} names a pair with no request to reproduce it`);
+    }
+  }
+
   // Grouping is by the signature "endpoint × kind × relation × conditions", so
   // the two sets of signatures are the same set seen twice. A group that lost
   // `relation`, or a finding that lost `contextId`, shows up here and nowhere
   // else: the finding list stays right, and only the aggregation is wrong.
   const signature = (one) =>
     `${one.endpointId} × ${one.kind} × ${one.relation ?? "—"} × ${one.contextId ?? "—"}`;
-  const inFindings = new Set(findings.map(signature));
+  const inFindings = new Set(placed.map(signature));
   const inGroups = new Set((report.defects ?? []).map(signature));
   for (const missing of [...inFindings].filter((one) => !inGroups.has(one)).sort()) {
     problems.push(`no defect group for the signature ${missing}`);

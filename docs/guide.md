@@ -632,6 +632,26 @@ another's data is indistinguishable from the thing this tool is used to find.
 `--unsafe-methods` deserves its own sentence in that agreement: it changes
 state, and the change outlives the report.
 
+## Choosing which checks run
+
+Every registered check runs unless you say otherwise. `--checks` narrows that to
+a list, which is the shape ADR-0003 always described and the CLI never offered:
+
+```bash
+barbican run -c barbican.run.yaml -e endpoints.yaml --checks identical-response-across-tenants
+```
+
+A name nobody registered stops the run **before the first request**, naming the
+checks that do exist. Quietly running the rest would leave the typo's only trace
+in `coverage.checksRun` — an entry missing that nobody is looking for — and the
+run would read as "checked, and clean here".
+
+`--dry-run` prints the selection along with the endpoint list, so what will be
+checked is answerable before anything is sent.
+
+**A check left out is coverage left out**, and the report says which ones ran.
+That is the reason to leave the flag off unless you have one.
+
 ## What the tool does not do
 
 - **Does not issue write methods** without `--unsafe-methods`. GET and HEAD only.

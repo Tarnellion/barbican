@@ -554,8 +554,11 @@ drifted apart (`CONTEXT_VALUE_SAFE` uses `*` where `HEADER_SAFE` uses `+`).
 The shared type already exists (`ReportFinding` with `source`). What diverges is
 everything downstream of it.
 
-- [ ] **B-1.** A check finding naming neither an account nor an endpoint is
-      dropped (`build.ts:614`), and the counter that the comment promises will
+- [x] **B-1.** Closed 15 August with L-4: nothing is dropped. The interim counter
+      `coverage.checksWithUnusableFindings` is gone with the drop — a field that
+      could only ever be empty is its own kind of lie.
+      Original finding: a check finding naming neither an account nor an endpoint
+      is dropped (`build.ts:614`), and the counter that the comment promises will
       keep it visible counts the already-filtered list. Latent today; a blocker
       for Module 2, where run-level findings are the point.
 - [x] **B-2 / H-3.** Closed 15 August, [ADR-0022](docs/adr/0022-one-verdict-per-cell.md):
@@ -921,18 +924,31 @@ readability, failed on B-2 / H-3 above and was closed with it.
 
 ### Module 2 is not architecturally ready
 
-- [ ] **L-4.** `plan.md` says the evidence pack is added by registering checks
-      without touching the core. Five gaps: `standards` is declared, filled and
-      **read by no line of code** (the word does not occur in a report at all, so
-      the promised finding-to-clause traceability cannot be built from a saved
-      report); run-level findings vanish (B-1); the report layer imports a
-      specific check; `evidence.otherAccountId` is an undocumented cross-layer
-      contract; and `CheckContext` carries only the matrix, so the whole class
-      "was enough tested for this clause" is inexpressible rather than unwritten.
-      The registry is also assembled hard-coded, with no way to select checks —
-      the "registry assembled for a particular run" of ADR-0003 is unreachable.
-      **The first task of phase 5 is a rework of `Finding`, `CheckContext`,
-      `mergeFindings` and `Coverage`** — a report schema change and core edits.
+- [x] **L-4.** Closed 15 August in full, [ADR-0025](docs/adr/0025-checks-are-plugins-in-fact.md).
+      All five gaps and the registry: clauses reach the report in both directions
+      (`checksRun` holds `{ id, standards }`, every check finding carries its
+      own); a finding with no cell is carried like any other and deliberately not
+      grouped as a defect; `Check.coverage` replaces a function exported from one
+      check and imported by the report layer; `Finding.relatedAccountId` is a
+      field; `CheckContext.scope` carries what the run touched; and
+      `CheckRegistry.select` plus `--checks` make ADR-0003's per-run registry
+      reachable, validated before the first request. `REPORT_SCHEMA_VERSION` is
+      `2`.
+      **Found while doing it, and worth keeping:** reverting
+      `tenant-isolation.ts` by accident removed `relatedAccountId` from the real
+      check and all 28 oracle combinations stayed green while every leak in the
+      report lost the account it leaked to. The oracle now fails on that.
+      **Still not done, by design:** no registered check produces a run-level
+      finding and none reads `scope`. The shapes exist and are tested; their
+      first user is the evidence pack.
+      Original finding: `plan.md` says the evidence pack is added by registering
+      checks without touching the core. Five gaps: `standards` is declared,
+      filled and **read by no line of code**; run-level findings vanish (B-1);
+      the report layer imports a specific check; `evidence.otherAccountId` is an
+      undocumented cross-layer contract; and `CheckContext` carries only the
+      matrix, so the whole class "was enough tested for this clause" is
+      inexpressible rather than unwritten. The registry is also assembled
+      hard-coded, with no way to select checks.
 
 ### Hygiene of files, process and repository
 
@@ -1087,9 +1103,7 @@ finished" — see B-1.
 6. ~~**L-2** a canary for resources.~~
 7. ~~**L-1** re-probe the canaries at the end of the walk.~~
 8. ~~**F-2** the release runs all four gates.~~
-9. **B-1** stop discarding registry findings. Half closed: the report names them
-   in `coverage.checksWithUnusableFindings` instead of dropping them in silence.
-   Keeping such a finding needs a cell it does not have, which is L-4.
+9. ~~**B-1** stop discarding registry findings.~~ Closed in full with L-4.
 10. ~~**I-3** cache the path parse in `resourceApplies` — also fixes I-4.~~
 11. ~~**C-2** an exact `toEqual` on the four remaining default constants.~~
 12. ~~**H-1 + H-2** `basis: "fallback"` beside `expected`, and a documentation
@@ -1107,8 +1121,8 @@ finished" — see B-1.
 20. ~~**D-6** branded types in `src/io/untrusted.ts`.~~ With D-2, D-3, D-4 and
     A-4, which are the same mistake.
 21. ~~**J-1** decide about the history, and add a `commit-msg` hook.~~
-22. **L-4** rework `Finding` and `CheckContext` before phase 5 is scheduled.
-    Deferred by the owner until the rest of the audit is closed.
+22. ~~**L-4** rework `Finding` and `CheckContext` before phase 5 is scheduled.~~
+    Taken in full on 15 August, after the rest of the ranked plan.
 23. ~~**L-3** a warning about platforms that refuse with an envelope.~~ Warned
     in four places and guarded by a test; L-11 is the fix, and is not done.
 

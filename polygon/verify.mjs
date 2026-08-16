@@ -215,6 +215,33 @@ async function assertReportPathIsCheckedFirst(baseUrl) {
 }
 
 /**
+ * An unknown --checks id is refused before the first request.
+ *
+ * Proved the same way as the dry run and the report path: the platform is not
+ * up, so a check made after the walk would fail on the connection instead, and
+ * the message tells the two apart. A typo discovered after the matrix has been
+ * walked costs the whole run — and worse, it silently turns off the check the
+ * operator meant to run, with the only trace an entry missing from `checksRun`
+ * that nobody is looking for.
+ */
+async function assertUnknownCheckIsRefusedFirst(baseUrl) {
+  const environment = { ...process.env, POLYGON_PORT: baseUrl.port };
+  const { code, stderr } = await runCli(undefined, environment, false, ["--checks", "frist"]);
+
+  if (code === 0) {
+    fail("a run naming a check nobody registered ended with 0");
+  }
+  if (!stderr.includes('No check is registered under "frist"')) {
+    fail(`an unknown --checks id was not refused up front:\n${stderr}`);
+  }
+  // The message names what is available, or the operator reads the source.
+  if (!stderr.includes("identical-response-across-tenants")) {
+    fail(`the refusal did not say which checks exist:\n${stderr}`);
+  }
+  process.stdout.write("--checks: an unknown id is refused before the first request\n");
+}
+
+/**
  * A mistake in the command line does not report as a finding about the platform.
  *
  * commander exits 1 on an unknown option, and 1 is this tool's "checked, and
@@ -362,6 +389,7 @@ async function main() {
 
   await assertDryRunSendsNothing(baseUrl);
   await assertReportPathIsCheckedFirst(baseUrl);
+  await assertUnknownCheckIsRefusedFirst(baseUrl);
   await assertUsageErrorsHaveTheirOwnCode();
 
   // The tokens are random on every launch: they are not in the files and must not be.
