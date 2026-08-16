@@ -96,10 +96,39 @@ npm install barbican
 barbican run --help
 ```
 
-`0.2.0` is the first release published from CI with provenance: `npm audit signatures`
-verifies it against this repository and the workflow that built it. Install `0.2.0`
-or newer — **`0.1.0` is a stub whose CLI registers no commands**, published by hand
-before the release pipeline existed.
+`0.3.0` is the current release, and the one to install. Publishing goes through
+CI with provenance, so `npm audit signatures` verifies it against this repository
+and the workflow that built it.
+
+Neither earlier version is worth having. **`0.1.0` is a stub whose CLI registers
+no commands**, published by hand before the release pipeline existed; `0.2.0`
+ships a tarball with no guide and no examples, and a CLI that speaks Russian
+around English documentation.
+
+### What changed in 0.3.0
+
+**The report schema is `2`, and a reader written against `1` breaks on four
+counts.** `coverage.checksRun` holds `{ id, standards }` where it held bare ids;
+`coverage.bodyComparison` became `coverage.byCheck`, generic over checks;
+`coverage.checksWithUnusableFindings` is gone; and `findings[].accountId` and
+`.endpointId` are optional, because a finding can now be about the run rather
+than about a cell.
+
+**`match` on an observation narrowed.** It is `true` only when nothing was found
+on that cell by *either* channel — the walk over the matrix and the checks over
+response bodies. Before this, twelve cells of a reference run were printed as
+agreed while carrying a high-severity leak.
+
+**A usage error exits `64`** instead of `1`, which used to be
+indistinguishable from "a privilege escalation was found".
+
+**`--concurrency` is honoured by the walk**, where it had no effect, and `--rps`
+now spaces requests rather than releasing them in a burst. Both change how much
+traffic a run makes and when — read "How much traffic it makes" below before
+raising either.
+
+**`--checks` selects which checks run**, and a check finding fails the run at any
+severity but `info`, where it used to need `high` or `critical`.
 
 ## Example
 
@@ -324,7 +353,7 @@ and provenance needs an OIDC witness that a local machine cannot provide — a m
 ```bash
 # 1. version in package.json is already the one being released
 # 2. tag it — the tag must match that version, the workflow verifies it
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.3.0 && git push origin v0.3.0
 ```
 
 The tag triggers [`release.yml`](https://github.com/Tarnellion/barbican/blob/main/.github/workflows/release.yml): it runs the same
