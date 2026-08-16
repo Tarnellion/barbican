@@ -166,6 +166,24 @@ defects lives exactly here.
 | `statements.read` | `GET /v1/statements/{statementId}` | 200 to an account of the same tenant as the statement, and to any tenant above it; 403 to everyone else |
 | `affiliate.stats` | `GET /v1/affiliate/stats` | 200 to the affiliate, 403 to every other role, 401 to the anonymous one |
 | `admin.accounts` | `GET /v1/admin/accounts` | 200 to the admin, 403 to a user, 401 to the anonymous one |
+| `orders.cancel` | `POST /v1/orders/{orderId}/cancel` | 200 to the owner, to the admin of its own tenant, and to support — on the orders of the brands in its set; 403 to the affiliate and to the holding always; 403 otherwise; 401 to the anonymous one |
+
+`orders.cancel` is the seventh endpoint and the only **write** one. Without
+`--unsafe-methods` the tool does not touch it: it lands in `skipped` with the
+reason `unsafe-method`, and that skip is itself a claim the oracle checks. With
+the flag the same matrix machinery walks it — a write cell is not a special case,
+it is a cell whose method changes state.
+
+The holding is denied here while it is allowed on `orders.read`, and that is the
+point of the endpoint rather than an inconsistency: a licensee's sweeping read of
+its brands is not a right to act on their orders. `authorizeCancel` is a branch of
+its own for exactly that reason — on a platform where reading and writing shared
+one rule, the difference would be unstateable.
+
+The write is deliberately inert: `cancelled` is set and never consulted. The tool
+probes each cell once, but the cells share resources, and a write whose outcome
+depended on which cells were probed before it would make the oracle a function of
+the traversal order rather than of the platform.
 
 The parameter of `statements.read` is named differently from the one of
 `orders.read`, and that is not cosmetic: a resource is bound to an endpoint by

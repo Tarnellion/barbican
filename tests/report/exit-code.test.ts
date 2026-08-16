@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { DiffKind } from "../../src/core/index.js";
+import type { RunConfig } from "../../src/io/config.js";
 import { parseRunConfig } from "../../src/io/config.js";
 import type { ReportFinding, RunReport } from "../../src/report/build.js";
 import {
@@ -944,6 +945,93 @@ contexts:
 
     expect(built.summary.accounts).toBe(1);
     expect(built.summary.accountRows).toBe(2);
+  });
+});
+
+describe("the configuration fingerprint", () => {
+  const withScheme = (scheme: string) =>
+    parseRunConfig(`
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+auth: { kind: bearer }
+authSchemes: { console: ${scheme} }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: T, authScheme: console }]
+policy: { fallback: denied, rules: [] }
+`);
+
+  const digestOf = (config: RunConfig) =>
+    buildReport({
+      version: "test",
+      config,
+      endpoints: [],
+      observations: [],
+      skipped: [],
+      failures: [],
+      unauthenticated: [],
+      canariesChecked: 1,
+      truncated: false,
+      findings: [],
+      policy: { fallback: "denied", rules: [] },
+      startedAt: new Date(0),
+      finishedAt: new Date(1),
+    }).configDigest;
+
+  /**
+   * The whole point of the field: telling "the platform changed" from "we
+   * changed the declaration". `accountAuth` is a `Map`, `JSON.stringify` renders
+   * a `Map` as `{}`, and so the per-account authentication schemes did not enter
+   * the digest at all — two runs presenting entirely different credentials had
+   * the same fingerprint. Found by the audit of 14 August (H-11).
+   */
+  it("changes when the accounts authenticate differently", () => {
+    const asHeader = digestOf(withScheme("{ kind: header, header: x-api-key }"));
+    const asCookie = digestOf(withScheme("{ kind: cookie, name: sid }"));
+
+    expect(asHeader).not.toBe(asCookie);
+  });
+
+  /**
+   * And does not change when only the typing does. This was the audit's own
+   * claim about this field and it was wrong when measured — `parseRunConfig`
+   * already built its result in a fixed order — so the assertion pins a property
+   * that held by accident and now holds by construction.
+   */
+  it("does not change when the YAML keys are in another order", () => {
+    const one = parseRunConfig(`
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
+policy: { fallback: denied, rules: [] }
+`);
+    const other = parseRunConfig(`
+accounts: [{ tokenEnv: T, tenant: t, role: r, id: u }]
+policy: { rules: [], fallback: denied }
+target: { allowedHosts: [a.test], baseUrl: "https://a.test" }
+`);
+
+    expect(digestOf(one)).toBe(digestOf(other));
+  });
+
+  /**
+   * A policy is ordered — the last rule that matched wins — so two policies with
+   * the same rules in a different order are two different declarations.
+   */
+  it("changes when the policy rules are reordered", () => {
+    // The same two rules, and only the order differs — otherwise this passes
+    // whether or not arrays keep their order, which is what the first version of
+    // this test did.
+    const allowA = '{ roles: "*", endpoints: [a], outcome: allowed }';
+    const denyB = '{ roles: "*", endpoints: [b], outcome: denied }';
+    const ordered = (first: string, second: string) =>
+      parseRunConfig(`
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
+policy:
+  fallback: denied
+  rules:
+    - ${first}
+    - ${second}
+`);
+
+    expect(digestOf(ordered(allowA, denyB))).not.toBe(digestOf(ordered(denyB, allowA)));
   });
 });
 

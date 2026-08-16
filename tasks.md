@@ -908,8 +908,22 @@ readability, failed on B-2 / H-3 above and was closed with it.
 - [ ] **H-9.** The report carries no verdict — only the verdict's inputs.
 - [ ] **H-10.** A defect group has no citable key, and the array order changes
       with severity: "defect #5 from run X" points elsewhere a month later.
-- [ ] **H-11.** `configDigest` is `JSON.stringify` without canonicalisation, so it
-      depends on key order and answers nothing.
+- [x] **H-11.** Closed 15 August, and **the finding's premise was wrong while its
+      conclusion was right**. Key order was measured first and does not affect the
+      digest: `parseRunConfig` builds its result in a fixed order, so reordering
+      the YAML already gave the same value. What does not enter the digest at all
+      is `accountAuth` — a `Map`, and `JSON.stringify` renders a `Map` as `{}`.
+      Two runs presenting entirely different credentials, one as an `x-api-key`
+      header and one as a `sid` cookie, had the same fingerprint. Changing how the
+      accounts authenticate is exactly "we changed the declaration", which is the
+      one question this field exists to answer.
+      Now over a canonical serialisation: `Map` and `Set` are serialised by
+      content, keys are sorted as insurance rather than as the fix, and arrays
+      keep their order because a policy is ordered — the last rule that matched
+      wins, so the same rules in a different order are a different declaration.
+      Three tests; reverting to `JSON.stringify` reddens one, sorting the arrays
+      reddens another. The first version of that second test compared two policies
+      that differed in content as well as in order and passed either way.
 
 ### Scale: a sequential walk and quadratic post-processing
 
@@ -1295,9 +1309,8 @@ nowhere, and it drops accordingly.
    of git, which is why nine broken links ship.~~ Done 15 August, taken ahead of
    items 5–7 because it is what separated `main` from the `0.3.0` release that
    closes phase 4.
-9. **H-11** — `configDigest` is `JSON.stringify` with no canonicalisation, so it
-   depends on key order and answers nothing, while standing in the report as the
-   identity of the inputs.
+9. ~~**H-11** — `configDigest` answers nothing.~~ Done 15 August. Key order was
+   never the problem; a `Map` serialising to `{}` was.
 10. **I-2 + I-7** — the walk happens twice on consecutive lines with identical
     arguments, and the policy scan is linear per cell (440 rules down to 2 takes
     `findUnauthenticated` from 275 ms to 21 ms). Both already measured.

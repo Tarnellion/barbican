@@ -471,8 +471,23 @@ export interface RunReport {
    *
    * Computed over the parsed configuration, not over the text of the file:
    * comments and formatting do not affect the result of a run, while they would
-   * affect a hash. It is there to tell 'the platform changed' from 'we changed the
-   * declaration'.
+   * affect a hash. It is there to tell 'the platform changed' from 'we changed
+   * the declaration'.
+   *
+   * Over a **canonical** serialisation since 15 August 2026, and the reason is
+   * not hypothetical: `accountAuth` is a `Map`, `JSON.stringify` renders a `Map`
+   * as `{}`, and so the per-account authentication schemes did not enter the
+   * digest at all. Two runs presenting entirely different credentials — one as an
+   * `x-api-key` header, the other as a `sid` cookie — produced the same
+   * fingerprint. Changing how the accounts authenticate is precisely "we changed
+   * the declaration", which is the one question this field exists to answer.
+   * Found by the audit of 14 August (H-11).
+   *
+   * Keys are sorted too. That was the audit's own claim and it was **wrong** when
+   * measured — `parseRunConfig` builds its result in a fixed order, so reordering
+   * the YAML already gave the same digest. Sorting is kept as insurance rather
+   * than as a fix: the guarantee should belong to this function and not to the
+   * incidental construction order of another one.
    */
   readonly configDigest: string;
   /**
@@ -987,6 +1002,44 @@ function withVerdicts(
 }
 
 /**
+ * A serialisation whose result depends on the meaning and not on the shape.
+ *
+ * `JSON.stringify` was used here and dropped a whole field: `accountAuth` is a
+ * `Map`, and a `Map` stringifies to `{}` whatever is in it. Sorting the keys is
+ * the second half — see `configDigest` for why that half is insurance and not a
+ * fix.
+ *
+ * A `Map` becomes its entries sorted by key, tagged so that it cannot collide
+ * with a plain object carrying the same pairs: a fingerprint that cannot tell
+ * two different declarations apart is the failure being fixed, and inventing a
+ * new way to do it would be a poor exchange. Arrays keep their order — in a
+ * policy the order of rules decides the outcome, and sorting them would make two
+ * different policies look alike.
+ */
+function canonical(value: unknown): string {
+  if (value instanceof Map) {
+    const entries = [...value.entries()].sort(([left], [right]) =>
+      String(left).localeCompare(String(right)),
+    );
+    return `Map(${entries.map(([key, one]) => `${JSON.stringify(String(key))}:${canonical(one)}`).join(",")})`;
+  }
+  if (value instanceof Set) {
+    return `Set(${[...value].map(canonical).sort().join(",")})`;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonical).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    const keys = Object.keys(value).sort();
+    const pairs = keys.map(
+      (key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`,
+    );
+    return `{${pairs.join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+/**
  * Where the shape of this report is explained, for the version that wrote it.
  *
  * A tag when the version looks like a release, `main` otherwise — a development
@@ -1123,10 +1176,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
   return {
     schemaVersion: REPORT_SCHEMA_VERSION,
     runId: randomUUID(),
-    configDigest: createHash("sha256")
-      .update(JSON.stringify(options.config))
-      .digest("hex")
-      .slice(0, 16),
+    configDigest: createHash("sha256").update(canonical(options.config)).digest("hex").slice(0, 16),
     tool: {
       name: "barbican",
       version: options.version,
