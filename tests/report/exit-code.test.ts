@@ -227,6 +227,44 @@ describe("coverage and run identification", () => {
   });
 
   /**
+   * And only where a request went. The list used to be filtered out of every
+   * endpoint the source gave, while the check runs on observations — which exist
+   * only for the ones that were probed. So an endpoint carrying
+   * `responseMustDifferByTenant` and then skipped was named here as compared:
+   * the field lying in the one direction it exists to prevent. Found by the
+   * audit of 14 August (B-5).
+   */
+  it("does not name an endpoint that was never probed", () => {
+    const built = build({
+      endpoints: [
+        { id: "a", method: "GET", path: "/a", responseMustDifferByTenant: true },
+        { id: "b", method: "POST", path: "/b", responseMustDifferByTenant: true },
+      ],
+      probed: [{ id: "a", method: "GET", path: "/a", responseMustDifferByTenant: true }],
+      skipped: [{ endpointId: "b", reason: "unsafe-method" }],
+    });
+
+    expect(built.coverage.bodiesComparedOn).toEqual(["a"]);
+  });
+
+  /**
+   * A caller that does not say which endpoints were probed gets the same answer
+   * by subtraction — the fallback `endpointsProbed` already uses.
+   */
+  it("falls back to the endpoints minus the skipped ones", () => {
+    const built = build({
+      endpoints: [
+        { id: "a", method: "GET", path: "/a", responseMustDifferByTenant: true },
+        { id: "b", method: "POST", path: "/b", responseMustDifferByTenant: true },
+      ],
+      probed: undefined,
+      skipped: [{ endpointId: "b", reason: "unsafe-method" }],
+    });
+
+    expect(built.coverage.bodiesComparedOn).toEqual(["a"]);
+  });
+
+  /**
    * Found by the audit of 14 August, closed on 15 August with L-4. A check
    * finding naming neither an account nor an endpoint was dropped, behind a
    * comment claiming a counter kept it visible; the counter counted the list

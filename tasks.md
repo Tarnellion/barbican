@@ -597,8 +597,15 @@ everything downstream of it.
       Original finding: `summary.byKind` is one flat key space for diff kinds and
       check ids, and `runVerdict` reads escalations out of it. A check registered
       as `privilege-escalation` reports as one.
-- [ ] **B-5.** `coverage.bodiesComparedOn` names endpoints that were never
-      probed: it filters all endpoints where the check filters probed ones.
+- [x] **B-5.** Closed 15 August: the list is filtered to endpoints a request
+      actually went to. The flag is read from `options.endpoints` and `probed`
+      only selects by id — the first version read `responseMustDifferByTenant`
+      off the `probed` entries, and a test fixture whose copy did not carry it
+      caught that immediately. Two copies of one endpoint is the same shape as
+      everything else in this file.
+      Original finding: `coverage.bodiesComparedOn` names endpoints that were
+      never probed: it filters all endpoints where the check filters probed
+      ones.
 - [ ] **B-6.** `groupDefects` never merges the channels, so one platform defect
       visible both by status and by body counts as two.
 - [x] **B-7.** Closed 15 August: a cell that could not be addressed leaves a row
@@ -1261,8 +1268,8 @@ nowhere, and it drops accordingly.
    and one flat key space.~~ Done 15 August; B-14 is half closed with them.
 4. ~~**B-7** — a failure before the address is built yields no observation,
    hence no `probe-error`.~~ Done 15 August.
-5. **B-5** — `bodiesComparedOn` names endpoints that were never probed: the
-   report claims a comparison that did not happen.
+5. ~~**B-5** — `bodiesComparedOn` names endpoints that were never probed.~~ Done
+   15 August.
 6. **C-5 + C-4 + C-6 + C-7 + A-5 + A-6 + B-14** — assertions that do not assert.
    `&&` to `||` in `resourceApplies` survives the suite **and** the oracle, which
    is the credibility of the gate itself; the rest of the batch is cheap once the

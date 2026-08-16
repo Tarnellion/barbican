@@ -327,6 +327,18 @@ export interface Coverage {
    * Named one by one on purpose: on every other one the absence of a finding means
    * 'no comparison was made', not 'nothing matched'. There is no other way to see
    * the difference.
+   *
+   * **Declared and probed**, not merely declared. The list used to be filtered
+   * out of every endpoint the source gave, while the check runs on observations —
+   * which exist only for the ones a request went to. So an endpoint carrying
+   * `responseMustDifferByTenant` and then excluded, or skipped as an unsafe
+   * method, was named here as compared. That is the field lying in the one
+   * direction it exists to prevent: claiming a comparison that did not happen.
+   * Found by the audit of 14 August 2026 (B-5).
+   *
+   * How many pairs were actually compared on each is `byCheck`, from the check
+   * itself. Being on this list means the question was asked, not that there was a
+   * pair to ask it of.
    */
   readonly bodiesComparedOn: readonly string[];
   /** Whether methods that change state were performed. */
@@ -1010,6 +1022,29 @@ function countByOutcome(
 }
 
 /**
+ * The identifiers of the endpoints a request actually went to.
+ *
+ * Identifiers, and the endpoint itself is then looked up in `options.endpoints`.
+ * `probed` is a selection out of that list, so reading a property off it would
+ * mean trusting two copies of one endpoint to agree — and the first version of
+ * this function did exactly that, then read `responseMustDifferByTenant` off a
+ * copy that did not carry it.
+ *
+ * `options.probed` when the caller has it — the runner does — and otherwise
+ * everything the source gave minus what was skipped, the same subtraction
+ * `endpointsProbed` falls back to.
+ */
+function probedEndpointIds(options: BuildReportOptions): ReadonlySet<string> {
+  if (options.probed !== undefined) {
+    return new Set(options.probed.map((endpoint) => endpoint.id));
+  }
+  const skipped = new Set(options.skipped.map((one) => one.endpointId));
+  return new Set(
+    options.endpoints.filter((endpoint) => !skipped.has(endpoint.id)).map((one) => one.id),
+  );
+}
+
+/**
  * Resources that answered 404 to every account that asked.
  *
  * Only cells that produced an answer count: a request that failed says nothing
@@ -1164,9 +1199,12 @@ export function buildReport(options: BuildReportOptions): RunReport {
       cellsObserved: options.observations.length,
       cellsNotObserved: notObserved,
       notProbed: countByReason(options.skipped),
-      bodiesComparedOn: options.endpoints
-        .filter((endpoint) => endpoint.responseMustDifferByTenant === true)
-        .map((endpoint) => endpoint.id),
+      bodiesComparedOn: ((probed) =>
+        options.endpoints
+          .filter(
+            (endpoint) => endpoint.responseMustDifferByTenant === true && probed.has(endpoint.id),
+          )
+          .map((endpoint) => endpoint.id))(probedEndpointIds(options)),
       writeMethodsProbed: options.unsafeMethods ?? false,
       checksRun: options.checksRun ?? [],
       byCheck: options.byCheck ?? [],

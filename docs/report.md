@@ -314,6 +314,13 @@ two findings and one cell. This document offered the sum over
 absence of a finding means "no comparison was made", not "nothing matched".
 Without this list you cannot see the difference.
 
+It names endpoints that were **declared and probed**, not merely declared. Until
+15 August 2026 it was filtered out of every endpoint the source gave, so one
+carrying `responseMustDifferByTenant` and then excluded — or skipped as an unsafe
+method — was named here as compared, which is this field lying in the one
+direction it exists to prevent. Being on the list means the question was asked;
+how many pairs it was asked of is `byCheck`.
+
 **`checksRun` lists the checks that ran, including the ones that found nothing.**
 Without it, a check that someone forgot to register, or that crashed, would give
 a report indistinguishable from a clean one: its key shows up in `byKind` only
