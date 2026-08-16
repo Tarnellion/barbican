@@ -21,6 +21,7 @@ import { createOpenApiParser } from "./adapters/openapi.js";
 import type { SpecParser } from "./adapters/ports.js";
 import { createPostmanCollectionParser } from "./adapters/postman.js";
 import { createSignalExtractor } from "./adapters/signals.js";
+import type { ThrottleLimits } from "./adapters/throttle.js";
 import { createThrottle } from "./adapters/throttle.js";
 import type { Check, Endpoint, RunScope } from "./core/index.js";
 import {
@@ -46,7 +47,12 @@ import {
 import { findUnauthenticated } from "./report/authenticity.js";
 import type { CanaryOutcome } from "./report/build.js";
 import { buildReport, runVerdict } from "./report/build.js";
-import { collectObservations, planEndpoints, probeCanaries } from "./runner.js";
+import {
+  assertCanariesUsable,
+  collectObservations,
+  planEndpoints,
+  probeCanaries,
+} from "./runner.js";
 
 // The version is read from package.json rather than duplicated in a constant:
 // once they drift apart, the duplicate makes the CLI lie about its own version
@@ -194,6 +200,7 @@ function describePlan(
   endpoints: readonly Endpoint[],
   flags: RunFlags,
   checks: readonly Check[],
+  limits: ThrottleLimits | undefined,
 ): number {
   const tenantBaseUrls = new Map(
     (config.tenants ?? [])
@@ -258,6 +265,9 @@ function describePlan(
   }, 0);
 
   const withCanary = config.accounts.filter((account) => account.canary !== undefined).length;
+  const needCanary = config.accounts.some((account) => account.tokenEnv !== undefined);
+  const budget = limits?.maxRequests;
+  const wanted = cells + withCanary;
 
   process.stderr.write(
     `${[
@@ -267,6 +277,41 @@ function describePlan(
       ...rows,
       `Matrix rows: ${accounts.length} (declared accounts ${config.accounts.length})`,
       `Cells a run would probe: ${cells}, plus ${withCanary} canary requests`,
+      // The budget is on the same command line and used to be left out of the
+      // arithmetic: the preview promised 144 cells where the run made one
+      // request and stopped. A number about traffic that ignores the ceiling on
+      // traffic is worse than no number.
+      budget !== undefined && wanted > budget
+        ? paint(
+            `Only ${budget} of those ${wanted} requests fit the budget: the run stops ` +
+              `at --max-requests and reports truncated, so the tail of the matrix ` +
+              `stays untested. Raise --max-requests or narrow the run.`,
+            "yellow",
+          )
+        : undefined,
+      // The most expensive pre-flight defect is the one the pre-flight check does
+      // not mention. Without a canary the run cannot confirm it authenticated at
+      // all and ends with exit 2 whatever the platform answered — after the whole
+      // matrix has been walked.
+      withCanary === 0 && needCanary
+        ? paint(
+            `Not one account declares a canary. The run will walk the whole matrix ` +
+              `and then exit 2: nothing would confirm the accounts were ` +
+              `authenticated. Declare "canary: <endpointId>" on each account that ` +
+              `has credentials.`,
+            "red",
+          )
+        : undefined,
+      // A pipeline that publishes the report after a dry run publishes
+      // yesterday's, and nothing said so. The path is still checked — that is
+      // G-8 — it is just never written to.
+      flags.report === undefined
+        ? undefined
+        : paint(
+            `--report is not written by a dry run: ${flags.report} is left as it was. ` +
+              `Anything reading it afterwards reads the previous run.`,
+            "yellow",
+          ),
       // Which checks will run, because `--checks` can leave one out and a check
       // left out is coverage left out. Named here for the same reason the
       // endpoint list is: the preview has to answer "what exactly will you do"
@@ -342,12 +387,32 @@ async function run(flags: RunFlags): Promise<number> {
   registry.register(createIdenticalResponseCheck());
   const selected = registry.select(flags.checks);
 
+  // Built here rather than beside the client: the preview needs the limits that
+  // will actually be in force, and reading the defaults a second time would be a
+  // duplicate that drifts. Pure construction — nothing is sent by making it.
+  const throttle = createThrottle({
+    ...(flags.concurrency === undefined ? {} : { concurrency: flags.concurrency }),
+    ...(flags.rps === undefined ? {} : { requestsPerSecond: flags.rps }),
+    ...(flags.maxRequests === undefined ? {} : { maxRequests: flags.maxRequests }),
+  });
+
+  // The canaries, before anything is sent and before the preview claims to have
+  // validated everything. One of these on an excluded endpoint used to pass the
+  // dry run and stop the real one.
+  assertCanariesUsable({
+    endpoints,
+    canaries: config.accounts.flatMap((account) =>
+      account.canary === undefined ? [] : [{ accountId: account.id, endpointId: account.canary }],
+    ),
+    ...(config.exclude === undefined ? {} : { exclude: config.exclude }),
+  });
+
   // Everything above this line is validation and parsing; nothing has reached the
   // network. That is what makes this the honest place to stop and show what a run
   // would do — on someone else's deployment the question "what exactly will you
   // touch" deserves an answer before the first request, not after.
   if (flags.dryRun === true) {
-    return describePlan(config, endpoints, flags, selected);
+    return describePlan(config, endpoints, flags, selected, throttle.limits);
   }
 
   const credentials = createCredentialProvider(
@@ -355,12 +420,6 @@ async function run(flags: RunFlags): Promise<number> {
     resolveTokens(config, process.env),
     config.accountAuth,
   );
-
-  const throttle = createThrottle({
-    ...(flags.concurrency === undefined ? {} : { concurrency: flags.concurrency }),
-    ...(flags.rps === undefined ? {} : { requestsPerSecond: flags.rps }),
-    ...(flags.maxRequests === undefined ? {} : { maxRequests: flags.maxRequests }),
-  });
 
   const client = createHttpClient({
     allowedHosts: config.target.allowedHosts,

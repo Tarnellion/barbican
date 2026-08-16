@@ -519,6 +519,23 @@ The skips come from the same function the run uses, so the preview cannot drift
 away from what actually happens. A test proves the silence the hard way: the run
 is made against a platform that is not up, where a single request would fail.
 
+**It also says what the run will not manage to do**, which until 15 August 2026
+it did not:
+
+- a canary pointing at an excluded endpoint, or at one with path parameters, or
+  at no endpoint at all — refused here rather than after the accounts have
+  authenticated;
+- **no canary on any account with credentials** — the run would walk the whole
+  matrix and then exit 2, because nothing would confirm it authenticated;
+- `--max-requests` below the number of cells on the same command line — the run
+  would stop part-way and report `truncated`;
+- `--report` — a dry run does not write it, so anything reading the file
+  afterwards reads the previous run's report.
+
+Every one of those was a way for the preview to promise a run that could not
+happen. The last is the one that bites in a pipeline: nothing failed, and
+yesterday's report got published.
+
 ### Completion in the editor
 
 ```bash

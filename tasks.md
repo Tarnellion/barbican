@@ -735,16 +735,19 @@ the run. Generation does not reach a number inside a sentence.
 
 ### `--dry-run` does not do what it promises
 
-- [ ] **G-1.** "Parses and validates everything" is false: a canary on an
-      excluded endpoint passes the dry run and stops the real one.
-- [ ] **G-2.** It stays silent about there being no canaries at all — a run that
-      always ends in exit 2. The most expensive pre-flight defect is the one the
-      pre-flight check does not mention.
-- [ ] **G-3.** The "exact number of cells" ignores `--max-requests` from the same
-      command line: it promises 144 where the real run makes one request.
-- [ ] **G-7.** `--dry-run --report path` silently ignores `--report`. No file, no
-      warning, and the previous report stays in place — a pipeline that publishes
-      it will publish yesterday's.
+- [x] **G-1.** Closed 15 August: the three canary checks moved out of
+      `probeCanaries` into `assertCanariesUsable`, which both the walk and the
+      dry run call. The walk gained something too — they now run before the first
+      request instead of inside the loop.
+- [x] **G-2.** Closed 15 August: a red line when no account with credentials
+      declares one, saying what will happen — the whole matrix walked, then
+      exit 2.
+- [x] **G-3.** Closed 15 August: the preview compares the matrix against the
+      budget in force and says how much of it fits. The throttle is built before
+      the dry run returns and its `limits` are passed in, so the preview reads
+      the same numbers the run will — not a second copy of the defaults.
+- [x] **G-7.** Closed 15 August: the dry run names the path and says it is left
+      as it was. The gate also asserts no file appears.
 - [x] **G-8 / K-3.** Closed 14 August: the path is checked before the first
       request and before `--dry-run` returns, and a write that still fails prints
       the report to stdout rather than losing a run already paid for in traffic.
@@ -1286,8 +1289,8 @@ nowhere, and it drops accordingly.
    Done 15 August. Every one was re-measured first: A-6 and half of C-5 were
    already closed, the other six survived the whole suite. B-14 stays open — its
    remaining half is the uncovered `buildReport -> runVerdict` seam.
-7. **G-1 + G-2 + G-3 + G-7** — the dry run lies in four ways, and the README
-   calls it the right first command against a deployment you do not own.
+7. ~~**G-1 + G-2 + G-3 + G-7** — the dry run lies in four ways.~~ Done
+   15 August; four mutations, four distinct failures in the polygon gate.
 8. ~~**K-5, then E-3 + E-4 + E-5** — the link guard walks the file system instead
    of git, which is why nine broken links ship.~~ Done 15 August, taken ahead of
    items 5–7 because it is what separated `main` from the `0.3.0` release that

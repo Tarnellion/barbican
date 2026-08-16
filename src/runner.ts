@@ -461,6 +461,40 @@ export class TemplatedCanaryError extends Error {
  * the result of such a run looks like "everything is clean", though nothing was
  * checked.
  */
+/**
+ * Whether the declared canaries can be probed at all.
+ *
+ * Pure, and called from two places on purpose: the walk, which would otherwise
+ * discover it after authenticating; and `--dry-run`, which said "parses and
+ * validates everything" and did not. A canary on an excluded endpoint passed the
+ * preview and stopped the real run — the one command a reader is told to use
+ * first against a deployment they do not own. Found by the audit of 14 August
+ * 2026 (G-1).
+ *
+ * @throws {UnknownCanaryEndpointError}
+ * @throws {TemplatedCanaryError}
+ * @throws {ExcludedCanaryError}
+ */
+export function assertCanariesUsable(options: {
+  readonly endpoints: readonly Endpoint[];
+  readonly canaries: readonly { readonly accountId: string; readonly endpointId: string }[];
+  readonly exclude?: readonly string[];
+}): void {
+  const byId = new Map(options.endpoints.map((endpoint) => [endpoint.id, endpoint]));
+  for (const canary of options.canaries) {
+    const endpoint = byId.get(canary.endpointId);
+    if (endpoint === undefined) {
+      throw new UnknownCanaryEndpointError(canary.accountId, canary.endpointId);
+    }
+    if (TEMPLATE_PARAMETER.test(endpoint.path)) {
+      throw new TemplatedCanaryError(canary.accountId, canary.endpointId);
+    }
+    if ((options.exclude ?? []).includes(canary.endpointId)) {
+      throw new ExcludedCanaryError(canary.accountId, canary.endpointId);
+    }
+  }
+}
+
 export async function probeCanaries(options: {
   readonly baseUrl: string;
   readonly endpoints: readonly Endpoint[];
@@ -487,16 +521,16 @@ export async function probeCanaries(options: {
   );
   const results: CanaryResult[] = [];
 
+  // The same three checks the dry run makes, from the same function. Before a
+  // request rather than during the loop: a canary that cannot be probed is a
+  // mistake in the configuration, and half a run's worth of requests is a poor
+  // way to learn about one.
+  assertCanariesUsable(options);
+
   for (const canary of options.canaries) {
     const endpoint = byId.get(canary.endpointId);
     if (endpoint === undefined) {
       throw new UnknownCanaryEndpointError(canary.accountId, canary.endpointId);
-    }
-    if (TEMPLATE_PARAMETER.test(endpoint.path)) {
-      throw new TemplatedCanaryError(canary.accountId, canary.endpointId);
-    }
-    if ((options.exclude ?? []).includes(canary.endpointId)) {
-      throw new ExcludedCanaryError(canary.accountId, canary.endpointId);
     }
 
     const canaryUrl = joinUrl(

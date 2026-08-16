@@ -215,6 +215,69 @@ async function assertReportPathIsCheckedFirst(baseUrl) {
 }
 
 /**
+ * The dry run tells the truth about the run it previews.
+ *
+ * The README calls it the right first command against a deployment you do not
+ * own, and the guide says it "parses and validates everything". It did neither in
+ * four ways, all found by the audit of 14 August 2026:
+ *
+ * G-1 a canary on an excluded endpoint passed the preview and stopped the run.
+ * G-2 it said nothing about there being no canary at all — a run that walks the
+ *     whole matrix and then exits 2 whatever the platform answered.
+ * G-3 the "exact number of cells" ignored `--max-requests` from the same command
+ *     line: 144 promised where the run makes one request and stops.
+ * G-7 `--report` was ignored in silence, so a pipeline publishing the file
+ *     afterwards published the previous run's.
+ *
+ * Driven through the binary because that is what the claims are about, and
+ * against a platform that is not up: a dry run must not need one.
+ */
+async function assertDryRunTellsTheTruth(baseUrl, reportDir) {
+  const environment = { ...process.env, POLYGON_PORT: baseUrl.port };
+
+  // G-1. The polygon's alice-a has orders.list as its canary; excluding it makes
+  // the canary unprobeable, which the run refuses and the preview did not.
+  const config = await readFile(CONFIG, "utf8");
+  const excluded = join(reportDir, "excluded-canary.yaml");
+  await writeFile(excluded, config.replace("policy:", "exclude: [orders.list]\npolicy:"), "utf8");
+  const g1 = await runCli(undefined, environment, false, ["-c", excluded, "--dry-run"]);
+  if (!g1.stderr.includes('canary of account "alice-a" points at excluded endpoint')) {
+    fail(`the dry run accepted a canary on an excluded endpoint:\n${g1.stderr}`);
+  }
+
+  // G-3 and G-7 on the polygon's own configuration: a budget below the matrix,
+  // and a report path that will not be written.
+  const wontExist = join(reportDir, "never-written.json");
+  const g37 = await runCli(undefined, environment, false, [
+    "--max-requests",
+    "5",
+    "-r",
+    wontExist,
+    "--dry-run",
+  ]);
+  if (!g37.stderr.includes("fit the budget")) {
+    fail(`the dry run promised a matrix the budget cannot pay for:\n${g37.stderr}`);
+  }
+  if (!g37.stderr.includes("not written by a dry run")) {
+    fail(`the dry run said nothing about ignoring --report:\n${g37.stderr}`);
+  }
+  if (existsSync(wontExist)) {
+    fail("the dry run wrote a report");
+  }
+
+  // G-2. The canaries removed, which is the most expensive pre-flight defect
+  // there is: the run walks everything and then exits 2.
+  const noCanary = join(reportDir, "no-canary.yaml");
+  await writeFile(noCanary, config.replace(/^\s*canary:.*$/gm, ""), "utf8");
+  const g2 = await runCli(undefined, environment, false, ["-c", noCanary, "--dry-run"]);
+  if (!g2.stderr.includes("Not one account declares a canary")) {
+    fail(`the dry run stayed silent about there being no canary:\n${g2.stderr}`);
+  }
+
+  process.stdout.write("--dry-run: canaries validated, budget, missing canary and --report said\n");
+}
+
+/**
  * An unknown --checks id is refused before the first request.
  *
  * Proved the same way as the dry run and the report path: the platform is not
@@ -397,6 +460,8 @@ async function main() {
     tokenEnvNames.map((name) => [name, randomBytes(24).toString("hex")]),
   );
   const reportDir = await mkdtemp(join(tmpdir(), "barbican-polygon-"));
+  // After the directory exists: this one writes configurations of its own.
+  await assertDryRunTellsTheTruth(baseUrl, reportDir);
 
   let mismatched = 0;
   /** The rows for the table in the README: the run writes them, not a human. */
