@@ -1156,6 +1156,65 @@ finished" — see B-1.
 23. ~~**L-3** a warning about platforms that refuse with an envelope.~~ Warned
     in four places and guarded by a test; L-11 is the fix, and is not done.
 
+### Second ranking, 15 August — what is left
+
+The first list was written on 14 August over everything the audit produced and is
+finished. This one ranks the 71 items below that cut, by the same criterion: how
+badly the **artifact or the gate lies**, over what it costs to stop it.
+
+Two claims were re-checked before ranking rather than carried over. E-2 holds —
+the README's only library example still does not compile, `diffAccess` wants a
+`ResolvedAccessPolicy`. F-6 has half rotted: `pnpm audit` is clean as of today,
+so it is no longer "a declared layer that would fail", only one that runs
+nowhere, and it drops accordingly.
+
+1. **E-2** — the only library example in the README does not compile. It is the
+   first thing a reader copies, and the fix is minutes.
+2. **L-9 + A-2** — after a truncation the walk does not stop, and past an
+   exhausted budget every remaining cell still makes three attempts with two
+   sleeps (`--max-requests 149` takes 32× longer than it should). Traffic on
+   somebody else's deployment after the tool has decided to stop is the worst
+   thing on this list.
+3. **B-3 + B-4** — the exit code is the CI contract and it has two thresholds and
+   one flat key space: a check registered as `privilege-escalation` reports as
+   one, and a check finding needs `high|critical` to exit 1 where a matrix
+   discrepancy does not. Both contradict ADR-0014.
+4. **B-7** — a failure before the address is built yields no observation, hence
+   no `probe-error`, hence the untrustworthiness threshold cannot see it. The
+   "clean against untested" class, which is what the 2 exists for.
+5. **B-5** — `bodiesComparedOn` names endpoints that were never probed: the
+   report claims a comparison that did not happen.
+6. **C-5 + C-4 + C-6 + C-7 + A-5 + A-6 + B-14** — assertions that do not assert.
+   `&&` to `||` in `resourceApplies` survives the suite **and** the oracle, which
+   is the credibility of the gate itself; the rest of the batch is cheap once the
+   technique is set up.
+7. **G-1 + G-2 + G-3 + G-7** — the dry run lies in four ways, and the README
+   calls it the right first command against a deployment you do not own.
+8. **K-5, then E-3 + E-4 + E-5** — the link guard walks the file system instead
+   of git and spends 135 of 182 checks on worktree files, which is why nine
+   broken links ship. The guard first, then what it should have caught.
+9. **H-11** — `configDigest` is `JSON.stringify` with no canonicalisation, so it
+   depends on key order and answers nothing, while standing in the report as the
+   identity of the inputs.
+10. **I-2 + I-7** — the walk happens twice on consecutive lines with identical
+    arguments, and the policy scan is linear per cell (440 rules down to 2 takes
+    `findUnauthenticated` from 275 ms to 21 ms). Both already measured.
+11. **J-5 … J-16** — twelve documents that contradict the code, one of them the
+    name of a CI job. Cheap, and a document that lies is a defect here.
+12. **H-4 … H-10, B-9, B-16, G-9, G-10** — what a reader cannot do with the
+    artifact: no citable key for a defect, a finding that references no
+    observation, an unsorted finding list, an `info` level that never prints.
+13. **D-5 + D-7** — a body over the ceiling silently zeroes the comparison with
+    the reason stated nowhere; `parseRunConfig` is the only parse path with no
+    size or depth limit.
+14. **L-7** — traversal order is assumed not to matter, and with
+    `--unsafe-methods` it is not.
+15. **F-6, F-3, F-5, F-7, F-9, K-4, K-6, K-7, K-8, K-9, L-8, L-10** — supply
+    chain and hygiene, including a build that cannot run on Windows.
+16. **I-5 + I-6** — scale past the present ceiling. Nothing to measure against
+    until somebody runs it at that size, and guessing is what the estimate in
+    `plan.md` already did once.
+
 ## Readiness for different authentication surfaces
 
 - [x] **ADR-0016: an authentication scheme per account.** Named schemes at the root,
