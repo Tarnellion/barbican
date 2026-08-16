@@ -264,12 +264,23 @@ are deliberately timid, and the numbers are these:
 | Requests per run | 2000 | `--max-requests` |
 
 Which of the three binds depends on the deployment. At the defaults it is the
-rate: 60 cells at `--rps 5` take the same 11.4 seconds whether one request is in
+rate: 60 cells at `--rps 5` take about 12 seconds whether one request is in
 flight or eight. `--concurrency` earns its keep once the rate ceiling is lifted —
 610 cells against a target answering in 20 ms go from 14.1 s at 1 to 0.5 s at 64
 — which is to say on a deployment you have been allowed to probe faster. It is
 honoured by the walk since 15 August 2026; before that it was printed into the
 report and had no effect ([ADR-0023](docs/adr/0023-the-walk-is-parallel.md)).
+
+**`--rps` is a shape and not only a count.** Requests are spaced `1000 / rps`
+milliseconds apart rather than released in a burst at the top of each second: a
+window limiter that lets five go at once and then waits satisfies "five a second"
+while putting five requests on your deployment in the same instant. Two things
+follow that are worth expecting rather than discovering. The declared rate is a
+**ceiling the tool stays under**, so `--rps 50` delivers about 46 a second. And
+above 500 a second the spacing is off — a millisecond clock cannot express a
+shorter gap, and trying capped the tool at ~850 a second whatever the flag said —
+so beyond that the traffic is counted but not shaped
+([ADR-0026](docs/adr/0026-the-rate-is-a-shape-not-only-a-count.md)).
 
 One cell is one request. A run costs roughly `accounts × endpoints × resources`
 requests — the reference polygon with 9 accounts, 6 resources and 7 endpoints

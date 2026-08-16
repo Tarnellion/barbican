@@ -858,14 +858,22 @@ readability, failed on B-2 / H-3 above and was closed with it.
       20 ms latency take 13 766 ms at `--concurrency 1` and 13 754 ms at 128. The
       flag is documented **and written into the report**, so the report asserts
       something about the run that did not happen.
-- [ ] **I-8.** What the target sees in a wall-clock second exceeds `--rps`, and
-      the parallel walk widened it: at `--rps 5` a server counting arrivals saw a
-      worst second of 6 at concurrency 1, 7 at the default 2, 9 at 8. The
-      throttle's own admissions are exact — instrumented, three per window at
-      rps 3 — so the excess is arrival compression between admission and the
-      socket. Fixing it means pacing admissions at `1000 / rps` instead of
-      refilling the window in a burst, which costs no throughput but changes a
-      declared invariant and wants an ADR of its own. Found while closing I-1.
+- [x] **I-8.** Closed 15 August, [ADR-0026](docs/adr/0026-the-rate-is-a-shape-not-only-a-count.md):
+      admissions are spaced `1000 / rps` apart, the window stays the authority.
+      Measured at `--rps 5`, worst wall-clock second at the target: 6 / 7 / 9 at
+      concurrency 1 / 2 / 8 became 6 / 6 / 6; at `--rps 50` with concurrency 16,
+      66 became 49. **"Costs no throughput" was wrong** — the estimate in this
+      entry, corrected by running it: 60 cells at `--rps 5` went 11.4 s → 12.1 s,
+      and at `--rps 50` with concurrency 8, 1.31 s → 1.50 s. A short run pays for
+      the shape.
+      **And spacing at every rate was wrong too:** below a 2 ms gap a millisecond
+      clock cannot express it, and `--rps 5000` and `--rps 100000` both delivered
+      ~850/s — the flag lying about what it does, which is I-1 in a new place.
+      Above 500/s the window is the only bound, and that edge is in the README.
+      Original finding: what the target sees in a wall-clock second exceeds
+      `--rps`, and the parallel walk widened it. The throttle's own admissions
+      are exact, so the excess is arrival compression between admission and the
+      socket. Found while closing I-1.
 - [x] **I-3 and I-4.** Closed 14 August by hoisting rather than by caching: which
       resources apply to an endpoint does not depend on the account, so it is
       computed once per endpoint in `walk` and in `describePlan`. A memo inside

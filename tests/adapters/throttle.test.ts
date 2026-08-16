@@ -95,18 +95,79 @@ describe("the concurrency limit", () => {
 });
 
 describe("the rate limit", () => {
-  it("waits when the window is used up", async () => {
+  /**
+   * The count in any sliding second, which is the declared limit.
+   *
+   * It used to be asserted as an exact list of pauses — nothing, nothing,
+   * nothing, then a full second — which pinned the **shape** of the old
+   * behaviour rather than the guarantee. Since I-8 the starts are spread instead
+   * of clumped, and the guarantee is the same one it always was.
+   */
+  it("never lets more than the limit start inside a sliding second", async () => {
     const clock = createTestClock();
     const throttle = createThrottle({ concurrency: 10, requestsPerSecond: 3 }, clock);
+    const starts: number[] = [];
 
-    for (let i = 0; i < 3; i += 1) {
+    // Awaited one at a time, so nothing else can move the clock between a
+    // start being granted and the task reading it. That is not true of
+    // concurrent callers — see the test at the end of this block.
+    for (let i = 0; i < 12; i += 1) {
+      await throttle.run(() => {
+        starts.push(clock.now());
+        return Promise.resolve();
+      });
+    }
+
+    const worstSecond = Math.max(
+      ...starts.map((from) => starts.filter((one) => one >= from && one - from < 1000).length),
+    );
+    expect(worstSecond).toBeLessThanOrEqual(3);
+    // Twelve at three a second is at least the four seconds it takes.
+    expect(starts[11]).toBeGreaterThanOrEqual(3000);
+  });
+
+  /**
+   * The shape, which is what I-8 changed. A window limiter bounds the count and
+   * says nothing about clumping: three at once and then a second of silence
+   * satisfies "three a second" while putting three requests on somebody's
+   * deployment in the same instant. Measured against a server counting arrivals,
+   * that clumping showed up as a worst second of 9 at `--rps 5`.
+   */
+  it("spreads the starts instead of releasing them in a burst", async () => {
+    const clock = createTestClock();
+    const throttle = createThrottle({ concurrency: 10, requestsPerSecond: 4 }, clock);
+    const starts: number[] = [];
+
+    for (let i = 0; i < 8; i += 1) {
+      await throttle.run(() => {
+        starts.push(clock.now());
+        return Promise.resolve();
+      });
+    }
+
+    const gaps = starts.slice(1).map((one, index) => one - (starts[index] ?? 0));
+    // 1000 / 4. Not "roughly": the pause is computed, not sampled.
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(250);
+  });
+
+  /**
+   * Above 500 a second the spacing is off, and that is a decision rather than an
+   * oversight: `--rps 5000` and `--rps 100000` both delivered ~850 admissions a
+   * second while it was on, because a gap of "0.01 ms" is a sleep of one. A flag
+   * that cannot reach what it declares is the defect I-1 was, in a new place.
+   */
+  it("stops spacing where a millisecond clock cannot express the gap", async () => {
+    const clock = createTestClock();
+    const throttle = createThrottle({ concurrency: 10, requestsPerSecond: 5000 }, clock);
+
+    for (let i = 0; i < 20; i += 1) {
       await throttle.run(() => Promise.resolve());
     }
-    expect(clock.sleeps).toEqual([]);
 
-    // The fourth request must wait until the sliding second is over.
-    await throttle.run(() => Promise.resolve());
-    expect(clock.sleeps).toEqual([1000]);
+    // Twenty of five thousand: the window has nothing to say either, so the
+    // clock must not have moved at all.
+    expect(clock.sleeps).toEqual([]);
+    expect(clock.now()).toBe(0);
   });
 
   it("does not slow down once the window has moved on", async () => {
@@ -120,6 +181,8 @@ describe("the rate limit", () => {
 
     await throttle.run(() => Promise.resolve());
 
+    // A second has passed, so neither the window nor the spacing has anything
+    // to hold back: an idle run must not pay for the previous one.
     expect(clock.sleeps.length).toBe(before);
   });
 
@@ -155,9 +218,10 @@ describe("the rate limit", () => {
     );
 
     expect(ran).toBe(12);
-    // Twelve at three a second is three full windows of waiting. A burst let
-    // through on arrival would show up here as fewer pauses, or as none.
-    expect(clock.sleeps).toEqual([1000, 1000, 1000]);
+    // Twelve at three a second is four seconds of walking, whichever way the
+    // pauses are cut up. A burst let through on arrival would finish sooner.
+    expect(clock.now()).toBeGreaterThanOrEqual(3000);
+    expect(clock.sleeps.length).toBeGreaterThan(0);
   });
 });
 
