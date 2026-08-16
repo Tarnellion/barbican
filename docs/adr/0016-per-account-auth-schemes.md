@@ -118,3 +118,29 @@ exchange, an RSA signature over the body (§3.2 of the research). None of them
 fits the current "token from the environment → header" model, and they should
 not be added here: a login is a POST, that is, outside safe mode, and the
 operator logs in outside the tool.
+
+
+## Addendum of 2026-08-16: the overrides reach the report
+
+The paragraph above says "the report still records only the default scheme
+(`inputs.auth`): the overrides do not reach it yet". That debt is paid, and the
+paragraph is left standing because it records what was true when the decision was
+taken — but a reader must not act on it today.
+
+`accounts[].auth` in the report carries the scheme each account actually
+presented itself with: the kind, and for `header`/`cookie` the name. No values —
+those live only in environment variables, as this ADR requires. `inputs.auth`
+still carries the default, which is a different fact and is still worth having.
+
+The lookup is by the **base** account, not by the matrix row. A row under request
+conditions (ADR-0019) has an identifier of its own, `alice-a@geo-blocked`; the
+first version looked the scheme up by that identifier, found nothing and printed
+the root one. That is the field lying in exactly the place it exists for — "the
+endpoint is closed" against "we knocked with the wrong transport", both of which
+give 401. Found by a cold read.
+
+Since `83f5769` the schemes also enter `configDigest`. They had not: the digest
+was computed with `JSON.stringify`, and the schemes live in a `Map`, which
+stringifies to `{}` whatever it holds — so two runs presenting entirely different
+credentials, one as a header and one as a cookie, fingerprinted alike. "Which
+surface did each account go through" is half of what that field answers.

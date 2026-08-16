@@ -87,3 +87,17 @@ there are exactly as many accounts as there are roles and tenants to cover.
 Revisit if a need appears for several targets in one run: `target` would then
 become a list, and the rule "the host from `baseUrl` is in `allowedHosts`" would
 have to be stated for each target separately.
+
+
+## Note of 2026-08-16: the revision condition fired, and the answer is not a list
+
+The need appeared on 12 August 2026, three days after this was written: brands on
+separate subdomains. `target` did **not** become a list. A tenant carries an
+optional `baseUrl` of its own, the address of a request is chosen by the
+resource's tenant, and the rule above holds unchanged — every tenant host must be
+in the one `allowedHosts` of the one `target`, checked at startup by the same
+function. See [ADR-0027](0027-per-tenant-base-url.md), which records why a list
+of targets was rejected.
+
+Everything else in this ADR stands: one configuration file, credentials only
+through `tokenEnv`, an explicit allowlist, `zod` for the schema.

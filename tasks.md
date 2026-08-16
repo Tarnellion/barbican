@@ -679,7 +679,13 @@ everything downstream of it.
 - [ ] **B-13.** `tools/oracle/index.d.mts` is a hand-written description outside
       `tsconfig.include` with `skipLibCheck: true`: tests type against it, CI runs
       the implementation.
-- [ ] **J-16.** ADR-0001 pins Biome 2.5.6; `package.json` has 2.5.7.
+- [x] **J-16.** Closed 16 August. A dated note in ADR-0001 says Biome is 2.5.7,
+      raised on 12 August (`858acfd`) once `minimumReleaseAge` released it, with
+      `biome.json` migrated by Biome's own command in the same commit. The 2.5.6
+      in the Decision section stays: it records the version the decision was taken
+      on, and a patch bump inside the pinned major is the maintenance this ADR
+      describes, not a change to it. Original finding: ADR-0001 pins Biome 2.5.6;
+      `package.json` has 2.5.7.
 
 ### A document describing an invariant weaker than the code
 
@@ -695,13 +701,31 @@ review already closed.
 - [x] **J-4.** Closed 15 August. Original finding: The header of `http.ts` says the response body is "never read";
       line 323 reads it. ADR-0011 changed the invariant from "not read" to "not
       stored" and the header stayed.
-- [ ] **J-11.** ADR-0016 and ADR-0017 describe debts in the report that the code
-      has since paid, with no dated note. A reader of ADR-0017 concludes today
-      that an account with a set of tenants is indistinguishable from an
-      anonymous one; the live report prints `tenants: [...]`.
-- [ ] **J-12.** ADR-0021, written specifically about what ships, lists three
-      directories where `package.json` has four.
-- [ ] **J-13.** A per-tenant `baseUrl` — several hosts in one run — has no ADR,
+- [x] **J-11.** Closed 16 August by a dated addendum on each. ADR-0016: the
+      report carries `accounts[].auth` per account, resolved by the **base**
+      account so a row under conditions cannot print the root scheme, and since
+      `83f5769` the schemes enter `configDigest` too. ADR-0017: `src/report/build.ts`
+      writes `tenants` beside `tenant`. Both debt paragraphs are left standing —
+      they record what was true when the decision was taken — with the addendum
+      saying what changed. Original finding: two ADRs describe debts in the report
+      that the code has since paid, with no dated note; a reader of ADR-0017
+      concludes today that an account with a set of tenants is indistinguishable
+      from an anonymous one.
+- [x] **J-12.** Closed 16 August. A dated note on ADR-0021 records that `files` is
+      four entries plus a negation — `dist`, `docs`, `examples`, `schema`,
+      `!dist/**/*.map` — and that both additions came from that ADR's own addendum
+      of 15 August rather than from later drift. The three-entry Decision section
+      stays as decided. Original finding: ADR-0021, written specifically about
+      what ships, lists three directories where `package.json` has four.
+- [x] **J-13.** Closed 16 August: [ADR-0027](docs/adr/0027-per-tenant-base-url.md)
+      is written, and ADR-0008 gained a dated note saying its revision condition
+      fired and was answered in a different shape — a `baseUrl` on a tenant node
+      rather than a list of targets. The ADR is four days late: the code shipped
+      on 12 August (`6eb4c97`). It records the rule (the address comes from the
+      **resource's** tenant), the three fallbacks, the canary going to its own
+      brand, the scope staying one list, and the honest gap: the polygon is one
+      host, so end-to-end this path is unproven and only unit-tested. Original
+      finding: a per-tenant `baseUrl` — several hosts in one run — has no ADR,
       although ADR-0008 named exactly that as its condition for revisiting.
 
 ### Numbers woven into sentences have gone stale
@@ -709,29 +733,76 @@ review already closed.
 The project has caught this class twice and cured it by generating a table from
 the run. Generation does not reach a number inside a sentence.
 
-- [ ] **J-7.** "25 combinations" survives in five places including the **name of
-      the CI job**. `plan.md` contradicts itself seventy lines apart: "ten
-      switchable defects and 25 combinations" against "28 combinations… twelve
-      switches".
-- [ ] **J-8.** The `coverage` example in `docs/report.md` promises
-      `endpointsTotal: 6` and `notProbed: {}`; the run gives 7 and
-      `{"unsafe-method": 1}`.
-- [ ] **J-9.** `docs/report.md` contradicts itself about compared body pairs: the
-      JSON block says 24/39, the prose thirty lines below says 8 of 21 and 13.
-      The JSON block is right.
-- [ ] **J-5.** `polygon/README.md` states the platform implements no unsafe
-      methods (405). It does: `POST /v1/orders/{orderId}/cancel` answers 200. The
-      endpoint table in the same file lists 6 of 7.
-- [ ] **J-6.** The same file describes the oracle format as it was before
-      ADR-0012 — `combinations[]`, `flags`, no `defects` on a finding. A fourth
-      polygon written from that section would not parse.
-- [ ] **J-10.** `tasks.md` still holds open "the README has never been checked by
-      a cold read" while containing two sections about such reads.
-- [ ] **J-14.** `docs/report.md` sends the reader to `tasks.md` for an open item
-      that is recorded there as closed.
-- [ ] **J-15.** `plan.md`: "ADR 0001-0010" against 21 files; `src/report` listed
-      as phase 5 work while it has existed since phase 1; `tests/integration`
-      does not exist.
+- [x] **J-7.** Closed 16 August, and three of the five places had closed
+      themselves first. The CI job is `name: oracle (reference polygon)` — the
+      count was deliberately removed, with a comment saying a number woven into
+      prose is one no test can keep honest — and `plan.md` was corrected in
+      `ef471b1`, the commit that wrote this audit down, so it reads "twelve
+      switchable defects and 28 combinations" in both places. Fixed here:
+      `polygon/README.md` said "twenty-five" twice, in the run instructions and in
+      the sentence introducing a generated table that says 28 three lines below;
+      the second also mis-dated the run as 13 August when the table was written by
+      the run of 14 August (`819b071`). **Still open and not fixable from a
+      documentation file:** the `note` at the head of `polygon/ground-truth.json`
+      says "There are 25 combinations, not 256", and that file holds the 28. It is
+      data, not documentation, and needs a source edit. Original finding: "25
+      combinations" survives in five places including the name of the CI job.
+- [x] **J-8.** Already closed before this pass, in `047d34f` of 15 August: the
+      block reads `"endpointsTotal": 7` and `"notProbed": { "unsafe-method": 1 }`, which
+      is what a run with `orders.cancel` in the list and no `--unsafe-methods`
+      gives. Original finding: the `coverage` example in `docs/report.md` promised
+      `endpointsTotal: 6` and `notProbed: {}`.
+- [x] **J-9.** Closed 16 August. The prose now says 24 pairs of 210 compared, 39
+      skipped as related, 147 skipped for differing conditions — the same three
+      numbers as the `byCheck` block above it — and a paragraph records what the
+      old figures were and why they were not nonsense: 8 + 13 = 21 is every pair
+      among the seven comparable rows this endpoint had before request conditions
+      existed. Original finding: the JSON block said 24/39 and the prose thirty
+      lines below said 8 of 21 and 13.
+- [x] **J-5.** Closed 16 August. The endpoint table gained its seventh row,
+      `orders.cancel` (`POST /v1/orders/{orderId}/cancel`), with its rules — the
+      holding is denied here while allowed on `orders.read`, which is the point of
+      the endpoint — and a note that the write is inert so the oracle does not
+      become a function of the traversal order. The "Boundaries" claim is replaced
+      by a "was: 405 on all of them" subsection in the form the two notes above it
+      already use. Original finding: `polygon/README.md` stated the platform
+      implements no unsafe methods (405), and the endpoint table listed 6 of 7.
+- [x] **J-6.** Closed 16 August: the section describes the ADR-0012 shape the file
+      actually has — `note`, `cellKey`, `target`, `defects` keyed by flag with
+      `title`/`visibility`/`note`, and `variants[]` with `selector`,
+      `expectedExitCode`, `unsafeMethods` and findings carrying `defects[]`. The
+      six visibility values are listed, and so is why `defects` on a finding is an
+      array. The vanished `tenancy`/`ancestry`/`depth` keys are accounted for
+      rather than dropped: that prose moved into `defects[].note`. Original
+      finding: the section described the format as it was before ADR-0012, and a
+      fourth polygon written from it would not parse.
+- [x] **J-10.** Closed 16 August — see the entry in the phase-4 list, now marked
+      done. The fourth cold read of 14 August is exactly the missing read: an
+      installation from npm with the repository never opened. Original finding:
+      `tasks.md` still held open "the README has never been checked by a cold
+      read" while containing two sections about such reads.
+- [x] **J-14.** Closed 16 August. "What the report still does not have" no longer
+      points at `tasks.md`: the coverage denominator shipped and is described in
+      this same document. The half that survives is named as a boundary rather
+      than a debt — how many endpoints the API has in total cannot be known from a
+      run, and no field added later closes it. Original finding: `docs/report.md`
+      sent the reader to `tasks.md` for an open item recorded there as closed.
+- [x] **J-15.** Already closed before this pass, in `ef471b1` — the same commit
+      that wrote this audit down. The link reads `[docs/adr/](docs/adr/)` and
+      names no range; `src/report` reads "exists since phase 1;
+      HTML/PDF rendering is phase 5"; `tests/integration` reads "Never created …
+      dropped", with the reason. Original finding: `plan.md` said "ADR 0001-0010"
+      against 21 files, listed `src/report` as phase 5 work, and named a
+      `tests/integration` that does not exist.
+
+Found in passing, same class, fixed with them:
+
+- [x] `polygon/README.md` did the union arithmetic for the composite combinations
+      as 10+7+4+2+6+6 = 35 and all-eight = 37, while the generated table in the
+      same file says 41 and 43. The `list-no-filter` term had stayed at its 6 base
+      pairs after request conditions doubled it to 12. Both the sum and the "Cells"
+      column of the defect table now say 12, split as 6 base and 6 under
+      `wide-scope`.
 
 ### `--dry-run` does not do what it promises
 
@@ -1314,8 +1385,9 @@ nowhere, and it drops accordingly.
 10. **I-2 + I-7** — the walk happens twice on consecutive lines with identical
     arguments, and the policy scan is linear per cell (440 rules down to 2 takes
     `findUnauthenticated` from 275 ms to 21 ms). Both already measured.
-11. **J-5 … J-16** — twelve documents that contradict the code, one of them the
-    name of a CI job. Cheap, and a document that lies is a defect here.
+11. ~~**J-5 … J-16** — twelve documents that contradict the code.~~ Done
+    16 August. Three and a half were already closed when re-checked, which is why
+    each was verified against the code before being touched.
 12. **H-4 … H-10, B-9, B-16, G-9, G-10** — what a reader cannot do with the
     artifact: no citable key for a defect, a finding that references no
     observation, an unsorted finding list, an `info` level that never prints.
@@ -1746,10 +1818,17 @@ without them the only person who can run the tool is its author.
       and the third, both times together with a real report. The rating of the report rose
       from 2 out of 5 to 3 out of 5; the questions the guides had settled did not
       come back the second time.
-- [ ] The README and the path "from zero to the first run" have **never** been checked
-      by a cold read: what was read was the report and the guides, not the installation.
-      That is exactly the exit criterion of phase 4 — an outsider following the README gets
-      `npx barbican` to a meaningful run.
+- [x] **The README and the path "from zero to the first run" were checked by a cold
+      read.** Closed 14 August 2026 by the fourth cold read — see that section
+      below: a reader installed 0.2.0 from npm, never opened the repository, read
+      the README and the two guides, wrote their own configuration and reached a
+      meaningful run on the first attempt (25 cells, a deliberate cross-tenant
+      defect found, exit 1). The path held; the **package** did not — a
+      pre-release README in the tarball, no `docs` and no `examples` inside it,
+      nine relative links dead on install. Those are recorded separately and
+      closed. Original finding: the README and the path from zero to the first
+      run had never been read cold, only the report and the guides had, and that
+      is exactly the exit criterion of phase 4.
 - [x] **The assumption was checked by a cold read.** A real report of a defective
       run was handed to a reader with no access to the project (two files only, with
       everything else forbidden to open). The report's self-assessment: **2 out of 5**.

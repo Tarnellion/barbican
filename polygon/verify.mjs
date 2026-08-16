@@ -55,7 +55,7 @@ const FLAG_FIELDS = {
  *
  * The tool's defaults (2 at a time, 5 per second) are meant for someone else's
  * deployment. Here the deployment is our own, under the same parent process, and 80
- * requests at 5 per second would stretch each of the nineteen combinations to half
+ * requests at 5 per second would stretch each of the twenty-eight combinations to half
  * a minute.
  */
 const RUN_FLAGS = ["--rps", "50", "--concurrency", "4"];

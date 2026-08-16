@@ -212,3 +212,30 @@ in it is correct.
 Revisit if different roles in different memberships of one account are needed,
 or a tenant with several parents (the latter is still an open question from
 ADR-0013; a set on an account does not solve it and does not try to).
+
+
+## Addendum of 2026-08-16: the report prints the set
+
+The Consequences section above ends on a debt: "the `accounts` section in
+`src/report/build.ts` prints only the `tenant` field for an account, so for an
+account with a set the tenant is missing from the report entirely. For now that
+looks like 'an account outside of tenants', though it is in two."
+
+It is paid. `src/report/build.ts` writes `tenants` beside `tenant`, taken from
+the parsed account, so `sara-ac` — declared on the reference platform as
+`tenants: [tenant-a, tenant-b]` — reaches the report carrying both names, and a
+row for it under request conditions carries them too, since such a row is built
+from the original account. The paragraph is kept because that is how this repository records a
+change of state — the debt was real, it was named here, and it is closed here —
+but a reader reaching that paragraph today would otherwise conclude that an
+account in a set of tenants is indistinguishable in a report from an anonymous
+one. It is not, and the difference matters: `anonymous: true` is the mark that
+makes "the anonymous account was denied everywhere" provable, and an account with
+a set carries no such mark.
+
+The other two consequences named above are unchanged and still hold: such an
+account chooses no base address of its own, and the names of its set are not
+written into `evidence.tenant` / `evidence.otherTenant` — those fields are filled
+in only for an account with a single tenant.
+
+Found by the audit of 14 August 2026 (J-11).

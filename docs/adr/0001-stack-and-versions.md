@@ -17,6 +17,14 @@ corepack, gitleaks 8.30.1 through Homebrew.
 The base stack: Node >=22.12.0, TypeScript 6.0.3 (`nodenext`, strict), commander 15.0.0,
 vitest 4.1.10, Biome 2.5.6, pnpm 11.20.0, lefthook 2.1.10, gitleaks as a system binary.
 
+**Note of 2026-08-16: Biome is 2.5.7, not the 2.5.6 above.** It was raised on
+12 August 2026 (`858acfd`), once `minimumReleaseAge` stopped holding the release
+back; the schema in `biome.json` was migrated by Biome's own command in the same
+commit. The 2.5.6 in the line above is left as it was written — it records the
+version this decision was taken on, and a patch bump inside the pinned major is
+the ordinary maintenance this ADR describes rather than a change to it. Nothing
+else in the base stack has moved.
+
 Deviations from the report and the reasons for them:
 
 | Item | Report | Accepted | Reason |

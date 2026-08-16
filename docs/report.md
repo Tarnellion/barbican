@@ -257,7 +257,8 @@ See `docs/guide.md`, "A platform that refuses with 200".
 
 The `coverage` section answers the question without which the numbers above mean
 nothing. The numbers in this example come from one particular run — the reference
-polygon with all nine defects switched on, 15 August 2026 — and they are here to
+polygon under its `all-nine` variant, which switches on nine of that platform's
+twelve defects, 15 August 2026 — and they are here to
 show the shape of the section, not to be compared with yours. Your run will
 differ in every one of them:
 
@@ -351,9 +352,17 @@ accounts, and that silence reads as "nothing matched". Yet not every pair is
 compared: accounts of the same tenant are skipped (a match between them is
 legitimate), and accounts related in the tree — parent and descendant — are
 skipped in the same way, because a holding is supposed to see its descendant's
-data. On the reference-platform run 8 pairs out of 21 were compared and 13 were
-skipped as related; without these numbers "there are no findings on the pair" and
-"the pair was not compared" are indistinguishable.
+data. On the run above, 24 pairs out of 210 were compared, 39 were skipped as
+related and 147 because the conditions differed; without these numbers "there are
+no findings on the pair" and "the pair was not compared" are indistinguishable.
+
+This paragraph read "8 pairs out of 21 were compared and 13 were skipped as
+related" until 16 August 2026, while the `byCheck` block thirty lines above
+already said 24, 39 and 147 — the same document disagreeing with itself about the
+same run. The old figures were not invented: 8 + 13 = 21 is every pair among the
+seven comparable rows this endpoint had before request conditions existed. With
+conditions there are twenty-one rows and 210 pairs, and most of them are pairs
+the check refuses to draw a conclusion from.
 
 **`contextsProbed` answers the question "did anything go out under these
 conditions at all".** Every declared set of conditions has a key, including with
@@ -725,7 +734,20 @@ pack is made of them.
 
 ## What the report still does not have
 
-- **a coverage denominator** — how many cells the policy declared, and how many
-  endpoints the API has in total;
+**The coverage denominator has been struck off this list.** It stood here as an
+open item and sent the reader to `tasks.md`, where the same item had already been
+recorded as done — a pointer to an open question that nobody has open. The
+`coverage` section carries `endpointsTotal` and `endpointsProbed`, `cellsObserved`
+and `cellsNotObserved`, `cellsMatched` and `cellsWithFindings`, and `notProbed`
+with a reason for every endpoint that was not touched. All of it is described
+above.
 
-Recorded in [tasks.md](https://github.com/Tarnellion/barbican/blob/main/tasks.md) as open.
+Half of the old entry survives, and it is a boundary rather than a debt: **how
+many endpoints the API has in total cannot be known from a run.** The tool sees
+the list it was handed, `endpointsTotal` counts that list, and no field added
+later can close the gap between it and the platform. That is said above, next to
+`endpointsTotal`, and it is said there because it is permanent.
+
+The entry is struck off rather than deleted for the reason the rest of this
+document exists: a reader who saw the old one is owed the news that it changed,
+and which half of it changed.

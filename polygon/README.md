@@ -267,7 +267,7 @@ from a check of a correct platform.
 | `POLYGON_DEFECT_ANCESTOR_LEAK` | visibility of the summary statements is disclosed upwards along the **whole chain of ancestors**: `statements.read` serves an account the statement of any tenant above it | 6 |
 | `POLYGON_DEFECT_PARENT_LEAK` | the same upward disclosure, but **exactly one level**: the direct parent's statement is visible, not the whole chain's | 5 |
 | `POLYGON_DEFECT_PRIMARY_TENANT_ONLY` | the set of memberships is collapsed to the first tenant: support over two brands is denied the second one — 403 where access is meant to be granted | 2 |
-| `POLYGON_DEFECT_LIST_NO_FILTER` | no tenant filter in the brand list `orders.list`; the status does not change, it is visible only by body | 6 pairs |
+| `POLYGON_DEFECT_LIST_NO_FILTER` | no tenant filter in the brand list `orders.list`; the status does not change, it is visible only by body | 12 pairs: 6 in the base conditions and the same 6 again under `wide-scope` |
 | `POLYGON_DEFECT_GEO_BYPASS` | the jurisdiction of the request is not checked: orders are served from a prohibited country too — 200 instead of 451 | 19 |
 | `POLYGON_DEFECT_SCOPE_ALL_HONORED` | a hidden `?scope=all` removes the tenant filter in the brand list; the status does not change, it is visible only by body | 6 pairs |
 | `POLYGON_DEFECT_WRITE_CROSS_TENANT` | no tenant filter on a **write**: `POST /v1/orders/{orderId}/cancel` cancels an order of another tenant — 200 instead of 403 | 10 |
@@ -289,8 +289,11 @@ is exactly what is under test here. `PARENT_LEAK` is wholly contained in
 whole chain. So `all-seven` must match `all-six` cell for cell, and that too is a
 testable claim, not a coincidence of numbers. For the other flags the rule is
 unchanged: composite combinations must be the union of the single ones, `all-six`
-gives exactly 10+7+4+2+6+6 = 35, and `all-eight` the same 35 plus the two cells
-of `primary-tenant-only` = 37.
+gives exactly 10+7+4+12+2+6 = 41, and `all-eight` the same 41 plus the two cells
+of `primary-tenant-only` = 43. Both numbers are in the generated table below, and
+they are what the arithmetic here has to agree with: the sum was written as
+10+7+4+2+6+6 = 35 while the run said 41, because the `list-no-filter` term stayed
+at the 6 base pairs after request conditions doubled it.
 
 `cross-holding` is a separate flag rather than a special case of `cross-tenant`,
 because it is a separate path in the code: "my orders" and "my group's orders"
@@ -434,7 +437,7 @@ nothing, while the run would look substantive all the same.
 
 ```
 pnpm run build            # verify.mjs runs the built dist/cli.js
-node polygon/verify.mjs   # all twenty-five flag combinations
+node polygon/verify.mjs   # all twenty-eight flag combinations
 node polygon/verify.mjs ancestor-leak parent-leak  # only the named ones
 ```
 
@@ -484,16 +487,35 @@ The oracle is written by hand from the access model. That matters on principle: 
 reference taken from the tool's own output would be testing the tool for
 consistency with itself.
 
+The shape is the one ADR-0012 fixed for **every** polygon, this one and VAmPI
+alike, so that a third oracle costs less than the first two did:
+
 ```
-tenancy              — in words: who is whose parent and what follows from it
-ancestry             — in words: the relation of every account to the summary
-                       statements, and which cells work as a control
-depth                — in words: how ancestor-leak differs from parent-leak
-                       and which single cell tells them apart
-combinations[]
+note                 — what this oracle is for and how it was written
+cellKey              — what the cell key is assembled from
+target               — which polygon this file describes ("polygon" here,
+                       "vampi" in polygons/vampi/)
+defects              — a map keyed by the environment variable that switches it
+  title              — one line: what breaks and what it answers instead
+  visibility         — status | body-signal | body-only | unsafe-method |
+                       excluded | out-of-scope. Every defect on this platform is
+                       one of the first two, and only those two count as
+                       detectable: the completeness check demands that such a
+                       defect appear in at least one variant and that all the
+                       rest appear in none
+  note               — which cells it hits, which it does not, and why
+variants[]
   id                 — the name of the combination, also the verify.mjs argument
-  flags              — the state of all ten switches
+  selector           — an opaque map "name → value", passed to the deployment and
+                       then checked against what /v1/health reports about itself.
+                       Opaque on purpose: here it is twelve env variables, on
+                       VAmPI a single boolean, on the next polygon it may be an
+                       image tag
   expectedExitCode   — 0 with no defects, 1 with any of them on
+  unsafeMethods      — true where the combination needs --unsafe-methods. It sits
+                       on the variant rather than on the command line: whether a
+                       write is probed is a property of the claim being checked,
+                       not of how the script was called
   findings[]         — the cells that must produce a finding
     account          — the account id from barbican.run.yaml
     endpoint         — the endpoint id from endpoints.yaml
@@ -503,7 +525,23 @@ combinations[]
                        platform answered 200), unexpected-denial (the other way
                        round: access is declared allowed, the platform denied it)
                        or identical-response-across-tenants
+    defects[]        — which flags explain this cell. A non-empty array, never a
+                       single name
 ```
+
+**`defects` on a finding is an array, and that is not tidiness.** The cells of
+`PARENT_LEAK` are a subset of the cells of `ANCESTOR_LEAK`, so a shared cell is
+produced by either flag independently; attributing it to one would declare the
+other explained by nothing and uncheckable — which is exactly the message the
+completeness check produced when the field held a single name. Attribution is
+derived per variant: in a single-flag variant every finding belongs to that flag,
+in a composite one a cell is attributed to every enabled defect whose single-flag
+variant contains it. An empty array is refused: a finding nothing explains is
+either a forgotten defect or an error in the oracle.
+
+The prose that used to sit in top-level `tenancy`, `ancestry` and `depth` keys is
+not lost — it moved into `defects[].note`, which says cell by cell whom a flag
+hits and whom it does not, and into this file.
 
 A cell is the triple "account × endpoint × resource" (ADR-0010). The comparison
 runs over sets, the order in the file does not matter. A finding that is not in
@@ -558,10 +596,10 @@ defect groups that differ only by their conditions.
 
 ## The result of the verification
 
-The numbers below come from the run of **13 August 2026**, all twenty-five
-combinations, 144 cells, 8 canaries. There are more cells not because the
-platform grew: 54 of them are the same endpoints under declared request
-conditions (ADR-0019).
+The numbers below come from the run of **14 August 2026** — the one that
+regenerated the table — all twenty-eight combinations, 144 cells, 8 canaries.
+There are more cells not because the platform grew: 54 of them are the same
+endpoints under declared request conditions (ADR-0019).
 
 Tested separately earlier and still true: when the accounts spread across three
 authentication surfaces (ADR-0016), the previous nineteen combinations gave the
@@ -830,9 +868,27 @@ the first must hold, the second need not.
 
 The platform tests what the tool can see, and does not pretend to be more.
 Outside its area is the whole class of defects that require reading bodies:
-excessive data exposure, attribution of a leak, mass assignment. The platform
-does not implement unsafe methods at all (405): there is no reason to keep a
-state-changing endpoint on a deployment that is run in a loop.
+excessive data exposure, attribution of a leak, mass assignment.
+
+### Unsafe methods are implemented (was: 405 on all of them)
+
+What stood here was "the platform does not implement unsafe methods at all (405):
+there is no reason to keep a state-changing endpoint on a deployment that is run
+in a loop". It stopped being true on 14 August 2026 and went on standing here
+until 16 August, which is the more interesting half of the story: the write
+endpoint arrived, the oracle grew three combinations for it, and this paragraph
+kept telling a reader the opposite. `orders.cancel`
+(`POST /v1/orders/{orderId}/cancel`) answers 200, 403 or 401 by the same
+authorization model as the reads, and it carries two defect flags of its own —
+`WRITE_CROSS_TENANT` and `WRITE_NO_OWNER_CHECK`. Everything else outside GET and
+HEAD still answers 405.
+
+The argument in the old sentence was answered rather than dropped. The write sets
+`cancelled` and nothing ever reads it, so a cell's outcome does not depend on the
+order of the probes, and `verify.mjs` brings the platform up afresh for every
+combination in any case. What the endpoint buys is worth the state: without it
+`--unsafe-methods` was a flag that turned on a code path no oracle cell had ever
+walked.
 
 ### Both ADR-0013 relations are closed (was: only one)
 

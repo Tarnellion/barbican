@@ -114,3 +114,21 @@ neighbour `language.test.ts` always did, and it has a second assertion: a link i
 a document that ships must point at something that also ships.
 
 Found by the audit of 14 August 2026 (E-3, E-4, E-5, K-5).
+
+
+## Note of 2026-08-16: `files` holds four entries, not the three decided above
+
+The Decision section says `files` becomes `["dist", "docs", "examples"]`. It is
+`["dist", "docs", "examples", "schema", "!dist/**/*.map"]` today, and both
+additions were made by the addendum above rather than by a later drift: `schema`
+ships because the README tells the reader an editor completes the configuration
+from `node_modules/barbican/schema/`, and `!dist/**/*.map` drops the 52 dangling
+source maps.
+
+The three-entry list is left in place because that is what was decided on
+14 August, and the addendum is what changed it. Recorded here because a reader
+who stops at the Decision section — the section written specifically to answer
+"what ships" — gets the wrong count, and `tests/docs/links.test.ts` is the thing
+that actually knows the answer: its `SHIPPED` constant is the four directories.
+
+Found by the audit of 14 August 2026 (J-12).

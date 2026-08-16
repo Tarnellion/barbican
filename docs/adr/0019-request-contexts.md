@@ -162,7 +162,8 @@ The tool compares outcomes, not decisions.
   account. Without that, an account for which everything is declared forbidden
   under conditions would look like an account with credentials that do not work,
   and a **healthy** run would return code 2. Found by checking against the
-  oracle: 25 combinations out of 25 now.
+  oracle: 25 combinations out of the 25 it held then, and 28 out of 28 since the
+  write defects were added on 14 August 2026.
 - The policy rule schema became strict (`strictObject`). Found in the same
   place: the old build silently dropped the unrecognized `context` key, and the
   rule "deny under these conditions" turned into "deny always" — 19 findings on
