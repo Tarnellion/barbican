@@ -253,12 +253,17 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
               // for whoever is reading one finding rather than the schema.
               relatedAccountId: rightAccount.id,
               evidence: {
-                // The values, not only the verdict. "The digests matched"
-                // without the digests themselves forces the reader to go into
-                // the observations and join them by hand; the most convincing
-                // number of the run — "how many records each account saw" — was
-                // left aside.
-                digest: leftDigest,
+                // The values, not only the verdict. "The digests matched" on its
+                // own leaves the most convincing number of the run — how many
+                // records each account saw — for the reader to go and join by
+                // hand out of the observations.
+                //
+                // The digest itself is **not** among them; see the note beside
+                // `bodyDigestsEqual` below. It used to be, contradicting that
+                // note eighteen lines further down in the same object, and it
+                // was an exact duplicate of `signals.digest` on the observation
+                // for this very cell. Found by the audit of 14 August 2026 and
+                // decided on 15 August in favour of the note.
                 ...scalarsOf(left, digestSignal, "own"),
                 ...scalarsOf(right, digestSignal, "other"),
                 otherAccountId: rightAccount.id,
@@ -276,15 +281,20 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
                   ? {}
                   : { otherTenant: rightAccount.tenantId }),
                 status: left.status,
-                // The digest value itself is not carried out: it is meaningful
-                // only inside a run (the salt is random) and tells the reader of
-                // the report nothing. What is carried out is the fact of
-                // equality — and it is named after what was checked: 48 bits of
-                // salted SHA-256 matched, not the bodies. A collision is
-                // unlikely (of the order of 10⁻⁹ over a thousand responses,
-                // ADR-0011), but the report becomes the basis of an incident, and
-                // there the difference between "the bodies matched" and "the
-                // digests matched" is fundamental.
+                // The digest value is not carried into the finding: it is
+                // meaningful only inside one run — the salt is random — so it
+                // tells the reader of the report nothing, and `evidence` is
+                // documented as statuses, flags and identifiers, none of which
+                // it is. Whoever does want it has it: `signals.digest` on the
+                // observation for this cell is the same number, and that is
+                // where a per-cell measurement belongs.
+                //
+                // What is carried is the fact of equality, named after what was
+                // actually checked: 48 bits of salted SHA-256 matched, not the
+                // bodies. A collision is unlikely (of the order of 10⁻⁹ over a
+                // thousand responses, ADR-0011), but the report becomes the
+                // basis of an incident, and there the difference between "the
+                // bodies matched" and "the digests matched" is fundamental.
                 bodyDigestsEqual: true,
               },
             });

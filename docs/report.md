@@ -459,7 +459,6 @@ behind it:
 
 ```jsonc
 "evidence": {
-  "digest": 166203521785331,
   "own.orderCount": 4,        // how many orders admin-a saw
   "other.orderCount": 4,      // how many carol-b from another tenant saw
   "otherAccountId": "carol-b",
@@ -471,6 +470,17 @@ behind it:
 The scalars of both sides are held apart by the prefixes `own.` and `other.`; you
 define which ones there are in `bodySignals.signals`, so the names in `evidence`
 are yours, not ours.
+
+**The digest itself is not here**, and until 15 August 2026 it was — contradicting
+the note beside `bodyDigestsEqual` in the same object. It is meaningful only
+inside one run, because the salt is random, so in a ticket it is a number that
+cannot be compared with anything. Whoever wants it has it: `signals.digest` on
+the observation for this cell is the same value, which is where a per-cell
+measurement belongs.
+
+The other side of the pair is named twice on purpose: `relatedAccountId` is the
+field the report itself reads, and `evidence.otherAccountId` is there for whoever
+is looking at one finding rather than at the schema.
 
 `bodyDigestsEqual: true` means strictly "the body digests matched". The
 probability of a collision over a run of a thousand responses is on the order of

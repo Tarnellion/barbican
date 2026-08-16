@@ -144,6 +144,23 @@ describe("identical-response-across-tenants", () => {
   });
 
   /**
+   * The value, as opposed to the fact of equality. It was carried in `evidence`
+   * while a note eighteen lines below in the same object said it was not, and it
+   * was an exact duplicate of `signals.digest` on the observation for this cell.
+   * Decided on 15 August in favour of the note: the salt is random, so in a
+   * ticket the number cannot be compared with anything, and `evidence` is
+   * documented as statuses, flags and identifiers.
+   */
+  it("does not carry the digest value itself, only the fact that two matched", () => {
+    const observations = [observed("alice-a", 111), observed("carol-b", 111)];
+    const findings = check.run({ matrix: matrixOf(observations) });
+
+    expect(findings[0]?.evidence).not.toHaveProperty("digest");
+    // Not lost, only kept where a per-cell measurement belongs.
+    expect(observations[0]?.signals?.["digest"]).toBe(111);
+  });
+
+  /**
    * The audit of 14 August inverted the filter in `scalarsOf`, so the evidence
    * carried the digest instead of the declared scalars — and neither the unit
    * suite nor the oracle noticed. The oracle by construction: it compares which

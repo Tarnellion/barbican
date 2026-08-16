@@ -950,6 +950,15 @@ readability, failed on B-2 / H-3 above and was closed with it.
       inexpressible rather than unwritten. The registry is also assembled
       hard-coded, with no way to select checks.
 
+- [x] **L-12.** Decided 15 August: the digest value is not carried in a finding.
+      It was in `evidence` while a note eighteen lines below in the same object
+      said it was not, and it was an exact duplicate of `signals.digest` on the
+      observation for that very cell — verified on the reference run, same
+      number. The salt is random, so in a ticket it compares with nothing, and
+      `evidence` is documented as statuses, flags and identifiers. Reverting the
+      line turns a named test red. Raised by the audit of 14 August and left
+      open twice rather than decided in passing.
+
 ### Hygiene of files, process and repository
 
 - [x] **K-1.** Closed 15 August: all three polygons remove the directory unless
