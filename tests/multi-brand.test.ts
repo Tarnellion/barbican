@@ -66,6 +66,10 @@ describe("the address is chosen by the resource's tenant", () => {
     // Exactly what a per-tenant address was introduced for: the other brand is
     // probed on its own host while the token stays brand A's token.
     expect(byUrl).toContain("https://b.example.test/v1/orders/2");
+    // The length first. The assertion below lives inside a loop, and over an
+    // empty list a loop asserts nothing at all: a client that recorded no
+    // request would have passed it. Found by the audit of 14 August (C-6).
+    expect(seen).toHaveLength(3);
     for (const request of seen) {
       expect(request.headers.authorization).toBe("Bearer brand-a-token");
     }

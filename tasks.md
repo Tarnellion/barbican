@@ -825,20 +825,32 @@ mutants the type checker rejects) **7 real gaps**, not 29.
       6 -> 1` — an eight-bit digest, roughly one collision in 256 per pair. The
       throttle limits are caught because they have an exact `toEqual`; the others
       have nothing.
-- [ ] **C-4.** The ADR-0019 invariant "different conditions are not compared" has
-      no unit test; only the oracle catches it, as "15 extra findings" out of a
-      ninety-second run.
-- [ ] **C-5.** `resourceApplies`: `&&` to `||` survives both the suite and the
-      oracle. Every test gives a true second operand, and no polygon resource
-      declares `endpointIds` — the branch is dead there.
-- [ ] **C-6.** A vacuous assertion: the only check sits inside `for (const request
-      of seen)` and the length of `seen` is never asserted.
-- [ ] **C-7.** Branching inside the text of `ConflictingObservationError` and
-      `UnmatchedPatternError` inverts without a failure.
-- [ ] **A-5.** Cancelling the unread response stream is covered by nothing.
-- [ ] **A-6.** `Object.hasOwn` to `in` in path substitution is caught by nothing —
-      a finding declared closed in the ADR-0005 addendum, closed without a
-      regression test.
+- [x] **C-4.** Closed 15 August: three tests next to the check — nothing is found
+      between a baseline account and one under conditions, the pair is counted as
+      skipped **for conditions** rather than for kinship, and the control shows
+      the same two digests do produce the finding when the conditions match.
+      Disabling the guard turns two of them red in milliseconds instead of
+      showing up as "15 extra findings" at the end of a ninety-second run.
+- [x] **C-5.** Closed 15 August. Measured before fixing: only the `endpointIds`
+      branch was unprotected — the same mutation in the branch below it already
+      failed five tests. A resource on the list whose parameters do not cover the
+      path would have been probed with an empty segment in the address.
+- [x] **C-6.** Closed 15 August: `expect(seen).toHaveLength(3)` before the loop.
+      Three, not the two the two `toContain` lines above imply — the run also
+      probes the canary, which is exactly the sort of thing an unasserted length
+      hides. A client that recorded nothing now fails four tests in that file.
+- [x] **C-7.** Closed 15 August: both messages are asserted with and without the
+      optional part. The message is the whole of what a human gets from either
+      error, and an inverted branch sends the reader to the wrong cell or looking
+      for a rule they did not write.
+- [x] **A-5.** Closed 15 August: a stream whose `cancel` sets a flag, asserted
+      cancelled and unlocked. This is the default path — no `bodySignals`, no
+      reading — and an uncancelled body holds the connection until the socket
+      times out.
+- [x] **A-6.** Already closed by the time it was re-measured on 15 August:
+      `Object.hasOwn` to `in` fails "does not pick up a resource by a name from
+      the prototype chain" in `tests/runner.test.ts`. Recorded rather than
+      re-fixed — the audit's claim was true when written.
 - [ ] **The third `$ref` barrier** is called separately proven by ADR-0005 and has
       no such test. Verified by hand (zero requests, zero reads), but the mutation
       `resolve: { external: true }` alone is not caught.
@@ -1270,10 +1282,10 @@ nowhere, and it drops accordingly.
    hence no `probe-error`.~~ Done 15 August.
 5. ~~**B-5** — `bodiesComparedOn` names endpoints that were never probed.~~ Done
    15 August.
-6. **C-5 + C-4 + C-6 + C-7 + A-5 + A-6 + B-14** — assertions that do not assert.
-   `&&` to `||` in `resourceApplies` survives the suite **and** the oracle, which
-   is the credibility of the gate itself; the rest of the batch is cheap once the
-   technique is set up.
+6. ~~**C-5 + C-4 + C-6 + C-7 + A-5 + A-6** — assertions that do not assert.~~
+   Done 15 August. Every one was re-measured first: A-6 and half of C-5 were
+   already closed, the other six survived the whole suite. B-14 stays open — its
+   remaining half is the uncovered `buildReport -> runVerdict` seam.
 7. **G-1 + G-2 + G-3 + G-7** — the dry run lies in four ways, and the README
    calls it the right first command against a deployment you do not own.
 8. ~~**K-5, then E-3 + E-4 + E-5** — the link guard walks the file system instead

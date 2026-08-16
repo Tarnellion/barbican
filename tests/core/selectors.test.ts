@@ -70,6 +70,23 @@ describe("endpointMatches", () => {
   });
 });
 
+describe("the text of UnmatchedPatternError", () => {
+  /**
+   * The message is the whole of what a human gets, and the branch inside it
+   * inverted without a single test failing: a pattern reported with the wrong
+   * method sends the reader looking for a rule they did not write. Found by the
+   * audit of 14 August (C-7).
+   */
+  it("names the method when the pattern has one, and omits it when it does not", () => {
+    expect(new UnmatchedPatternError({ method: "POST", path: "/v1/orders" }).message).toContain(
+      'Pattern "POST /v1/orders"',
+    );
+    const withoutMethod = new UnmatchedPatternError({ path: "/v1/orders" }).message;
+    expect(withoutMethod).toContain('Pattern "/v1/orders"');
+    expect(withoutMethod).not.toContain("undefined");
+  });
+});
+
 describe("expandPattern", () => {
   it("expands a pattern into identifiers", () => {
     expect(expandPattern({ path: "/v1/admin/**" }, ENDPOINTS)).toEqual([

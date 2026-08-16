@@ -99,6 +99,65 @@ describe("coverage of body comparison", () => {
   });
 });
 
+describe("request conditions are not compared across", () => {
+  /**
+   * The invariant ADR-0019 states, and the only thing that caught it breaking
+   * was the oracle — as "15 extra findings" at the end of a ninety-second run
+   * against a live platform. Found by the audit of 14 August (C-4).
+   *
+   * Why it holds: in such a pair two things differ at once, the tenant and the
+   * condition attributes, so matching digests say nothing about either. What the
+   * check asserts is "different tenants get different responses **all else being
+   * equal**".
+   */
+  const underConditions: readonly Account[] = [
+    { id: "alice-a", roleId: "user", tenantId: "tenant-a" },
+    { id: "carol-b@geo", roleId: "user", tenantId: "tenant-b", contextId: "geo" },
+  ];
+
+  function matrixWithConditions(): AccessMatrix {
+    return {
+      endpoints: [LIST],
+      accounts: underConditions,
+      resources: [],
+      observations: [observed("alice-a", 777), observed("carol-b@geo", 777)],
+    };
+  }
+
+  it("finds nothing between a baseline account and one under conditions", () => {
+    expect(check.run({ matrix: matrixWithConditions() })).toEqual([]);
+  });
+
+  /** And says so in the coverage, or the silence reads as "nothing matched". */
+  it("counts the pair as skipped for conditions rather than for kinship", () => {
+    const coverage = check.coverage?.({ matrix: matrixWithConditions() }) ?? [];
+
+    expect(coverage[0]?.counters).toMatchObject({
+      comparedPairs: 0,
+      skippedDifferentContextPairs: 1,
+    });
+  });
+
+  /** The control: the same two digests under the same conditions do match. */
+  it("still finds the leak when the conditions are equal", () => {
+    const sameConditions: readonly Account[] = [
+      { id: "alice-a", roleId: "user", tenantId: "tenant-a" },
+      { id: "carol-b", roleId: "user", tenantId: "tenant-b" },
+    ];
+
+    const findings = check.run({
+      matrix: {
+        endpoints: [LIST],
+        accounts: sameConditions,
+        resources: [],
+        observations: [observed("alice-a", 777), observed("carol-b", 777)],
+      },
+    });
+
+    expect(findings).toHaveLength(1);
+  });
+});
+
 describe("mapping onto standards", () => {
   /**
    * A coverage claim is a claim too, and it must not be inflated. API3 (BOPLA)

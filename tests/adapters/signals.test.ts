@@ -38,6 +38,36 @@ async function digestOf(text: string, salt = SALT): Promise<number | boolean | u
   return signals["digest"];
 }
 
+describe("a body nobody declared a signal over", () => {
+  /**
+   * The stream is cancelled, not left open and not read.
+   *
+   * This is the default path — no `bodySignals`, no reading — and nothing
+   * covered it: removing the `cancel()` left the whole suite green. An
+   * uncancelled response body holds the connection until the socket times out,
+   * and at a few thousand cells that is the run stalling on somebody else's
+   * deployment. Found by the audit of 14 August (A-5).
+   */
+  it("cancels the stream instead of leaving it open", async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"orders":[1,2,3]}'));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+
+    const signals = await createSignalExtractor({ salt: SALT }).extract(body, []);
+
+    expect(cancelled).toBe(true);
+    expect(signals).toEqual({});
+    // And nothing was read out of it on the way.
+    expect(body.locked).toBe(false);
+  });
+});
+
 describe("parseSignalPath", () => {
   it("splits segments on dots; an empty path is the root", () => {
     expect(parseSignalPath("")).toEqual([]);
