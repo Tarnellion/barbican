@@ -206,6 +206,40 @@ would have given unexpected denials, and a zero here would be impossible.
 the circuit breaker tripped. The tail of the matrix was not tested, and there are
 no findings there precisely because it was never reached.
 
+## How to tell a broken platform from a misread one
+
+The mirror of the question above, and the one worth asking **before** you forward
+a report full of findings. There is a way for every cell to be wrong at once, and
+it does not look like an error.
+
+barbican decides whether access was granted from the **status code alone**. A
+platform that answers `200 OK` and puts the outcome in the body —
+`{"success": false, "error": {"code": "FORBIDDEN"}}` — reads as "allowed"
+everywhere. Every cell the policy declared `denied` then becomes a
+`privilege-escalation` finding, and the report describes a catastrophe that is
+not there.
+
+Two things in the report say it, and neither of them is a field of its own:
+
+- **`byKind["privilege-escalation"]` is roughly the number of cells your policy
+  denies.** A real platform fails in places. One that fails everywhere, in the
+  same direction, on every account including the anonymous one, is more likely
+  being misread than uniformly broken.
+- **Every observation carries `status: 200`.** Open one cell you are certain
+  about — an ordinary account against an admin endpoint — and read it. A `200`
+  where a `403` was expected settles it in one look.
+
+If that is your platform, **no** part of this report can be believed, and there
+is no flag that fixes it. Not the matrix, and not the body checks either — the
+natural guess is that comparing digests is safe from a status-code problem, and
+it is wrong: those checks run only on cells that came back `allowed`, which here
+is all of them, and two accounts both **refused** get the same envelope and the
+same digest. On a six-cell demo platform of this kind the report came out with
+four privilege escalations — every cell the policy denies — and one
+`identical-response-across-tenants` that is two refusals, not a shared record.
+
+See `docs/guide.md`, "A platform that refuses with 200".
+
 ## What was tested and what was not
 
 The `coverage` section answers the question without which the numbers above mean

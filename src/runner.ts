@@ -154,6 +154,22 @@ const TEMPLATE_PARAMETER = /\{[^}]+\}/;
  * and jurisdiction restrictions answer with exactly this, and without this line a
  * healthy platform would give a wall of `probe-error` right where it works
  * correctly.
+ *
+ * **The assumption this whole function rests on**: the platform states the
+ * outcome in the status code. One that answers `200` with an error envelope in
+ * the body is read as granting access everywhere, and every denied cell of the
+ * policy becomes a privilege escalation — a hundred per cent false positives,
+ * which is the risk `plan.md` names first.
+ *
+ * The body checks do not stand outside it, which is not obvious and was measured
+ * rather than reasoned: they run on cells whose `outcome` is `allowed`, and here
+ * that is every cell, so two accounts in different tenants both **refused** with
+ * the same envelope produce equal digests and a cross-tenant leak that is not
+ * there. Six cells, four false escalations, one false leak, exit code 1.
+ *
+ * There is no way to declare "a refusal looks like this" today. The limitation is
+ * written down in the README, in `docs/guide.md` and in `docs/report.md` rather
+ * than left for the reader of a bad report to work out. See L-3.
  */
 export function classifyStatus(status: number): AccessOutcome {
   if (status >= 200 && status < 300) {

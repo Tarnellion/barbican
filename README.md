@@ -51,6 +51,27 @@ and [tests/core/tenant-set.test.ts](tests/core/tenant-set.test.ts) pins all thre
 workarounds and what each of them gets wrong. See
 [ADR-0017](docs/adr/0017-account-tenant-set.md).
 
+### A platform that refuses with 200 cannot be checked this way
+
+barbican decides whether access was granted from the **status code**. An API that
+answers every request with `200 OK` and puts the outcome in the body —
+`{"success": false, "error": {"code": "FORBIDDEN"}}` — reads as "allowed" on every
+cell, so every cell your policy denies becomes a privilege escalation. Not some:
+all of them.
+
+The body checks do not save you either, though the opposite is the natural
+guess: they run only on cells that came back allowed, and two accounts both
+*refused* get the same envelope and the same digest, which reads as a
+cross-tenant leak. Measured on a six-cell demo of such a platform: four false
+privilege escalations and one false leak, exit code 1.
+
+That is the worse of the two ways to be wrong. One look settles it — open a cell
+you are sure about, an ordinary account against an admin endpoint, and see
+whether it says `200`. There is no flag that fixes it today, and the honest
+answer for such a platform is that this tool cannot check it yet.
+
+See [docs/guide.md](docs/guide.md), "A platform that refuses with 200".
+
 ## Documentation
 
 The repository is English throughout: this README, both guides, every polygon

@@ -643,6 +643,59 @@ state, and the change outlives the report.
   account names an environment variable, sensitive headers are redacted.
 - **Does not obtain tokens itself.** A login is usually a POST, that is, outside
   safe mode. The operator logs in outside the tool.
+- **Does not read the body to decide whether access was granted.** The status
+  code is the whole of it, and on some platforms that is not enough — see below.
+
+### A platform that refuses with 200
+
+Some APIs answer every request with `200 OK` and put the outcome in the body:
+
+```json
+{ "success": false, "error": { "code": "FORBIDDEN" } }
+```
+
+**barbican reads the status code and nothing else.** Against such a platform every
+cell comes back `allowed`, so every cell your policy declared `denied` turns into
+a `privilege-escalation` finding. Not some of them — all of them. The report is
+then wrong from end to end while looking exactly like a catastrophic result, and
+that is the worse of the two ways to be wrong: a tool that finds things which do
+not exist is not trusted again.
+
+**Check it before you believe a bad report, and it takes one look.** Pick a cell
+you are certain about — an ordinary account against an admin endpoint — and read
+its observation:
+
+```jsonc
+{ "accountId": "alice", "endpointId": "admin.users", "status": 200, "outcome": "allowed" }
+```
+
+A `200` where you expected a `403` means the tool is misreading the platform, not
+finding a hole in it. The `--dry-run` will not show this; nothing but a real
+response will.
+
+There is no way to declare "a refusal looks like this" today. If your platform
+answers this way, the role × endpoint matrix is not something this tool can check
+for you yet, and the honest thing is to say so rather than to filter the findings
+by hand afterwards.
+
+**The body checks are poisoned too, and that is worth spelling out** — the
+opposite is the natural guess, since they compare digests rather than statuses.
+They only run on cells that came back `allowed`, and here every cell does. Two
+accounts in different tenants both **refused** receive the same envelope, so the
+digests match and the tool reports a cross-tenant leak.
+
+Measured, on a six-cell platform that answers 200 to everything with the outcome
+in the body:
+
+```
+cells 6, all status 200
+findings 5 — privilege-escalation 4, identical-response-across-tenants 1
+exit code 1
+```
+
+Four is every cell the policy denies. The fifth is two refusals mistaken for one
+shared record. The exit code says "checked, and reality does not match what you
+declared", which is exactly what it would say about a real catastrophe.
 
 ## Working example
 

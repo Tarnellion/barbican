@@ -1021,11 +1021,33 @@ readability, failed on B-2 / H-3 above and was closed with it.
       of denial. The polygon endpoint was deliberately chosen to sidestep this —
       it is written down in these notes — so the one oracle the project has cannot
       catch the class.
-- [ ] **L-3.** A platform that refuses with `200` and an error envelope produces
-      a hundred per cent false positives: `classifyStatus` treats any 2xx as
-      allowed. The risk named first in `plan.md` — "a tool that finds things that
-      do not exist loses trust on the first run" — realised in full, and the
+- [x] **L-3.** Documented 15 August in the README, `docs/guide.md`,
+      `docs/report.md` and at `classifyStatus` itself, with a guard test so the
+      warning survives the next edit. **The finding was understated**: the body
+      checks are poisoned too, which was measured rather than reasoned — they run
+      only on cells whose outcome is `allowed`, and there that is every cell, so
+      two accounts both *refused* get the same envelope, the same digest and a
+      cross-tenant leak that is not there. A six-cell demo platform gave four
+      false escalations, one false leak and exit code 1. An earlier draft of the
+      documentation claimed the opposite before the claim was run.
+      **Not fixed, and cannot be with what exists**: there is no way to declare
+      what a refusal looks like — see L-11 below.
+      Original finding: a platform that refuses with `200` and an error envelope
+      produces a hundred per cent false positives: `classifyStatus` treats any 2xx
+      as allowed. The risk named first in `plan.md` — "a tool that finds things
+      that do not exist loses trust on the first run" — realised in full, and the
       guide's "What the tool does not do" says nothing about it.
+- [ ] **L-11.** No way to declare what a refusal looks like on a platform that
+      answers 200 with an envelope. Two shapes are worth weighing before either is
+      built. A **negative canary** — an endpoint an account must *not* reach —
+      would catch it in one request at startup and cost nothing per cell: it is
+      the dual of the canary that already exists, and it also catches an
+      authorization layer switched off entirely, which nothing catches today. A
+      **declared refusal predicate** over a body scalar would let the matrix work
+      on such a platform, but it means the tool reads a body to decide access,
+      which is a change to ADR-0011 and wants its own decision. The negative
+      canary is the smaller of the two and does not preclude the other. Came out
+      of L-3 on 15 August.
 
 ### A contradiction between tracks, left unreconciled
 
@@ -1087,7 +1109,8 @@ finished" — see B-1.
 21. ~~**J-1** decide about the history, and add a `commit-msg` hook.~~
 22. **L-4** rework `Finding` and `CheckContext` before phase 5 is scheduled.
     Deferred by the owner until the rest of the audit is closed.
-23. **L-3** a warning about platforms that refuse with an envelope.
+23. ~~**L-3** a warning about platforms that refuse with an envelope.~~ Warned
+    in four places and guarded by a test; L-11 is the fix, and is not done.
 
 ## Readiness for different authentication surfaces
 
