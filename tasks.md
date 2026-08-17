@@ -621,8 +621,12 @@ everything downstream of it.
 - [x] **B-9.** Closed 16 August: severity first, then endpoint, account,
       resource and kind. The tie-breakers are what make it stable — severity alone
       leaves eighty rows free to shuffle between two runs of one matrix.
-- [ ] **B-16.** The screen summary never prints `info`, the level introduced for
-      registry checks.
+- [x] **B-16.** Closed 16 August with item 12 of the second ranking; the box here
+      was left ticked open until 17 August, when it was checked against the code
+      rather than against either mark. `bySeverityLine` walks the keys of
+      `SEVERITY_ORDER` and prints all five — `critical, high, medium, low, info` —
+      so the level introduced for registry checks reaches the screen. Both the
+      row counts and the defect counts go through it.
 - [ ] The cure is not a shared type but a **single source for the per-cell
       verdict** and a single threshold rule in `runVerdict`.
 
