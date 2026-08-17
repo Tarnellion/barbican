@@ -23,7 +23,20 @@ strictDepBuilds: true
 allowBuilds:
   lefthook: false
 
-# Exact versions in package.json — no ranges.
+# Refuse to install on a Node below `engines`: an error rather than strange
+# failures later.
+#
+# It lived in `.npmrc` as `engine-strict=true` and did nothing there. Under
+# pnpm 11 that file is read for authentication and the registry only, and every
+# other setting has to be here under a camelCase key — so the guard had been off
+# since the upgrade and nothing said so. Measured rather than assumed: with this
+# line and an `engines.node` of `>=99`, `pnpm install` refuses; with the `.npmrc`
+# key instead, it says "Already up to date". Found by the audit of 14 August 2026
+# (F-3).
+engineStrict: true
+
+# Exact versions in package.json — no ranges. This is the pnpm name for what
+# `.npmrc` called `save-exact`, and the reason that file is gone.
 savePrefix: ''
 
 # Versions forced on a transitive dependency the direct ones will not lift.

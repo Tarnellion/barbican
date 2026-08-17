@@ -16,7 +16,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -62,6 +62,13 @@ describe("the repository is in English", () => {
     const offenders: string[] = [];
     for (const file of files) {
       if (BINARY.test(file)) {
+        continue;
+      }
+      // `git ls-files` lists what is tracked, which includes a file deleted in
+      // the working tree but not yet staged. There is nothing to read and
+      // nothing to complain about — and without this the guard died with an
+      // ENOENT naming a file the reader had just deleted on purpose.
+      if (!existsSync(resolve(ROOT, file))) {
         continue;
       }
       const text = readFileSync(resolve(ROOT, file), "utf8");

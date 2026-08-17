@@ -151,11 +151,21 @@ jobs:
     # the same reason as with gitleaks: an action pulls its own version, and CI
     # verdicts drift away from local ones silently.
     #
-    # The version is deliberately one step behind the newest: v2.5.0 came out a
-    # week ago, and `minimumReleaseAge` in this project is 7 days for a reason.
+    # The version is deliberately behind the newest by the same seven days
+    # `minimumReleaseAge` applies to every dependency: v2.5.1 was published today
+    # and v2.5.0 ten days ago, so v2.5.0 is what a cooldown of a week allows.
+    #
+    # **This pin carries the condition for its own removal**, like the entries in
+    # `overrides` and the exceptions in `osv-scanner.toml`: raise it whenever a
+    # release is more than seven days old. No dependabot ecosystem covers a
+    # binary fetched by URL — there is no such ecosystem — so nothing will
+    # announce a new one, and a pin nobody revisits is a pin nobody notices. The
+    # previous one sat at v2.4.0 with a note saying v2.5.0 was "a week ago",
+    # which by the time anybody read it had been true for two months. Found by
+    # the audit of 14 August 2026 (F-5).
     env:
-      OSV_VERSION: "2.4.0"
-      OSV_SHA256: "15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0"
+      OSV_VERSION: "2.5.0"
+      OSV_SHA256: "edcfc41d257db36148f065055655fe3fcfc434b0b423ea67468a84c207524e0c"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -173,6 +183,20 @@ jobs:
       # verdict depends on what is declared and reproduces without an install.
       - name: Scan lockfile
         run: ./osv-scanner scan source --lockfile=pnpm-lock.yaml
+
+      # The second layer, which ADR-0004 declares and nothing ran — not in CI and
+      # not in the hooks, so "two layers" was one. They ask different databases:
+      # osv-scanner reads OSV, `pnpm audit` reads the npm advisory database, and
+      # an advisory can be in either before the other. Found by the audit of
+      # 14 August 2026 (F-6).
+      #
+      # Needs the package manager and the lockfile, which the scan above does
+      # not, hence the two steps here rather than one.
+      - name: Enable pnpm via corepack
+        run: corepack enable
+
+      - name: Advisories from the npm database
+        run: pnpm audit --audit-level moderate
 
   package:
     name: the artifact as it ships

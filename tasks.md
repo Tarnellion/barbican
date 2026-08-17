@@ -881,8 +881,10 @@ Found in passing, same class, fixed with them:
       93 markdown files it visited were not the repository; the audit's 135 of
       182 was the same defect with more worktrees lying around, which is itself
       the point: the number depended on what was checked out.
-- [ ] **F-6.** `pnpm audit` runs nowhere — not in CI, not in the hooks. The
-      declared two layers are one. It exits 1 today.
+- [x] **F-6.** Closed 16 August: `pnpm audit --audit-level moderate` runs in the
+      vulnerabilities job beside the OSV scan. They read different databases, so
+      two layers is now two. **The finding's last sentence had expired**: "It
+      exits 1 today" — it exits 0, and has since the nanoid override landed.
 
 ### Tests that do not prove what is claimed
 
@@ -1212,22 +1214,33 @@ readability, failed on B-2 / H-3 above and was closed with it.
       finding: the report is written 0644, world-readable: `writeFile(path, json,
       "utf8")` with no `{ mode }`. It holds full request URLs, all response
       headers, and account, resource and tenant identifiers.
-- [ ] **L-10.** `.claude/settings.local.json` is excluded only by the owner's
-      global ignore, not by the project `.gitignore`.
-- [ ] **F-3.** `.npmrc` is dead under pnpm 11: `pnpm config get engineStrict` and
-      `engine-strict` both return undefined. An isolated probe shows the key works
-      only as `engineStrict` in `pnpm-workspace.yaml`. ADR-0004 lists `.npmrc` as
-      one of two carriers of the protection.
+- [x] **L-10.** Closed 16 August: `.claude/settings.local.json` is in the
+      project `.gitignore`. It was excluded only by the owner's global ignore,
+      which does not travel with a clone — so on any other machine it would have
+      been committed.
+- [x] **F-3.** Closed 16 August: `engineStrict: true` moved to
+      `pnpm-workspace.yaml` and `.npmrc` is deleted — it held only dead keys.
+      Proven in an isolated package with `engines.node` of `>=99`: pnpm refuses
+      from the workspace file and says "Already up to date" from `.npmrc`. The
+      documentation agrees: under pnpm 11 that file is auth and registry only.
 - [ ] **F-4 / E-8.** `engines: ">=22.12.0"` has no upper bound while CI runs 22
       and 24 and Node 26 is current; and `node: [22]` resolves to the latest 22.x,
       so the declared lower bound is never exercised.
-- [ ] **F-5.** The pinned gitleaks and osv-scanner binaries are covered by no
-      dependabot ecosystem. The stated reason for pinning osv-scanner 2.4.0 —
-      "2.5.0 came out a week ago" — expired today.
-- [ ] **F-7.** `packageManager` has no corepack integrity hash: the one gap in an
-      otherwise consistent pinning scheme.
-- [ ] **F-9.** Dependency vetting results are recorded nowhere, so the rule in
-      CLAUDE.md cannot be checked after the fact.
+- [x] **F-5.** Closed 16 August, though not the way the finding suggests: **no
+      dependabot ecosystem covers a binary fetched by URL**, and that is why the
+      official actions were rejected here in the first place. The pin now carries
+      its own condition for removal instead, as the `overrides` entries and the
+      `osv-scanner.toml` exceptions do. osv-scanner raised 2.4.0 -> 2.5.0 with a
+      fresh sha256; 2.5.1 was published the same day and is younger than the
+      seven-day cooldown this project applies to everything else. gitleaks 8.30.1
+      is the current release and needed nothing.
+- [x] **F-7.** Closed 16 August: `packageManager` carries the corepack integrity
+      hash, written by `corepack use` rather than by hand.
+- [x] **F-9.** Closed 16 August: `docs/dependencies.md` records the four figures
+      CLAUDE.md asks for — release age, maintainers, transitive dependencies,
+      provenance — for every package, with why each is there and what was
+      considered and rejected. A package with no row has not been vetted,
+      whatever anybody remembers.
 - [ ] **K-7.** `pnpm run build`, and therefore `check`, cannot run on Windows —
       `chmod` does not exist there. CI will never catch it: no Windows job.
 - [ ] **K-4.** The README table comparison in `verify.mjs` breaks on CRLF, and

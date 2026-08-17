@@ -16,6 +16,13 @@ coverage/
 # repository.
 .claude/**/_local/
 
+# The local Claude settings: a per-machine file with permissions and paths, kept
+# out of a public repository. It was excluded only by the owner's global ignore,
+# which is not part of the repository and does not travel with a clone — so on
+# any other machine it would have been committed. Found by the audit of
+# 14 August 2026 (L-10).
+.claude/settings.local.json
+
 # Worktrees created by agents inside the repository.
 .claude/worktrees/
 

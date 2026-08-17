@@ -108,3 +108,45 @@ an oversight.
 
 Secret scanning in CI is a separate decision — see
 [ADR-0007](0007-secret-scanning-in-ci.md).
+
+## Addendum of 2026-08-16: two settings that were off, and a pin nobody would revisit
+
+**`.npmrc` was dead and is gone.** It carried `engine-strict=true` and
+`save-exact=true`, and under pnpm 11 that file is read for authentication and the
+registry only — every other setting has to be in `pnpm-workspace.yaml` under a
+camelCase key. So the engine guard had been off since the upgrade to 11 and
+nothing said so. `savePrefix: ''` already covered the second one, which is why
+only `engineStrict: true` moved.
+
+Measured rather than argued: in an isolated package with `engines.node` set to
+`>=99`, `pnpm install` refuses when the setting is in `pnpm-workspace.yaml` and
+answers "Already up to date" when it is in `.npmrc`.
+
+**`packageManager` carries a corepack integrity hash.** It was
+`pnpm@11.20.0` — a version and nothing to verify it against, the one gap in a
+scheme where every action is pinned by commit SHA and both CI binaries by
+sha256. Written by `corepack use`, not by hand.
+
+**The osv-scanner pin now states when to raise it.** It sat at v2.4.0 behind a
+note saying v2.5.0 "came out a week ago"; by the time anyone read that, it had
+been true for two months. No dependabot ecosystem covers a binary fetched by
+URL — there is no such ecosystem, which is why the actions were rejected here in
+the first place — so nothing will announce a new release. The pin therefore
+carries its own condition, exactly as the `overrides` entries and the
+`osv-scanner.toml` exceptions do: raise it whenever a release is more than seven
+days old, which is the same cooldown `minimumReleaseAge` applies to everything
+else. It is at v2.5.0 now; v2.5.1 was published the same day this was written and
+is younger than the cooldown allows.
+
+**`pnpm audit` runs in CI.** ADR-0004 declares two layers of vulnerability
+scanning and only one ran — not in CI, not in the hooks. They read different
+databases: osv-scanner reads OSV, `pnpm audit` reads the npm advisory database,
+and an advisory reaches one before the other.
+
+**Vetting results are written down** in `docs/dependencies.md`. The rule above
+names four figures to check before adding a package, and they were checked and
+recorded nowhere, so the rule could not be audited after the fact — a habit
+rather than a rule. A package with no row in that file has not been vetted,
+whatever anybody remembers.
+
+Found by the audit of 14 August 2026 (F-3, F-5, F-6, F-7, F-9).
