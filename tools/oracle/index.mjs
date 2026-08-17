@@ -288,6 +288,14 @@ function checkReportConsistency(report) {
     if (!Array.isArray(check.standards) || check.standards.length === 0) {
       problems.push(`the check ${check.id} names no clause of any standard`);
     }
+    // And says what it asserts, in words. `Check.description` went the same way
+    // `standards` had: declared, filled, and dropped by the two-field mapping
+    // that built this list — so the reader of a saved artifact got an identifier
+    // and a clause number and no sentence to read. Found by the audit of
+    // 14 August 2026 (L-8). A gate that does not check this lets it rot back.
+    if (typeof check.description !== "string" || check.description === "") {
+      problems.push(`the check ${check.id} says nothing about what it asserts`);
+    }
   }
   for (const one of findings.filter((f) => f.source === "check")) {
     if (!Array.isArray(one.standards) || one.standards.length === 0) {

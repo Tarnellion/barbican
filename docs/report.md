@@ -306,6 +306,7 @@ differ in every one of them:
   "checksRun": [
     {
       "id": "identical-response-across-tenants",
+      "description": "The response digest matched for accounts from different tenants on an endpoint whose response was declared to differ between them: the sign of a missing tenant filter",
       "standards": [                      // which clauses this check answers for
         { "standard": "OWASP-API-2023", "clause": "API1" },
         { "standard": "OWASP-ASVS-5.0", "clause": "8.4.1" },
@@ -365,6 +366,15 @@ that found nothing, which is the whole difference between an evidence pack and a
 list of findings. Until 15 August 2026 `Check.standards` was declared, filled and
 read by no line of code: the word did not occur in a report, so neither direction
 could be built from a saved artifact.
+
+**And each entry says what the check asserts, in words.** `description` was in
+exactly the same state until 17 August 2026, and was answered the same way. An
+identifier and a clause number are two labels; "identical-response-across-tenants
+covers ASVS 8.4.1" is not a sentence anyone can audit. The reader of a saved
+report is the person who has the report and not `src/core/checks/`, which is the
+only reason the field exists at all. Reports written before that date have no
+`description` on these entries; `schemaVersion` stays `2`, because a reader
+written against `2` is not broken by a field appearing.
 
 **`skippedDifferentContextPairs` — pairs under different conditions.** They are
 not compared on purpose: in such a pair the tenant and the context attributes

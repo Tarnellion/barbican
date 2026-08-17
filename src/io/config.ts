@@ -1867,6 +1867,49 @@ export class InvalidCredentialError extends Error {
 }
 
 /**
+ * Two accounts present the same token.
+ *
+ * The whole tool rests on the platform being able to tell the accounts apart. If
+ * two of them hand over the same credential, every request the run makes "as
+ * carol" arrives as alice, and the central claim — "carol cannot read alice's
+ * order" — is proved by carol *being* alice. Nothing downstream can notice:
+ * the canaries pass, every status is what the policy expects, the report comes
+ * back clean and the run reads as evidence of isolation.
+ *
+ * A refusal rather than a warning, and before the first request, for the same
+ * reason a missing host allowlist is one: a result that cannot mean what it says
+ * is worse than no result. The reference platform has refused this since the day
+ * it was written (`readTokens` in `polygon/server.mjs`) — the tool that checks
+ * platforms did not. Found by the audit of 14 August 2026 (K-8).
+ *
+ * Neither the message nor the fields carry the token: the two variable names are
+ * what the operator has to go and look at, and a value that reaches an error
+ * message reaches a log.
+ */
+export class SharedCredentialError extends Error {
+  readonly accountId: string;
+  readonly variable: string;
+  readonly otherAccountId: string;
+  readonly otherVariable: string;
+
+  constructor(accountId: string, variable: string, other: { id: string; variable: string }) {
+    super(
+      `Accounts "${other.id}" and "${accountId}" present the same token, so the ` +
+        `platform cannot tell them apart: every cross-account check would compare ` +
+        `an account with itself and report the match as isolation. ` +
+        (variable === other.variable
+          ? `Both read it from ${variable} — give each account a variable of its own.`
+          : `${other.variable} and ${variable} hold the same value.`),
+    );
+    this.name = "SharedCredentialError";
+    this.accountId = accountId;
+    this.variable = variable;
+    this.otherAccountId = other.id;
+    this.otherVariable = other.variable;
+  }
+}
+
+/**
  * Takes the tokens out of the environment.
  *
  * Returns a separate map rather than a field in the configuration: that way a
@@ -1879,12 +1922,23 @@ export class InvalidCredentialError extends Error {
  *
  * @throws {MissingCredentialError} the variable is unset or empty
  * @throws {InvalidCredentialError} the token is unfit as a header value
+ * @throws {SharedCredentialError} two accounts present the same token
  */
 export function resolveTokens(
   config: RunConfig,
   environment: Readonly<Record<string, string | undefined>>,
 ): ReadonlyMap<string, string> {
   const tokens = new Map<string, string>();
+  /**
+   * Who already presents each token, so that a second account presenting it can
+   * be named against the first.
+   *
+   * A `Map` keyed by the token value, which never leaves this function: the
+   * accounts derived for request conditions share their principal's credential
+   * by design (`principalOf`), so the check is over declared accounts only —
+   * exactly the set this loop walks.
+   */
+  const presentedBy = new Map<string, { id: string; variable: string }>();
   for (const account of config.accounts) {
     if (account.tokenEnv === undefined) {
       // An anonymous account: there are no credentials on purpose.
@@ -1901,6 +1955,11 @@ export function resolveTokens(
     if (!isHeaderValue(value)) {
       throw new InvalidCredentialError(account.id, account.tokenEnv);
     }
+    const other = presentedBy.get(value);
+    if (other !== undefined) {
+      throw new SharedCredentialError(account.id, account.tokenEnv, other);
+    }
+    presentedBy.set(value, { id: account.id, variable: account.tokenEnv });
     tokens.set(account.id, value);
   }
   return tokens;

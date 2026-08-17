@@ -940,8 +940,15 @@ mutants the type checker rejects) **7 real gaps**, not 29.
       bypassing `buildReport`, and assemble objects `buildReport` cannot produce.
       The seam `buildReport -> runVerdict` is uncovered — which is where B-3 and
       B-4 live.
-- [ ] **K-6.** `existsSync` is case-blind on macOS: a link with the wrong case
-      passes locally and fails on Linux CI. No current divergence.
+- [x] **K-6.** Closed 17 August: a link target is checked against the set of
+      paths `git ls-files` records, plus every directory on the way to one, and
+      not against the file system. Git records one spelling, so the answer is the
+      same on every operating system. The rewrite of 15 August (K-5) changed
+      where the **list of documents** comes from and nothing about how targets
+      are checked, which is why this outlived it. The claim "answers from the
+      index, not from the disk" is put to a set made up for the occasion — one
+      file on disk and in it, one on disk and out of it — because that is the one
+      form of it that means the same thing on macOS and on Linux CI.
 
 ### The report is not self-sufficient for a ticket
 
@@ -1161,9 +1168,21 @@ readability, failed on B-2 / H-3 above and was closed with it.
       roughly double the tarball to make debugging work for a library whose
       compiled output reads very much like its source. See the addendum to
       ADR-0021.
-- [ ] **L-8.** `Check.severity` and `Check.description` are read by nobody, and
-      severity is declared twice — on the check and inside `run()` — where the
-      compiler cannot see them diverge.
+- [x] **L-8.** Closed 17 August by wiring both up, not by deleting them — the
+      state `standards` was in until 15 August, answered the same way, and
+      ADR-0003 names both fields in the interface it records. `Finding.severity`
+      became optional and `ResolvedFinding` has it required; `runChecks` in the
+      core is the one place a finding's severity is settled, and the report is
+      built from `ResolvedFinding[]`, so a `?? "medium"` further downstream does
+      not compile. The literal `severity: "high"` inside the tenant-isolation
+      check is gone — one declaration. `describeChecks` builds `checksRun` from
+      `id`, `description` and `standards`; `CheckRun` moved from
+      `src/report/build.ts` to the core, because every field of it is the check's
+      own, and the two-field mapping written out in `src/cli.ts` is where
+      `description` had been left behind. Severity is deliberately **not** in
+      `CheckRun`: that would move the duplication into the artifact. The oracle
+      now treats a `checksRun` entry with no description as a problem, as it
+      already did one with no clause.
 
 ### Module 2 is not architecturally ready
 
@@ -1243,12 +1262,37 @@ readability, failed on B-2 / H-3 above and was closed with it.
       whatever anybody remembers.
 - [ ] **K-7.** `pnpm run build`, and therefore `check`, cannot run on Windows —
       `chmod` does not exist there. CI will never catch it: no Windows job.
-- [ ] **K-4.** The README table comparison in `verify.mjs` breaks on CRLF, and
-      there is no `.gitattributes`.
-- [ ] **K-8.** Duplicate token values across accounts are not caught — although
-      the polygon itself has that guard.
-- [ ] **K-9.** The "am I main" idiom in both external polygons' `tokens.mjs` is
-      false when the path goes through a symlink.
+- [x] **K-4.** Closed 17 August: `tools/managed-block.mjs` reads, compares and
+      replaces the block between two markers, normalising line endings in one
+      place instead of in each caller. `.gitattributes` is the other half —
+      `* text=auto eol=lf`, and `eol=lf` rather than `text=auto` alone, because
+      the latter settles what goes **into** the repository and leaves the
+      checkout to `core.autocrlf`, which Git for Windows turns on by itself; the
+      gates read the working tree. Measured: on a CRLF copy of
+      `polygon/README.md` the old `current === block` is false and the new
+      comparison is true, while a genuinely stale table is still refused in both.
+      Two more closed on the way — `text.replace(current, block)` treated `$&`
+      and `$1` in the rendered table as substitutions, and markers in the wrong
+      order silently gave an empty block.
+- [x] **K-8.** Closed 17 August: `SharedCredentialError`, thrown by
+      `resolveTokens` before the first request. Two accounts presenting one token
+      means every cross-account check compares an account with itself and reports
+      the match as isolation — a clean run that cannot mean what it says, which
+      is worse than no run, so it is a refusal and not a warning. The message
+      names both accounts and both variables, says the "both read one variable"
+      case separately, and carries no part of the token: a value that reaches an
+      error message reaches a log. Declared accounts only — the ones derived for
+      request conditions share their principal's credential by design.
+- [x] **K-9.** Closed 17 August: `tools/is-main.mjs`, called by both polygons'
+      `tokens.mjs`. Reproduced first — through a symlink the script decided it
+      had been imported, did nothing, said nothing and exited 0. `realpath` on
+      **both** sides, not only on `process.argv[1]`: under
+      `--preserve-symlinks-main` it is `import.meta.url` that keeps the symlink,
+      and resolving one side alone only swaps which invocation is broken.
+      `import.meta.main` says this in one line and is node 24; the floor here is
+      22.12. The tests run the real scripts through a symlink and require the
+      message and exit 2, and require silence on import — otherwise a "fix" that
+      makes `main()` unconditional would pass everything else.
 - [x] **G-5.** Closed 15 August, addendum to
       [ADR-0014](docs/adr/0014-severity-and-exit-codes.md): a usage error exits
       **64** (`EX_USAGE`), set through `exitOverride` on every command — commander
@@ -1372,7 +1416,9 @@ verdict is refuted by D's run, and the invariant should be counted as breached.
 
 ### What could not be checked
 
-Windows (nothing to run it on; K-7 and half of K-8 are code reading). Branch
+Windows (nothing to run it on; K-7 is code reading, and K-4's `.gitattributes`
+is checked through `git check-attr` — the rules actually in force — rather than
+by a checkout on the platform they exist for). Branch
 protection on GitHub, so it is unknown whether the three missing release gates
 block a merge in practice. Real network latency — localhost only, so the scale
 numbers are extrapolation from a model confirmed at two latencies. OpenAPI
@@ -1478,8 +1524,12 @@ nowhere, and it drops accordingly.
     overstated it: the alias limit was already in place.
 14. ~~**L-7** — traversal order is assumed not to matter, and with
     `--unsafe-methods` it is not.~~ Done 16 August.
-15. **F-6, F-3, F-5, F-7, F-9, K-4, K-6, K-7, K-8, K-9, L-8, L-10** — supply
-    chain and hygiene, including a build that cannot run on Windows.
+15. ~~**F-6, F-3, F-5, F-7, F-9, K-4, K-6, K-8, K-9, L-8, L-10** — supply chain
+    and hygiene.~~ Done 16–17 August. Two settings had been off since the pnpm 11
+    upgrade and nothing said so; F-5 asked for a dependabot ecosystem that does
+    not exist for a binary fetched by URL, and F-6's "it exits 1 today" had
+    expired. **K-7 is left open on purpose** — whether to support Windows is a
+    decision and not a defect, and it is the owner's.
 16. **I-5 + I-6** — scale past the present ceiling. Nothing to measure against
     until somebody runs it at that size, and guessing is what the estimate in
     `plan.md` already did once.

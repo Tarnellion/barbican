@@ -1,0 +1,26 @@
+# Line endings belong to the repository, not to whoever checked it out.
+#
+# Two of this project's gates compare the text of a tracked file against text a
+# program produced. `node polygon/verify.mjs --check-readme` compares the
+# verification table in `polygon/README.md` with the table the run just rendered,
+# and the guards in `tests/docs/` read tracked documents the same way. A program
+# joins its lines with "\n" and with nothing else. Without this file a
+# contributor on Windows — or anyone whose editor writes CRLF — gets a working
+# tree full of "\r\n", and every one of those comparisons then fails on a
+# difference nobody made. Worse than the failure is what it says: the table is
+# out of date. The fix it suggests, regenerating the table, commits the wrong
+# line endings and cures nothing. Found by the audit of 14 August 2026 (K-4).
+#
+# `eol=lf`, not `text=auto` on its own: `text=auto` normalises what goes *into*
+# the repository and leaves the checkout to `core.autocrlf`, which Git for
+# Windows turns on when it is installed. The working tree is what the gates read,
+# so the working tree is what has to be settled here.
+#
+# The comparisons themselves no longer depend on this — they normalise line
+# endings before comparing, which is where the actual fix for K-4 lives. This
+# file is the other half: a repository whose contents mean the same thing on
+# every machine, so that the next comparison written does not have to remember.
+#
+# Every tracked file is text today and there is nothing to mark `binary`. One
+# added later needs a line of its own, or git will mangle it on the way in.
+* text=auto eol=lf

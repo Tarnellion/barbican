@@ -15,7 +15,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { Finding } from "../../src/core/checks/types.js";
+import type { ResolvedFinding } from "../../src/core/checks/types.js";
 import { parseRunConfig } from "../../src/io/config.js";
 import type { BuildReportOptions } from "../../src/report/build.js";
 import { buildReport } from "../../src/report/build.js";
@@ -32,7 +32,7 @@ policy:
 `);
 
 /** A leak the status code cannot show: both accounts were legitimately allowed. */
-const LEAK: Finding = {
+const LEAK: ResolvedFinding = {
   checkId: "identical-response-across-tenants",
   severity: "high",
   accountId: "alice",
@@ -165,7 +165,11 @@ describe("the arithmetic docs/report.md offers the reader", () => {
    * a rename of the existing number.
    */
   it("counts a cell once however many findings it carries", () => {
-    const second: Finding = { ...LEAK, checkId: "response-count-differs", severity: "medium" };
+    const second: ResolvedFinding = {
+      ...LEAK,
+      checkId: "response-count-differs",
+      severity: "medium",
+    };
     const built = build({ checks: [LEAK, second] });
     const alice = built.observations.find((o) => o.accountId === "alice");
 

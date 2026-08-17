@@ -38,6 +38,15 @@ is how you check the claim that an endpoint is not public. It was the anonymous
 account that found the broken authentication in crAPI: a two-dimensional model
 with a mandatory token missed that.
 
+**Two accounts may not present the same token.** If they do, the run stops before
+the first request and names both accounts and both variables. There is no way for
+the tool to notice it afterwards: the platform sees one principal, answers it its
+own data with its own rights, every canary passes, every status is what the policy
+expects, and the report comes back clean. That clean report is the tool comparing
+an account with itself and calling the result isolation — the one failure that
+turns the whole run into evidence of the opposite of what happened. Anonymous
+accounts are exempt: they present nothing, and any number of them is legitimate.
+
 `tenant` is optional too, and its absence is a statement, not an omission:
 **the account is declared outside of tenants**. That is exactly what an anonymous
 account is. For such an account every resource comes out as `foreign-tenant`: it

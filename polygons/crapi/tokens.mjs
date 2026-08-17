@@ -19,7 +19,7 @@
  *   eval "$(node polygons/crapi/tokens.mjs)"
  */
 
-import { fileURLToPath } from "node:url";
+import { isMainModule } from "../../tools/is-main.mjs";
 
 /** Requests to the polygon must not hang forever: the deployment lives on loopback. */
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -132,8 +132,10 @@ async function main() {
   }
 }
 
-// Run as a program, not imported as a module.
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Run as a program, not imported as a module. Through `isMainModule` and not the
+// usual comparison against `process.argv[1]`: that one is false whenever the path
+// goes through a symlink, and then this script does nothing and says nothing.
+if (isMainModule(import.meta.url)) {
   try {
     await main();
   } catch (error) {

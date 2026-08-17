@@ -28,9 +28,11 @@ import {
   buildAccessMatrix,
   CheckRegistry,
   createIdenticalResponseCheck,
+  describeChecks,
   describeMatrix,
   expandPolicy,
   resourceApplies,
+  runChecks,
 } from "./core/index.js";
 import type { RunConfig } from "./io/config.js";
 import {
@@ -667,7 +669,12 @@ async function run(flags: RunFlags): Promise<number> {
   // no way to assemble one: every registered check ran, always. The selection was
   // made above, before the first request. A check stays silent by itself when
   // nothing in the configuration concerns it.
-  const checksRun = selected.map((check) => ({ id: check.id, standards: check.standards }));
+  // Built in the core rather than by a mapping written out here. That mapping
+  // named `id` and `standards`, `Check.description` existed all along, and
+  // nothing pointed out that the third field had been left behind — so the one
+  // sentence in the project saying what a check does never reached the report.
+  // Found by the audit of 14 August 2026 (L-8).
+  const checksRun = describeChecks(selected);
   // What a run touched and what it did not, so that a check can say "this clause
   // was covered enough" rather than only "here is what I found".
   const scope: RunScope = {
@@ -680,7 +687,10 @@ async function run(flags: RunFlags): Promise<number> {
   // one check and called by name here, with its type imported into the report
   // layer — the arrangement ADR-0003 exists to prevent.
   const byCheck = selected.flatMap((check) => check.coverage?.(context) ?? []);
-  const checks = selected.flatMap((check) => check.run(context));
+  // Through `runChecks`, which settles each finding's severity from the check
+  // that made it. Calling `run` directly here is what let the severity be
+  // declared twice — once on the check and once as a literal inside it.
+  const checks = runChecks(selected, context);
   const suspicions = findUnauthenticated(
     accounts,
     observations,

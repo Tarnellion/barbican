@@ -247,7 +247,12 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
 
             findings.push({
               checkId: IDENTICAL_RESPONSE_CHECK_ID,
-              severity: "high",
+              // No severity here. It is declared once, on the check above, and
+              // `runChecks` puts it on. It used to be repeated as a literal in
+              // this object — the same word in two places in one file, with
+              // nothing to keep them equal, in a value the exit code is derived
+              // from. Found by the audit of 14 August 2026 (L-8).
+              //
               // The title speaks of the digest, not of the response: bodies are
               // not stored, and there was nothing to compare them with. See
               // `bodyDigestsEqual`.

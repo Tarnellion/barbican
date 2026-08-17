@@ -24,7 +24,19 @@ export interface StandardRef {
 /** A single finding of a check. */
 export interface Finding {
   readonly checkId: string;
-  readonly severity: Severity;
+  /**
+   * How bad this particular finding is.
+   *
+   * Optional, and absent is the ordinary case: it then means the severity the
+   * check declares, which `runChecks` stamps on before the finding goes
+   * anywhere. A check sets it only where one of its findings genuinely weighs
+   * differently from the rest.
+   *
+   * It used to be required, and the one check in the tree wrote the same literal
+   * here that it wrote on itself twelve lines above — two declarations of one
+   * fact, in one file, with nothing to make them agree. See `Check.severity`.
+   */
+  readonly severity?: Severity;
   readonly title: string;
   readonly endpointId?: string;
   readonly accountId?: string;
@@ -111,12 +123,87 @@ export interface CheckCoverage {
   readonly counters: Readonly<Record<string, number>>;
 }
 
+/**
+ * A finding with its severity settled.
+ *
+ * What leaves `runChecks` and what the report is built from. The distinction is
+ * the whole mechanism: a check may leave `severity` off, and past this point
+ * nothing may — the report sorts by it, counts by it and decides the exit code
+ * from it, and a `?? "medium"` in any of those places would be a fourth
+ * declaration of the same fact.
+ */
+export interface ResolvedFinding extends Finding {
+  readonly severity: Severity;
+}
+
+/**
+ * A check that ran, as the report names it.
+ *
+ * Not a bare id: an evidence pack is read from the clause inwards — "what covers
+ * ASVS 8.4.1" — and a list of identifiers answers only the other direction. Nor
+ * an id and a clause list, which are two labels and no sentence.
+ *
+ * Shaped in the core rather than in `src/report/build.ts`, where it used to be,
+ * because every field of it is the check's own. The report reads it and carries
+ * it; it does not decide what is in it.
+ */
+export interface CheckRun {
+  readonly id: string;
+  /**
+   * What the check asserts, in the check's own words.
+   *
+   * For the reader of the saved artifact, who has the report and not the source.
+   * `standards` says which clause was exercised and the id says by what; neither
+   * says what the thing actually looked at, and "identical-response-across-tenants
+   * covers ASVS 8.4.1" is not a sentence anyone can audit.
+   */
+  readonly description: string;
+  /** The clauses this check answers for. */
+  readonly standards: readonly StandardRef[];
+}
+
 export interface Check {
   readonly id: string;
+  /**
+   * What this check asserts, for a human reading the report.
+   *
+   * Read by `describeChecks`, which puts it into `coverage.checksRun`.
+   *
+   * It was declared, filled and read by nobody until 17 August 2026, together
+   * with `severity` below — the state `standards` was in until 15 August, and
+   * `standards` was wired up rather than deleted. The same answer here, and for
+   * the same reason: the field is not decoration, it is the only sentence in the
+   * project that says what a check does in words, and a report is read by people
+   * who cannot open `src/core/checks/`. Deleting it would also have meant
+   * contradicting ADR-0003, which names both fields in the interface it records.
+   * Found by the audit of 14 August 2026 (L-8).
+   */
   readonly description: string;
+  /**
+   * How bad this check's findings are, declared once.
+   *
+   * `runChecks` puts it on every finding that does not carry one of its own, and
+   * that is the whole of its use — deliberately, because the alternative is what
+   * was here. The value stood on the check and again as a literal inside
+   * `run()`, both saying `"high"`, and nothing in the language relates the two:
+   * change one and the report goes out with a severity the check does not claim,
+   * while the type checker sees two unrelated assignments of a valid `Severity`.
+   * The report sorts findings by severity, groups defects by it and derives the
+   * exit code from it, so the divergence would not have shown up as a wrong
+   * label but as a run that exits 0.
+   *
+   * It is deliberately **not** carried into `CheckRun`. Putting it there would
+   * restore the duplication in the artifact instead of the source: the same
+   * number beside the check and on each of its findings, free to disagree.
+   */
   readonly severity: Severity;
   readonly standards: readonly StandardRef[];
-  /** Synchronous and pure: the same input always gives the same output. */
+  /**
+   * Synchronous and pure: the same input always gives the same output.
+   *
+   * Call it through `runChecks` rather than directly, unless the caller is a test
+   * that means to look at what one check produces before its severity is settled.
+   */
   run(context: CheckContext): readonly Finding[];
   /**
    * What the check looked at, whether or not it found anything.

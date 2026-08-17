@@ -24,6 +24,11 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import {
+  ManagedBlockError,
+  managedBlockMatches,
+  replaceManagedBlock,
+} from "../tools/managed-block.mjs";
 import { checkCoverage, compareVariant, loadGroundTruth } from "../tools/oracle/index.mjs";
 
 const POLYGON_DIR = import.meta.dirname;
@@ -377,20 +382,28 @@ function renderTable(rows) {
   ].join("\n");
 }
 
-/** Replaces the block between the markers. @throws if the markers are absent */
+/**
+ * Reading and writing the block are delegated, and so is the comparison.
+ *
+ * `current === block` stood here, and it is false on a working tree checked out
+ * with CRLF: the rendered table joins its lines with "\n", every line then
+ * differs, and the gate reports the table as stale to a contributor who changed
+ * nothing. Following the advice in that message regenerates the table with the
+ * wrong line endings. Found by the audit of 14 August 2026 (K-4); the fix and
+ * the reasoning are in `tools/managed-block.mjs`, and `.gitattributes` keeps the
+ * working tree from getting there in the first place.
+ */
 async function writeReadmeTable(block) {
   const path = new URL(`../${README}`, import.meta.url);
   const text = await readFile(path, "utf8");
-  const replaced = replaceBlock(text, block);
-  await writeFile(path, replaced, "utf8");
+  await writeFile(path, withBlock(text, block), "utf8");
 }
 
 /** Returns a description of the discrepancy, or undefined if everything matched. */
 async function compareReadmeTable(block) {
   const path = new URL(`../${README}`, import.meta.url);
   const text = await readFile(path, "utf8");
-  const current = extractBlock(text);
-  if (current === block) {
+  if (matchesBlock(text, block)) {
     return undefined;
   }
   return (
@@ -399,18 +412,30 @@ async function compareReadmeTable(block) {
   );
 }
 
-function extractBlock(text) {
-  const from = text.indexOf(TABLE_BEGIN);
-  const to = text.indexOf(TABLE_END);
-  if (from === -1 || to === -1) {
-    fail(`${README} has no ${TABLE_BEGIN} / ${TABLE_END} markers around the verification table`);
+/**
+ * A missing marker is this script's own kind of failure, not a stack trace.
+ *
+ * The helper throws, because it is a module and a module has no business ending
+ * a process; here the message goes out the way every other refusal in this file
+ * does.
+ */
+function orFail(what) {
+  try {
+    return what();
+  } catch (error) {
+    if (error instanceof ManagedBlockError) {
+      return fail(`${README}: ${error.message}`);
+    }
+    throw error;
   }
-  return text.slice(from, to + TABLE_END.length);
 }
 
-function replaceBlock(text, block) {
-  const current = extractBlock(text);
-  return text.replace(current, block);
+function matchesBlock(text, block) {
+  return orFail(() => managedBlockMatches(text, TABLE_BEGIN, TABLE_END, block));
+}
+
+function withBlock(text, block) {
+  return orFail(() => replaceManagedBlock(text, TABLE_BEGIN, TABLE_END, block));
 }
 
 async function main() {

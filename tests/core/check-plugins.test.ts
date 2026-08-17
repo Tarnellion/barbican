@@ -20,9 +20,12 @@
 import { describe, expect, it } from "vitest";
 import {
   CheckRegistry,
+  describeChecks,
   ReservedCheckIdError,
+  runChecks,
   UnknownCheckError,
 } from "../../src/core/checks/registry.js";
+import { createIdenticalResponseCheck } from "../../src/core/checks/tenant-isolation.js";
 import type { Check, CheckContext, CheckCoverage, Finding } from "../../src/core/checks/types.js";
 import type { AccessMatrix } from "../../src/core/types.js";
 
@@ -32,6 +35,34 @@ const MATRIX: AccessMatrix = {
   resources: [],
   observations: [],
 };
+
+/**
+ * Two tenants, one digest, on an endpoint a human declared must differ between
+ * them. Written out by hand, like every fixture here: a matrix generated from the
+ * check would test the check against itself.
+ */
+function leakingMatrix(): AccessMatrix {
+  const seen = (accountId: string) => ({
+    endpointId: "orders.list",
+    accountId,
+    status: 200,
+    headers: {},
+    outcome: "allowed" as const,
+    durationMs: 1,
+    signals: { digest: 4242 },
+  });
+  return {
+    endpoints: [
+      { id: "orders.list", method: "GET", path: "/v1/orders", responseMustDifferByTenant: true },
+    ],
+    accounts: [
+      { id: "alice", roleId: "user", tenantId: "t-a" },
+      { id: "carol", roleId: "user", tenantId: "t-b" },
+    ],
+    resources: [],
+    observations: [seen("alice"), seen("carol")],
+  };
+}
 
 function stub(id: string, extra: Partial<Check> = {}): Check {
   return {
@@ -172,6 +203,109 @@ describe("a check that has something to say about its own reach", () => {
   /** A check with nothing to say says nothing, and the caller copes. */
   it("may have none", () => {
     expect(stub("silent").coverage).toBeUndefined();
+  });
+});
+
+/**
+ * `Check.severity` and `Check.description`, which nobody read.
+ *
+ * The state `standards` was in until 15 August, found by the same audit and
+ * answered the same way: wired up, not deleted. Severity was worse than merely
+ * unread — it was declared twice, on the check and again as a literal inside
+ * `run()`, in the value the report sorts by and the exit code comes from, with
+ * nothing in the language to relate the two. Found by the audit of 14 August
+ * 2026 (L-8).
+ */
+describe("what a check declares about itself", () => {
+  const context: CheckContext = { matrix: MATRIX };
+  const finding = (extra: Partial<Finding> = {}): Finding => ({
+    checkId: "weighty",
+    title: "something",
+    endpointId: "orders.list",
+    accountId: "alice",
+    evidence: {},
+    ...extra,
+  });
+
+  /** The declaration on the check is where a finding's severity comes from. */
+  it("puts its severity on the findings that name none", () => {
+    const check = stub("weighty", { severity: "critical", run: () => [finding()] });
+
+    expect(runChecks([check], context).map((one) => one.severity)).toEqual(["critical"]);
+  });
+
+  /**
+   * And a check whose findings genuinely differ in weight can still say so.
+   * Without this the field would be a constant rather than a default, and a
+   * check that grades its findings would have nowhere to put the grade.
+   */
+  it("lets a finding carry a severity of its own", () => {
+    const check = stub("weighty", {
+      severity: "critical",
+      run: () => [finding({ severity: "low" }), finding()],
+    });
+
+    expect(runChecks([check], context).map((one) => one.severity)).toEqual(["low", "critical"]);
+  });
+
+  /** Several checks, each answering for its own findings. */
+  it("keeps each check's findings on that check's severity", () => {
+    const findings = runChecks(
+      [
+        stub("first", { severity: "medium", run: () => [finding({ checkId: "first" })] }),
+        stub("second", { severity: "info", run: () => [finding({ checkId: "second" })] }),
+      ],
+      context,
+    );
+
+    expect(findings.map((one) => [one.checkId, one.severity])).toEqual([
+      ["first", "medium"],
+      ["second", "info"],
+    ]);
+  });
+
+  /**
+   * The check in the tree declares `high` once and no longer repeats it. Asserted
+   * on the real check rather than on a stub: the duplicate literal was in this
+   * one, and a stub cannot have it.
+   */
+  it("is where the tenant-isolation check's severity now comes from, once", () => {
+    const check = createIdenticalResponseCheck();
+    const matrix = leakingMatrix();
+
+    expect(check.run({ matrix })).toHaveLength(1);
+    // Nothing of its own on the finding — the check said it, the runner puts it on.
+    expect(check.run({ matrix })[0]?.severity).toBeUndefined();
+    expect(runChecks([check], { matrix })[0]?.severity).toBe(check.severity);
+    expect(check.severity).toBe("high");
+  });
+
+  /**
+   * And the description reaches the report. It is the only sentence in the
+   * project saying what a check does in words, and the reader of a saved
+   * artifact has the report and not `src/core/checks/`.
+   */
+  it("goes into the report's list of checks, description and all", () => {
+    expect(describeChecks([stub("first"), stub("second")])).toEqual([
+      {
+        id: "first",
+        description: "the first check",
+        standards: [{ standard: "OWASP-ASVS-5.0", clause: "1.2.3" }],
+      },
+      {
+        id: "second",
+        description: "the second check",
+        standards: [{ standard: "OWASP-ASVS-5.0", clause: "1.2.3" }],
+      },
+    ]);
+  });
+
+  /** The real check describes itself too, and not with its own identifier. */
+  it("describes the tenant-isolation check in words rather than by its id", () => {
+    const [described] = describeChecks([createIdenticalResponseCheck()]);
+
+    expect(described?.description).toContain("different tenants");
+    expect(described?.description).not.toBe(described?.id);
   });
 });
 

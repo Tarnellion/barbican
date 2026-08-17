@@ -327,6 +327,66 @@ describe("compareVariant", () => {
     expect(result.problems[0]).toMatch(/cut short/);
   });
 
+  /**
+   * A check named in the report has to say what it asserts and which clauses it
+   * answers for.
+   *
+   * Both fields were declared on `Check`, filled by the one check in the tree,
+   * and dropped by the mapping that built `coverage.checksRun` — `standards`
+   * until 15 August, `description` until 17 August (L-8). A reader of the saved
+   * artifact got an identifier and nothing else, which is not an evidence pack.
+   * The unit suite cannot see this: it is a property of what the binary writes,
+   * so it is asserted where the binary's output is read.
+   */
+  it("does not count a run whose checks describe themselves to nobody", () => {
+    const clean = MINIMAL.variants[0] as Variant;
+    const withCheck = (check: Readonly<Record<string, unknown>>) => ({
+      findings: [],
+      observations: [],
+      defects: [],
+      summary: {
+        findings: 0,
+        observations: 0,
+        checkFindings: 0,
+        defectGroups: 0,
+        bySeverity: {},
+        byKind: {},
+      },
+      coverage: { checksRun: [check] },
+    });
+
+    expect(
+      compareVariant(
+        clean,
+        withCheck({
+          id: "identical-response-across-tenants",
+          description: "digests matched across tenants",
+          standards: [{ standard: "OWASP-API-2023", clause: "API1" }],
+        }),
+        0,
+      ).problems,
+    ).toEqual([]);
+
+    expect(
+      compareVariant(
+        clean,
+        withCheck({
+          id: "identical-response-across-tenants",
+          standards: [{ standard: "OWASP-API-2023", clause: "API1" }],
+        }),
+        0,
+      ).problems.join("\n"),
+    ).toMatch(/says nothing about what it asserts/);
+
+    expect(
+      compareVariant(
+        clean,
+        withCheck({ id: "identical-response-across-tenants", description: "" }),
+        0,
+      ).problems.join("\n"),
+    ).toMatch(/names no clause[\s\S]*says nothing/);
+  });
+
   it("does not count a run with unauthenticated accounts as a match", () => {
     const result = compareVariant(
       MINIMAL.variants[0] as Variant,

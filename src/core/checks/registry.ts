@@ -5,7 +5,7 @@
  * creates the registry explicitly and passes it on.
  */
 
-import type { Check } from "./types.js";
+import type { Check, CheckContext, CheckRun, ResolvedFinding } from "./types.js";
 
 export class DuplicateCheckIdError extends Error {
   readonly checkId: string;
@@ -69,6 +69,53 @@ export class UnknownCheckError extends Error {
     );
     this.checkId = checkId;
   }
+}
+
+/**
+ * Runs the checks and settles the severity of everything they found.
+ *
+ * The one place a finding's severity is decided. A check declares `severity`
+ * once, on itself; a finding that names none gets that one, and a finding that
+ * names one of its own keeps it — a check whose findings genuinely differ in
+ * weight can still say so.
+ *
+ * Here rather than in `src/cli.ts` for the same reason `select` is here: it is a
+ * property of what a check is, the core is where that lives, and a test of it
+ * should not have to import a module that parses argv on load. Before this, the
+ * caller was `selected.flatMap((check) => check.run(context))` and the check
+ * repeated its own severity as a literal inside `run()` — two declarations of
+ * one fact that no compiler relates. See `Check.severity`; found by the audit of
+ * 14 August 2026 (L-8).
+ */
+export function runChecks(
+  checks: readonly Check[],
+  context: CheckContext,
+): readonly ResolvedFinding[] {
+  return checks.flatMap((check) =>
+    check
+      .run(context)
+      .map((finding) => ({ ...finding, severity: finding.severity ?? check.severity })),
+  );
+}
+
+/**
+ * The checks that ran, as the report names them.
+ *
+ * All of them, the ones that found nothing included: a check nobody registered,
+ * or one that crashed, otherwise gives a report indistinguishable from a clean
+ * one — its key shows up in `byKind` only once it has found something.
+ *
+ * In the core, and not two lines in `src/cli.ts` building the objects by hand,
+ * because that is where `description` was lost: the mapping named `id` and
+ * `standards`, the field existed, and nothing anywhere pointed out that the
+ * third one had been left behind.
+ */
+export function describeChecks(checks: readonly Check[]): readonly CheckRun[] {
+  return checks.map((check) => ({
+    id: check.id,
+    description: check.description,
+    standards: check.standards,
+  }));
 }
 
 export class CheckRegistry {

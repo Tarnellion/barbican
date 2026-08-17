@@ -14,14 +14,14 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 /**
- * The documents in the repository, from git rather than from the disk.
+ * Everything the repository carries, from git rather than from the disk.
  *
  * Walking the file system meant descending into `.claude/worktrees/`: of the 93
  * markdown files this visited, 41 were not the repository at all — checkouts of
@@ -29,11 +29,64 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
  * depends on what happened to be lying around. `language.test.ts` next door had
  * it right from the start. Found by the audit of 14 August 2026 (K-5).
  */
-function markdownFiles(): readonly string[] {
+function trackedFiles(): readonly string[] {
   return execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "utf8" })
     .split("\u0000")
-    .filter((one) => one.endsWith(".md"))
-    .map((one) => join(ROOT, one));
+    .filter((one) => one !== "");
+}
+
+/**
+ * Every tracked path, and every directory on the way to one, spelled the way git
+ * records it.
+ *
+ * This set — and not the file system — is what a link target is checked against,
+ * and the reason is the letter case. `existsSync` asks the file system, and the
+ * file system on macOS, as on Windows, answers `true` for
+ * `0003-CHECK-registry.md`. A link with the case wrong therefore passed on the
+ * machine it was written on and failed on Linux CI: a gate red for a reason that
+ * is not the contributor's, and a message that does not say so. The audit of
+ * 14 August 2026 (K-6) found no such link in the repository at the time, which
+ * is the only reason nobody had met it yet.
+ *
+ * The guard was rewritten on 15 August to take its **list of documents** from
+ * `git ls-files` (K-5). That changed which files are scanned and nothing about
+ * how their targets are checked, so the case-blindness outlived it — and it is
+ * also what makes the cure cheap: git records a path with one spelling, and a
+ * comparison against that record gives the same answer on every operating
+ * system.
+ *
+ * Directories are in here because four links point at one — `docs/adr/`,
+ * `examples/` — and git lists no directories of its own.
+ */
+function trackedPaths(files: readonly string[]): ReadonlySet<string> {
+  const paths = new Set<string>();
+  for (const one of files) {
+    paths.add(one);
+    // `git ls-files` separates with `/` whatever the platform.
+    for (let parent = posix.dirname(one); parent !== "."; parent = posix.dirname(parent)) {
+      paths.add(parent);
+    }
+  }
+  return paths;
+}
+
+/** Where a link points, as a repository path — the currency the tracked set uses. */
+function targetOf(from: string, link: string): string {
+  return relative(ROOT, resolve(dirname(join(ROOT, from)), link))
+    .split(sep)
+    .join("/");
+}
+
+/**
+ * Whether the repository carries what a link points at.
+ *
+ * The set is a parameter rather than a constant this reads for itself, so that
+ * the claim "this answers from the index and not from the disk" can be put to it
+ * directly. A version of this function that consults the file system passes
+ * every test below that uses the real set and fails the two that do not.
+ */
+function carries(paths: ReadonlySet<string>, from: string, link: string): boolean {
+  return paths.has(targetOf(from, link));
 }
 
 /**
@@ -53,32 +106,71 @@ function ships(repoPath: string): boolean {
 }
 
 /** Relative links only: external addresses need the network and are not checked here. */
-function relativeLinks(file: string): readonly string[] {
-  const text = readFileSync(file, "utf8");
+function relativeLinks(repoPath: string): readonly string[] {
+  const text = readFileSync(join(ROOT, repoPath), "utf8");
   return [...text.matchAll(/\[[^\]]*\]\(([^)#\s]+)(?:#[^)]*)?\)/g)]
     .map((match) => match[1] ?? "")
     .filter((target) => target !== "" && !/^(https?:|mailto:)/.test(target));
 }
 
-describe("links in the documentation", () => {
-  const files = markdownFiles();
+const files = trackedFiles();
+const tracked = trackedPaths(files);
+const documents = files.filter((one) => one.endsWith(".md"));
 
+describe("links in the documentation", () => {
   it("finds documents instead of staying silent on an empty list", () => {
     // A test that found nothing is green for the same reason a passing one is.
-    expect(files.length).toBeGreaterThan(10);
+    expect(documents.length).toBeGreaterThan(10);
   });
 
   it("lead to files that exist", () => {
     const broken: string[] = [];
-    for (const file of files) {
+    for (const file of documents) {
       for (const target of relativeLinks(file)) {
-        if (!existsSync(resolve(dirname(file), target))) {
-          broken.push(`${file.slice(ROOT.length + 1)} -> ${target}`);
+        if (!carries(tracked, file, target)) {
+          broken.push(`${file} -> ${target}`);
         }
       }
     }
 
     expect(broken).toEqual([]);
+  });
+
+  /**
+   * The answer comes from the repository's index and not from the disk.
+   *
+   * Put to a set made up for the occasion, because that is the one form of this
+   * claim that means the same thing on every machine: one of the two files is on
+   * disk and in the set, the other is on disk and out of it. Anything that
+   * consults the file system agrees on the first and disagrees on the second,
+   * here and on CI alike.
+   */
+  it("answers from what git records, not from what the disk holds", () => {
+    const from = "docs/adr/0019-request-contexts.md";
+    const pretend = new Set(["docs", "docs/adr", "docs/adr/0003-check-registry.md"]);
+    const missingFromTheSet = "0028-the-policy-is-indexed-once.md";
+
+    expect(existsSync(join(ROOT, "docs/adr", missingFromTheSet))).toBe(true);
+    expect(carries(pretend, from, "0003-check-registry.md")).toBe(true);
+    expect(carries(pretend, from, missingFromTheSet)).toBe(false);
+  });
+
+  /**
+   * A link whose case is wrong leads nowhere, whatever this machine's file
+   * system says about it.
+   *
+   * On macOS `existsSync` answers `true` for a name that differs only in case,
+   * so this assertion is the finding itself: with the check made against the
+   * file system it fails here and passes on Linux, which is the wrong way round
+   * from every point of view. What this machine thinks is deliberately not
+   * asserted — that would be a test with a different verdict per operating
+   * system, the very thing being fixed.
+   */
+  it("does not accept a target whose letter case is wrong", () => {
+    const from = "docs/adr/0019-request-contexts.md";
+
+    expect(carries(tracked, from, "0003-check-registry.md")).toBe(true);
+    expect(carries(tracked, from, "0003-Check-Registry.md")).toBe(false);
   });
 
   /**
@@ -96,15 +188,13 @@ describe("links in the documentation", () => {
    */
   it("lead somewhere for a reader who installed the package", () => {
     const dead: string[] = [];
-    for (const file of files) {
-      const from = relative(ROOT, file);
-      if (!ships(from)) {
+    for (const file of documents) {
+      if (!ships(file)) {
         continue;
       }
       for (const target of relativeLinks(file)) {
-        const to = relative(ROOT, resolve(dirname(file), target));
-        if (!ships(to)) {
-          dead.push(`${from} -> ${target}`);
+        if (!ships(targetOf(file, target))) {
+          dead.push(`${file} -> ${target}`);
         }
       }
     }

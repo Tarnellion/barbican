@@ -32,6 +32,7 @@ import {
   parseRunConfig,
   ReservedSignalNameError,
   resolveTokens,
+  SharedCredentialError,
   toAccounts,
   UnknownAuthSchemeError,
   UnknownEndpointReferenceError,
@@ -244,6 +245,82 @@ describe("credentials", () => {
     expect(() =>
       resolveTokens(config, { TOKEN_PLAYER_A: "present", TOKEN_ADMIN_A: "   " }),
     ).toThrow(MissingCredentialError);
+  });
+
+  /**
+   * Two accounts with one token.
+   *
+   * The one failure this tool cannot survive and could not see. Every claim it
+   * makes is of the form "carol, from another tenant, cannot read this" — and if
+   * carol's requests arrive as alice, the platform answers alice's own data with
+   * alice's own rights. The canaries pass, every status is what the policy
+   * expects, the report is clean, and the clean report is the tool comparing an
+   * account with itself and calling the result isolation.
+   *
+   * The reference platform has refused it since it was written; the tool did not.
+   * Found by the audit of 14 August 2026 (K-8).
+   */
+  it("refuses two accounts that present the same token", () => {
+    const config = parseRunConfig(VALID);
+
+    expect(() =>
+      resolveTokens(config, { TOKEN_PLAYER_A: "one-token", TOKEN_ADMIN_A: "one-token" }),
+    ).toThrow(SharedCredentialError);
+    // Both accounts and both variables are named: "somewhere two of your eight
+    // accounts collide" is not something an operator can act on.
+    expect(() =>
+      resolveTokens(config, { TOKEN_PLAYER_A: "one-token", TOKEN_ADMIN_A: "one-token" }),
+    ).toThrow(/player-a[\s\S]*admin-a/);
+    expect(() =>
+      resolveTokens(config, { TOKEN_PLAYER_A: "one-token", TOKEN_ADMIN_A: "one-token" }),
+    ).toThrow(/TOKEN_PLAYER_A[\s\S]*TOKEN_ADMIN_A/);
+  });
+
+  /**
+   * The same variable on two accounts is the same defect, reached by a typo
+   * rather than by two copies of a value, and it deserves the fix in the message.
+   */
+  it("names the one variable when both accounts read from it", () => {
+    const config = parseRunConfig(VALID.replace("TOKEN_ADMIN_A", "TOKEN_PLAYER_A"));
+
+    expect(() => resolveTokens(config, { TOKEN_PLAYER_A: "one-token" })).toThrow(
+      /Both read it from TOKEN_PLAYER_A/,
+    );
+  });
+
+  /**
+   * The refusal must not become the leak it prevents.
+   *
+   * An error message is the one thing here that reaches a terminal, a CI log and
+   * a pasted bug report, and the token is the single value in this project that
+   * may reach none of them.
+   */
+  it("says none of the token in the refusal", () => {
+    const config = parseRunConfig(VALID);
+    const token = "s3cret-shared-token";
+
+    try {
+      resolveTokens(config, { TOKEN_PLAYER_A: token, TOKEN_ADMIN_A: token });
+      expect.unreachable("the duplicate token was accepted");
+    } catch (error) {
+      expect(error).toBeInstanceOf(SharedCredentialError);
+      expect(JSON.stringify(error, Object.getOwnPropertyNames(error))).not.toContain(token);
+    }
+  });
+
+  /**
+   * Anonymous accounts are not a collision.
+   *
+   * They name no variable and present nothing, so any number of them is
+   * legitimate — that is how one asks whether an endpoint is open to everyone.
+   * A guard keyed on "no token" would refuse the second one.
+   */
+  it("allows any number of accounts with no token at all", () => {
+    const config = parseRunConfig(
+      VALID.replace(", tokenEnv: TOKEN_PLAYER_A", "").replace(", tokenEnv: TOKEN_ADMIN_A", ""),
+    );
+
+    expect(resolveTokens(config, {}).size).toBe(0);
   });
 });
 

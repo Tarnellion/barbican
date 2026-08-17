@@ -13,7 +13,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { AuthScheme } from "../adapters/credentials.js";
 import type { ThrottleLimits } from "../adapters/throttle.js";
-import type { CheckCoverage, StandardRef } from "../core/checks/types.js";
+// `CheckRun` is shaped in the core and not here. Every field of it is the
+// check's own — its id, what it asserts, the clauses it answers for — and this
+// file's business is to carry it, not to decide what goes in. It was declared
+// here, and `description` was the field the mapping that built it left out.
+// See `describeChecks`.
+import type {
+  CheckCoverage,
+  CheckRun,
+  ResolvedFinding,
+  StandardRef,
+} from "../core/checks/types.js";
 import type {
   AccessDiff,
   AccessObservation,
@@ -24,7 +34,6 @@ import type {
   DiffKind,
   Endpoint,
   ExpectedOutcome,
-  Finding,
   HttpMethod,
   ResolvedAccessPolicy,
   Resource,
@@ -479,18 +488,6 @@ export interface Coverage {
   readonly resourcesNotFound: readonly string[];
 }
 
-/**
- * A check that ran, and the clauses it answers for.
- *
- * A pair rather than a bare id: an evidence pack is read from the clause
- * inwards — "what covers ASVS 8.4.1" — and a list of identifiers answers only
- * the other direction.
- */
-export interface CheckRun {
-  readonly id: string;
-  readonly standards: readonly StandardRef[];
-}
-
 export interface RunReport {
   /**
    * The version of the report's shape.
@@ -725,7 +722,7 @@ export interface BuildReportOptions {
   /** The policy with patterns expanded — the one that gave the verdicts. */
   readonly policy: ResolvedAccessPolicy;
   /** Findings from the registry's checks. Absent means 'no checks were run'. */
-  readonly checks?: readonly Finding[];
+  readonly checks?: readonly ResolvedFinding[];
   /** The identifiers of the checks that ran, the ones that found nothing included. */
   readonly checksRun?: readonly CheckRun[];
   /**
@@ -797,7 +794,7 @@ function cellKey(of: {
 
 function mergeFindings(
   diffs: readonly AccessDiff[],
-  checks: readonly Finding[],
+  checks: readonly ResolvedFinding[],
   observations: readonly AccessObservation[],
   contexts: readonly RequestContextConfig[] = [],
   checksRun: readonly CheckRun[] = [],
@@ -855,7 +852,7 @@ function mergeFindings(
   }
 
   /** The other side's request in a paired finding, if there was one. */
-  function relatedRequestOf(check: Finding): { relatedRequest?: RequestRecord } {
+  function relatedRequestOf(check: ResolvedFinding): { relatedRequest?: RequestRecord } {
     // The field, not `evidence.otherAccountId`. That was a contract between two
     // layers held together by a key name: typed as "some scalar", documented
     // nowhere, and undiscoverable by whoever writes the next check.
