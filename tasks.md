@@ -1965,14 +1965,18 @@ two of the project's defences against each other:
       The decision: an `osv-scanner.toml` with an exception **for two days** and a written
       reachability analysis. Checked that the exception is targeted: another
       vulnerability with the same config still fails the scanner.
-- [ ] 🔴 **MANDATORY, 14 August 2026 after 16:41 UTC.** Update the lockfile
-      to `nanoid` 3.3.18 and delete the entry from `osv-scanner.toml` entirely.
-      Check that the lockfile really holds 3.3.18: when the cooldown fires,
-      pnpm silently leaves the old version. The deadline is not invented — it is the moment
-      `minimumReleaseAge` expires, counted from the publication on 7 August at 16:41 UTC.
-      After `ignoreUntil = 2026-08-15` the scanner will start failing CI on its own, and if
-      the item is not closed, a red CI becomes normal — and a normally red
-      CI is not read.
+- [x] 🔴 **MANDATORY, 14 August 2026 after 16:41 UTC.** Done: the lockfile holds
+      `nanoid` 3.3.18, that is what installs, and `osv-scanner.toml` has no
+      entries left — only the rule about not having silent ones. Verified on
+      17 August rather than taken from the box, which was still open.
+      **And the `overrides` entry is gone with it.** It carried its own condition
+      for removal — "when postcss itself moves past 3.3.17 in a version this
+      project installs, the override stops changing anything and only hides the
+      fact that it stopped" — and that was measured, not assumed: with the entry
+      deleted, pnpm resolves 3.3.18 anyway, because postcss asks for `^3.3.16`.
+      `pnpm audit` is clean, `--frozen-lockfile` passes, and if a future
+      resolution ever did pick 3.3.17 the OSV scan would say so, which is the
+      safety net the removal condition was written against.
 - [ ] `pnpm update` says nothing when the cooldown has fired: it prints
       "Lockfile passes supply-chain policies" and leaves the old version.
       You cannot tell "there are no updates" from "the update was blocked by the threshold"

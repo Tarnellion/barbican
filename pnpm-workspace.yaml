@@ -49,13 +49,3 @@ savePrefix: ''
 # against what package.json declares, and answers "Already up to date" while
 # leaving the lockfile alone. pnpm's own documentation recommends an override
 # for this, and this is that.
-overrides:
-  # nanoid 3.3.17 loops forever in customAlphabet when size = 0
-  # (GHSA-2v37-7h3g-55p8). It reaches us through vitest -> vite -> postcss, so
-  # it is development-only and never in the published package; postcss asks for
-  # ^3.3.16, so 3.3.18 satisfies it without touching anything else.
-  #
-  # Remove when postcss itself moves past 3.3.17 in a version this project
-  # installs — then the override stops changing anything and only hides the
-  # fact that it stopped.
-  nanoid: ^3.3.18
