@@ -606,8 +606,29 @@ everything downstream of it.
       Original finding: `coverage.bodiesComparedOn` names endpoints that were
       never probed: it filters all endpoints where the check filters probed
       ones.
-- [ ] **B-6.** `groupDefects` never merges the channels, so one platform defect
-      visible both by status and by body counts as two.
+- [x] **B-6.** Closed 17 August, [ADR-0030](docs/adr/0030-a-defect-is-not-its-channel.md).
+      The signature was `endpoint × kind × relation × conditions`, and `kind` is a
+      kind of matrix discrepancy on one channel and a check identifier on the
+      other — so the two could never merge. An endpoint with no authorization on
+      it at all refuses nothing **and** returns one body to every tenant: two
+      groups, two keys, two tickets to one team, the second closed as a duplicate.
+      That is the one thing a lower bound may never do, and `defectGroups` is
+      documented as a lower bound in two places.
+      Measured before deciding, on the reference polygon rather than on a
+      fixture: it happens in **3 of the 28 combinations**, taking 7 defects to 6
+      and 13 to 11 — and both flavours occur, a check merging with a status
+      discrepancy (`orders.list any-resource geo-blocked`) and two matrix kinds
+      merging with each other (`orders.read same-tenant baseline`).
+      `kind` leaves the signature; each group carries `kinds`, sorted, every way
+      its cells were found broken. Deliberately **not** in the `key`: the key
+      exists so a ticket still points at the defect next month, and a defect
+      noticed a second way would otherwise be renamed by the run that learned more
+      about it. `relation` and `conditions` stay — they say which cells, not how
+      the tool noticed.
+      Mutations: putting `kind` back in the signature, and not adding to `kinds`,
+      each fail two named tests — and the second also fails the **oracle on the
+      real polygon**, naming the group. "Merging is only right if nothing is lost
+      by it" is asserted on all 28 combinations rather than argued in the ADR.
 - [x] **B-7.** Closed 15 August: a cell that could not be addressed leaves a row
       with status 0 — which is what this report already means by "no answer" —
       and no `url` or `method`, because the address is exactly what could not be

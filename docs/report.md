@@ -127,19 +127,31 @@ One defect in the platform touches as many cells as there are. One missing
 tenant filter gives ten rows; three BOLAs, seen by a user and by an
 administrator, give six.
 
-Rows collapse to the signature "endpoint × kind × relation". Role is not part of
-the signature: an endpoint open to a user and to an admin alike is one defect,
-not two. Relation is part of it: BOLA inside a tenant and a cross-tenant leak
-live on the same endpoint and break independently.
+Rows collapse to the signature "endpoint × relation × conditions". Role is not
+part of the signature: an endpoint open to a user and to an admin alike is one
+defect, not two. Relation is part of it: BOLA inside a tenant and a cross-tenant
+leak live on the same endpoint and break independently.
 
-**That signature is also the defect's `key`, and it is what to cite.** The array
+**The kind of finding is not part of it, and was until 17 August 2026.** How a
+defect was noticed is not what a defect is. An endpoint with no authorization on
+it at all answers a request it should refuse *and* returns the same body to every
+tenant, so it produced a `privilege-escalation` group and an
+`identical-response-across-tenants` group — two entries for one missing check,
+which is the one thing a lower bound may never be: larger than the truth. On the
+reference platform this happened in 3 of the 28 combinations, taking 7 defects to
+6 and 13 to 11. Each group now carries `kinds`, every way its cells were found to
+be broken, so nothing is lost by the merge. See
+[ADR-0030](adr/0030-a-defect-is-not-its-channel.md).
+
+**The signature is also the defect's `key`, and it is what to cite.** The array
 is ordered by severity, so "defect #5 from run X" points at something else a
 month later — one fix upstream renumbers everything below it. The key does not
 move: two runs of the same configuration against the same platform name the same
-defect the same way.
+defect the same way, and a defect noticed a second way keeps the name it had.
 
 ```jsonc
-"key": "orders.list identical-response-across-tenants any-resource baseline"
+"key": "orders.list any-resource baseline",
+"kinds": ["identical-response-across-tenants", "privilege-escalation"]
 ```
 
 The tool **does not know the exact number of defects and cannot know it**: two

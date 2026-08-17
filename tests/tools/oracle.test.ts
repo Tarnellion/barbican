@@ -247,8 +247,12 @@ describe("compareVariant", () => {
     observations: [{ accountId: "alice", endpointId: "orders.read" }],
     defects: [
       {
+        key: "orders.read any-resource baseline",
         endpointId: "orders.read",
-        kind: "privilege-escalation",
+        // `kinds`, since the signature stopped carrying the kind: a defect is
+        // not the channel that found it, and a group names every way its cells
+        // were found broken. See ADR-0030.
+        kinds: ["privilege-escalation"],
         severity: "high",
         accountIds: ["alice"],
         resourceIds: ["o-1"],

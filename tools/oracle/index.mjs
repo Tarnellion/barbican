@@ -321,12 +321,17 @@ function checkReportConsistency(report) {
     }
   }
 
-  // Grouping is by the signature "endpoint × kind × relation × conditions", so
-  // the two sets of signatures are the same set seen twice. A group that lost
-  // `relation`, or a finding that lost `contextId`, shows up here and nowhere
-  // else: the finding list stays right, and only the aggregation is wrong.
-  const signature = (one) =>
-    `${one.endpointId} × ${one.kind} × ${one.relation ?? "—"} × ${one.contextId ?? "—"}`;
+  // Grouping is by the signature "endpoint × relation × conditions", so the two
+  // sets of signatures are the same set seen twice. A group that lost `relation`,
+  // or a finding that lost `contextId`, shows up here and nowhere else: the
+  // finding list stays right, and only the aggregation is wrong.
+  //
+  // The kind is not in it since 17 August 2026 (B-6, ADR-0030): it says how a
+  // defect was noticed rather than what it is, and an endpoint with no
+  // authorization at all is noticed twice. It is checked below instead — every
+  // kind a finding carries has to appear in its group's `kinds`, and every name
+  // in `kinds` has to come from a finding.
+  const signature = (one) => `${one.endpointId} × ${one.relation ?? "—"} × ${one.contextId ?? "—"}`;
   const inFindings = new Set(placed.map(signature));
   const inGroups = new Set((report.defects ?? []).map(signature));
   for (const missing of [...inFindings].filter((one) => !inGroups.has(one)).sort()) {
@@ -334,6 +339,28 @@ function checkReportConsistency(report) {
   }
   for (const extra of [...inGroups].filter((one) => !inFindings.has(one)).sort()) {
     problems.push(`a defect group with a signature no finding has: ${extra}`);
+  }
+
+  // And the kinds are carried, not dropped. Merging the channels is only right if
+  // nothing is lost by it: the group has to name every way its cells were found
+  // to be broken, and to invent none.
+  const kindsPerSignature = new Map();
+  for (const one of placed) {
+    const key = signature(one);
+    if (!kindsPerSignature.has(key)) {
+      kindsPerSignature.set(key, new Set());
+    }
+    kindsPerSignature.get(key).add(one.kind);
+  }
+  for (const group of report.defects ?? []) {
+    const expected = [...(kindsPerSignature.get(signature(group)) ?? [])].sort();
+    const actual = [...(group.kinds ?? [])].sort();
+    if (expected.join(",") !== actual.join(",")) {
+      problems.push(
+        `the defect group ${group.key} names the kinds ${actual.join(", ") || "—"} ` +
+          `while its findings carry ${expected.join(", ") || "—"}`,
+      );
+    }
   }
 
   // The conditions are spelled twice — in the account's name and in the field —

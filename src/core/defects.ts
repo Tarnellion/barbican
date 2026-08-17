@@ -38,8 +38,7 @@ export interface GroupableFinding {
 }
 
 /**
- * The signature: endpoint, kind of discrepancy, relation to the resource and
- * request conditions.
+ * The signature: endpoint, relation to the resource and request conditions.
  *
  * The role is deliberately not part of the signature. If an endpoint was opened
  * to a user and to an administrator alike, the defect is one — a missing check —
@@ -49,6 +48,16 @@ export interface GroupableFinding {
  * check and the permission check are different mechanisms of the platform, they
  * break independently and are fixed in different places, so here too there are
  * two defects, not one.
+ *
+ * **The kind is not part of it, since 17 August 2026.** It was, and that made
+ * this count the one thing a lower bound may never be: larger than the truth. An
+ * endpoint with no authorization on it at all answers a request it should refuse
+ * *and* returns the same body to every tenant, so it produced a
+ * `privilege-escalation` group and an `identical-response-across-tenants` group —
+ * two defects for one missing check, and two tickets to the same team, the second
+ * closed as a duplicate of the first. How a defect was noticed is not what a
+ * defect is. See `kinds` below and ADR-0030; found by the audit of 14 August
+ * 2026 (B-6).
  */
 export interface DefectGroup {
   /**
@@ -69,8 +78,15 @@ export interface DefectGroup {
   readonly endpointId: string;
   /** The request conditions. Absent on discrepancies in baseline conditions. */
   readonly contextId?: string;
-  /** The kind of discrepancy, or a check identifier. */
-  readonly kind: string;
+  /**
+   * Every way this defect showed itself, sorted, at least one.
+   *
+   * Kinds of matrix discrepancy and check identifiers in one list, because they
+   * are one key space and the reader is asking "what is wrong with this
+   * endpoint", not "which subsystem of the tool spoke first". A defect seen both
+   * by status and by body has two entries here and is one group.
+   */
+  readonly kinds: readonly string[];
   /** Absent on discrepancies with no resource — access to a whole function. */
   readonly relation?: ResourceRelation;
   /** The highest severity among the group's observations. */
@@ -121,12 +137,7 @@ const SEPARATOR = "\u0000";
  * collision between two different signatures glued together.
  */
 function citableKey(diff: GroupableFinding): string {
-  return [
-    diff.endpointId,
-    diff.kind,
-    diff.relation ?? "any-resource",
-    diff.contextId ?? "baseline",
-  ].join(" ");
+  return [diff.endpointId, diff.relation ?? "any-resource", diff.contextId ?? "baseline"].join(" ");
 }
 
 /**
@@ -141,7 +152,7 @@ function citableKey(diff: GroupableFinding): string {
 export function defectSignature(diff: GroupableFinding): string {
   // A separator that never occurs in identifiers: gluing with a hyphen would
   // admit a collision of two different signatures into one string.
-  return [diff.endpointId, diff.kind, diff.relation ?? "", diff.contextId ?? ""].join(SEPARATOR);
+  return [diff.endpointId, diff.relation ?? "", diff.contextId ?? ""].join(SEPARATOR);
 }
 
 const keyOf = defectSignature;
@@ -163,7 +174,7 @@ export function groupDefects(diffs: readonly GroupableFinding[]): readonly Defec
     {
       endpointId: string;
       key: string;
-      kind: string;
+      kinds: Set<string>;
       relation?: ResourceRelation;
       contextId?: string;
       severity: Severity;
@@ -180,7 +191,7 @@ export function groupDefects(diffs: readonly GroupableFinding[]): readonly Defec
       groups.set(key, {
         key: citableKey(diff),
         endpointId: diff.endpointId,
-        kind: diff.kind,
+        kinds: new Set([diff.kind]),
         ...(diff.relation === undefined ? {} : { relation: diff.relation }),
         ...(diff.contextId === undefined ? {} : { contextId: diff.contextId }),
         severity: diff.severity,
@@ -194,6 +205,7 @@ export function groupDefects(diffs: readonly GroupableFinding[]): readonly Defec
       });
       continue;
     }
+    existing.kinds.add(diff.kind);
     existing.accounts.add(diff.accountId);
     if (diff.counterpartAccountId !== undefined) {
       existing.accounts.add(diff.counterpartAccountId);
@@ -211,7 +223,7 @@ export function groupDefects(diffs: readonly GroupableFinding[]): readonly Defec
     .map((group) => ({
       key: group.key,
       endpointId: group.endpointId,
-      kind: group.kind,
+      kinds: [...group.kinds].sort(),
       ...(group.relation === undefined ? {} : { relation: group.relation }),
       ...(group.contextId === undefined ? {} : { contextId: group.contextId }),
       severity: group.severity,
@@ -226,7 +238,7 @@ export function groupDefects(diffs: readonly GroupableFinding[]): readonly Defec
       }
       return (
         left.endpointId.localeCompare(right.endpointId) ||
-        left.kind.localeCompare(right.kind) ||
+        left.kinds.join(",").localeCompare(right.kinds.join(",")) ||
         (left.relation ?? "").localeCompare(right.relation ?? "") ||
         (left.contextId ?? "").localeCompare(right.contextId ?? "")
       );

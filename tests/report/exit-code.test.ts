@@ -876,7 +876,10 @@ policy: { fallback: denied, rules: [] }
     expect(first.defects.length).toBeGreaterThan(0);
     for (const group of first.defects) {
       expect(group.key).toContain(group.endpointId);
-      expect(group.key).toContain(group.kind);
+      // The kinds are deliberately **not** in the key: a defect noticed a second
+      // way would otherwise get a new name, and a ticket citing the old one would
+      // point at nothing. See ADR-0030.
+      expect(group.kinds.length).toBeGreaterThan(0);
     }
     // Position is not identity; the key is.
     expect(second.defects.map((one) => one.key)).toEqual(first.defects.map((one) => one.key));
