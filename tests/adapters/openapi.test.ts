@@ -9,11 +9,13 @@
  * They must not be deleted or marked `skip`.
  */
 
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, join, resolve as resolvePath } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import SwaggerParser from "@apidevtools/swagger-parser";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createOpenApiParser,
@@ -174,6 +176,91 @@ paths:
 
     await expect(parser.parse(spec)).rejects.toThrow(ExternalRefError);
     expect(hits).toBe(0);
+  });
+
+  /**
+   * The third barrier, and what it actually does.
+   *
+   * The two tests above prove nothing goes out, and they cannot say which
+   * barrier stopped it: the second one refuses the document before
+   * swagger-parser sees it. The module header called the third —
+   * `resolve.external = false` — "the defence against SSRF proper", and
+   * "verified separately: with barrier 2 removed, a request to the address from
+   * the `$ref` still does not go out".
+   *
+   * That verification was done by hand and it could not tell the two apart,
+   * because **no request goes out with the option on either**. Measured on
+   * 17 August 2026 across six configurations — the document as an object, as a
+   * file path, and as an object with a base path, each with the option both ways
+   * — and in swagger-parser 12.1.0 an http `$ref` is never fetched at all. With
+   * `external: false` it is left in place in silence; with `external: true` the
+   * call throws "Unable to resolve $ref pointer". Neither opens a socket.
+   *
+   * So the two assertions below say different things. The first pins the
+   * invariant under the call this adapter actually makes. The second is a
+   * tripwire on a dependency, and it asserts something the project does not
+   * want: that the option is currently not what stops the request. The day
+   * swagger-parser gains a working http resolver, that test fails, and whoever
+   * sees it has to come back here — which is the only way the header above stops
+   * being a guess about which barrier is holding.
+   *
+   * Found by the audit of 14 August 2026, which noted that the mutation
+   * `resolve: { external: true }` breaks no test.
+   */
+  const withHttpRef = () => ({
+    openapi: "3.0.0",
+    info: { title: "t", version: "1" },
+    paths: {
+      "/a": {
+        get: {
+          responses: {
+            "200": {
+              description: "ok",
+              content: { "application/json": { schema: { $ref: `${baseUrl}/evil.yaml` } } },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  it("makes no request under the options this adapter passes", async () => {
+    await SwaggerParser.dereference(withHttpRef(), { resolve: { external: false } }).catch(
+      () => undefined,
+    );
+
+    expect(hits).toBe(0);
+  });
+
+  it("makes none with the option on either, which is a tripwire and not a wish", async () => {
+    await SwaggerParser.dereference(withHttpRef(), { resolve: { external: true } }).catch(
+      () => undefined,
+    );
+
+    // When this fails, swagger-parser has started resolving http references and
+    // `resolve.external` has become load-bearing. Read the header of
+    // src/adapters/openapi.ts before changing this number.
+    expect(hits).toBe(0);
+  });
+
+  /**
+   * And the option is still passed.
+   *
+   * Asserted on the source because there is no other way: with barrier 2 in
+   * front of it, deleting the option changes nothing any test can observe today.
+   * That is exactly what makes the guard worth having — the header now says in
+   * so many words that the option is not what protects this adapter, and the
+   * next reader may take that as licence to remove it. It is kept for the
+   * version of the library where it does protect, and this is the line that says
+   * so out loud.
+   */
+  it("is still asked for, which nothing else here would notice", () => {
+    const source = readFileSync(
+      resolvePath(dirname(fileURLToPath(import.meta.url)), "../../src/adapters/openapi.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("resolve: { external: false }");
   });
 
   it("reports which reference exactly was rejected", async () => {

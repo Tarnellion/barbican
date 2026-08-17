@@ -953,9 +953,32 @@ mutants the type checker rejects) **7 real gaps**, not 29.
       `Object.hasOwn` to `in` fails "does not pick up a resource by a name from
       the prototype chain" in `tests/runner.test.ts`. Recorded rather than
       re-fixed — the audit's claim was true when written.
-- [ ] **The third `$ref` barrier** is called separately proven by ADR-0005 and has
-      no such test. Verified by hand (zero requests, zero reads), but the mutation
-      `resolve: { external: true }` alone is not caught.
+- [x] **The third `$ref` barrier.** Closed 17 August, addendum to
+      [ADR-0005](docs/adr/0005-tool-safety-invariants.md). The invariant holds and
+      always did; the account of **why** was wrong. `src/adapters/openapi.ts`
+      called `resolve.external = false` "the defence against SSRF proper",
+      verified by removing barrier 2 and seeing no request go out — true, and it
+      proves nothing, because **no request goes out with the option on either**.
+      Measured over six configurations (the document as an object, as a file path,
+      and as an object with a base path, each with the option both ways):
+      swagger-parser 12.1.0 never fetches an http `$ref` at all. Off, the
+      reference is silently left in place — precisely the degradation barrier 2
+      exists to catch; on, the call throws "Unable to resolve $ref pointer".
+      So what holds today is barrier 1: the adapter is handed text and never a
+      location, and nothing has a base to resolve from. The option stays, for the
+      version of the library where it will matter.
+      Two tests, saying different things. One pins the invariant under the call
+      the adapter makes. The other is a **tripwire** asserting something the
+      project does not want — that the option is not currently what stops the
+      request — and it fails the day swagger-parser gains a working http
+      resolver, which is the only way that header stops being a guess. A third
+      asserts the option is still passed, on the source, because with barrier 2
+      in front of it nothing else would notice its deletion — and the header now
+      says out loud that it is not load-bearing, which is an invitation to remove
+      it. Mutations: deleting the option and inverting it each fail that test.
+      **A hand verification that cannot separate two mechanisms has verified
+      neither.** The earlier check was a real experiment with the wrong
+      conclusion attached to it.
 - [x] **B-14.** Closed 17 August. The first half went on 15 August with B-3 and
       B-4: the helper builds finding rows and counts `byKind` from them, so it no
       longer assembles objects `buildReport` cannot produce — which is what hid

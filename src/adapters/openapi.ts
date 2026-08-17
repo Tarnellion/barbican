@@ -13,9 +13,23 @@
  *    a result without an error, leaving the reference unresolved. The tool would
  *    carry on with an incomplete list of endpoints and report "no discrepancies"
  *    where the check never happened.
- * 3. `resolve.external = false` — the defence against SSRF proper. Verified
- *    separately: with barrier 2 removed, a request to the address from the
- *    `$ref` still does not go out.
+ * 3. `resolve.external = false` — kept as the defence against SSRF proper, and
+ *    **not currently the thing that provides it**. That sentence used to read
+ *    "verified separately: with barrier 2 removed, a request to the address from
+ *    the `$ref` still does not go out", which is true and proves nothing: no
+ *    request goes out with the option **on** either. Measured on 17 August 2026
+ *    over six configurations — the document as an object, as a file path, and as
+ *    an object with a base path, each with the option both ways — and
+ *    swagger-parser 12.1.0 never fetches an http `$ref` at all. With the option
+ *    off the reference is left in place in silence, which is precisely the
+ *    silent degradation barrier 2 exists to catch; with it on the call throws
+ *    "Unable to resolve $ref pointer". Neither opens a socket, so what holds
+ *    here today is barrier 1: this adapter is handed text and never a location,
+ *    so nothing has a base to resolve from.
+ *
+ *    The option stays, because a version that does resolve is exactly what it is
+ *    for, and `tests/adapters/openapi.test.ts` carries a tripwire that fails on
+ *    the day one arrives.
  *
  * The reasoning — ADR-0005. The tests that prove this are mandatory and must not
  * be skipped.

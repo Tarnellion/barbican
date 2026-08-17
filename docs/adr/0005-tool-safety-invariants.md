@@ -162,3 +162,35 @@ skipped — that is, it could hit `GET /createdb`, the very thing the list exist
 
 Closed along the way: `allowedHosts` with a port is understood by the configuration too, not
 only by the HTTP client.
+
+## Addendum, 17 August 2026: which barrier holds the `$ref` invariant
+
+The invariant holds — no http `$ref` is fetched, and that is proved by tests that
+count requests on a loopback server rather than by catching an error. What was
+wrong is the account of **why**.
+
+`src/adapters/openapi.ts` described three barriers and called the third,
+`resolve.external = false`, "the defence against SSRF proper", verified
+separately by removing the second and observing that no request went out. That
+observation is true and establishes nothing: no request goes out with the option
+**on** either. Measured over six configurations — the document as an object, as a
+file path, and as an object with a base path, each with the option both ways — and
+swagger-parser 12.1.0 never fetches an http `$ref` at all. With the option off the
+reference is silently left in place, which is exactly the silent degradation the
+second barrier exists to catch; with it on, the call throws "Unable to resolve
+$ref pointer". Neither opens a socket.
+
+So what holds today is the first barrier: this adapter is handed text and never a
+location, so nothing has a base to resolve from. The option stays, because a
+version of the library that does resolve is precisely what it is for.
+
+Two consequences worth stating plainly. A hand verification that cannot separate
+two mechanisms has not verified either — the earlier check was a real experiment
+with a wrong conclusion attached. And a guarantee that currently rests on a
+dependency's inability rather than on our own configuration needs a tripwire, not
+a comment: `tests/adapters/openapi.test.ts` asserts that the option-on case makes
+no request either, which is a thing the project does not want to be true and will
+fail the day it stops being.
+
+Found by the audit of 14 August 2026, which noted only that the mutation
+`resolve: { external: true }` breaks no test.
