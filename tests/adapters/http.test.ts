@@ -300,7 +300,7 @@ describe("the response body and sensitive headers", () => {
     }
   });
 
-  it("strips the query and the fragment from location: an OAuth token arrives there", async () => {
+  it("keeps only the origin of location: an OAuth token arrives in the rest", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(302, {
         location: "https://sso.example.test/cb#access_token=ya29.LEAKED_OAUTH_TOKEN&state=1",
@@ -313,8 +313,82 @@ describe("the response body and sensitive headers", () => {
       const response = await client.send(GET(server.port));
 
       expect(JSON.stringify(response)).not.toContain("ya29.LEAKED_OAUTH_TOKEN");
-      // The destination address is kept — it shows where the redirect leads.
-      expect(response.headers["location"]).toContain("sso.example.test/cb");
+      // The destination host is kept — a 3xx to another host is a scope escape,
+      // and that is the fact a reader needs from this header.
+      expect(response.headers["location"]).toContain("https://sso.example.test");
+    } finally {
+      await server.close();
+    }
+  });
+
+  /**
+   * And the path, which used to survive.
+   *
+   * Query and fragment were stripped — an enumeration of the two places a secret
+   * was expected to be. A password-reset link, a magic link and a device-code
+   * flow all carry their token in the **path**, so
+   * `https://sso.example.test/reset/SECRET?[REDACTED]` went into the report with
+   * the redaction mark sitting beside the secret. The same mistake as a denylist
+   * of header names, one field down. Found by adversarial review on
+   * 17 August 2026.
+   */
+  it("strips the path of location too, where a reset token lives", async () => {
+    const server = await startServer((_request, response) => {
+      response.writeHead(302, {
+        location: "https://sso.example.test/reset/PASSWORD-RESET-SECRET-5",
+      });
+      response.end();
+    });
+    try {
+      const { client } = clientFor();
+
+      const response = await client.send(GET(server.port));
+
+      expect(JSON.stringify(response)).not.toContain("PASSWORD-RESET-SECRET-5");
+      expect(response.headers["location"]).toBe("https://sso.example.test/[REDACTED]");
+    } finally {
+      await server.close();
+    }
+  });
+
+  /**
+   * `www-authenticate` is on the allowlist for its **scheme**: a 401 asking for
+   * `Bearer` and one asking for `Basic` are different facts about access. The
+   * rest is free text the platform composes, and RFC 6750 puts
+   * `error_description` there by design.
+   */
+  it("keeps the scheme of www-authenticate and drops its explanation", async () => {
+    const server = await startServer((_request, response) => {
+      response.writeHead(401, {
+        "www-authenticate":
+          'Bearer realm="api", error="invalid_token", error_description="token SECRET-4 expired"',
+      });
+      response.end();
+    });
+    try {
+      const { client } = clientFor();
+
+      const response = await client.send(GET(server.port));
+
+      expect(JSON.stringify(response)).not.toContain("SECRET-4");
+      expect(response.headers["www-authenticate"]).toBe("Bearer [REDACTED]");
+    } finally {
+      await server.close();
+    }
+  });
+
+  /** A bare scheme is the whole header, and survives as itself. */
+  it("leaves a bare challenge alone", async () => {
+    const server = await startServer((_request, response) => {
+      response.writeHead(401, { "www-authenticate": "Basic" });
+      response.end();
+    });
+    try {
+      const { client } = clientFor();
+
+      const response = await client.send(GET(server.port));
+
+      expect(response.headers["www-authenticate"]).toBe("Basic");
     } finally {
       await server.close();
     }

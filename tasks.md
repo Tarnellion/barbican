@@ -1889,10 +1889,22 @@ Open, from the same review, in the order they were ranked:
       endpoint as compared with `checksRun: []` beside it. The same lie B-5 closed
       from the other side, in the field whose own comment says it exists to
       prevent exactly this.
-- [ ] **The response-header allowlist leaks through two names.**
-      `www-authenticate` carries free text and RFC 6750 puts `error_description`
-      in it; `sanitizeLocation` strips query and fragment and keeps the **path**,
-      where a password-reset or magic-link token lives.
+- [x] **The response-header allowlist leaks through two names.** Closed
+      17 August. `www-authenticate` is on the list for its **scheme** — a 401
+      asking for `Bearer` and one asking for `Basic` are different facts about
+      access — and the rest is free text the platform composes, with RFC 6750
+      putting `error_description` there by design. The first token is kept and
+      the rest dropped.
+      `sanitizeLocation` stripped query and fragment and kept the path, which is
+      an enumeration of the two places a secret was expected to be: a
+      password-reset link, a magic link and a device-code flow all carry their
+      token in the path, so the redaction mark went into the report sitting
+      beside the secret. **The same mistake as a denylist of header names, one
+      field down** — the places a secret can be cannot be enumerated. Only the
+      origin survives now, which is the part a verdict rests on, since a 3xx to
+      another host is a scope escape. A relative location keeps nothing but the
+      mark: `/reset/TOKEN` and `/login` are indistinguishable to that function and
+      only one of them is safe to print.
 - [ ] **`content-length` is on the allowlist**, so an exact body size is in the
       report for every cell — including endpoints where no `bodySignals` were
       declared, and `docs/report.md` says bodies are read only where they were.

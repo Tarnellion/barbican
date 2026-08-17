@@ -85,14 +85,60 @@ const VALUE_PRESERVED_HEADERS: ReadonlySet<string> = new Set([
  * tokens: an OAuth redirect returns `access_token` in the fragment precisely. We
  * keep only the address without parameters.
  */
+/**
+ * Where a redirect points, without what it carries.
+ *
+ * The **origin** is the part this tool reasons about: a 3xx to another host is a
+ * scope escape, which is why redirects are not followed at all, and the host is
+ * what a reader needs in order to see that. Everything after it is the
+ * platform's content.
+ *
+ * The path was kept until 17 August 2026, and query and fragment were stripped —
+ * an enumeration of the two places a secret was expected to be. A password-reset
+ * link, a magic link and a device-code flow all carry their token in the
+ * **path**: `https://sso.example.com/reset/PASSWORD-RESET-TOKEN?[REDACTED]` went
+ * into the report with the redaction mark sitting next to the secret. That is
+ * the same mistake as a denylist of header names, one field down — the places a
+ * secret can be cannot be enumerated, and this function had enumerated two of
+ * three. Found by adversarial review.
+ *
+ * A relative location has no origin, so nothing survives it but the mark. That
+ * is a real loss of detail and the right side to lose it on: `/reset/TOKEN` and
+ * `/login` are indistinguishable to this function, and only one of them is safe
+ * to print.
+ */
 function sanitizeLocation(value: string): string {
   try {
     const url = new URL(value, "https://placeholder.invalid");
-    const path = `${url.origin === "https://placeholder.invalid" ? "" : url.origin}${url.pathname}`;
-    return url.search === "" && url.hash === "" ? path : `${path}?[REDACTED]`;
+    const origin = url.origin === "https://placeholder.invalid" ? "" : url.origin;
+    const rest = url.pathname === "/" && url.search === "" && url.hash === "";
+    return rest ? `${origin}/` : `${origin}/${REDACTED}`;
   } catch {
     return REDACTED;
   }
+}
+
+/**
+ * The authentication scheme a platform demanded, without its explanation.
+ *
+ * `www-authenticate` is on the value allowlist because the scheme is a signal
+ * about access: a 401 asking for `Bearer` and one asking for `Basic` are
+ * different facts. The rest of the header is free text the platform composes,
+ * and RFC 6750 puts `error_description` there by design — in a run against a
+ * real deployment that read `Bearer realm="api", error="invalid_token",
+ * error_description="token SECRET-4 expired"`, and the whole of it went into the
+ * report. Found by adversarial review on 17 August 2026.
+ *
+ * The first token is kept and everything after it is dropped, which is the same
+ * shape as `sanitizeLocation` beside it: keep the structure a verdict rests on,
+ * drop the content.
+ */
+function sanitizeChallenge(value: string): string {
+  const scheme = value.trim().split(/[\s,]/)[0] ?? "";
+  if (scheme === "") {
+    return REDACTED;
+  }
+  return value.trim() === scheme ? scheme : `${scheme} ${REDACTED}`;
 }
 
 const REDACTED = "[REDACTED]";
@@ -255,7 +301,12 @@ function toHttpResponse(response: Response): HttpResponse {
     const key = name.toLowerCase();
     // The name is kept even for redacted ones: the fact that a header is present
     // is a signal for digging into the run, while its value is not.
-    if (VALUE_PRESERVED_HEADERS.has(key)) {
+    if (key === "www-authenticate") {
+      // On the allowlist for its scheme and not for its explanation — see
+      // `sanitizeChallenge`. Checked before the set, because being on the list
+      // used to mean the value travelled whole.
+      headers[key] = sanitizeChallenge(value);
+    } else if (VALUE_PRESERVED_HEADERS.has(key)) {
       headers[key] = value;
     } else if (key === "location") {
       headers[key] = sanitizeLocation(value);
