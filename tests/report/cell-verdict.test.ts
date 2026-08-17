@@ -31,14 +31,23 @@ policy:
     - { roles: "*", endpoints: [orders.list], outcome: allowed }
 `);
 
-/** A leak the status code cannot show: both accounts were legitimately allowed. */
+/**
+ * A leak the status code cannot show: both accounts were legitimately allowed.
+ *
+ * The counterpart is in `relatedAccountId`, which is where a check puts it since
+ * ADR-0025. It sat in `evidence.otherAccountId` here until 17 August — the
+ * undocumented contract between layers that ADR replaced — so this fixture had
+ * stopped being a finding the tool produces, and the assertion below that carol's
+ * cell is clean was true of nothing.
+ */
 const LEAK: ResolvedFinding = {
   checkId: "identical-response-across-tenants",
   severity: "high",
   accountId: "alice",
+  relatedAccountId: "carol",
   endpointId: "orders.list",
   title: "the same response for different tenants",
-  evidence: { otherAccountId: "carol", bodyDigestsEqual: true },
+  evidence: { bodyDigestsEqual: true },
 };
 
 function optionsFor(overrides: Partial<BuildReportOptions> = {}): BuildReportOptions {
@@ -132,12 +141,33 @@ describe("a cell that carries a finding is not printed as agreed", () => {
     expect(alice?.findingKinds).toEqual(["identical-response-across-tenants"]);
   });
 
-  /** A cell nothing was found on keeps saying so. */
-  it("leaves a genuinely clean cell alone", () => {
+  /**
+   * And the other side of the pair, which is the cell that actually received a
+   * tenant's data that is not its own.
+   *
+   * A leak found by body is a statement about **two** cells. The loop read only
+   * `accountId`, so carol's cell — the one holding alice's tenant's data — went
+   * out as `match: true`, "tested and agreed", and into `coverage.cellsMatched`.
+   * On the reference run with every defect on there were twelve such cells: the
+   * same number `docs/report.md` quotes for the defect ADR-0022 closed on
+   * 15 August, which taught this loop to read check findings and left it reading
+   * one end of them. Found by adversarial review on 17 August 2026.
+   */
+  it("does not call the other side of a paired leak agreed either", () => {
     const carol = build().observations.find((o) => o.accountId === "carol");
 
-    expect(carol?.match).toBe(true);
-    expect(carol).not.toHaveProperty("findingKinds");
+    expect(carol?.match).toBe(false);
+    expect(carol?.findingKinds).toEqual(["identical-response-across-tenants"]);
+  });
+
+  /** A cell nothing was found on keeps saying so. */
+  it("leaves a genuinely clean cell alone", () => {
+    const clean = build({
+      checks: [],
+    }).observations.find((o) => o.accountId === "carol");
+
+    expect(clean?.match).toBe(true);
+    expect(clean).not.toHaveProperty("findingKinds");
   });
 });
 
@@ -151,9 +181,13 @@ describe("the arithmetic docs/report.md offers the reader", () => {
   it("adds up", () => {
     const coverage = build().coverage;
 
+    // Two, not one: a leak found by body is a statement about a pair, and both
+    // cells carry it. Until 17 August this read `cellsMatched: 1` — the identity
+    // held, and the cell that received another tenant's data was on the wrong
+    // side of it.
     expect(coverage.cellsObserved).toBe(2);
-    expect(coverage.cellsMatched).toBe(1);
-    expect(coverage.cellsWithFindings).toBe(1);
+    expect(coverage.cellsMatched).toBe(0);
+    expect(coverage.cellsWithFindings).toBe(2);
     expect((coverage.cellsMatched ?? 0) + (coverage.cellsWithFindings ?? 0)).toBe(
       coverage.cellsObserved,
     );
@@ -173,8 +207,10 @@ describe("the arithmetic docs/report.md offers the reader", () => {
     const built = build({ checks: [LEAK, second] });
     const alice = built.observations.find((o) => o.accountId === "alice");
 
+    // Two findings over the same pair: two rows, two cells, and each cell counted
+    // once however many rows name it — which is what this counter is for.
     expect(built.summary.findings).toBe(2);
-    expect(built.coverage.cellsWithFindings).toBe(1);
+    expect(built.coverage.cellsWithFindings).toBe(2);
     expect((built.coverage.cellsMatched ?? 0) + (built.coverage.cellsWithFindings ?? 0)).toBe(
       built.coverage.cellsObserved,
     );

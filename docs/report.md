@@ -540,6 +540,13 @@ over response bodies. Both have to be satisfied, and it is worth knowing that
 until 15 August 2026 only the first reached this field — on the reference run
 twelve cells were printed as agreed while carrying a high-severity leak.
 
+**And a finding by body is about two cells, not one.** The fix above taught this
+field to read check findings and left it reading one end of them, so the cell that
+*received* another tenant's data — the counterpart in `relatedAccountId` — went on
+being printed as agreed. Twelve again, on the same reference run, until
+17 August 2026. Both sides of a pair now carry `findingKinds` and neither counts
+towards `cellsMatched`.
+
 Which is why a `false` here sometimes has no visible cause on the row. This one
 is a real cell from that run:
 

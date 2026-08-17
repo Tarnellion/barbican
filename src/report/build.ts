@@ -1299,16 +1299,35 @@ function withVerdicts(
     if (finding.accountId === undefined || finding.endpointId === undefined) {
       continue;
     }
-    const key = cellKey({
-      accountId: finding.accountId,
-      endpointId: finding.endpointId,
-      ...(finding.resourceId === undefined ? {} : { resourceId: finding.resourceId }),
-    });
-    const kinds = kindsOf.get(key);
-    if (kinds === undefined) {
-      kindsOf.set(key, [finding.kind]);
-    } else if (!kinds.includes(finding.kind)) {
-      kinds.push(finding.kind);
+    // Both sides of the finding, not only the one it is filed under.
+    //
+    // A leak found by body is a statement about a **pair** of cells: alice's
+    // response and carol's were the same, and it is carol who received a
+    // tenant's data that is not hers. The finding names alice in `accountId` and
+    // carol in `relatedAccountId`, and only alice's cell was narrowed — so
+    // carol's went into the file as `match: true`, "tested and agreed", and into
+    // `coverage.cellsMatched`. On the reference run with every defect on, twelve
+    // cells were printed that way.
+    //
+    // Twelve is the same number `docs/report.md` quotes for the defect ADR-0022
+    // closed on 15 August, where the body channel did not reach this field at
+    // all. That fix taught the loop to read check findings and left it reading
+    // one end of them. Found by adversarial review on 17 August 2026.
+    for (const accountId of [finding.accountId, finding.relatedAccountId]) {
+      if (accountId === undefined) {
+        continue;
+      }
+      const key = cellKey({
+        accountId,
+        endpointId: finding.endpointId,
+        ...(finding.resourceId === undefined ? {} : { resourceId: finding.resourceId }),
+      });
+      const kinds = kindsOf.get(key);
+      if (kinds === undefined) {
+        kindsOf.set(key, [finding.kind]);
+      } else if (!kinds.includes(finding.kind)) {
+        kinds.push(finding.kind);
+      }
     }
   }
   return options.observations.map((observation) => {
