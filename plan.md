@@ -134,14 +134,27 @@ making every relative link dead for anyone who installed rather than cloned; and
 in that release still spoke Russian around English documentation. All three are fixed on
 `main` and none of them is fixed for anyone who runs `npm install barbican` today.
 
-**Phase 4 closes with the release of `0.3.0`**, not with another cold read.
+**Phase 4 closed on 17 August 2026 with the release of `0.3.0`**, which was its
+stated exit criterion. `barbican@0.3.0` is on npm as `latest`, published through
+the pipeline with provenance.
 
-**And `0.3.0` cannot go out through the pipeline as it stands.** The audit of 14
-August found that `release.yml` runs one CI gate of four — `pnpm run check` — and
-skips the secret scan over the history, the oracle verification and the
-vulnerability scan. A tag can therefore publish a commit that three quarters of
-CI never saw, with provenance attesting to it. That, and the blockers in the same
-audit, come before the release.
+The blocker this section named is gone: `release.yml` ran one CI gate of four —
+`pnpm run check` — and skipped the secret scan over the history, the oracle
+verification and the vulnerability scan, so a tag could publish a commit that
+three quarters of CI had never seen, with provenance attesting to it. Since
+15 August the release *calls* the CI workflow rather than repeating part of it,
+and `tests/workflows/release-gate.test.ts` is what keeps the call there.
+
+**What the release itself found**, and it is the second time this exact shape has
+cost something: `0.3.0` shipped three changes to the report — `defects[].kind`
+became `defects[].kinds`, `findingsOmitted` appeared, `coverage.checksRun[]`
+gained a `description` — and the README section describing that version mentions
+none of them. The first is breaking for a reader of schema 2. All three were
+written down in ADRs, which is not a place a consumer looks. `v0.2.0` failed the
+same way, in the other direction, and the guard written after it reads only the
+lines mentioning the version being shipped — so it had nothing to say. It now
+also asserts that the one sentence claiming a current release names the version
+in `package.json`.
 
 ---
 
@@ -181,6 +194,14 @@ browser. `pdf-lib` is not to be considered — 57 months without a release.
 **Start only after phase 3.** A mapping onto standards on top of an unvalidated core
 gives a document that confirms compliance which does not exist — that is worse than
 having no document.
+
+**That condition is met as of 17 August 2026**: phase 3 closed with the reference
+platform and its hand-written oracle — 28 combinations, 0 mismatches on every run
+— and phase 4 closed with the release of `0.3.0`. This is the next phase, and the
+first thing it needs is not code: the clause-by-clause content was never
+estimated, and choosing which standard to map first (GLI-19, the AGCO
+requirements, OWASP ASVS 5.0, which the existing check already cites) decides
+what the rest of the phase looks like.
 
 ---
 
