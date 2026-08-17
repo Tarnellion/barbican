@@ -30,7 +30,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 22 is the development version, 24 the upper bound of declared support.
+        # The versions are the ends of what `engines.node` claims, not a habit.
+        # It says `>=22.12.0` and nothing above, so the claim spans 22.12.0 to
+        # whatever is current — and CI used to run `node: 22`, which resolves to
+        # the newest 22.x, so the declared floor was the one version never
+        # exercised. A floor nothing runs on is a number, not a bound. Found by
+        # the audit of 14 August 2026 (F-4).
+        #
+        # `22.12.0` exactly: the floor, and the assertion that the package really
+        # does work on the oldest node it admits. 24 is the current LTS, which is
+        # what most installs are. 26 is the current major and the open end of the
+        # claim — without it `>=22.12.0` promises a version nobody here has run.
+        # `tests/workflows/portable-gate.test.ts` ties the first of them to
+        # `engines`, so the two cannot drift apart.
         #
         # Windows is here because the gate could not run there at all: `build` is
         # the last step of `check` and it ended in `chmod`, which Windows has no
@@ -44,9 +56,10 @@ jobs:
         # does not differ between node 22 and 24. The development version is the
         # one that gets it.
         include:
-          - { os: ubuntu-latest, node: 22 }
+          - { os: ubuntu-latest, node: 22.12.0 }
           - { os: ubuntu-latest, node: 24 }
-          - { os: windows-latest, node: 22 }
+          - { os: ubuntu-latest, node: 26 }
+          - { os: windows-latest, node: 22.12.0 }
     steps:
       # Actions are pinned by SHA: a tag can be moved to another commit.
       - name: Checkout

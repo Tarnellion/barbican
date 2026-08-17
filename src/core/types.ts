@@ -340,9 +340,30 @@ export interface AccessObservation {
   /** The resource being requested. Absent on endpoints without parameters. */
   readonly resourceId?: string;
   readonly status: number;
-  readonly headers: Readonly<Record<string, string>>;
+  /**
+   * The response headers, kept by allowlist and otherwise redacted.
+   *
+   * Optional, because nothing in `src/core` reads them: they travel through the
+   * matrix to reach the report, where one line puts them on a finding. Required,
+   * they were the core demanding data on another layer's behalf — and a consumer
+   * feeding observations from their own harness, which is what the README
+   * invites, had to write `headers: {}` on every row. That empty object is not
+   * cheap: it says "the response carried no headers we keep", when the truth is
+   * that nobody recorded any. Absent says the second thing, which is the true
+   * one. Found by the audit of 14 August 2026 (E-8).
+   */
+  readonly headers?: Readonly<Record<string, string>>;
   readonly outcome: AccessOutcome;
-  readonly durationMs: number;
+  /**
+   * How long the request took.
+   *
+   * Optional for the same reason, and more so: no code anywhere reads it. The
+   * runner writes it and the report carries it into the file, where it is for a
+   * person looking at a row and wondering whether a denial came back instantly
+   * or after a timeout. That is worth keeping and is not worth requiring of
+   * somebody who has no clock in their harness.
+   */
+  readonly durationMs?: number;
   /**
    * The moment of the request, ISO-8601.
    *

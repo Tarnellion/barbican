@@ -1292,9 +1292,22 @@ readability, failed on B-2 / H-3 above and was closed with it.
       Proven in an isolated package with `engines.node` of `>=99`: pnpm refuses
       from the workspace file and says "Already up to date" from `.npmrc`. The
       documentation agrees: under pnpm 11 that file is auth and registry only.
-- [ ] **F-4 / E-8.** `engines: ">=22.12.0"` has no upper bound while CI runs 22
-      and 24 and Node 26 is current; and `node: [22]` resolves to the latest 22.x,
-      so the declared lower bound is never exercised.
+- [x] **F-4.** Closed 17 August. The matrix now runs `22.12.0` exactly — the
+      declared floor, which `node: 22` had never exercised because setup-node
+      resolves it to the newest 22.x, so the one version the package promises to
+      work on was the one version nothing ran on. A floor nothing runs on is a
+      number, not a bound. And node **26**, the current major (v26.7.0, released
+      5 August 2026): `>=22.12.0` names no upper bound, so it promises every
+      release above it, and running only the floor and the LTS left the version a
+      fresh `nvm install node` gives promised and untested. 24 stays as the
+      current LTS.
+      `engines.node` and the matrix are one fact in two files, so
+      `tests/workflows/portable-gate.test.ts` relates them rather than pinning a
+      third copy of the number: raise the floor and forget the matrix, and the
+      test says so. Mutations: both entries back to a floating `22` fails
+      "exercised at exactly that lower bound"; dropping the 26 entry fails
+      "exercised above the current LTS"; raising `engines` to `>=22.14.0` alone
+      fails the first again.
 - [x] **F-5.** Closed 16 August, though not the way the finding suggests: **no
       dependabot ecosystem covers a binary fetched by URL**, and that is why the
       official actions were rejected here in the first place. The pin now carries
@@ -1547,13 +1560,26 @@ finished" — see B-1.
 23. ~~**L-3** a warning about platforms that refuse with an envelope.~~ Warned
     in four places and guarded by a test; L-11 is the fix, and is not done.
 
-- [ ] **E-8.** `AccessObservation` requires `headers` and `durationMs`, which
-      `diffAccess` never reads — they are there for the report. A library
-      consumer feeding observations from their own harness, which is what the
-      README invites, has to invent `headers: {}` for every row, and that is most
-      of the example's bulk. Making them optional is a change to a core type and
-      wants weighing against what the report then has to tolerate. Noticed while
-      closing E-2 on 15 August.
+- [x] **E-8.** Closed 17 August: both are optional now. The weighing came out
+      one-sided once measured — `headers` is read by exactly one line of the
+      report and by nothing in the core, and **`durationMs` is read by no code
+      anywhere**: the runner writes it, the file carries it, and it is there for
+      a person wondering whether a denial came back instantly or after a timeout.
+      What settles it is not the convenience: an empty header map is a claim that
+      the response carried no headers worth keeping, when the truth is that
+      nobody recorded any, and a report cannot tell those apart. A required field
+      the producer cannot supply becomes a false statement in the artifact —
+      absence says the true thing, and `url` and `method` are already optional
+      for exactly this reason (B-7). The README example lost eight lines and now
+      compiles as a consumer would actually write it; the character-for-character
+      guard kept the two in step. Mutation: making the fields required again
+      fails the typecheck on `tests/core/observation-shape.test.ts`, which is the
+      right gate for a claim about a shape.
+      One thing found while doing it: `headers: observation.headers` in
+      `mergeFindings` survives `exactOptionalPropertyTypes` only because the
+      literal has no contextual type to be checked against. Replaced with the
+      conditional spread the rest of the file uses — a guarantee resting on the
+      absence of a check is not one.
 
 ### Second ranking, 15 August — what is left
 

@@ -180,23 +180,12 @@ const endpoints: Endpoint[] = [
 const matrix = buildAccessMatrix({
   endpoints,
   accounts: [{ id: "player-1", roleId: "player", tenantId: "tenant-a" }],
+  // `headers` and `durationMs` are optional: nothing in the core reads them, and
+  // an empty header map would claim the response carried none rather than that
+  // none were recorded.
   observations: [
-    {
-      accountId: "player-1",
-      endpointId: "profile.read",
-      status: 200,
-      headers: {},
-      outcome: "allowed",
-      durationMs: 12,
-    },
-    {
-      accountId: "player-1",
-      endpointId: "users.list",
-      status: 200,
-      headers: {},
-      outcome: "allowed",
-      durationMs: 15,
-    },
+    { accountId: "player-1", endpointId: "profile.read", status: 200, outcome: "allowed" },
+    { accountId: "player-1", endpointId: "users.list", status: 200, outcome: "allowed" },
   ],
 });
 

@@ -865,7 +865,13 @@ function mergeFindings(
         ...(contextHeaders === undefined ? {} : { contextHeaders }),
       },
       status: observation.status,
-      headers: observation.headers,
+      // The spread, not `headers: observation.headers`. Since E-8 the field is
+      // optional on an observation — nothing in the core reads it — and under
+      // `exactOptionalPropertyTypes` an optional field means "absent or a
+      // record", never "present and undefined". Writing the second one happens
+      // to survive here because the literal has no contextual type to be checked
+      // against, and a guarantee that rests on that is not one.
+      ...(observation.headers === undefined ? {} : { headers: observation.headers }),
     };
   }
 

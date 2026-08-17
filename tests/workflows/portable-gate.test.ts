@@ -91,11 +91,55 @@ describe("the job that would notice", () => {
     expect(entries.some((one) => String(one["os"]).startsWith("windows"))).toBe(true);
   });
 
-  /** And still on Linux, on both declared versions of node. */
-  it("keeps running it on Linux, on every node the project supports", () => {
+  /** And still on Linux, on more than one version of node. */
+  it("keeps running it on Linux", () => {
     const entries = CI.jobs["check"]?.strategy?.matrix?.include ?? [];
     const linux = entries.filter((one) => String(one["os"]).startsWith("ubuntu"));
 
-    expect(linux.map((one) => one["node"]).sort()).toEqual([22, 24]);
+    expect(linux.length).toBeGreaterThan(1);
+  });
+});
+
+/**
+ * `engines.node` and the matrix are one fact written in two files.
+ *
+ * The floor said `>=22.12.0` and the matrix said `node: 22`, which setup-node
+ * resolves to the newest 22.x — so the one version the package promised to work
+ * on was the one version nothing ran on. A floor nothing runs on is a number,
+ * not a bound. Found by the audit of 14 August 2026 (F-4).
+ *
+ * Asserted by relating the two rather than by pinning a literal here: a literal
+ * would be a third copy of the same fact, and the next person to raise the floor
+ * would have two places to remember instead of one.
+ */
+describe("the node versions the package claims", () => {
+  const floor = (
+    JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as {
+      engines: { node: string };
+    }
+  ).engines.node;
+
+  it("state a lower bound at all", () => {
+    expect(floor).toMatch(/^>=\d+\.\d+\.\d+$/);
+  });
+
+  it("are exercised at exactly that lower bound", () => {
+    const entries = CI.jobs["check"]?.strategy?.matrix?.include ?? [];
+    const wanted = floor.replace(">=", "");
+
+    expect(entries.map((one) => String(one["node"]))).toContain(wanted);
+  });
+
+  /**
+   * And at the open end. `>=22.12.0` names no upper bound, so it promises every
+   * node above it; running only the floor and the LTS leaves the newest major —
+   * the one a fresh `nvm install node` gives — promised and untested.
+   */
+  it("are exercised above the current LTS as well", () => {
+    const entries = CI.jobs["check"]?.strategy?.matrix?.include ?? [];
+    const majors = entries.map((one) => Number.parseInt(String(one["node"]), 10));
+    const lowest = Number.parseInt(floor.replace(">=", ""), 10);
+
+    expect(Math.max(...majors)).toBeGreaterThan(lowest + 2);
   });
 });
