@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import type { DiffKind } from "../../src/core/index.js";
 import type { RunConfig } from "../../src/io/config.js";
 import { parseRunConfig } from "../../src/io/config.js";
-import type { ReportFinding, RunReport } from "../../src/report/build.js";
+import type { ReportFinding, VerdictInputs } from "../../src/report/build.js";
 import {
   buildReport,
   exitCodeFor,
@@ -40,7 +40,7 @@ function report(overrides: {
     readonly role: string;
     readonly anonymous?: boolean;
   }[];
-}): RunReport {
+}): VerdictInputs {
   const observations = overrides.observations ?? 4;
   // The rows, not only the counters. This helper used to set `byKind` and leave
   // `findings` empty — a report `buildReport` cannot produce, and the reason
@@ -736,6 +736,49 @@ policy: { fallback: denied, rules: [] }
 
     expect(accounts.find((a) => a.id === "u")?.anonymous).toBe(false);
     expect(accounts.find((a) => a.id === "anon")?.anonymous).toBe(true);
+  });
+
+  /**
+   * The report carried every input to the verdict and not the verdict. A reader
+   * who gets the JSON — which is how it travels, attached to a ticket — had to
+   * reimplement `runVerdict` to learn whether the run passed, and the CI console
+   * that had the answer is gone by then. Found by the audit of 14 August (H-9).
+   */
+  it("carries its own verdict, both the code and the reason", () => {
+    const built = build();
+
+    expect(built.verdict.code).toBe(exitCodeFor(built));
+    expect(built.verdict.reason).toBe(runVerdict(built).reason);
+    expect(built.verdict.reason.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * "Defect #5 from run X" pointed elsewhere a month later: `defects` is ordered
+   * by severity, so one fix upstream renumbers everything below it. The key is
+   * the signature the grouping already uses, so two runs of the same
+   * configuration against the same platform name the same defect the same way.
+   * Found by the audit of 14 August (H-10).
+   */
+  it("gives every defect group a key that survives the next run", () => {
+    const leak = {
+      checkId: "identical-response-across-tenants",
+      severity: "high" as const,
+      title: "the same response for different tenants",
+      accountId: "u",
+      endpointId: "a",
+      relatedAccountId: "other",
+      evidence: { bodyDigestsEqual: true },
+    };
+    const first = build({ checks: [leak] });
+    const second = build({ checks: [leak] });
+
+    expect(first.defects.length).toBeGreaterThan(0);
+    for (const group of first.defects) {
+      expect(group.key).toContain(group.endpointId);
+      expect(group.key).toContain(group.kind);
+    }
+    // Position is not identity; the key is.
+    expect(second.defects.map((one) => one.key)).toEqual(first.defects.map((one) => one.key));
   });
 
   it("counts them by conclusion, with every key present", () => {

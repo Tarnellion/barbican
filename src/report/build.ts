@@ -224,6 +224,20 @@ export interface RequestRecord {
   readonly method: HttpMethod;
   readonly url: string;
   /**
+   * Which account sent it.
+   *
+   * On a list endpoint both sides of a paired finding ask the same address — the
+   * two requests differ only by the credentials, and those are not in the report
+   * and will not be. So `relatedRequest` came out byte for byte equal to
+   * `request`, and a reader had two identical lines and no way to tell which was
+   * whose. Found by the audit of 14 August 2026 (H-6).
+   *
+   * The account, not the token: the account id is already all over this report,
+   * and it is what turns `curl` with the right `Authorization` into the right
+   * `curl`.
+   */
+  readonly as: string;
+  /**
    * The context attributes in their declared form: a string or `{ env: NAME }`.
    *
    * Declared, not resolved: a value from the environment never lands in the
@@ -629,6 +643,20 @@ export interface RunReport {
    */
   readonly defects: readonly DefectGroup[];
   readonly summary: ReportSummary;
+  /**
+   * The conclusion, in the artifact rather than only on the terminal.
+   *
+   * The report carried every input to the verdict and not the verdict: a reader
+   * who got the JSON — which is how it travels, attached to a ticket — had to
+   * reimplement `runVerdict` to learn whether the run passed, and the whole
+   * point of the exit code is that the arithmetic is not obvious. The CI console
+   * that had the answer is gone by the time anybody reads the file.
+   *
+   * Both halves, because the number is for machines and the sentence is for
+   * people: `2` says "this cannot be trusted" and the reason says which of the
+   * five ways it happened. Found by the audit of 14 August 2026 (H-9).
+   */
+  readonly verdict: RunVerdict;
 }
 
 export interface BuildReportOptions {
@@ -781,6 +809,7 @@ function mergeFindings(
       request: {
         method: observation.method,
         url: observation.url,
+        as: observation.accountId,
         ...(contextHeaders === undefined ? {} : { contextHeaders }),
       },
       status: observation.status,
@@ -806,6 +835,7 @@ function mergeFindings(
       relatedRequest: {
         method: observation.method,
         url: observation.url,
+        as: observation.accountId,
         ...(contextHeaders === undefined ? {} : { contextHeaders }),
       },
     };
@@ -1173,7 +1203,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
           : { ...finding, counterpartAccountId: finding.relatedAccountId },
       ),
   );
-  return {
+  const report: VerdictInputs = {
     schemaVersion: REPORT_SCHEMA_VERSION,
     runId: randomUUID(),
     configDigest: createHash("sha256").update(canonical(options.config)).digest("hex").slice(0, 16),
@@ -1322,6 +1352,11 @@ export function buildReport(options: BuildReportOptions): RunReport {
       checkFindings: merged.filter((finding) => finding.source === "check").length,
     },
   };
+
+  // Computed last, from the finished report, and put inside it. The alternative
+  // was recomputing it in every consumer; the exit code exists precisely because
+  // the arithmetic is not obvious from the counters.
+  return { ...report, verdict: runVerdict(report) };
 }
 
 /**
@@ -1333,6 +1368,15 @@ export function buildReport(options: BuildReportOptions): RunReport {
  * or of the deployment, not the platform.
  */
 const UNTRUSTWORTHY_ERROR_SHARE = 0.5;
+
+/**
+ * A report without its conclusion, which is what the conclusion is computed from.
+ *
+ * The report carries its own verdict since 15 August (H-9), so the type would
+ * otherwise refer to itself. This is also the honest signature: `runVerdict`
+ * reads inputs and does not read the field it produces.
+ */
+export type VerdictInputs = Omit<RunReport, "verdict">;
 
 /** The verdict on a run: the code CI acts on, and the sentence a human reads. */
 export interface RunVerdict {
@@ -1358,7 +1402,7 @@ export interface RunVerdict {
  * contract was right and invisible. Deriving the sentence anywhere else would
  * give two sets of rules that agree until they do not.
  */
-export function runVerdict(report: RunReport): RunVerdict {
+export function runVerdict(report: VerdictInputs): RunVerdict {
   if (report.summary.observations === 0) {
     return { code: 2, reason: "not a single cell was probed — there is nothing to conclude from" };
   }
@@ -1486,6 +1530,6 @@ export function runVerdict(report: RunReport): RunVerdict {
  * from CI, and because every caller that only needs the number should not have
  * to reach through an object to get it.
  */
-export function exitCodeFor(report: RunReport): number {
+export function exitCodeFor(report: VerdictInputs): number {
   return runVerdict(report).code;
 }

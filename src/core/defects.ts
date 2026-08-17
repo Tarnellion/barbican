@@ -51,6 +51,21 @@ export interface GroupableFinding {
  * two defects, not one.
  */
 export interface DefectGroup {
+  /**
+   * A name for this group that survives the next run.
+   *
+   * "Defect #5 from run X" pointed elsewhere a month later: the array is ordered
+   * by severity, so one fix upstream renumbers everything below it. The key is
+   * the signature the grouping already uses — endpoint, kind, relation,
+   * conditions — so two runs of the same configuration against the same platform
+   * name the same defect the same way, and a ticket can cite it. Found by the
+   * audit of 14 August 2026 (H-10).
+   *
+   * Readable rather than hashed, for the same reason the finding carries a
+   * `request` and not an identifier: what a human pastes into a ticket should be
+   * something they can also read.
+   */
+  readonly key: string;
   readonly endpointId: string;
   /** The request conditions. Absent on discrepancies in baseline conditions. */
   readonly contextId?: string;
@@ -92,6 +107,22 @@ const SEVERITY_ORDER: Readonly<Record<Severity, number>> = {
  */
 const SEPARATOR = "\u0000";
 
+/**
+ * The citable form of the same signature `keyOf` builds.
+ *
+ * The separator is a space rather than the NUL `keyOf` uses: this one is read by
+ * people and pasted into tickets, that one is a map key and must not admit a
+ * collision between two different signatures glued together.
+ */
+function citableKey(diff: GroupableFinding): string {
+  return [
+    diff.endpointId,
+    diff.kind,
+    diff.relation ?? "any-resource",
+    diff.contextId ?? "baseline",
+  ].join(" ");
+}
+
 function keyOf(diff: GroupableFinding): string {
   // A separator that never occurs in identifiers: gluing with a hyphen would
   // admit a collision of two different signatures into one string.
@@ -114,6 +145,7 @@ export function groupDefects(diffs: readonly GroupableFinding[]): readonly Defec
     string,
     {
       endpointId: string;
+      key: string;
       kind: string;
       relation?: ResourceRelation;
       contextId?: string;
@@ -129,6 +161,7 @@ export function groupDefects(diffs: readonly GroupableFinding[]): readonly Defec
     const existing = groups.get(key);
     if (existing === undefined) {
       groups.set(key, {
+        key: citableKey(diff),
         endpointId: diff.endpointId,
         kind: diff.kind,
         ...(diff.relation === undefined ? {} : { relation: diff.relation }),
@@ -159,6 +192,7 @@ export function groupDefects(diffs: readonly GroupableFinding[]): readonly Defec
 
   return [...groups.values()]
     .map((group) => ({
+      key: group.key,
       endpointId: group.endpointId,
       kind: group.kind,
       ...(group.relation === undefined ? {} : { relation: group.relation }),

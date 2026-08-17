@@ -968,17 +968,26 @@ readability, failed on B-2 / H-3 above and was closed with it.
 - [ ] **H-5.** `summary.accounts` is 9 where `accounts.length` is 27 — the only
       one of seven summary fields that is not the length of its array. The
       distrustful reader checks exactly this first.
-- [ ] **H-6.** `relatedRequest` on a body finding is byte-for-byte equal to
-      `request` and does not name the other side; that is only in
-      `evidence.otherAccountId`.
+- [x] **H-6.** Closed 16 August. The lookup was never wrong — it already read the
+      **other** account's observation. On a list endpoint both sides ask the same
+      address and differ only by the credentials, which are not in the report and
+      will not be, so the two records were genuinely identical. `RequestRecord`
+      now carries `as`, the account id, which is what turns a `curl` into the
+      right `curl`. The "does not name the other side" half closed earlier with
+      `Finding.relatedAccountId` (L-4).
 - [ ] **H-7.** A finding references no observation and carries no response
       headers — the one thing that settles "closed" against "we knocked with the
       wrong transport".
 - [ ] **H-8.** For `auth.kind: "bearer"` the header name is not given, while
       cookie and header schemes name theirs.
-- [ ] **H-9.** The report carries no verdict — only the verdict's inputs.
-- [ ] **H-10.** A defect group has no citable key, and the array order changes
-      with severity: "defect #5 from run X" points elsewhere a month later.
+- [x] **H-9.** Closed 16 August: `verdict` is in the report, both the code and
+      the reason. `runVerdict` takes `VerdictInputs` — the report without its
+      conclusion — which is also the honest signature: it reads inputs and does
+      not read the field it produces.
+- [x] **H-10.** Closed 16 August: `defects[].key` is the signature the grouping
+      already uses — endpoint, kind, relation, conditions — in a form a person can
+      paste into a ticket. Readable rather than hashed, for the same reason a
+      finding carries a `request` and not an identifier.
 - [x] **H-11.** Closed 15 August, and **the finding's premise was wrong while its
       conclusion was right**. Key order was measured first and does not affect the
       digest: `parseRunConfig` builds its result in a fixed order, so reordering

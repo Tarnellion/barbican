@@ -108,6 +108,16 @@ the signature: an endpoint open to a user and to an admin alike is one defect,
 not two. Relation is part of it: BOLA inside a tenant and a cross-tenant leak
 live on the same endpoint and break independently.
 
+**That signature is also the defect's `key`, and it is what to cite.** The array
+is ordered by severity, so "defect #5 from run X" points at something else a
+month later — one fix upstream renumbers everything below it. The key does not
+move: two runs of the same configuration against the same platform name the same
+defect the same way.
+
+```jsonc
+"key": "orders.list identical-response-across-tenants any-resource baseline"
+```
+
 The tool **does not know the exact number of defects and cannot know it**: two
 different bugs with the same signature are indistinguishable from the outside.
 The number of signatures is the lower bound, the number of rows the upper one.

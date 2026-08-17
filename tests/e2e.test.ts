@@ -181,7 +181,15 @@ policy:
           // The reproduction is attached to the finding: the reader does not
           // have to assemble the address from the endpoint, the resource and
           // the base URL by hand.
-          request: { method: "GET", url: `${config.target.baseUrl}/v1/admin/users` },
+          // `as` names the account that sent it. On a list endpoint both sides of
+          // a paired finding ask the same address and differ only by credentials,
+          // which are not in the report — so without this the two requests are
+          // indistinguishable lines. See H-6.
+          request: {
+            method: "GET",
+            url: `${config.target.baseUrl}/v1/admin/users`,
+            as: "player-a",
+          },
           // The response code sits right in the finding: 'allowed' means only
           // '2xx', and which one exactly had to be looked up in the observations.
           status: 200,
