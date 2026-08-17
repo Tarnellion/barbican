@@ -701,6 +701,27 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     }
   }
 
+  /**
+   * Cells whose object this run has already changed.
+   *
+   * With `--unsafe-methods` the walk stops being a read. The first account to
+   * `DELETE` an order gets 200 and the order is gone; every later account gets
+   * 404, which folds into a denial and agrees with a policy of denial — so the
+   * tool reports "tested and agreed" about a protection it never observed,
+   * having manufactured the answer itself. Found by the audit of 14 August 2026
+   * (L-7).
+   *
+   * Keyed by endpoint and resource, because that is the object: two accounts
+   * deleting the same order collide, two accounts deleting different orders do
+   * not.
+   *
+   * Best effort, and worth saying so: the walk is parallel, so two workers can
+   * be inside the same cell at once and neither sees the other's write. What
+   * this removes is the silent conclusion, not the race.
+   */
+  const changed = new Set<string>();
+  const SAFE = new Set<string>(SAFE_METHODS);
+
   /** What one cell produced. A cell can yield a failure and an observation both. */
   interface CellResult {
     readonly failure?: ProbeFailure;
@@ -783,16 +804,34 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       ...(specs.length === 0 ? {} : { signals: specs }),
     };
 
+    const objectKey = `${endpoint.id}\u0000${resource?.id ?? ""}`;
     let status: number;
     let headers: Readonly<Record<string, string>>;
     let signals: Readonly<Record<string, SignalValue>> | undefined;
     let failure: ProbeFailure | undefined;
     let stopped: true | undefined;
+    let selfInflicted = false;
     try {
       const response = await options.client.send(request);
       status = response.status;
       headers = response.headers;
       signals = response.signals;
+      if (!SAFE.has(endpoint.method)) {
+        if (status >= 200 && status < 300) {
+          changed.add(objectKey);
+        } else if (status === 404 && changed.has(objectKey)) {
+          selfInflicted = true;
+          failure = {
+            accountId: account.id,
+            endpointId: endpoint.id,
+            ...(resource === undefined ? {} : { resourceId: resource.id }),
+            reason:
+              `404 after this run already changed the object with ${endpoint.method} ` +
+              `${endpoint.id}. Nothing follows about access: the object is missing ` +
+              `because we removed it, not because this account was refused.`,
+          };
+        }
+      }
     } catch (cause) {
       const terminal = terminalCause(cause);
       if (terminal !== undefined) {
@@ -824,7 +863,15 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         ...(resource === undefined ? {} : { resourceId: resource.id }),
         status,
         headers,
-        outcome: status === 0 ? "error" : classifyStatus(status),
+        outcome:
+          status === 0
+            ? "error"
+            : selfInflicted
+              ? // Not `not-found`, which would fold into a denial and read as
+                // proof of protection. There is no conclusion to draw here: the
+                // object is missing because this run removed it.
+                "error"
+              : classifyStatus(status),
         durationMs: Date.now() - startedAt,
         // The moment of the request, not only the duration: otherwise there is
         // nothing to match the finding against the platform's log.

@@ -264,7 +264,10 @@ Two things are worth agreeing separately rather than assuming:
 
 - **`--unsafe-methods`** issues requests that change state. A cancelled order
   stays cancelled after the report is written; barbican does not undo what it
-  did.
+  did. It also makes the walk change what it measures — the first account to
+  delete an order leaves every later one a 404 — so those cells are recorded as
+  "no conclusion" rather than as denials. See "the order of the walk" in
+  [docs/guide.md](docs/guide.md).
 - **A shared or production deployment.** Even at the default five requests a
   second, a run appears in somebody's monitoring, and an unannounced one gets
   treated as what it resembles.

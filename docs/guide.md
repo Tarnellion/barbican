@@ -683,6 +683,32 @@ That is the reason to leave the flag off unless you have one.
 - **Does not read the body to decide whether access was granted.** The status
   code is the whole of it, and on some platforms that is not enough — see below.
 
+### With `--unsafe-methods`, the order of the walk starts to matter
+
+A run without the flag is a read: whatever order the cells are probed in, each
+answer is about the platform. With it, the walk changes the thing it is
+measuring. The first account to `DELETE /v1/orders/1` gets 200 and the order is
+gone; every later account asking about that same order gets 404.
+
+A 404 normally means "not there", which satisfies a policy of denial — so
+without care those later cells would read as **tested and agreed** about a
+protection nobody ever observed, and the report would depend on which account the
+walk reached first.
+
+The tool refuses to draw that conclusion. A 404 on a state-changing endpoint
+whose object this run has already changed is recorded as `error` — no conclusion —
+with the reason in `failures`, rather than as a denial. It is deliberately narrow:
+
+- only state-changing methods, so an ordinary 404 still means the resource is
+  absent, which `coverage.resourcesNotFound` is for;
+- only after a **2xx** on the same endpoint and resource in the same run;
+- a 403 is untouched, because that is the platform answering rather than us.
+
+**It is best effort, and the limit is worth knowing.** The walk is parallel, so
+two accounts can be inside the same cell at once and neither sees the other's
+write. What this removes is the silent conclusion, not the race. If the answer
+for a write endpoint has to be exact, give each account a resource of its own.
+
 ### A platform that refuses with 200
 
 Some APIs answer every request with `200 OK` and put the outcome in the body:

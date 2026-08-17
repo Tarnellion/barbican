@@ -1289,12 +1289,22 @@ readability, failed on B-2 / H-3 above and was closed with it.
       technical defaults. A search for `permission | authoriz | consent | legal`
       matches only the licence text and the `Authorization` header. The package
       ships with the keywords `bola`, `idor`, `api-security`.
-- [ ] **L-7.** Traversal order is assumed not to matter, and with
+- [x] **L-7.** Closed 16 August. A 404 on a state-changing endpoint whose object
+      this run has already changed is recorded as `error` — no conclusion — with
+      the reason in `failures`, instead of `not-found`, which folds into a denial
+      and reads as proof of protection. Narrow on purpose: state-changing methods
+      only, only after a 2xx on the same endpoint and resource in the same run,
+      and a 403 is untouched because that is the platform answering.
+      **Best effort, and said so in the guide:** the walk is parallel, so two
+      accounts can be inside one cell at once and neither sees the other's write.
+      What this removes is the silent conclusion, not the race.
+      The finding's own note held — nothing caught the class, because the
+      polygon's one write endpoint was chosen to sidestep it. The new test builds
+      a platform that really deletes.
+      Original finding: traversal order is assumed not to matter, and with
       `--unsafe-methods` that is false: a `DELETE` performed by the first account
       gives every later one a 404, which folds into `denied` and matches a policy
-      of denial. The polygon endpoint was deliberately chosen to sidestep this —
-      it is written down in these notes — so the one oracle the project has cannot
-      catch the class.
+      of denial.
 - [x] **L-3.** Documented 15 August in the README, `docs/guide.md`,
       `docs/report.md` and at `classifyStatus` itself, with a guard test so the
       warning survives the next edit. **The finding was understated**: the body
@@ -1453,8 +1463,8 @@ nowhere, and it drops accordingly.
 13. ~~**D-5 + D-7** — a body over the ceiling silently zeroes the comparison;
     `parseRunConfig` has no size or depth limit.~~ Done 16 August. D-7's wording
     overstated it: the alias limit was already in place.
-14. **L-7** — traversal order is assumed not to matter, and with
-    `--unsafe-methods` it is not.
+14. ~~**L-7** — traversal order is assumed not to matter, and with
+    `--unsafe-methods` it is not.~~ Done 16 August.
 15. **F-6, F-3, F-5, F-7, F-9, K-4, K-6, K-7, K-8, K-9, L-8, L-10** — supply
     chain and hygiene, including a build that cannot run on Windows.
 16. **I-5 + I-6** — scale past the present ceiling. Nothing to measure against
