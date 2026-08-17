@@ -1260,8 +1260,20 @@ readability, failed on B-2 / H-3 above and was closed with it.
       provenance — for every package, with why each is there and what was
       considered and rejected. A package with no row has not been vetted,
       whatever anybody remembers.
-- [ ] **K-7.** `pnpm run build`, and therefore `check`, cannot run on Windows —
-      `chmod` does not exist there. CI will never catch it: no Windows job.
+- [x] **K-7.** Closed 17 August: `chmod +x dist/cli.js` became
+      `node tools/executable-bit.mjs`, and `ci.yml` grew a `windows-latest` entry
+      in the `check` matrix. Both halves, because either alone is worse than
+      useless. The bit matters on POSIX and nowhere else — `dist/cli.js` has a
+      shebang and `bin` links it onto the path — while on Windows the package
+      manager writes `.cmd` shims and `chmodSync` touches only the read-only
+      flag, which `0o755` leaves clear; so it is the same operation, spelled in
+      the one language both platforms have. Making it portable without a job to
+      run it on would have been a claim about a platform nobody here has, which
+      is the shape of defect this tool exists to find.
+      `tests/workflows/portable-gate.test.ts` holds both: no script may use a
+      command only a POSIX shell has, and the Windows entry must be in the
+      matrix. The first is a list of names and therefore always short of the
+      truth — the second is why that is survivable.
 - [x] **K-4.** Closed 17 August: `tools/managed-block.mjs` reads, compares and
       replaces the block between two markers, normalising line endings in one
       place instead of in each caller. `.gitattributes` is the other half —
@@ -1416,9 +1428,10 @@ verdict is refuted by D's run, and the invariant should be counted as breached.
 
 ### What could not be checked
 
-Windows (nothing to run it on; K-7 is code reading, and K-4's `.gitattributes`
-is checked through `git check-attr` — the rules actually in force — rather than
-by a checkout on the platform they exist for). Branch
+Windows, locally: there is nothing here to run it on. As of 17 August CI has a
+`windows-latest` job, so the gate is answered there rather than reasoned about —
+but K-4's `.gitattributes` is still checked through `git check-attr`, the rules
+actually in force, and not by a checkout on the platform it exists for. Branch
 protection on GitHub, so it is unknown whether the three missing release gates
 block a merge in practice. Real network latency — localhost only, so the scale
 numbers are extrapolation from a model confirmed at two latencies. OpenAPI
@@ -1524,12 +1537,11 @@ nowhere, and it drops accordingly.
     overstated it: the alias limit was already in place.
 14. ~~**L-7** — traversal order is assumed not to matter, and with
     `--unsafe-methods` it is not.~~ Done 16 August.
-15. ~~**F-6, F-3, F-5, F-7, F-9, K-4, K-6, K-8, K-9, L-8, L-10** — supply chain
-    and hygiene.~~ Done 16–17 August. Two settings had been off since the pnpm 11
-    upgrade and nothing said so; F-5 asked for a dependabot ecosystem that does
-    not exist for a binary fetched by URL, and F-6's "it exits 1 today" had
-    expired. **K-7 is left open on purpose** — whether to support Windows is a
-    decision and not a defect, and it is the owner's.
+15. ~~**F-6, F-3, F-5, F-7, F-9, K-4, K-6, K-7, K-8, K-9, L-8, L-10** — supply
+    chain and hygiene.~~ Done 16–17 August. Two settings had been off since the
+    pnpm 11 upgrade and nothing said so; F-5 asked for a dependabot ecosystem
+    that does not exist for a binary fetched by URL, and F-6's "it exits 1 today"
+    had expired.
 16. **I-5 + I-6** — scale past the present ceiling. Nothing to measure against
     until somebody runs it at that size, and guessing is what the estimate in
     `plan.md` already did once.

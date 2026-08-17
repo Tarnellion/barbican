@@ -25,13 +25,28 @@ env:
 
 jobs:
   check:
-    name: lint / typecheck / test / build (node ${{ matrix.node }})
-    runs-on: ubuntu-latest
+    name: lint / typecheck / test / build (node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         # 22 is the development version, 24 the upper bound of declared support.
-        node: [22, 24]
+        #
+        # Windows is here because the gate could not run there at all: `build` is
+        # the last step of `check` and it ended in `chmod`, which Windows has no
+        # command for. Fixing that without a job to run it on would have been a
+        # claim rather than a check — every job in this file was
+        # `ubuntu-latest`, so nothing would ever have said whether it worked.
+        # Found by the audit of 14 August 2026 (K-7).
+        #
+        # One Windows entry and not a full second column: what is under test is
+        # whether the contributor's gate runs on the platform, and that answer
+        # does not differ between node 22 and 24. The development version is the
+        # one that gets it.
+        include:
+          - { os: ubuntu-latest, node: 22 }
+          - { os: ubuntu-latest, node: 24 }
+          - { os: windows-latest, node: 22 }
     steps:
       # Actions are pinned by SHA: a tag can be moved to another commit.
       - name: Checkout
