@@ -17,6 +17,21 @@ export const IDENTICAL_RESPONSE_CHECK_ID = "identical-response-across-tenants";
 /** The default name of the digest signal. Overridden at registration. */
 export const DEFAULT_DIGEST_SIGNAL = "digest";
 
+/**
+ * The signal that says the body was never read because it was too large.
+ *
+ * A body over `maxBodyBytes` yielded no signals, so the pair was skipped, the
+ * comparison quietly became zero, and nothing in the report said why. "No
+ * comparison was made" and "the bodies differed" are the two readings this whole
+ * check exists to keep apart, and here the report offered neither. Found by the
+ * audit of 14 August 2026 (D-5).
+ *
+ * A reserved name, like `digest` and for the same reason: a human declaring a
+ * scalar of this name would take its place, and the check would then read
+ * something else without anybody being told.
+ */
+export const BODY_OVER_LIMIT_SIGNAL = "bodyOverLimit";
+
 export interface IdenticalResponseCheckOptions {
   readonly digestSignal?: string;
 }

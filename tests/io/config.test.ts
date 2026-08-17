@@ -19,6 +19,8 @@ import {
   applyBodySignals,
   assertReferencesResolve,
   ConfigParseError,
+  ConfigTooDeepError,
+  ConfigTooLargeError,
   ConfigValidationError,
   CredentialsInUrlError,
   DuplicateAccountIdError,
@@ -54,6 +56,44 @@ policy:
     - { roles: "*", endpoints: [profile.read], outcome: allowed }
     - { roles: [admin], endpoints: "*", outcome: allowed }
 `;
+
+/**
+ * Size and depth, which this path alone lacked.
+ *
+ * The three endpoint sources have had them since they were written; here only
+ * the alias count was in place — the billion-laughs defence. A configuration is
+ * a file an operator may receive from somebody else along with a report to
+ * reproduce, and "the parser ran out of stack" is not a refusal anyone can act
+ * on. Found by the audit of 14 August 2026 (D-7), whose wording overstates it.
+ */
+describe("the limits on a run configuration", () => {
+  const valid = `
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
+policy: { fallback: denied, rules: [] }
+`;
+
+  it("refuses a document past the size limit, naming both numbers", () => {
+    const padded = `${valid}\n# ${"x".repeat(1_000_001)}\n`;
+
+    expect(() => parseRunConfig(padded)).toThrow(ConfigTooLargeError);
+    // Both numbers, so the operator knows by how much rather than only that.
+    expect(() => parseRunConfig(padded)).toThrow(/bytes, the limit is 1000000/);
+  });
+
+  it("refuses a document nested past the depth limit", () => {
+    let nested = "x";
+    for (let i = 0; i < 40; i += 1) {
+      nested = `{ a: ${nested} }`;
+    }
+
+    expect(() => parseRunConfig(`${valid}\nextra: ${nested}\n`)).toThrow(ConfigTooDeepError);
+  });
+
+  it("accepts what a human actually writes", () => {
+    expect(() => parseRunConfig(valid)).not.toThrow();
+  });
+});
 
 describe("parsing a valid configuration", () => {
   it("reads the target, the accounts and the policy", () => {
@@ -645,6 +685,22 @@ policy:
   responseMustDifferByTenant: [orders.read]
   signals:
     - { name: digest, kind: present, path: orders, endpoints: [orders.read] }
+`;
+
+      expect(() => parseRunConfig(declaration)).toThrow(ReservedSignalNameError);
+    });
+
+    /**
+     * The second reserved name, for the same reason as the first. The extractor
+     * sets this flag when a body was too large to read, and the check reads it
+     * to tell "no comparison was made" from "the bodies differed"; a declared
+     * scalar of this name would take its place. See D-5.
+     */
+    it("rejects the reserved name for the over-limit flag", () => {
+      const declaration = `${base}bodySignals:
+  responseMustDifferByTenant: [orders.read]
+  signals:
+    - { name: bodyOverLimit, kind: present, path: orders, endpoints: [orders.read] }
 `;
 
       expect(() => parseRunConfig(declaration)).toThrow(ReservedSignalNameError);

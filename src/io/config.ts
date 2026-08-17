@@ -23,6 +23,7 @@ import {
   ANY,
   assertIndependentMemberships,
   assertPolicyIsSound,
+  BODY_OVER_LIMIT_SIGNAL,
   createTenantHierarchy,
   DEFAULT_DIGEST_SIGNAL,
   describePolicyRule,
@@ -35,6 +36,68 @@ import { isHeaderName, isHeaderValue, lookup, safeHeaders } from "./untrusted.js
 
 /** The same limit on alias expansion as for specifications. */
 const MAX_ALIAS_COUNT = 100;
+
+/**
+ * The size and nesting limits on a run configuration.
+ *
+ * The three endpoint sources have had these since they were written, and this
+ * path had only the alias count — the billion-laughs defence. The other two
+ * mattered less here and did matter: a configuration is a file an operator may
+ * receive from somebody else along with a report to reproduce, and "the parser
+ * ran out of stack" is not a refusal a reader can act on. Found by the audit of
+ * 14 August 2026 (D-7), whose wording overstates it — the alias limit was
+ * already in place.
+ *
+ * Smaller than a specification's five megabytes: a specification is generated,
+ * a configuration is written by a human.
+ */
+const MAX_CONFIG_BYTES = 1_000_000;
+const MAX_CONFIG_DEPTH = 32;
+
+export class ConfigTooLargeError extends Error {
+  override readonly name = "ConfigTooLargeError";
+  constructor(actualBytes: number, maxBytes: number) {
+    super(
+      `The run configuration is ${actualBytes} bytes, the limit is ${maxBytes}. ` +
+        `A configuration is written by a human; a file this size is more likely ` +
+        `generated or wrong than large.`,
+    );
+  }
+}
+
+export class ConfigTooDeepError extends Error {
+  override readonly name = "ConfigTooDeepError";
+  constructor(maxDepth: number) {
+    super(
+      `The run configuration nests deeper than ${maxDepth} levels. Nothing this ` +
+        `format describes needs that depth, and a parser that runs out of stack ` +
+        `instead gives an error nobody can act on.`,
+    );
+  }
+}
+
+/**
+ * Refuses a document that is too deep before anything walks it.
+ *
+ * The same shape as `assertSafeShape` in the OpenAPI parser, and deliberately so
+ * — a second way of counting depth would be a second thing to get wrong.
+ */
+function assertDepth(root: unknown, maxDepth: number): void {
+  const seen = new WeakSet<object>();
+  const walk = (node: unknown, depth: number): void => {
+    if (depth > maxDepth) {
+      throw new ConfigTooDeepError(maxDepth);
+    }
+    if (node === null || typeof node !== "object" || seen.has(node)) {
+      return;
+    }
+    seen.add(node);
+    for (const value of Object.values(node)) {
+      walk(value, depth + 1);
+    }
+  };
+  walk(root, 0);
+}
 
 /**
  * The expected outcome. There is no default on purpose — and the message explains
@@ -1122,6 +1185,13 @@ export function configJsonSchema(): Record<string, unknown> {
 }
 
 export function parseRunConfig(source: string): RunConfig {
+  // Before parsing: a size limit that only applies after the document is built
+  // is a limit on the wrong thing.
+  const bytes = Buffer.byteLength(source, "utf8");
+  if (bytes > MAX_CONFIG_BYTES) {
+    throw new ConfigTooLargeError(bytes, MAX_CONFIG_BYTES);
+  }
+
   let document: unknown;
   try {
     document = parseYaml(source, { maxAliasCount: MAX_ALIAS_COUNT });
@@ -1129,6 +1199,7 @@ export function parseRunConfig(source: string): RunConfig {
     throw new ConfigParseError(cause instanceof Error ? cause.message : String(cause), { cause });
   }
 
+  assertDepth(document, MAX_CONFIG_DEPTH);
   assertNoUncarriableKeys(document);
 
   const parsed = configSchema.safeParse(document);
@@ -1149,6 +1220,9 @@ export function parseRunConfig(source: string): RunConfig {
   // this one needs nothing but the configuration, and parsing is the one gate a
   // library consumer cannot walk past.
   for (const signal of config.bodySignals?.signals ?? []) {
+    if (signal.name === BODY_OVER_LIMIT_SIGNAL) {
+      throw new ReservedSignalNameError(signal.name);
+    }
     if (signal.name === DEFAULT_DIGEST_SIGNAL) {
       throw new ReservedSignalNameError(signal.name);
     }

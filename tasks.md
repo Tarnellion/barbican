@@ -1257,10 +1257,18 @@ readability, failed on B-2 / H-3 above and was closed with it.
       a typo in the fourth rule reports `Policy rule #3`.
 - [ ] **G-10.** `EISDIR` names neither the file nor the flag, with at least two
       paths on the command line.
-- [ ] **D-5.** A body over `maxBodyBytes` removes the digest, the comparison
-      becomes zero, and the reason is not stated anywhere in the report.
-- [ ] **D-7.** `parseRunConfig` is the only parse path without size and depth
-      limits, while all three adapters have them.
+- [x] **D-5.** Closed 16 August: the extractor sets `bodyOverLimit` when a body
+      was too large to read, so "no comparison was made" and "the bodies
+      differed" stop looking the same in the report — which is the pair this
+      whole check exists to keep apart. A second reserved signal name, for the
+      reason the first one is: a declared scalar of that name would take its
+      place and the check would read something else in silence.
+- [x] **D-7.** Closed 16 August: `maxBytes` (1 MB) and `maxDepth` (32), with the
+      depth walk copied from the OpenAPI parser rather than written a second way.
+      **The finding overstates it** — `maxAliasCount` was already there, so this
+      path was not without limits, it was without two of the three. Smaller
+      numbers than a specification's, because a specification is generated and a
+      configuration is written by a human.
 
 ### Legal, language, and platform assumptions
 
@@ -1442,9 +1450,9 @@ nowhere, and it drops accordingly.
     each was verified against the code before being touched.
 12. ~~**H-4 … H-10, B-9, B-16, G-9, G-10** — what a reader cannot do with the
     artifact.~~ Done 16 August in three commits. H-5 was half closed already.
-13. **D-5 + D-7** — a body over the ceiling silently zeroes the comparison with
-    the reason stated nowhere; `parseRunConfig` is the only parse path with no
-    size or depth limit.
+13. ~~**D-5 + D-7** — a body over the ceiling silently zeroes the comparison;
+    `parseRunConfig` has no size or depth limit.~~ Done 16 August. D-7's wording
+    overstated it: the alias limit was already in place.
 14. **L-7** — traversal order is assumed not to matter, and with
     `--unsafe-methods` it is not.
 15. **F-6, F-3, F-5, F-7, F-9, K-4, K-6, K-7, K-8, K-9, L-8, L-10** — supply

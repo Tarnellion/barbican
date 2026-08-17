@@ -296,12 +296,31 @@ describe("the size ceiling", () => {
    * the same digest, and the tool would claim a match that does not exist. The
    * absence of a signal beats a wrong one.
    */
-  it("computes nothing when the body is over the ceiling", async () => {
+  /**
+   * Nothing computed, and one flag saying which silence this is.
+   *
+   * A body over the ceiling yielded an empty set, so the pair was skipped, the
+   * comparison quietly became zero, and the report could not tell "no comparison
+   * was made" from "the bodies differed" — the two readings this whole check
+   * exists to keep apart. Found by the audit of 14 August (D-5).
+   */
+  it("computes nothing when the body is over the ceiling, and says so", async () => {
     const extractor = createSignalExtractor({ salt: SALT, maxBodyBytes: 16 });
 
     const signals = await extractor.extract(streamOf("x".repeat(64)), DIGEST);
 
-    expect(signals).toEqual({});
+    expect(signals).toEqual({ bodyOverLimit: true });
+    // The digest in particular is absent, not zero or guessed.
+    expect(signals).not.toHaveProperty("digest");
+  });
+
+  /** And says nothing when there was nothing to say. */
+  it("does not flag a body that fitted", async () => {
+    const extractor = createSignalExtractor({ salt: SALT, maxBodyBytes: 64 });
+
+    const signals = await extractor.extract(streamOf("x".repeat(16)), DIGEST);
+
+    expect(signals).not.toHaveProperty("bodyOverLimit");
   });
 
   it("computes when the body is exactly at the ceiling", async () => {

@@ -11,6 +11,7 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
+import { BODY_OVER_LIMIT_SIGNAL } from "../core/checks/tenant-isolation.js";
 import { openRecord } from "../io/untrusted.js";
 import type { SignalSpec, SignalValue } from "./ports.js";
 
@@ -186,7 +187,11 @@ export function createSignalExtractor(options: SignalExtractorOptions = {}): Sig
       const bytes = await readCapped(body, maxBodyBytes);
       if (bytes === undefined) {
         // The body is over the ceiling: the signals are unavailable. An empty
-        // set, not guesses.
+        // set, not guesses — and one flag saying which of the two silences this
+        // is. Without it the pair was skipped, the comparison became zero, and
+        // the report could not tell "no comparison was made" from "the bodies
+        // differed". See D-5.
+        signals[BODY_OVER_LIMIT_SIGNAL] = true;
         return signals;
       }
 
