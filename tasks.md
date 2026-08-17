@@ -1274,6 +1274,24 @@ readability, failed on B-2 / H-3 above and was closed with it.
       command only a POSIX shell has, and the Windows entry must be in the
       matrix. The first is a list of names and therefore always short of the
       truth — the second is why that is survivable.
+
+      **What the job found on its first run**, which is the argument for having
+      added it rather than documenting the limitation: six failures, none of them
+      in `src/`, all six fixtures written in a shape only a POSIX path has. Two
+      of them were the proving tests for a security invariant — "external `$ref`s
+      are not resolved through the file system" interpolates the path into a
+      double-quoted YAML scalar, and `C:\Users\RUNNER~1\...` makes `\U` an
+      invalid escape, so the document failed to parse and the test passed on an
+      error from a step before its own subject. The invariant holds; the guard is
+      a string comparison with no platform in it. The proof did not, and the
+      distinction between those two is the whole argument of this project. Two
+      more asked one question as two claims no platform answers together — a real
+      file with a canary in it, and a value the parser accepts; on POSIX one
+      absolute path is both, on Windows nothing is. And the test for K-9 repeated
+      K-9: it passed the absolute path as an ESM specifier, which is valid on
+      POSIX and read as the scheme `d:` on Windows, so the spawned process died
+      before reaching the module and "it printed nothing" was true of a stack
+      trace nobody looked at. Fixed in `c5b7e4a`; the whole matrix is green.
 - [x] **K-4.** Closed 17 August: `tools/managed-block.mjs` reads, compares and
       replaces the block between two markers, normalising line endings in one
       place instead of in each caller. `.gitattributes` is the other half —
