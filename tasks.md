@@ -931,11 +931,28 @@ mutants the type checker rejects) **7 real gaps**, not 29.
 - [ ] **The third `$ref` barrier** is called separately proven by ADR-0005 and has
       no such test. Verified by hand (zero requests, zero reads), but the mutation
       `resolve: { external: true }` alone is not caught.
-- [~] **B-14.** Half closed 15 August with B-3 and B-4: the helper now builds
-      finding rows and counts `byKind` from them, so it no longer assembles
-      objects `buildReport` cannot produce — which is what hid the second half of
-      B-4. Still open: the seam itself is not covered, the tests still assemble
-      a `RunReport` rather than going through `buildReport`.
+- [x] **B-14.** Closed 17 August. The first half went on 15 August with B-3 and
+      B-4: the helper builds finding rows and counts `byKind` from them, so it no
+      longer assembles objects `buildReport` cannot produce — which is what hid
+      the second half of B-4. The second half is `tests/report/verdict-seam.test.ts`,
+      which reaches every branch of `runVerdict` through the three steps the CLI
+      takes and nothing else — `buildAccessMatrix`, `diffAccess`, `buildReport` —
+      with the discrepancies produced by the core rather than supplied as
+      literals. The hand-built file stays, and now says why: it asks "given this
+      report, what is the verdict", which is cheap and is half the question; it
+      cannot tell whether a run produces that report at all.
+      **The demonstration**, which is the point of the whole item: make
+      `buildReport` drop `truncated` — a run cut short reported as complete,
+      turning exit 2 into exit 0 on a matrix whose tail was never walked — and
+      all 68 assertions in `exit-code.test.ts` pass while two in the new file
+      fail. Same for `staleCredentials` not reaching the report and for
+      `canariesChecked` overwritten with 1: one seam test each, 79 hand-built
+      ones green. The branch **order** is asserted too — `truncated` outranks a
+      finding, because a leak in the part that was walked says nothing about the
+      part that was not — and `if (report.truncated && summary.findings === 0)`
+      fails exactly the test written for it. Moving the findings branch above
+      `truncated` outright does not compile, so the language holds part of the
+      order by itself.
       Original finding: the exit-code tests assemble a `RunReport` by hand,
       bypassing `buildReport`, and assemble objects `buildReport` cannot produce.
       The seam `buildReport -> runVerdict` is uncovered — which is where B-3 and
@@ -1565,8 +1582,8 @@ nowhere, and it drops accordingly.
    15 August.
 6. ~~**C-5 + C-4 + C-6 + C-7 + A-5 + A-6** — assertions that do not assert.~~
    Done 15 August. Every one was re-measured first: A-6 and half of C-5 were
-   already closed, the other six survived the whole suite. B-14 stays open — its
-   remaining half is the uncovered `buildReport -> runVerdict` seam.
+   already closed, the other six survived the whole suite. B-14's remaining half —
+   the uncovered `buildReport -> runVerdict` seam — was closed on 17 August.
 7. ~~**G-1 + G-2 + G-3 + G-7** — the dry run lies in four ways.~~ Done
    15 August; four mutations, four distinct failures in the polygon gate.
 8. ~~**K-5, then E-3 + E-4 + E-5** — the link guard walks the file system instead

@@ -5,6 +5,14 @@
  * having checked nothing — a specification with no endpoints, a deployment
  * failing on everything, and an exhausted request budget. In all three the
  * exit code was 0, that is, it read as proof of protection.
+ *
+ * These ask "given this report, what is the verdict", from a `RunReport` written
+ * out here. That is deliberate and it is half the question: it reaches states
+ * cheaply and it cannot tell whether a run produces them at all. The other half
+ * — the same verdicts reached through `buildAccessMatrix`, `diffAccess` and
+ * `buildReport`, which is what the CLI does — is `verdict-seam.test.ts`. Keep
+ * both: a defect in `buildReport` passes every assertion in this file, and the
+ * one next door is where it shows.
  */
 
 import { describe, expect, it } from "vitest";
@@ -67,9 +75,9 @@ function report(overrides: {
     runId: "00000000-0000-4000-8000-000000000000",
     configDigest: "0000000000000000",
     // Nothing here is capped: these rows are assembled by hand rather than by
-    // `buildReport`, which is B-14's open half. The field is required, so the
-    // compiler asks for it — and a hand-built report that claimed rows were
-    // omitted would be describing a cap that never ran.
+    // `buildReport`. The field is required, so the compiler asks for it — and a
+    // hand-built report claiming rows were omitted would describe a cap that
+    // never ran. See ADR-0029.
     findingsOmitted: 0,
     coverage: {
       endpointsTotal: 0,
