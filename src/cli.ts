@@ -255,6 +255,7 @@ function describePlan(
   flags: RunFlags,
   checks: readonly Check[],
   limits: ThrottleLimits | undefined,
+  contextValues: Parameters<typeof toAccounts>[1],
 ): number {
   const tenantBaseUrls = new Map(
     (config.tenants ?? [])
@@ -309,7 +310,7 @@ function describePlan(
   const contextEndpoints = new Map(
     config.contexts.map((context) => [context.id, new Set(context.endpointIds)]),
   );
-  const { accounts } = toAccounts(config, new Map());
+  const { accounts } = toAccounts(config, contextValues);
   const cells = accounts.reduce((total, account) => {
     const named =
       account.contextId === undefined ? undefined : contextEndpoints.get(account.contextId);
@@ -421,6 +422,13 @@ async function run(flags: RunFlags): Promise<number> {
   // the environment. Resolved before the method-override check, because what has
   // to be checked is what really goes over the wire, not what is written in the
   // file.
+  //
+  // And used by `--dry-run` as well, which built its accounts with an empty map:
+  // any attribute written as `{ env: NAME }` then threw
+  // `MissingContextValueError`, so the dry run refused a configuration the real
+  // run executes and named a variable that was set the whole time. The command a
+  // reader is told to try first on somebody else's deployment failed and blamed
+  // them for it. Found by adversarial review on 17 August 2026.
   const contextValues = resolveContextValues(config, process.env);
   assertContextsCannotWrite(contextValues, { allowUnsafeMethods: flags.unsafeMethods === true });
   // responseMustDifferByTenant is a human's statement of expectation; endpoint
@@ -469,7 +477,7 @@ async function run(flags: RunFlags): Promise<number> {
   // would do — on someone else's deployment the question "what exactly will you
   // touch" deserves an answer before the first request, not after.
   if (flags.dryRun === true) {
-    return describePlan(config, endpoints, flags, selected, throttle.limits);
+    return describePlan(config, endpoints, flags, selected, throttle.limits, contextValues);
   }
 
   const credentials = createCredentialProvider(

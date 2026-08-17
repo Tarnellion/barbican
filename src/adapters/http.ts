@@ -456,13 +456,30 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
           response === undefined
             ? undefined
             : parseRetryAfter(response.headers["retry-after"] ?? null, clock.now());
-        // The server's instruction outranks our formula — but not our own
-        // ceiling. Without that bound a huge Retry-After removed the delay
-        // entirely: setTimeout clamps values above 2^31-1 ms down to one
-        // millisecond, and three attempts went through in a matter of
-        // milliseconds instead of an exponential backoff.
-        const retryAfter = advised === undefined ? undefined : Math.min(advised, retry.maxDelayMs);
-        await clock.sleep(retryAfter ?? backoffFor(attempt));
+        // The server's instruction may only make us wait **longer**, and never
+        // past our own ceiling.
+        //
+        // A ceiling was here first, found when a huge `Retry-After` removed the
+        // delay entirely: `setTimeout` clamps values above 2^31-1 ms down to one
+        // millisecond, and three attempts went through in milliseconds instead of
+        // an exponential backoff. The same bound was missing underneath —
+        // `Retry-After: 0`, or a negative value, or a timestamp already past, all
+        // gave `sleep(0)` and removed the backoff the other way. Measured: 15
+        // requests in 5 255 ms became 15 in 2 817 ms, doubling the rate at a
+        // deployment that is answering 503. Found by adversarial review on
+        // 17 August 2026.
+        //
+        // A floor of our own formula rather than of some constant, because that
+        // is what the header means: `Retry-After` is "not before", a minimum the
+        // server asks for, and nothing in it entitles a target to shorten a delay
+        // this tool decided on. The ceiling stays above it for the same reason it
+        // was added.
+        const backoff = backoffFor(attempt);
+        const retryAfter =
+          advised === undefined
+            ? undefined
+            : Math.min(Math.max(advised, backoff), retry.maxDelayMs);
+        await clock.sleep(retryAfter ?? backoff);
       }
 
       throw new RequestFailedError(request.url, retry.maxAttempts, { cause: lastCause });

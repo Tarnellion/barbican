@@ -464,6 +464,55 @@ describe("retries and backoff", () => {
     }
   });
 
+  /**
+   * And the bound underneath, which was missing.
+   *
+   * `Retry-After: 0` — or a negative value, or a timestamp already past — gave
+   * `sleep(0)` and removed the backoff from the other side. Measured on a
+   * deployment answering 503 to everything: 15 requests in 5 255 ms became 15 in
+   * 2 817 ms, doubling the rate at a system that is already failing. The header
+   * means "not before": it is a minimum the server asks for, and nothing in it
+   * entitles a target to shorten a delay this tool decided on. Found by
+   * adversarial review on 17 August 2026.
+   */
+  it("does not let the server shorten the wait with Retry-After: 0", async () => {
+    const server = await startServer((_request, response) => {
+      response.writeHead(429, { "retry-after": "0" }).end();
+    });
+    try {
+      const { client, clock } = clientFor({
+        retry: { maxAttempts: 3, baseDelayMs: 500, maxDelayMs: 30_000 },
+        breaker: { consecutiveFailures: 99 },
+      });
+
+      await client.send(GET(server.port));
+
+      // The tool's own formula, exactly as if the header had not been there —
+      // jitter included, which is why these are half of 500 and 1000.
+      expect(clock.sleeps).toEqual([250, 500]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("takes the longer of the two when the server asks for less than the formula", async () => {
+    const server = await startServer((_request, response) => {
+      response.writeHead(429, { "retry-after": "1" }).end();
+    });
+    try {
+      const { client, clock } = clientFor({
+        retry: { maxAttempts: 3, baseDelayMs: 4000, maxDelayMs: 30_000 },
+        breaker: { consecutiveFailures: 99 },
+      });
+
+      await client.send(GET(server.port));
+
+      expect(clock.sleeps).toEqual([2000, 4000]);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("grows the pause exponentially when the server says nothing about timing", async () => {
     const server = await startServer((_request, response) => {
       response.writeHead(503).end();

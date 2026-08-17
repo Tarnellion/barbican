@@ -1905,12 +1905,35 @@ Open, from the same review, in the order they were ranked:
       another host is a scope escape. A relative location keeps nothing but the
       mark: `/reset/TOKEN` and `/login` are indistinguishable to that function and
       only one of them is safe to print.
-- [ ] **`content-length` is on the allowlist**, so an exact body size is in the
-      report for every cell — including endpoints where no `bodySignals` were
-      declared, and `docs/report.md` says bodies are read only where they were.
-- [ ] **`Retry-After: 0` removes the backoff** — no floor under the value.
-- [ ] **`--dry-run` fails on a configuration that runs**, because `describePlan`
-      resolves context values against an empty environment.
+- [x] **`content-length` is on the allowlist.** Weighed on 17 August and **kept**,
+      with the documentation corrected instead. Measured first, on the reference
+      platform's clean run: `orders.read`, where nothing is declared, shows three
+      distinct lengths across seven responses, so the channel is real. It stays
+      because the tool never reads a body to obtain it — the server volunteers it
+      in a header — because it carries no credential, and because an empty 200 and
+      a four-kilobyte 200 are different findings to whoever is triaging. What was
+      wrong is that `docs/report.md` let a reader conclude the file says nothing
+      about body content unless they asked for it. It now says the opposite in the
+      place that promise lives, so a reader can decide whether the file may
+      travel.
+- [x] **`Retry-After: 0` removes the backoff.** Closed 17 August: the header may
+      only make the tool wait **longer**, never shorter, and never past its own
+      ceiling. A ceiling was added when a huge value removed the delay —
+      `setTimeout` clamps above 2^31-1 ms — and the same bound was missing
+      underneath, so `0`, a negative value or a past timestamp all gave
+      `sleep(0)`. Measured against a deployment answering 503: 15 requests in
+      5 255 ms became 15 in 2 817 ms, doubling the rate at a system already
+      failing. The floor is the tool's own formula, because that is what the
+      header means — "not before" is a minimum the server asks for, and nothing
+      in it entitles a target to shorten a delay this tool decided on.
+- [x] **`--dry-run` fails on a configuration that runs.** Closed 17 August:
+      `describePlan` built its accounts with an empty map, so any context
+      attribute written as `{ env: NAME }` threw `MissingContextValueError` — the
+      dry run refused a configuration the real run executes, and named a variable
+      that was set the whole time. Both paths resolve from `process.env` now, and
+      a genuinely missing variable still stops the dry run, which is what the
+      command is for. The command a reader is told to try first on somebody
+      else's deployment was the one that failed and blamed them for it.
 - [ ] **`Finding.evidence` admits strings** where `SignalValue` does not, so the
       PII ban is structural on one and disciplinary on the other. Two mappings —
       matrix findings and `withVerdicts` — spread their source instead of naming

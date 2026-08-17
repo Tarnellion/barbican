@@ -479,6 +479,18 @@ anything and there is nothing to contradict.
 - **Endpoints outside the list.** Exactly what you declared was tested.
 - **Response bodies.** They are not stored. They are read in transit only where
   you declared `bodySignals`, and only for the sake of irreversible scalars ([ADR-0011](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0011-response-body-signals.md)).
+
+  **One number about the body is in the file for every cell anyway**, and it is
+  worth knowing before this report travels: `content-length`, on the header
+  allowlist. The tool never reads a body to obtain it — the server volunteers it
+  in a header — and it carries no credential, which is why it stays. But it is a
+  scalar derived from content, it is present on endpoints you declared nothing
+  about, and lengths can be compared across accounts by anyone holding the file.
+  On the reference platform's clean run, `orders.read` shows three distinct
+  lengths across seven responses. Weighed and kept on 17 August 2026: an empty
+  200 and a four-kilobyte 200 are different findings, and dropping the number to
+  close a channel the tool never opened would cost more than it buys. Saying so
+  is the part that was missing.
   Which means a whole class — extra fields in an otherwise legitimate response —
   is out of reach.
 - **Whether the context attributes reached the application.** The tool sends the
