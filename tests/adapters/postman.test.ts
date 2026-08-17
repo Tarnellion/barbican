@@ -823,16 +823,43 @@ describe("the parser does not touch the file system", () => {
     ).resolves.not.toContain(CANARY);
   });
 
+  /**
+   * The security claim, in the form that means the same on every platform.
+   *
+   * Whatever the parser makes of the address — a Windows path is not a URL path
+   * and collapses to `/` — the file at the other end must not have been opened,
+   * so the canary is in neither the result nor the refusal. The assertion used
+   * to require the address to survive verbatim as well, which is a different
+   * claim and one that is simply false on Windows; the two are separated below.
+   * Found by the Windows job added for K-7 on 17 August 2026, on its first run.
+   */
   it("does not read a file whose path ended up in a request address", async () => {
     const collection = JSON.stringify({
       item: [{ name: "a", request: { method: "GET", url: { raw: `file://${collectionPath}` } } }],
     });
 
-    // The path stays a path: the file's content is not mixed into the result.
-    const endpoints = await parser.parse(collection);
+    const outcome = await parser
+      .parse(collection)
+      .then((endpoints) => JSON.stringify(endpoints))
+      .catch((error: unknown) => JSON.stringify(error) + String(error));
 
-    expect(endpoints).toEqual([{ id: "a", method: "GET", path: collectionPath }]);
-    expect(JSON.stringify(endpoints)).not.toContain(CANARY);
+    expect(outcome).not.toContain(CANARY);
+  });
+
+  /** And an address that is a path stays one, rather than being resolved. */
+  it("carries a path-shaped address through without resolving it", async () => {
+    const collection = JSON.stringify({
+      item: [
+        {
+          name: "a",
+          request: { method: "GET", url: { raw: "file:///var/lib/barbican/secret.json" } },
+        },
+      ],
+    });
+
+    await expect(parser.parse(collection)).resolves.toEqual([
+      { id: "a", method: "GET", path: "/var/lib/barbican/secret.json" },
+    ]);
   });
 });
 

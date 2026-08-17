@@ -13,6 +13,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createOpenApiParser,
@@ -224,7 +225,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "${secretPath}"
+                $ref: ${JSON.stringify(secretPath)}
 `;
 
     const attempt = parser.parse(spec);
@@ -267,7 +268,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "file://${secretPath}"
+                $ref: ${JSON.stringify(pathToFileURL(secretPath).href)}
 `;
 
     await expect(parser.parse(spec)).rejects.toThrow(ExternalRefError);

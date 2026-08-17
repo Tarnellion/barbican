@@ -23,7 +23,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { isMainModule } from "../../tools/is-main.mjs";
 
@@ -77,9 +77,20 @@ describe("a polygon's tokens.mjs run as a program", () => {
   it.each([["polygons/vampi/tokens.mjs"], ["polygons/crapi/tokens.mjs"]])(
     "stays silent when %s is imported instead",
     (script) => {
+      // A file URL, not the path. An absolute path is a valid ESM specifier on
+      // POSIX and not on Windows, where `D:\...` is read as the scheme `d:` and
+      // the loader refuses it — so this spawned a process that died before
+      // reaching the module, and the assertion "it printed nothing" was then
+      // true of a stack trace it never saw. Which is the very defect the file
+      // under test is about, made twice in a row: node resolves a path and a url
+      // by different rules, and only one of them is portable.
       const result = spawnSync(
         process.execPath,
-        ["--input-type=module", "-e", `await import(${JSON.stringify(resolve(ROOT, script))})`],
+        [
+          "--input-type=module",
+          "-e",
+          `await import(${JSON.stringify(pathToFileURL(resolve(ROOT, script)).href)})`,
+        ],
         { env: { ...process.env }, encoding: "utf8" },
       );
 

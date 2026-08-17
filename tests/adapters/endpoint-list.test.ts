@@ -380,10 +380,44 @@ describe("the parser does not touch the file system", () => {
     ).resolves.not.toContain(CANARY);
   });
 
+  /**
+   * The security claim, put in the form that means the same on every platform.
+   *
+   * Whatever the parser makes of the value — accepts it, refuses it as a path
+   * that does not start with a slash — the file at the other end of it must not
+   * have been opened, so the canary is in neither the result nor the refusal.
+   *
+   * `JSON.stringify` and not `"${listPath}"`: a YAML double-quoted scalar takes
+   * the same escapes JSON does, and a Windows path is full of `\U` and `\A`.
+   * Interpolated raw, the document failed to parse and this test passed on the
+   * error from a step before the one under test — green, and about nothing.
+   * Found by the Windows job added for K-7 on 17 August 2026, on its first run.
+   */
   it("does not read a file whose path ended up in the path field", async () => {
-    const list = `endpoints: [{ id: a, method: GET, path: "${listPath}" }]`;
+    const list = `endpoints: [{ id: a, method: GET, path: ${JSON.stringify(listPath)} }]`;
 
-    // The path stays a path: the file's content is not mixed into the result.
-    await expect(parser.parse(list)).resolves.toEqual([{ id: "a", method: "GET", path: listPath }]);
+    const outcome = await parser
+      .parse(list)
+      .then((endpoints) => JSON.stringify(endpoints))
+      .catch((error: unknown) => JSON.stringify(error) + String(error));
+
+    expect(outcome).not.toContain(CANARY);
+  });
+
+  /**
+   * And the value is carried as data rather than resolved.
+   *
+   * A literal, and no file behind it: what is under test here is that the string
+   * comes out the other side unchanged, and that claim needs no file system at
+   * all. It used to be tangled with the one above, which is what made both of
+   * them POSIX-shaped — the same absolute path had to be a real file *and* a
+   * value the parser accepts, and on Windows nothing is both.
+   */
+  it("carries a path-shaped value through without resolving it", async () => {
+    const list = `endpoints: [{ id: a, method: GET, path: "/var/lib/barbican/secret.yaml" }]`;
+
+    await expect(parser.parse(list)).resolves.toEqual([
+      { id: "a", method: "GET", path: "/var/lib/barbican/secret.yaml" },
+    ]);
   });
 });
