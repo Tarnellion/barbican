@@ -919,6 +919,28 @@ export class ForbiddenContextHeaderError extends Error {
   }
 }
 
+/**
+ * A resource's query string carries what a context's may not.
+ *
+ * The two go into the request address by the same route, and only one of them
+ * was guarded: `assertContextsCannotWrite` and `FORBIDDEN_QUERY_KEYS` read
+ * contexts, the channel an operator fills in by hand, and never resources. A
+ * credential named here is printed verbatim in `observations[].url`, and a write
+ * method named here is performed by a platform that honours overrides while the
+ * run believes it sent a read. Found by adversarial review on 17 August 2026.
+ */
+export class ForbiddenResourceQueryError extends Error {
+  readonly resourceId: string;
+  readonly key: string;
+
+  constructor(resourceId: string, key: string, reason: string) {
+    super(`Resource "${resourceId}" declares the query parameter "${key}": ${reason}`);
+    this.name = "ForbiddenResourceQueryError";
+    this.resourceId = resourceId;
+    this.key = key;
+  }
+}
+
 export class ForbiddenContextQueryError extends Error {
   constructor(contextId: string, key: string, reason: string) {
     super(
@@ -1443,6 +1465,34 @@ export function parseRunConfig(source: string): RunConfig {
     if (declaredTenants !== undefined && !knownTenants.includes(tenant)) {
       throw new UnknownTenantError(`Resource "${declared.id}"`, tenant, knownTenants);
     }
+    // The same two rules a context's query already lives by, on the twin nobody
+    // guarded. A resource's query goes into the request address exactly as a
+    // context's does, and `assertContextsCannotWrite` — the three-layer check
+    // written for precisely this — reads only contexts. Two things came through:
+    // a credential named in a query key, which the report then prints verbatim in
+    // `observations[].url`, and a method override by **value**, which performs a
+    // write with `--unsafe-methods` absent. Found by adversarial review on
+    // 17 August 2026.
+    for (const [key, value] of Object.entries(declared.query ?? {})) {
+      if (FORBIDDEN_QUERY_KEYS.has(key.toLowerCase())) {
+        throw new ForbiddenResourceQueryError(
+          declared.id,
+          key,
+          "credentials are presented through this: the platform would serve the " +
+            "request as a different account while the report names the original one — " +
+            "and the address is printed in the report as it was sent",
+        );
+      }
+      if (WRITE_METHOD_WORDS.has(value.trim().toUpperCase())) {
+        throw new ForbiddenResourceQueryError(
+          declared.id,
+          key,
+          `the value "${value}" is the name of a write method, and a platform ` +
+            `honouring an override would perform it while the run believes it sent ` +
+            `a read`,
+        );
+      }
+    }
     resources.push({
       id: declared.id,
       tenantId: tenant,
@@ -1515,19 +1565,18 @@ export function assertContextsCannotWrite(
   if (options.allowUnsafeMethods) {
     return;
   }
-  const methods = new Set(["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"]);
   // The **resolved** values are checked, not the declared ones: a value from an
   // environment variable is not yet known when the configuration is parsed, and
   // checking the declaration would let `x-vendor-verb: { env: VERB }` through with
   // `VERB=DELETE` in the environment.
   for (const [contextId, values] of contexts) {
     for (const [name, value] of Object.entries(values.headers)) {
-      if (methods.has(value.trim().toUpperCase())) {
+      if (WRITE_METHOD_WORDS.has(value.trim().toUpperCase())) {
         throw new MethodOverrideInContextError(contextId, `header "${name}"`, value);
       }
     }
     for (const [key, value] of Object.entries(values.query)) {
-      if (methods.has(value.trim().toUpperCase())) {
+      if (WRITE_METHOD_WORDS.has(value.trim().toUpperCase())) {
         throw new MethodOverrideInContextError(contextId, `query parameter "${key}"`, value);
       }
     }
@@ -1681,6 +1730,24 @@ const FORBIDDEN_HEADER_PREFIXES: readonly (readonly [string, string])[] = [
  * somebody other than the one the report named. On top of that the value itself
  * would land in the report in the clear — request addresses are printed there.
  */
+/**
+ * Words that name a write, for the check by **value**.
+ *
+ * Wider than `HttpMethod`: `CONNECT` is not in the domain and a platform
+ * honouring an override does not care what this tool's type says. One source
+ * because two places read it — the conditions an operator declares and the query
+ * a resource declares — and a set written twice is the shape B-10 was about.
+ */
+const WRITE_METHOD_WORDS: ReadonlySet<string> = new Set([
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "OPTIONS",
+  "TRACE",
+  "CONNECT",
+]);
+
 const FORBIDDEN_QUERY_KEYS: ReadonlySet<string> = new Set([
   "access_token",
   "accesstoken",

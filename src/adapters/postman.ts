@@ -40,6 +40,7 @@
 import { parse as parseYaml } from "yaml";
 import type { Endpoint, HttpMethod } from "../core/types.js";
 import { HTTP_METHODS } from "../core/types.js";
+import { pathTemplate } from "../io/untrusted.js";
 import type { SpecParser } from "./ports.js";
 
 export interface PostmanCollectionLimits {
@@ -272,7 +273,9 @@ function assertStaysWithinTarget(path: string, location: string): void {
  * violate would only create the appearance of protection.
  */
 function normalizePath(path: string, location: string): string {
-  const converted = path.split("/").map(toTemplateSegment).join("/");
+  // The array form of `url.path` reaches here whole. `pathFromRaw` already cuts a
+  // query off the string form; this is the other door into the same address.
+  const converted = pathTemplate(path.split("/").map(toTemplateSegment).join("/"));
 
   // `//host/x` is a scheme-relative URL: it addresses another host rather than a
   // path on the one under test. The scope of the check is set by the allowlist

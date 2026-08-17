@@ -39,6 +39,7 @@ import SwaggerParser from "@apidevtools/swagger-parser";
 import { parse as parseYaml } from "yaml";
 import type { Endpoint } from "../core/types.js";
 import { HTTP_METHODS } from "../core/types.js";
+import { pathTemplate } from "../io/untrusted.js";
 import type { SpecParser } from "./ports.js";
 
 export interface SpecParserLimits {
@@ -178,6 +179,13 @@ function toEndpoints(document: unknown): readonly Endpoint[] {
     if (!isRecord(item)) {
       continue;
     }
+    // A specification is an untrusted document — ADR-0005, second addendum — and
+    // this key travels into the request address unchanged. `?_method=DELETE`
+    // written here issued a GET on the wire that a great many frameworks execute
+    // as a DELETE, with `--unsafe-methods` absent and exit 0. The grammar is in
+    // `pathTemplate`; refused rather than trimmed, because a specification whose
+    // paths carry a query is not one this tool can reason about.
+    pathTemplate(path);
     // The set comes from the core rather than being spelled out again here. A
     // list of its own read `HttpMethod` nowhere, so a method added to the domain
     // would have been skipped by this loop without a word: every operation of

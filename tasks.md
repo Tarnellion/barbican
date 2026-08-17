@@ -1844,6 +1844,69 @@ nowhere, and it drops accordingly.
     writing the file, after a complete and correct run. Measuring first is what
     turned a parked item into a fixed defect.
 
+## Adversarial review of 17 August 2026 (after the release of 0.3.0)
+
+Two attackers, one on the request side and one on the report, each required to
+bring a reproducible PoC. Run because phase 4 had just closed, `0.4.0` was about
+to be cut, and `src/adapters` and `src/report` had both changed that day.
+
+- [x] **The evidence cap reached the verdict.** `runVerdict` filtered
+      `report.findings`, ADR-0029 made that the capped array, and the denominator
+      `summary.observations` was not capped: **101 cells that all failed to answer
+      exited 0**, inside the default request budget, and shipped in `0.3.0`. The
+      counts now travel in `summary.verdictInputs`, taken before the cap and
+      separated by source — `byKind` could not serve, that is B-4. Closed with the
+      second half of it: the 50-row budget was shared between kinds on one
+      endpoint, so the heavier kind starved the quieter one out of the file.
+- [x] **The cell that received a leak was printed as agreed.** A finding by body
+      is about a pair, and only `accountId` narrowed a verdict — twelve cells on
+      the reference run, the same twelve ADR-0022 quotes for the defect it closed
+      on 15 August. That fix taught the loop to read check findings and left it
+      reading one end of them.
+- [x] **The address was not the tool's to build.** Three sources fed a query
+      string straight into the request — OpenAPI `paths`, the endpoint list, the
+      array form of Postman's `url.path` — so `?_method=DELETE` performed a write
+      with `--unsafe-methods` absent, and `..` reached a different endpoint past
+      the exclusion list. `resources[].query`, the twin of `contexts[].query`, had
+      no guard at all: a credential there is printed in `observations[].url`.
+      `pathTemplate` in `untrusted.ts` is the grammar, per ADR-0024.
+
+Open, from the same review, in the order they were ranked:
+
+- [ ] **`SharedCredentialError` is removed by a trailing space.** The check
+      compares raw environment values; the platform trims. Two accounts on
+      `tok-alice` and `"tok-alice "` both authenticate as alice and the run
+      reports isolation, which is the whole failure the check was added for.
+- [ ] **`--checks ""` disables the body channel in silence**, and
+      `coverage.bodiesComparedOn` then claims a comparison that did not happen —
+      the field exists precisely to tell "compared and matched" from "not
+      compared". `byCheck` tells the truth beside it; `bodiesComparedOn` is built
+      from declarations rather than from what ran.
+- [ ] **The response-header allowlist leaks through two names.**
+      `www-authenticate` carries free text and RFC 6750 puts `error_description`
+      in it; `sanitizeLocation` strips query and fragment and keeps the **path**,
+      where a password-reset or magic-link token lives.
+- [ ] **`content-length` is on the allowlist**, so an exact body size is in the
+      report for every cell — including endpoints where no `bodySignals` were
+      declared, and `docs/report.md` says bodies are read only where they were.
+- [ ] **`Retry-After: 0` removes the backoff** — no floor under the value.
+- [ ] **`--dry-run` fails on a configuration that runs**, because `describePlan`
+      resolves context values against an empty environment.
+- [ ] **`Finding.evidence` admits strings** where `SignalValue` does not, so the
+      PII ban is structural on one and disciplinary on the other. Two mappings —
+      matrix findings and `withVerdicts` — spread their source instead of naming
+      fields, which is what `nothingLeftUnnamed` was written against.
+- [ ] **`defectGroups` is not a lower bound across `contextId`**: one missing
+      filter visible in two contexts is two groups. `docs/report.md` says so in
+      one section and calls the number a lower bound in another.
+- [ ] **The file half of the `$ref` invariant is held by barriers 2 and 3**, not
+      by barrier 1 as the module header now says — an absolute path and `file://`
+      need no base. The header was rewritten on 17 August from a measurement that
+      covered http only, and the tripwire counts http requests alone.
+- [ ] **`ReportFinding` declares neither `basis` nor `ruleIndex`** though every
+      matrix finding carries them; `staleCredentials` is a sixth reason for exit 2
+      and `docs/report.md` lists five.
+
 ## Readiness for different authentication surfaces
 
 - [x] **ADR-0016: an authentication scheme per account.** Named schemes at the root,

@@ -42,6 +42,7 @@
 import { parse as parseYaml } from "yaml";
 import type { Endpoint, HttpMethod } from "../core/types.js";
 import { HTTP_METHODS } from "../core/types.js";
+import { pathTemplate } from "../io/untrusted.js";
 import type { SpecParser } from "./ports.js";
 
 export interface EndpointListLimits {
@@ -200,6 +201,20 @@ function toEndpoint(entry: unknown, index: number): Endpoint {
       index,
       "path",
       `path "${path}" addresses another host (a scheme-relative URL), not a path on the target`,
+    );
+  }
+
+  // The template is a path and nothing else. An endpoint list is a document the
+  // tool was handed, so `?` and `..` in it are somebody else's writing — see
+  // `pathTemplate`, where the grammar lives, and ADR-0024 for why it lives there
+  // rather than here.
+  try {
+    pathTemplate(path);
+  } catch (cause) {
+    throw new InvalidEndpointError(
+      index,
+      "path",
+      cause instanceof Error ? cause.message : String(cause),
     );
   }
 

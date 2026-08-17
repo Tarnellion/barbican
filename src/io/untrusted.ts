@@ -147,6 +147,86 @@ export function pathSegment(value: string): PathSegment {
 }
 
 /**
+ * A path template, as an endpoint source hands it over.
+ *
+ * A template is a path and nothing else: no query, no fragment, and no segment
+ * that navigates. `pathSegment` above guards the **values** a resource
+ * substitutes into it (D-1); nothing guarded the template itself, and an
+ * endpoint source is an untrusted document — ADR-0005 says so in its second
+ * addendum, and three of the four sources take one.
+ *
+ * Two things came through. A query string travelled to the platform verbatim, so
+ * `paths: "/v1/orders/{orderId}?_method=DELETE"` in a specification issued a GET
+ * on the wire that a great many frameworks execute as a DELETE — with
+ * `--unsafe-methods` absent, `writeMethodsProbed: false` in the report and exit
+ * 0. `SAFE_METHODS` held to the letter and the guarantee it stands for did not.
+ * The project already knew this attack: `assertContextsCannotWrite` checks it
+ * **by value** for the one channel an operator fills in by hand, and left the
+ * three fed by somebody else's document unguarded.
+ *
+ * And `..` navigated: `paths: "/v1/reports/../../createdb"` reached `/createdb`,
+ * which the exclusion list cannot prevent because that list works on endpoint
+ * ids and never sees the string. The verdict for one endpoint was then computed
+ * from another one's answer.
+ *
+ * Both are refused here rather than in each source, because a grammar for a
+ * string from outside is written once — ADR-0024, and this is the twelfth case
+ * that rule exists to stop being a twelfth point fix. Found by adversarial
+ * review on 17 August 2026.
+ */
+export class UnusablePathTemplateError extends Error {
+  readonly template: string;
+
+  constructor(template: string, reason: string) {
+    super(
+      `The endpoint path "${template}" ${reason}. A path template is a path: the ` +
+        `values come from a declared resource, and everything else in the address ` +
+        `is the tool's to build. Flatten the source before testing.`,
+    );
+    this.name = "UnusablePathTemplateError";
+    this.template = template;
+  }
+}
+
+/**
+ * Whether a path template is one.
+ *
+ * Exported beside the constructor because the core reads it too: an endpoint is a
+ * cell coordinate, and the same string reaches the matrix.
+ */
+export function isUsablePathTemplate(value: string): boolean {
+  if (value.includes("?") || value.includes("#")) {
+    return false;
+  }
+  // Percent-encoded forms as well: `%2e%2e` decodes to `..` in the target, and
+  // the origin server is where that matters rather than here.
+  const decoded = value.replace(/%2e/gi, ".").replace(/%2f/gi, "/");
+  return !decoded.split("/").some((segment) => segment === "." || segment === "..");
+}
+
+/**
+ * @throws {UnusablePathTemplateError}
+ */
+export function pathTemplate(value: string): string {
+  if (value.includes("?") || value.includes("#")) {
+    throw new UnusablePathTemplateError(
+      value,
+      "carries a query string or a fragment, which would travel to the platform " +
+        "verbatim — a method override smuggled that way performs a write the run " +
+        "never asked for",
+    );
+  }
+  if (!isUsablePathTemplate(value)) {
+    throw new UnusablePathTemplateError(
+      value,
+      "navigates with `.` or `..`, so the request would reach an endpoint other " +
+        "than the one it names — past the exclusion list, which works on ids",
+    );
+  }
+  return value;
+}
+
+/**
  * A record whose keys came from outside.
  *
  * `Object.create(null)` rather than `{}`. A plain object literal inherits
