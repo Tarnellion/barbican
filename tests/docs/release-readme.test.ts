@@ -42,4 +42,23 @@ describe("the README describes the version being released", () => {
     // that goes stale is the one about the version being shipped right now.
     expect(mentions.filter((line) => UNAVAILABLE.test(line))).toEqual([]);
   });
+
+  /**
+   * And does not point the reader at a different one.
+   *
+   * The two assertions above look only at lines that mention the version being
+   * released, so they had nothing to say about a sentence naming an **older**
+   * version as the current release — which is what the Install section said while
+   * `package.json` had already moved on. That is the v0.2.0 defect in its other
+   * form: not a false claim about the new version, but a true claim about the old
+   * one left where a reader takes it for the new. Found while cutting 0.4.0, by
+   * the release rather than by the guard, on 17 August 2026.
+   */
+  it("names no other version as the one to install", () => {
+    const claims = README.split("\n").filter((line) => /is the current release/.test(line));
+
+    // A guard that matched no sentence would agree with any README.
+    expect(claims).toHaveLength(1);
+    expect(claims[0]).toContain(VERSION);
+  });
 });

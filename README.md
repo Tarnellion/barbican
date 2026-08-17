@@ -99,7 +99,7 @@ npm install barbican
 barbican run --help
 ```
 
-`0.3.0` is the current release, and the one to install. Publishing goes through
+`0.4.0` is the current release, and the one to install. Publishing goes through
 CI with provenance, so `npm audit signatures` verifies it against this repository
 and the workflow that built it.
 
@@ -132,6 +132,36 @@ raising either.
 
 **`--checks` selects which checks run**, and a check finding fails the run at any
 severity but `info`, where it used to need `high` or `critical`.
+
+**`defects[].kind` became `defects[].kinds`**, an array. A defect is grouped by
+`endpoint × relation × conditions` and no longer by how it was noticed, so one
+endpoint broken in two ways is one entry naming both. A reader written against
+`kind` gets `undefined`. This was in 0.3.0 and this paragraph was not — it went
+out described only in [ADR-0030](docs/adr/0030-a-defect-is-not-its-channel.md),
+which is exactly the omission this section exists to prevent. Two more of the
+same release: `findingsOmitted` says how many evidence rows the file left out,
+and `coverage.checksRun[]` carries a `description` beside the id.
+
+### What changed in 0.4.0
+
+**`configSchema` is no longer exported.** It put 100 lines of `z.ZodObject<…>`
+into the published types, naming zod's internal namespace, so a zod major would
+have broken every consumer's build. Use `parseRunConfig` to validate and
+`configJsonSchema()` for the JSON Schema — the two things the raw schema was ever
+used for. No shipped declaration imports from any package now, and a CI step
+keeps it that way.
+
+**`createSignalExtractor` and `SignalExtractor` are exported at last.** Every
+other adapter already was, and `createHttpClient` takes a
+`signalExtractor?: SignalExtractor` whose type a consumer could not write down.
+
+**`basis` is on observations, not only on findings**, and `AccessDiff` declares
+it. It says whether a rule or the fallback decided a cell — a missing `ruleIndex`
+could not be told from a field the tool failed to fill in, and on rows that
+*agreed* there was nothing to go on at all.
+
+**[docs/library.md](docs/library.md) says what the public API is** — the four
+entry points, and which of the exported names are a contract.
 
 ## Example
 
