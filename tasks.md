@@ -1358,9 +1358,33 @@ readability, failed on B-2 / H-3 above and was closed with it.
       `diffAccess` takes a `ResolvedAccessPolicy`, the example passes an
       `ExpectedAccessPolicy`, and `expandPolicy` is never called. It runs, which
       is why it reads as correct.
-- [ ] **E-6.** 217 exported names against 5 documented, including 66 error classes
-      and the internal validators. `configSchema` is exported as a raw
-      `z.ZodObject`, which makes a zod major a breaking change for consumers.
+- [x] **E-6.** Closed 17 August, and the numbers had grown: **266 exported names
+      and 78 error classes** against the audit's 217 and 66 — a quarter more in
+      three days, this session's own work included.
+      **`configSchema` is no longer exported**, and the cost of exporting it was
+      measured rather than argued: its declaration was 100 lines of
+      `z.ZodObject<…>` in `config.d.ts`, 18% of the file, and it named
+      `z.core.$strip` — zod's **internal** namespace. A zod major would have
+      changed the package's own published types and broken every consumer's
+      build, for a value none of them needs: `parseRunConfig` validates and
+      returns a `RunConfig`, `configJsonSchema()` hands out the JSON Schema.
+      After the change `import { z } from "zod"` is gone from every shipped
+      declaration, and **no `.d.ts` in the build names a package at all** — a CI
+      step on the packed artifact asserts it, checked in both directions locally.
+      A unit test asserts the property rather than the name — no exported value
+      may be a zod schema — so the next one is caught too.
+      **The other half was that nothing said what the contract is.** 266 names,
+      five of them anywhere in the documentation and all five in one README
+      example. `docs/library.md` names the four entry points, says which group
+      each remaining name belongs to, and says plainly that the third group —
+      some forty helpers the CLI shares with itself — is not a contract. The 75
+      error classes are public on purpose: `instanceof` needs the class, and that
+      is the only way to tell a configuration mistake from a network failure.
+      Not curated down to a short list, deliberately: removing names a consumer
+      may already use is a decision for the owner, and the defect was the silence,
+      not the size. A test keeps the document honest in both directions — a name
+      it invents fails, and a name renamed in the code while the document lags
+      fails too.
 - [x] **E-4.** Closed 15 August: both are declared, and the package job resolves
       them **by name** from a real install rather than reading them off the disk —
       what is under test is `exports`, and a file that exists is not the same as

@@ -205,7 +205,20 @@ const authSchema = z.discriminatedUnion("kind", [
  */
 const contextValueSchema = z.union([z.string(), z.strictObject({ env: z.string().min(1) })]);
 
-export const configSchema = z.object({
+/**
+ * The validator a run configuration is parsed with. Not exported.
+ *
+ * It was, and that put zod's own types into the published surface of this
+ * package: the declaration came out as 100 lines of `z.ZodObject<…>` — 18% of
+ * `config.d.ts` — naming `z.core.$strip`, which is zod's **internal** namespace.
+ * A zod major would have changed those types and broken every consumer's build,
+ * for a value none of them has any use for: `parseRunConfig` validates and
+ * returns a `RunConfig`, `configJsonSchema()` hands out the JSON Schema an
+ * editor completes from, and between them there is nothing the raw schema
+ * answers. A dependency in a public type is a version of that dependency the
+ * package has promised to keep. Found by the audit of 14 August 2026 (E-6).
+ */
+const configSchema = z.object({
   target: z.object({
     baseUrl: z.url({ protocol: /^https?$/ }),
     allowedHosts: z

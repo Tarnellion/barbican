@@ -48,10 +48,62 @@ describe("the public surface", () => {
   });
 
   /**
+   * And nothing a dependency owns is in it.
+   *
+   * `configSchema` was exported, so zod's own types were in the published
+   * surface: 100 lines of `z.ZodObject<…>` in `config.d.ts`, 18% of the file,
+   * naming `z.core.$strip` — zod's **internal** namespace. A zod major would have
+   * changed those types and broken every consumer's build, for a value none of
+   * them needs: `parseRunConfig` validates and returns a `RunConfig`, and
+   * `configJsonSchema()` hands out the JSON Schema an editor completes from.
+   * A dependency in a public type is a version of that dependency the package
+   * has promised to keep. Found by the audit of 14 August 2026 (E-6).
+   *
+   * The property rather than the name, so the next schema is caught too. The CI
+   * job that packs the tarball asserts the general form of this — no shipped
+   * declaration imports from a package at all.
+   */
+  it("exports no validator of somebody else's making", () => {
+    const schemas = Object.entries(api).filter(
+      ([, value]) => value !== null && typeof value === "object" && "_zod" in value,
+    );
+
+    expect(schemas.map(([name]) => name)).toEqual([]);
+  });
+
+  /**
    * And the specific name the finding was about, asserted through a real import
    * rather than by reading the source: what a consumer gets is the module, not
    * the text of the re-export.
    */
+  /**
+   * And the document that names the entry points names real ones.
+   *
+   * 266 exported names and five of them anywhere in the documentation, all five
+   * in one README example — so nothing told a consumer which names were a
+   * contract. `docs/library.md` is the answer, and this is what keeps it from
+   * becoming a second stale list: every name it writes in backticks and calls
+   * with parentheses has to be something the package actually exports.
+   *
+   * Only the called names, deliberately. The document also mentions types, which
+   * do not exist at runtime, and prose words in backticks like `0.x` — a guard
+   * that tried to resolve those would be either wrong or full of exceptions.
+   * Found by the audit of 14 August 2026 (E-6).
+   */
+  it("exports every function docs/library.md tells a consumer to call", () => {
+    const document = readFileSync(join(ROOT, "docs/library.md"), "utf8");
+    const called = new Set(
+      [...document.matchAll(/`([A-Za-z][A-Za-z0-9]*)\(/g)].map((match) => match[1] ?? ""),
+    );
+
+    // A regex that matched nothing would agree with any document.
+    expect(called.size).toBeGreaterThan(5);
+
+    const missing = [...called].filter((name) => !(name in api));
+
+    expect(missing).toEqual([]);
+  });
+
   it("lets a consumer build a signal extractor and name its type", () => {
     expect(typeof api.createSignalExtractor).toBe("function");
     expect(typeof api.parseSignalPath).toBe("function");

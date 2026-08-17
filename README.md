@@ -85,6 +85,9 @@ where two language versions disagree, the English files are the source of truth.
   the access policy; running a scan; what the tool deliberately does not do.
 - **[docs/report.md](docs/report.md)** — reading the report: every summary field,
   exit codes, and how to tell *"checked and clean"* from *"nothing was checked"*.
+- **[docs/library.md](docs/library.md)** — using the package as a library: the
+  four entry points, which of the exported names are a contract and which are
+  there because the CLI is built from the same modules.
 
 See [plan.md](https://github.com/Tarnellion/barbican/blob/main/plan.md) for the roadmap and [docs/adr/](docs/adr/) for the reasoning
 behind each design decision.
