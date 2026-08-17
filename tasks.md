@@ -702,9 +702,28 @@ everything downstream of it.
       not" is undiagnosable.
 - [ ] **B-12.** Contexts and accounts are carried into the report by naming each
       field — the mechanism the same file documents as having already lost one.
-- [ ] **B-13.** `tools/oracle/index.d.mts` is a hand-written description outside
-      `tsconfig.include` with `skipLibCheck: true`: tests type against it, CI runs
-      the implementation.
+- [x] **B-13.** Closed 17 August, and it had spread: three `.d.mts` files, not
+      one — `tools/oracle/index.d.mts`, and the two added on 17 August for
+      `is-main` and `managed-block`, each written by hand beside the module it
+      described. TypeScript reads the declaration and never looks at the code, so
+      nothing related them; tests typed against the description while CI ran the
+      implementation, in the module that decides whether the strongest gate this
+      project has passed at all.
+      The cure is not a better description. `tools/**/*.mjs` joins
+      `tsconfig.include` with `allowJs` and `checkJs`, the shapes move into the
+      modules as JSDoc, and the three declarations are gone: one source, and
+      drift has nowhere to happen. `tsconfig.build.json` is untouched and still
+      compiles `src` alone, so nothing of this ships.
+      Closed on the way, because the compiler asked: `cause.message` on an
+      `unknown` catch binding, `loadGroundTruth` discarding the value
+      `requireObject` returns and then reading fields off the raw parse.
+      `tests/tools/typed-from-source.test.ts` guards the arrangement rather than
+      the types — the compiler has those. Mutations: dropping a `.d.mts` back in
+      fails "carries no hand-written declaration", and demonstrates the defect
+      while it is there, since `moduleUrl: number` in a declaration makes tsc
+      report errors in the **tests** and none in the code it contradicts; taking
+      `tools/**/*.mjs` out of `include` fails "is inside what the typecheck
+      reads".
 - [x] **J-16.** Closed 16 August. A dated note in ADR-0001 says Biome is 2.5.7,
       raised on 12 August (`858acfd`) once `minimumReleaseAge` released it, with
       `biome.json` migrated by Biome's own command in the same commit. The 2.5.6

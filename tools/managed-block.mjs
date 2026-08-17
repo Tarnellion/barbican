@@ -26,6 +26,7 @@
  */
 
 export class ManagedBlockError extends Error {
+  /** @param {string} message */
   constructor(message) {
     super(message);
     this.name = "ManagedBlockError";

@@ -11,6 +11,52 @@
  */
 
 /**
+ * The shapes this module works with, as JSDoc rather than as a `.d.mts` beside it.
+ *
+ * There was one: hand-written, outside `tsconfig.include`, and with
+ * `skipLibCheck` on nothing compared it to the code below. Tests typed against
+ * the declaration while CI ran the implementation, so the two were free to
+ * disagree — in the module that decides whether the whole oracle gate passed.
+ * Written here, the compiler reads one source for both. Found by the audit of
+ * 14 August 2026 (B-13).
+ *
+ * @typedef {"status" | "body-signal" | "body-only" | "unsafe-method" | "excluded" | "out-of-scope"} Visibility
+ *
+ * @typedef {object} DefectDeclaration
+ * @property {string} [title]
+ * @property {Visibility} visibility
+ * @property {string} [note]
+ *
+ * @typedef {object} OracleFinding
+ * @property {string} account
+ * @property {string} endpoint
+ * @property {string | null} [resource]
+ * @property {string | null} [other]
+ * @property {string} kind
+ * @property {readonly string[]} defects the defects that explain this cell; there
+ *   may be several, since one defect can be a special case of another and the
+ *   shared cell is then explained by both
+ *
+ * @typedef {object} Variant
+ * @property {string} id
+ * @property {Readonly<Record<string, unknown>>} selector
+ * @property {number} expectedExitCode
+ * @property {readonly OracleFinding[]} findings
+ *
+ * @typedef {object} GroundTruth
+ * @property {string} [note]
+ * @property {string} [cellKey]
+ * @property {string} [target]
+ * @property {Readonly<Record<string, DefectDeclaration>>} defects
+ * @property {readonly Variant[]} variants
+ *
+ * @typedef {object} Comparison
+ * @property {readonly string[]} missing
+ * @property {readonly string[]} unexpected
+ * @property {readonly string[]} problems
+ */
+
+/**
  * The kinds of defect visibility. The rationale for the list — ADR-0012.
  *
  * The first two mean "the tool finds this", the rest say why it does not. The
@@ -38,12 +84,18 @@ export const VISIBILITIES = [
 export const DETECTABLE = ["status", "body-signal"];
 
 export class GroundTruthError extends Error {
+  /** @param {string} message */
   constructor(message) {
     super(message);
     this.name = "GroundTruthError";
   }
 }
 
+/**
+ * @param {unknown} value
+ * @param {string} where
+ * @returns {Record<string, any>}
+ */
 function requireObject(value, where) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new GroundTruthError(`${where}: expected an object`);
@@ -57,17 +109,23 @@ function requireObject(value, where) {
  * The checks are not cosmetic. A finding that references a non-existent defect means
  * the oracle has fallen out of sync with its own list of defects — and a
  * verification against it will confirm anything at all.
+ *
+ * @param {string} source
+ * @returns {GroundTruth}
  */
 export function loadGroundTruth(source) {
+  /** @type {unknown} */
   let parsed;
   try {
     parsed = JSON.parse(source);
   } catch (cause) {
-    throw new GroundTruthError(`does not parse as JSON: ${cause.message}`);
+    throw new GroundTruthError(
+      `does not parse as JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
   }
-  requireObject(parsed, "ground truth");
+  const root = requireObject(parsed, "ground truth");
 
-  const defects = requireObject(parsed.defects, "defects");
+  const defects = requireObject(root.defects, "defects");
   for (const [id, defect] of Object.entries(defects)) {
     requireObject(defect, `defects.${id}`);
     if (!VISIBILITIES.includes(defect.visibility)) {
@@ -79,12 +137,12 @@ export function loadGroundTruth(source) {
     }
   }
 
-  if (!Array.isArray(parsed.variants) || parsed.variants.length === 0) {
+  if (!Array.isArray(root.variants) || root.variants.length === 0) {
     throw new GroundTruthError("variants: expected a non-empty array");
   }
 
   const seen = new Set();
-  for (const variant of parsed.variants) {
+  for (const variant of root.variants) {
     requireObject(variant, "variants[]");
     if (typeof variant.id !== "string" || variant.id === "") {
       throw new GroundTruthError("variants[].id: expected a non-empty string");
@@ -120,7 +178,7 @@ export function loadGroundTruth(source) {
     }
   }
 
-  return parsed;
+  return /** @type {GroundTruth} */ (root);
 }
 
 /**
@@ -131,6 +189,10 @@ export function loadGroundTruth(source) {
  * either a forgotten variant or a wrong visibility mark. A defect declared
  * unreachable and yet expected among the findings is a contradiction inside the
  * oracle itself.
+ */
+/**
+ * @param {GroundTruth} groundTruth
+ * @returns {readonly string[]}
  */
 export function checkCoverage(groundTruth) {
   const used = new Set();
@@ -167,6 +229,10 @@ export function checkCoverage(groundTruth) {
  * because a defect of a list shows itself not on a resource but on a match between
  * two responses.
  */
+/**
+ * @param {Readonly<Record<string, any>>} finding
+ * @returns {string}
+ */
 export function cellKey(finding) {
   const account = finding.account ?? finding.accountId;
   const endpoint = finding.endpoint ?? finding.endpointId;
@@ -194,12 +260,25 @@ export function cellKey(finding) {
  * whatever the platform answered, so they cost nothing to state and catch a
  * regression in the aggregation that leaves the finding list itself correct.
  */
+/**
+ * @param {Readonly<Record<string, any>>} report
+ * @returns {string[]}
+ */
 function checkReportConsistency(report) {
+  /** @type {string[]} */
   const problems = [];
+  /** @type {any[]} */
   const findings = report.findings ?? [];
+  /** @type {Record<string, any>} */
   const summary = report.summary ?? {};
+  /** @param {Record<string, number> | undefined} counts */
   const sum = (counts) => Object.values(counts ?? {}).reduce((total, one) => total + one, 0);
 
+  /**
+   * @param {string} what
+   * @param {unknown} declared
+   * @param {unknown} counted
+   */
   const say = (what, declared, counted) => {
     if (declared !== counted) {
       problems.push(`${what}: the summary says ${declared}, the body has ${counted}`);
@@ -215,7 +294,9 @@ function checkReportConsistency(report) {
     summary.checkFindings,
     findings.filter((one) => one.source === "check").length,
   );
-  say("defectGroups", summary.defectGroups, (report.defects ?? []).length);
+  /** @type {any[]} */
+  const groups = report.defects ?? [];
+  say("defectGroups", summary.defectGroups, groups.length);
   // Findings that name a cell, because a defect group answers "how many distinct
   // breakages of the platform" and a run-level finding — "this clause is covered
   // by nothing" — is a statement about the run. It is deliberately not grouped
@@ -225,7 +306,7 @@ function checkReportConsistency(report) {
   );
   say(
     "violations across the defect groups",
-    (report.defects ?? []).reduce((total, group) => total + group.violations, 0),
+    groups.reduce((total, group) => total + group.violations, 0),
     placed.length,
   );
 
@@ -235,6 +316,7 @@ function checkReportConsistency(report) {
   // the walk alone, so a cell could be `match: true` and carry a body finding.
   // Kept over cells rather than over `summary.findings`, because one cell can
   // produce several findings.
+  /** @type {any[]} */
   const observations = report.observations ?? [];
   const coverage = report.coverage ?? {};
   if (coverage.cellsMatched !== undefined) {
@@ -331,9 +413,10 @@ function checkReportConsistency(report) {
   // authorization at all is noticed twice. It is checked below instead — every
   // kind a finding carries has to appear in its group's `kinds`, and every name
   // in `kinds` has to come from a finding.
+  /** @param {Record<string, any>} one */
   const signature = (one) => `${one.endpointId} × ${one.relation ?? "—"} × ${one.contextId ?? "—"}`;
   const inFindings = new Set(placed.map(signature));
-  const inGroups = new Set((report.defects ?? []).map(signature));
+  const inGroups = new Set(groups.map(signature));
   for (const missing of [...inFindings].filter((one) => !inGroups.has(one)).sort()) {
     problems.push(`no defect group for the signature ${missing}`);
   }
@@ -382,6 +465,12 @@ function checkReportConsistency(report) {
  * A comparison over sets in both directions: what was missed and what was extra are
  * different errors. The number of findings alone is not enough — it matches when the
  * two cancel each other out as well.
+ */
+/**
+ * @param {Variant} variant
+ * @param {Readonly<Record<string, any>>} report
+ * @param {number} exitCode
+ * @returns {Comparison}
  */
 export function compareVariant(variant, report, exitCode) {
   const expected = new Set(variant.findings.map(cellKey));
