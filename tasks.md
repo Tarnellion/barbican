@@ -618,8 +618,9 @@ everything downstream of it.
       Original finding: a failure before the address is built produces no
       observation, hence no `probe-error`, hence the untrustworthiness threshold
       cannot see it: four failed cells out of five exit 0.
-- [ ] **B-9.** `findings` is not sorted — 80 matrix rows, then 18 check rows —
-      while `defects[]` is sorted by severity.
+- [x] **B-9.** Closed 16 August: severity first, then endpoint, account,
+      resource and kind. The tie-breakers are what make it stable — severity alone
+      leaves eighty rows free to shuffle between two runs of one matrix.
 - [ ] **B-16.** The screen summary never prints `info`, the level introduced for
       registry checks.
 - [ ] The cure is not a shared type but a **single source for the per-cell
@@ -962,12 +963,16 @@ readability, failed on B-2 / H-3 above and was closed with it.
       documentation or schema.
       Everything the reader is missing is described in `docs/report.md`, and the
       artifact does not say where to find it. The cheapest fix on this list.
-- [ ] **H-4.** The identity of the system tested rests on the optional
-      `target.label`; the warning about its absence goes to the console and never
-      into the report.
-- [ ] **H-5.** `summary.accounts` is 9 where `accounts.length` is 27 — the only
-      one of seven summary fields that is not the length of its array. The
-      distrustful reader checks exactly this first.
+- [x] **H-4.** Closed 16 August: `warnings` travels with the report. Only what
+      is derivable from the report itself, and from the same constants the
+      console prints, so the file and the terminal cannot say different things.
+      The `--report` path warning stays where it is — it happens before there is
+      a report to put it in.
+- [x] **H-5.** Closed 16 August, and half of it was already done: `accountRows`
+      has existed since a cold read found the same thing. What was missing is the
+      note on `summary.accounts` itself — the field a distrustful reader lands on
+      — and a line in `docs/report.md` saying 9 against 27 is the conditions
+      rather than a bug.
 - [x] **H-6.** Closed 16 August. The lookup was never wrong — it already read the
       **other** account's observation. On a list endpoint both sides ask the same
       address and differ only by the credentials, which are not in the report and
@@ -975,11 +980,14 @@ readability, failed on B-2 / H-3 above and was closed with it.
       now carries `as`, the account id, which is what turns a `curl` into the
       right `curl`. The "does not name the other side" half closed earlier with
       `Finding.relatedAccountId` (L-4).
-- [ ] **H-7.** A finding references no observation and carries no response
-      headers — the one thing that settles "closed" against "we knocked with the
-      wrong transport".
-- [ ] **H-8.** For `auth.kind: "bearer"` the header name is not given, while
-      cookie and header schemes name theirs.
+- [x] **H-7.** Closed 16 August: a finding carries the response headers,
+      redacted as everywhere else. The e2e test asserts them apart from the
+      finding's shape, because they carry a `date`; what it pins is that they are
+      there and that `set-cookie` is `[REDACTED]`.
+- [x] **H-8.** Closed 16 August: the report writes `header` on every scheme —
+      `authorization` for bearer and basic, `cookie` for cookie, the declared name
+      for header. The configuration keeps its shape, where `kind: bearer` and
+      nothing else is the right thing to write.
 - [x] **H-9.** Closed 16 August: `verdict` is in the report, both the code and
       the reason. `runVerdict` takes `VerdictInputs` — the report without its
       conclusion — which is also the honest signature: it reads inputs and does
@@ -1432,9 +1440,8 @@ nowhere, and it drops accordingly.
 11. ~~**J-5 … J-16** — twelve documents that contradict the code.~~ Done
     16 August. Three and a half were already closed when re-checked, which is why
     each was verified against the code before being touched.
-12. **H-4 … H-10, B-9, B-16, G-9, G-10** — what a reader cannot do with the
-    artifact: no citable key for a defect, a finding that references no
-    observation, an unsorted finding list, an `info` level that never prints.
+12. ~~**H-4 … H-10, B-9, B-16, G-9, G-10** — what a reader cannot do with the
+    artifact.~~ Done 16 August in three commits. H-5 was half closed already.
 13. **D-5 + D-7** — a body over the ceiling silently zeroes the comparison with
     the reason stated nowhere; `parseRunConfig` is the only parse path with no
     size or depth limit.

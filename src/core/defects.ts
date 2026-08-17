@@ -89,7 +89,13 @@ export interface DefectGroup {
   readonly violations: number;
 }
 
-const SEVERITY_ORDER: Readonly<Record<Severity, number>> = {
+/**
+ * Severity as a sort key, most severe first.
+ *
+ * Exported because the finding list is ordered by it too, and two orderings of
+ * the same five levels would be a duplicate that drifts.
+ */
+export const SEVERITY_ORDER: Readonly<Record<Severity, number>> = {
   critical: 0,
   high: 1,
   medium: 2,

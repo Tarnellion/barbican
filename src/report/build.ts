@@ -32,7 +32,7 @@ import type {
   Severity,
   TenantNode,
 } from "../core/index.js";
-import { groupDefects, principalOf } from "../core/index.js";
+import { groupDefects, principalOf, SEVERITY_ORDER } from "../core/index.js";
 import type {
   AccountConfig,
   ContextAttributeValue,
@@ -64,6 +64,16 @@ export const REPORT_SCHEMA_VERSION = "2";
 
 export interface ReportSummary {
   readonly endpoints: number;
+  /**
+   * Declared accounts — **not** the length of `report.accounts`.
+   *
+   * The only one of these counters that is not the length of its array, and the
+   * one a distrustful reader checks first: `accounts` here is 9 where the array
+   * holds 27, because the array carries a row per set of declared conditions.
+   * `accountRows` below is that length. Said on this field and not only on that
+   * one, because this is the field the reader lands on. Found by the audit of
+   * 14 August 2026 (H-5).
+   */
   readonly accounts: number;
   /**
    * Matrix rows: the declared accounts plus the same accounts under the declared
@@ -181,6 +191,17 @@ export interface ReportFinding {
   readonly contextId?: string;
   readonly expected?: ExpectedOutcome;
   readonly actual?: AccessOutcome;
+  /**
+   * The response headers, redacted as everywhere else.
+   *
+   * A finding carried a status and no headers, and those are the one thing that
+   * tells "the endpoint is closed" from "we knocked with the wrong transport":
+   * a 401 with `www-authenticate` is the platform naming a scheme we did not
+   * use. The reader had the triple and could join to the observation by hand,
+   * and a finding is what gets pasted into a ticket. Found by the audit of
+   * 14 August 2026 (H-7).
+   */
+  readonly headers?: Readonly<Record<string, string>>;
   /** Only on check findings: a human-readable description and the grounds for it. */
   readonly title?: string;
   readonly evidence?: Readonly<Record<string, string | number | boolean>>;
@@ -280,7 +301,7 @@ export interface RunInputs {
    * or the cookie. There are no values here and cannot be — they live only in the
    * environment.
    */
-  readonly auth: AuthScheme;
+  readonly auth: ReportedAuthScheme;
   /**
    * The declared request conditions together with their attributes.
    *
@@ -657,6 +678,22 @@ export interface RunReport {
    * five ways it happened. Found by the audit of 14 August 2026 (H-9).
    */
   readonly verdict: RunVerdict;
+  /**
+   * What the console said that the numbers do not.
+   *
+   * The report is read as a file, long after the terminal that printed these is
+   * gone. The one this was found by: a run against a target with no `label`
+   * warns on stderr and the artifact says nothing — a reader cannot tell a run
+   * against production from a run against a demo, and absence of a field does
+   * not explain why the field mattered. Found by the audit of 14 August 2026
+   * (H-4).
+   *
+   * Not failures — those are in `verdict` — and not everything the CLI prints:
+   * only what is derivable from the report itself, so that the two cannot say
+   * different things. The sentences are the same ones the console shows, from
+   * the same constants.
+   */
+  readonly warnings: readonly string[];
 }
 
 export interface BuildReportOptions {
@@ -813,6 +850,7 @@ function mergeFindings(
         ...(contextHeaders === undefined ? {} : { contextHeaders }),
       },
       status: observation.status,
+      headers: observation.headers,
     };
   }
 
@@ -898,7 +936,28 @@ function mergeFindings(
     }),
   );
 
-  return [...fromMatrix, ...fromChecks];
+  // Severity first, then the cell, and the two channels interleave rather than
+  // sitting in two blocks. The list used to be every matrix row and then every
+  // check row — so a critical leak found by body sat below eighty low-severity
+  // discrepancies, and a reader who stopped at the top of the file stopped at
+  // the least important thing in it. `defects[]` beside it was sorted by
+  // severity all along. Found by the audit of 14 August 2026 (B-9).
+  //
+  // The tie-breakers are what makes it a **stable** order: two runs of the same
+  // matrix have to produce the same file, and severity alone leaves eighty rows
+  // free to shuffle.
+  return [...fromMatrix, ...fromChecks].sort((left, right) => {
+    const bySeverity = SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity];
+    if (bySeverity !== 0) {
+      return bySeverity;
+    }
+    return (
+      (left.endpointId ?? "").localeCompare(right.endpointId ?? "") ||
+      (left.accountId ?? "").localeCompare(right.accountId ?? "") ||
+      (left.resourceId ?? "").localeCompare(right.resourceId ?? "") ||
+      left.kind.localeCompare(right.kind)
+    );
+  });
 }
 
 function countGroupsBySeverity(groups: readonly DefectGroup[]): Readonly<Record<Severity, number>> {
@@ -1029,6 +1088,75 @@ function withVerdicts(
       ...(cell.ruleIndex === undefined ? {} : { ruleIndex: cell.ruleIndex }),
     };
   });
+}
+
+/**
+ * An authentication scheme with the header it actually uses spelled out.
+ *
+ * `{ kind: "bearer" }` said nothing about where the credential goes, while
+ * `header` and `cookie` name theirs — so of the four schemes two left the reader
+ * to know that bearer and basic both mean `authorization`. The configuration
+ * keeps its shape, where writing `kind: bearer` and nothing else is right; the
+ * report is what has to be self-explanatory. Found by the audit of 14 August
+ * 2026 (H-8).
+ */
+export type ReportedAuthScheme = AuthScheme & { readonly header: string };
+
+function namedScheme(scheme: AuthScheme): ReportedAuthScheme {
+  switch (scheme.kind) {
+    case "header":
+      return { ...scheme, header: scheme.header.toLowerCase() };
+    case "cookie":
+      return { ...scheme, header: "cookie" };
+    default:
+      // bearer and basic. Both put the credential in `Authorization`, differing
+      // only in how it is encoded — which `kind` already says.
+      return { ...scheme, header: "authorization" };
+  }
+}
+
+/**
+ * The sentences the console and the report both use.
+ *
+ * One source, because they are the same statement: a warning worded one way on
+ * the terminal and another way in the file is two statements a reader has to
+ * reconcile. See `RunReport.warnings`.
+ */
+export const WARNINGS = {
+  unnamedTarget:
+    "The target is unnamed: target has no label field. The report will not " +
+    "identify the system under test, and a reader cannot tell a run against a " +
+    "real environment from a run against a demo polygon.",
+  nothingRefused:
+    "Not one request was refused. Either nothing on this platform is protected, " +
+    "or it refuses with 200 and states the outcome in the body — which this tool " +
+    'reads as "allowed" everywhere, making every finding above false. Open one ' +
+    "cell you are sure about before believing this report.",
+  noCanary:
+    "Authentication is unverified: no account has a canary, so nothing confirms " +
+    "the accounts were authenticated at all.",
+} as const;
+
+/**
+ * What the console said that the numbers do not.
+ *
+ * Derived from the finished report so that the file and the terminal cannot
+ * disagree — and only from what the report can see. A warning the CLI computes
+ * before the report exists, such as an unwritable `--report` path, stays where
+ * it is: by then there is no report to put it in.
+ */
+function warningsFor(report: VerdictInputs, config: RunConfig): readonly string[] {
+  const warnings: string[] = [];
+  if (config.target.label === undefined) {
+    warnings.push(WARNINGS.unnamedTarget);
+  }
+  if (report.summary.observations > 0 && report.coverage.outcomes.denied === 0) {
+    warnings.push(WARNINGS.nothingRefused);
+  }
+  if (report.canariesChecked === 0 && report.accounts.some((account) => !account.anonymous)) {
+    warnings.push(WARNINGS.noCanary);
+  }
+  return warnings;
 }
 
 /**
@@ -1257,9 +1385,10 @@ export function buildReport(options: BuildReportOptions): RunReport {
             // the field lied exactly where it is the only thing needed: 'the
             // endpoint is closed' against 'we knocked with the wrong transport'.
             // Found by a cold read.
-            auth:
+            auth: namedScheme(
               options.config.accountAuth.get(account.baseAccountId ?? account.id) ??
-              options.config.auth,
+                options.config.auth,
+            ),
           }),
     })),
     endpoints: options.endpoints,
@@ -1318,7 +1447,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     inputs: {
       policy: options.policy,
       tenants: options.config.tenants ?? [],
-      auth: options.config.auth,
+      auth: namedScheme(options.config.auth),
       exclude: options.config.exclude,
       ...(options.throttle === undefined ? {} : { throttle: options.throttle }),
       contexts: options.config.contexts.map((context) => ({
@@ -1356,7 +1485,11 @@ export function buildReport(options: BuildReportOptions): RunReport {
   // Computed last, from the finished report, and put inside it. The alternative
   // was recomputing it in every consumer; the exit code exists precisely because
   // the arithmetic is not obvious from the counters.
-  return { ...report, verdict: runVerdict(report) };
+  return {
+    ...report,
+    verdict: runVerdict(report),
+    warnings: warningsFor(report, options.config),
+  };
 }
 
 /**
@@ -1376,7 +1509,7 @@ const UNTRUSTWORTHY_ERROR_SHARE = 0.5;
  * otherwise refer to itself. This is also the honest signature: `runVerdict`
  * reads inputs and does not read the field it produces.
  */
-export type VerdictInputs = Omit<RunReport, "verdict">;
+export type VerdictInputs = Omit<RunReport, "verdict" | "warnings">;
 
 /** The verdict on a run: the code CI acts on, and the sentence a human reads. */
 export interface RunVerdict {

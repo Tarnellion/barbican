@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { DiffKind } from "../../src/core/index.js";
+import { SEVERITY_ORDER } from "../../src/core/index.js";
 import type { RunConfig } from "../../src/io/config.js";
 import { parseRunConfig } from "../../src/io/config.js";
 import type { ReportFinding, VerdictInputs } from "../../src/report/build.js";
@@ -17,6 +18,7 @@ import {
   exitCodeFor,
   REPORT_SCHEMA_VERSION,
   runVerdict,
+  WARNINGS,
 } from "../../src/report/build.js";
 
 const CONFIG = parseRunConfig(`
@@ -95,7 +97,7 @@ function report(overrides: {
     inputs: {
       policy: { fallback: "denied", rules: [] },
       tenants: [],
-      auth: { kind: "bearer" },
+      auth: { kind: "bearer", header: "authorization" },
       contexts: [],
       exclude: [],
     },
@@ -759,6 +761,92 @@ policy: { fallback: denied, rules: [] }
    * configuration against the same platform name the same defect the same way.
    * Found by the audit of 14 August (H-10).
    */
+  /**
+   * The console is gone by the time anybody opens the file, and absence of a
+   * field does not explain why the field mattered. Found by the audit of
+   * 14 August (H-4).
+   */
+  it("carries the warnings the console showed", () => {
+    const unnamed = parseRunConfig(`
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
+policy: { fallback: denied, rules: [] }
+`);
+
+    const named = parseRunConfig(`
+target: { baseUrl: "https://a.test", allowedHosts: [a.test], label: "staging" }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
+policy: { fallback: denied, rules: [] }
+`);
+
+    expect(build({ config: unnamed }).warnings).toContain(WARNINGS.unnamedTarget);
+    // And says nothing when there is nothing to say.
+    expect(build({ config: named }).warnings).not.toContain(WARNINGS.unnamedTarget);
+  });
+
+  /**
+   * Of the four schemes, two named the header the credential goes in and two did
+   * not — a reader had to know that bearer and basic both mean `authorization`.
+   * The configuration keeps its shape; the report is what must explain itself.
+   * Found by the audit of 14 August (H-8).
+   */
+  it("names the header every authentication scheme uses", () => {
+    expect(build().accounts[0]?.auth).toMatchObject({
+      kind: "bearer",
+      header: "authorization",
+    });
+    expect(build().inputs.auth).toMatchObject({ kind: "bearer", header: "authorization" });
+  });
+
+  /**
+   * `defects[]` was sorted by severity all along and `findings[]` was every
+   * matrix row and then every check row, so a critical leak found by body sat
+   * below eighty low-severity discrepancies. Found by the audit of 14 August
+   * (B-9).
+   */
+  it("orders the findings by severity, both channels interleaved", () => {
+    const built = build({
+      checks: [
+        {
+          checkId: "identical-response-across-tenants",
+          severity: "critical" as const,
+          title: "a leak",
+          accountId: "u",
+          endpointId: "a",
+          evidence: {},
+        },
+      ],
+      // Matrix rows below it in severity, so the order has something to reverse.
+      findings: [
+        {
+          kind: "unexpected-denial" as const,
+          accountId: "u",
+          endpointId: "a",
+          expected: "allowed" as const,
+          actual: "denied" as const,
+          severity: "low" as const,
+        },
+        {
+          kind: "privilege-escalation" as const,
+          accountId: "u",
+          endpointId: "b",
+          expected: "denied" as const,
+          actual: "allowed" as const,
+          severity: "medium" as const,
+        },
+      ],
+    });
+    const severities = built.findings.map((one) => one.severity);
+
+    expect(built.findings.length).toBeGreaterThan(1);
+    // The check finding is the most severe here and must be first, though its
+    // channel used to put it last.
+    expect(built.findings[0]?.source).toBe("check");
+    expect(severities).toEqual(
+      [...severities].sort((l, r) => SEVERITY_ORDER[l] - SEVERITY_ORDER[r]),
+    );
+  });
+
   it("gives every defect group a key that survives the next run", () => {
     const leak = {
       checkId: "identical-response-across-tenants",

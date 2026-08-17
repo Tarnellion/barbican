@@ -168,7 +168,11 @@ policy:
 
       // The planted defect is found: a player reached the admin list.
       const escalations = report.findings.filter((f) => f.kind === "privilege-escalation");
-      expect(escalations).toEqual([
+      expect(escalations).toHaveLength(1);
+      // `toMatchObject` for the one field that cannot be pinned: the response
+      // headers carry a `date`. What matters about them is asserted separately
+      // below — that they are there at all, and that they are redacted.
+      expect(escalations).toMatchObject([
         {
           accountId: "player-a",
           endpointId: "users.list",
@@ -195,6 +199,15 @@ policy:
           status: 200,
         },
       ]);
+      // The headers are on the finding, and redacted there like everywhere else.
+      // They are the one thing that tells "the endpoint is closed" from "we
+      // knocked with the wrong transport", and joining to the observation by
+      // hand was the alternative. See H-7.
+      const headers = escalations[0]?.headers ?? {};
+      expect(Object.keys(headers).length).toBeGreaterThan(0);
+      expect(headers["set-cookie"]).toBe("[REDACTED]");
+      expect(JSON.stringify(headers)).not.toContain("session");
+
       expect(report.summary.byKind["privilege-escalation"]).toBe(1);
       expect(exitCodeFor(report)).toBe(1);
 

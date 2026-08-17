@@ -33,6 +33,9 @@ output; yours will be different, and a difference is not a discrepancy.
 **There are more matrix rows than accounts** when request conditions are
 declared: one account gives a row per set of conditions. Count cells from
 `accountRows`, not from `accounts` — otherwise the arithmetic will not add up.
+`summary.accounts` is the only one of these counters that is **not** the length
+of its array, which is worth knowing before you check it: 9 against 27 is the
+conditions, not a bug.
 Conditions have a section of their own below.
 
 Every cell's response reduces to one of four outcomes:
@@ -158,6 +161,23 @@ the sets contain.
 `own` is lowered deliberately: an account's access to its own resource, declared
 forbidden, is almost always a mistake in the policy, not a hole in the platform.
 The reasoning — [ADR-0014](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0014-severity-and-exit-codes.md).
+
+## The verdict and the warnings are in the file
+
+```jsonc
+"verdict": { "code": 1, "reason": "privilege escalation: 4 cells" },
+"warnings": ["The target is unnamed: target has no label field. …"]
+```
+
+The report used to carry every input to the verdict and not the verdict, so a
+reader who got the JSON — which is how it travels, attached to a ticket — had to
+reimplement the arithmetic to learn whether the run passed. The console that had
+the answer is gone by then. Both halves are here since 15 August 2026: the code
+for a machine, the reason for a person.
+
+`warnings` is the same idea for what is not a failure: things the numbers do not
+say and the terminal said once. Only what is derivable from the report itself,
+so the file and the console cannot disagree.
 
 ## Exit codes
 
@@ -491,6 +511,28 @@ The same field makes a mistake in **your** policy visible, as opposed to one in
 the platform: a rule that accidentally declared access allowed used to give the
 absence of a finding — indistinguishable from the absence of a problem. Now you
 can see what exactly was declared, and by which rule.
+
+**The findings are ordered by severity**, both channels interleaved. They used
+to be every matrix row and then every check row, so a critical leak found by body
+could sit below eighty low-severity discrepancies while `defects[]` beside it was
+sorted properly all along. Ties break on endpoint, account, resource and kind, so
+two runs of one matrix produce the same file.
+
+**A finding carries the response headers**, redacted as everywhere else. They are
+the one thing that tells "the endpoint is closed" from "we knocked with the wrong
+transport": a 401 with `www-authenticate` is the platform naming a scheme you did
+not use.
+
+**Every authentication scheme names its header.** `{"kind": "bearer"}` said
+nothing about where the credential goes while `header` and `cookie` named theirs;
+the report writes `header: "authorization"` for bearer and basic. The
+configuration keeps its shape — `kind: bearer` and nothing else is right there.
+
+**Each request names the account that sent it.** On a list endpoint both sides of
+a paired finding ask the same address and differ only by the credentials, which
+are not in the report and will not be — so `request` and `relatedRequest` came out
+byte for byte identical and a reader had two lines with no way to tell which was
+whose. `as` is the account id, which is what turns a `curl` into the right `curl`.
 
 **A check finding carries the values, not only their comparison.** The most
 convincing number in the report is not `bodyDigestsEqual: true` but what stands
