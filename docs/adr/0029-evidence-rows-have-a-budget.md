@@ -96,3 +96,41 @@ presents as a `RangeError`.
   counts and exit code, where they used to produce a `RangeError`.
 - The polygon is unaffected: eight accounts never approach fifty rows in any one
   defect, so the 28 ground-truth combinations are untouched.
+
+## Addendum, 17 August 2026: the verdict was not unchanged
+
+"A warning, not an exit code. The verdict is unchanged and must stay unchanged"
+was written above, and it was false within hours of being written. Found by
+adversarial review the same day.
+
+`runVerdict` derived its counts by filtering `report.findings`, and this ADR made
+that array the capped one. The numerator was then bounded at fifty per defect
+while its denominator, `summary.observations`, was not: **101 cells that all
+failed to answer exited 0** — "checked, and clean" over a run that reached
+nothing, which is the single worst thing this tool can say. Reachable inside the
+default `--max-requests 2000`, at a little over a hundred accounts on one
+endpoint, and shipped in `0.3.0`.
+
+The counts now travel in `summary.verdictInputs`, taken from the full set before
+the cap and separated by **source**. `summary.byKind` could not serve: it holds
+kinds of matrix discrepancy and check identifiers in one key space, so a check
+registered under `privilege-escalation` would be read as a matrix one, and
+`runVerdict` takes a report from anywhere without seeing the registry that
+refuses such a name (B-4). Both available readings were wrong in different
+directions, so the report carries the counts instead.
+
+**And the budget is per defect *and per kind*.** ADR-0030 took the kind out of
+the defect signature on the same day, so one budget of fifty came to be shared by
+every kind on an endpoint — and rows are sorted by severity, so the heavier kind
+spent it first. A defect with three `unexpected-denial` rows reached the file with
+none of them, under a warning promising that "each defect keeps its own examples,
+so none of them is left with no evidence at all". Two changes of the same day, and
+the interaction was in neither.
+
+Two things worth keeping from this. The measurement that justified the cap was
+about file size and defect grouping and never about the verdict, so the claim
+about the verdict was the one part of the ADR nobody measured — and it was the
+part that mattered. And the polygon cannot see this: eight accounts never approach
+fifty rows in one defect, so the strongest gate this project has is blind to the
+cap by construction, exactly as this ADR itself noted while treating it as
+reassurance.

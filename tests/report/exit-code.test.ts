@@ -144,6 +144,29 @@ function report(overrides: {
         },
       ),
       checkFindings: (overrides.checks ?? []).length,
+      // Counted from the same rows, the way `buildReport` counts them and before
+      // any cap. Built from the override numbers instead, this would let the
+      // verdict be right about a report nothing can produce — which is how B-4
+      // stayed hidden, one field over.
+      verdictInputs: {
+        matrixByKind: findings.reduce<Record<string, number>>(
+          (counts, finding) => {
+            if (finding.source === "matrix") {
+              counts[finding.kind] = (counts[finding.kind] ?? 0) + 1;
+            }
+            return counts;
+          },
+          {
+            "privilege-escalation": 0,
+            "unexpected-denial": 0,
+            "not-observed": 0,
+            "probe-error": 0,
+          },
+        ) as Record<DiffKind, number>,
+        failingCheckFindings: findings.filter(
+          (finding) => finding.source === "check" && finding.severity !== "info",
+        ).length,
+      },
       bySeverity: { info: 0, low: 0, medium: 0, high: 0, critical: 0 },
       defectGroups: 0,
       defectsBySeverity: { info: 0, low: 0, medium: 0, high: 0, critical: 0 },

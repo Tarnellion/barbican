@@ -122,6 +122,46 @@ export interface ReportSummary {
   readonly defectGroups: number;
   /** Findings from plugin checks. Counted apart: they are of a different nature. */
   readonly checkFindings: number;
+  /**
+   * The counts the verdict is derived from, taken before the evidence cap.
+   *
+   * The verdict used to be derived by filtering `findings`, and on 17 August 2026
+   * that array became the capped one (ADR-0029). The numerator was then bounded
+   * at fifty per defect while its denominator, `observations`, was not: **101
+   * cells that all failed to answer exited 0** — "checked, and clean" over a run
+   * that reached nothing. Reachable inside the default request budget, and the
+   * single worst class of defect this tool exists to find.
+   *
+   * `byKind` could not be used instead, and the reason is B-4: it holds kinds of
+   * matrix discrepancy and check identifiers in one key space, so a check
+   * registered under `privilege-escalation` would be read here as a matrix one.
+   * `runVerdict` takes a report from anywhere and never sees the registry that
+   * refuses such a name. So the counts it needs are separated by **source** at
+   * the one place the source is known, and carried here.
+   *
+   * Additive: a reader written against schema `2` does not break on a field it
+   * does not know. See ADR-0029's addendum.
+   */
+  readonly verdictInputs: VerdictCounts;
+}
+
+/**
+ * What `runVerdict` counts, uncapped and separated by source.
+ *
+ * Not derivable from anything else in the file once rows are capped, which is
+ * exactly why it is a field.
+ */
+export interface VerdictCounts {
+  /** Matrix discrepancies by kind. Check findings are not in here. */
+  readonly matrixByKind: Readonly<Record<DiffKind, number>>;
+  /**
+   * Check findings of any severity but `info`.
+   *
+   * `info` is the level a check uses to say something without failing a build;
+   * every other level is a disagreement between the platform and a declaration,
+   * which is the same threshold the matrix channel has. See ADR-0014 and B-3.
+   */
+  readonly failingCheckFindings: number;
 }
 
 /** The outcome of one canary: who, where, and whether authentication held. */
@@ -1607,14 +1647,21 @@ function capRows(findings: readonly ReportFinding[]): {
       rows.push(finding);
       continue;
     }
-    const signature = defectSignature({
+    // The defect's signature **and the kind**. Since ADR-0030 the signature no
+    // longer carries the kind, so one budget of fifty was shared by every kind on
+    // an endpoint and the heavier one — findings are sorted by severity — spent
+    // it first: a defect with three `unexpected-denial` rows arrived in the file
+    // with none of them, under a warning promising that "each defect keeps its
+    // own examples". Two changes of the same day, and the interaction was in
+    // neither. Found by adversarial review on 17 August 2026.
+    const signature = `${finding.kind}\u0000${defectSignature({
       endpointId: finding.endpointId,
       accountId: finding.accountId,
       kind: finding.kind,
       severity: finding.severity,
       ...(finding.relation === undefined ? {} : { relation: finding.relation }),
       ...(finding.contextId === undefined ? {} : { contextId: finding.contextId }),
-    });
+    })}`;
     const kept = seen.get(signature) ?? 0;
     if (kept >= MAX_ROWS_PER_DEFECT) {
       omitted += 1;
@@ -1625,6 +1672,33 @@ function capRows(findings: readonly ReportFinding[]): {
   }
 
   return { rows, omitted };
+}
+
+/**
+ * The counts a verdict is made of, from the full set of findings.
+ *
+ * Separated by source here, where the source is known, so that `runVerdict` need
+ * not filter rows that may have been capped — and need not read `byKind`, whose
+ * one key space would let a check named after a matrix kind be counted as one.
+ */
+function verdictCountsOf(findings: readonly ReportFinding[]): VerdictCounts {
+  const matrixByKind: Record<DiffKind, number> = {
+    "privilege-escalation": 0,
+    "unexpected-denial": 0,
+    "not-observed": 0,
+    "probe-error": 0,
+  };
+  let failingCheckFindings = 0;
+
+  for (const finding of findings) {
+    if (finding.source === "matrix") {
+      matrixByKind[finding.kind as DiffKind] += 1;
+    } else if (finding.severity !== "info") {
+      failingCheckFindings += 1;
+    }
+  }
+
+  return { matrixByKind, failingCheckFindings };
 }
 
 export function buildReport(options: BuildReportOptions): RunReport {
@@ -1763,6 +1837,8 @@ export function buildReport(options: BuildReportOptions): RunReport {
       defectGroups: groups.length,
       defectsBySeverity: countGroupsBySeverity(groups),
       checkFindings: merged.filter((finding) => finding.source === "check").length,
+      // From `merged`, never from `capped.rows`: this is what the verdict reads.
+      verdictInputs: verdictCountsOf(merged),
     },
   };
 
@@ -1877,15 +1953,19 @@ export function runVerdict(report: VerdictInputs): RunVerdict {
   // clean' about a matrix of which one percent survived. Half is the line past
   // which the report stops claiming anything; it is declared here as a constant,
   // because a number hidden inside an expression is one nobody will dispute.
-  // Counted from the findings and by **source**, not out of `summary.byKind`.
-  // That map holds kinds of matrix discrepancy and check identifiers in one key
-  // space, so a check registered under `privilege-escalation` had its findings
-  // read here as matrix ones. Registering such a check is refused now, but this
-  // function takes a `RunReport` from anywhere — a consumer assembling one by
-  // hand never passes the registry. Found by the audit of 14 August (B-4).
-  const ofKind = (kind: DiffKind) =>
-    report.findings.filter((finding) => finding.source === "matrix" && finding.kind === kind)
-      .length;
+  // From `summary.verdictInputs`, which is separated by **source** and taken
+  // before the evidence cap.
+  //
+  // It used to filter `report.findings` here, and that was right until that array
+  // became the capped one on 17 August: the numerator was then bounded at fifty
+  // per defect and `observations` below was not, so 101 cells that all failed to
+  // answer exited 0. Not `summary.byKind` either, and that is B-4 — the map holds
+  // kinds of matrix discrepancy and check identifiers in one key space, so a check
+  // registered under `privilege-escalation` would be read here as a matrix one,
+  // and this function takes a report from anywhere without ever seeing the
+  // registry that refuses such a name. Both readings were wrong in different
+  // directions; the counts are carried instead.
+  const ofKind = (kind: DiffKind) => report.summary.verdictInputs.matrixByKind[kind];
   const probeErrors = ofKind("probe-error");
   if (probeErrors >= report.summary.observations * UNTRUSTWORTHY_ERROR_SHARE) {
     return {
@@ -1921,9 +2001,7 @@ export function runVerdict(report: VerdictInputs): RunVerdict {
   // principle, and ADR-0014 states the principle. `info` is the level for a note
   // rather than a disagreement, and it is what a check uses to say something
   // without failing a build. Found by the audit of 14 August (B-3).
-  const bySignal = report.findings.filter(
-    (finding) => finding.source === "check" && finding.severity !== "info",
-  ).length;
+  const bySignal = report.summary.verdictInputs.failingCheckFindings;
   if (bySignal > 0) {
     return { code: 1, reason: `${bySignal} found by the response body rather than by status` };
   }

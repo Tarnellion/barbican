@@ -150,6 +150,83 @@ describe("a defect seen more times than the file will hold", () => {
   });
 });
 
+/**
+ * The cap must not reach the verdict. It did.
+ *
+ * `runVerdict` derived its counts by filtering `findings`, and on the day this
+ * cap was written that array became the capped one — so the numerator was bounded
+ * at fifty per defect while its denominator, `summary.observations`, was not.
+ * **101 cells that all failed to answer exited 0.** Reachable inside the default
+ * `--max-requests 2000`, and shipped in 0.3.0: the ADR asserted the verdict was
+ * unchanged, `docs/report.md` promised the same in so many words, and neither was
+ * true. Found by adversarial review on 17 August 2026, hours after the cap landed.
+ *
+ * The counts now travel in `summary.verdictInputs`, taken before the cap and
+ * separated by source — `summary.byKind` could not serve, because it holds check
+ * identifiers and matrix kinds in one key space (B-4).
+ */
+describe("a run where nothing answered, with more cells than the cap", () => {
+  const failing = (count: number): readonly ResolvedFinding[] =>
+    Array.from({ length: count }, (_, index) => ({
+      checkId: "unused",
+      severity: "high" as const,
+      title: "unused",
+      endpointId: "orders.list",
+      accountId: `a-${index}`,
+      evidence: {},
+    }));
+
+  it("is untrustworthy, whatever the cap left in the file", () => {
+    const produced = MAX_ROWS_PER_DEFECT * 2 + 1;
+    const observations = Array.from({ length: produced }, (_, index) => ({
+      endpointId: "orders.list",
+      accountId: `a-${index}`,
+      status: 0,
+      headers: {},
+      outcome: "error" as const,
+      durationMs: 1,
+    }));
+    const report = buildReport({
+      version: "test",
+      config: CONFIG,
+      endpoints: ENDPOINTS,
+      observations,
+      skipped: [],
+      failures: [],
+      unauthenticated: [],
+      canariesChecked: 1,
+      truncated: false,
+      findings: observations.map((one) => ({
+        accountId: one.accountId,
+        endpointId: one.endpointId,
+        expected: "allowed" as const,
+        kind: "probe-error" as const,
+        severity: "high" as const,
+      })),
+      policy: { fallback: "allowed", rules: [] },
+      startedAt: new Date(0),
+      finishedAt: new Date(1),
+    });
+
+    // The cap did fire — this is the state the defect needed.
+    expect(report.findingsOmitted).toBeGreaterThan(0);
+    expect(report.findings.length).toBeLessThan(report.summary.findings);
+
+    expect(report.summary.verdictInputs.matrixByKind["probe-error"]).toBe(produced);
+    expect(report.verdict.code).toBe(2);
+    expect(report.verdict.reason).toContain("failed to answer");
+  });
+
+  /** And the check channel is counted the same way, above `info`. */
+  it("counts failing check findings before the cap too", () => {
+    const report = build(failing(MAX_ROWS_PER_DEFECT * 3));
+
+    expect(report.findingsOmitted).toBeGreaterThan(0);
+    expect(report.summary.verdictInputs.failingCheckFindings).toBe(MAX_ROWS_PER_DEFECT * 3);
+    expect(report.verdict.reason).toContain(String(MAX_ROWS_PER_DEFECT * 3));
+  });
+});
+
 describe("the cap is spent per defect, not first-come", () => {
   /**
    * The reason it is keyed on the defect signature. Under a flat first-N cap the
@@ -169,5 +246,58 @@ describe("the cap is spent per defect, not first-come", () => {
     expect(rare).toHaveLength(2);
     expect(loud).toHaveLength(MAX_ROWS_PER_DEFECT);
     expect(report.defects).toHaveLength(2);
+  });
+
+  /**
+   * And per kind within a defect, which is the same argument one level down.
+   *
+   * ADR-0030 took the kind out of the defect signature on the same day this cap
+   * was written, so one budget of fifty came to be shared by every kind on an
+   * endpoint — and findings are sorted by severity, so the heavier kind spent it
+   * first. A defect with three `unexpected-denial` rows reached the file with
+   * none of them, under a warning promising that each defect keeps its own
+   * examples. Two changes of one day, and the interaction was in neither.
+   */
+  it("leaves the quieter kind its evidence on a loud endpoint", () => {
+    const escalations = Array.from({ length: MAX_ROWS_PER_DEFECT * 2 }, (_, index) => ({
+      accountId: `a-${index}`,
+      endpointId: "orders.list",
+      expected: "denied" as const,
+      actual: "allowed" as const,
+      kind: "privilege-escalation" as const,
+      severity: "high" as const,
+    }));
+    const denials = [0, 1, 2].map((index) => ({
+      accountId: `d-${index}`,
+      endpointId: "orders.list",
+      expected: "allowed" as const,
+      actual: "denied" as const,
+      kind: "unexpected-denial" as const,
+      severity: "medium" as const,
+    }));
+
+    const report = buildReport({
+      version: "test",
+      config: CONFIG,
+      endpoints: ENDPOINTS,
+      observations: [],
+      skipped: [],
+      failures: [],
+      unauthenticated: [],
+      canariesChecked: 1,
+      truncated: false,
+      findings: [...escalations, ...denials],
+      policy: { fallback: "denied", rules: [] },
+      startedAt: new Date(0),
+      finishedAt: new Date(1),
+    });
+
+    const kinds = report.findings.map((one) => one.kind);
+
+    expect(kinds.filter((one) => one === "privilege-escalation")).toHaveLength(MAX_ROWS_PER_DEFECT);
+    expect(kinds.filter((one) => one === "unexpected-denial")).toHaveLength(3);
+    // Still one defect: the grouping is unchanged, only the budget is per kind.
+    expect(report.defects).toHaveLength(1);
+    expect(report.defects[0]?.kinds).toEqual(["privilege-escalation", "unexpected-denial"]);
   });
 });

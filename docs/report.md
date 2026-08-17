@@ -82,6 +82,13 @@ verdict rests on — the summary, every `defects` entry, the cell verdicts, the
 exit code — is counted before the cap applies, so an abridged report carries the
 same conclusion as an unabridged one. When rows are dropped, `warnings` says so.
 
+That sentence was written before it was true. Until 17 August 2026 the exit code
+was derived by filtering the rows, which are the capped ones, against a
+denominator that is not — so 101 cells that all failed to answer exited **0**. The
+counts the verdict is made of now travel in `summary.verdictInputs`, taken before
+the cap and separated by source; if you recompute a verdict from a saved report,
+that is the field to read.
+
 The reason is that the isolation check compares accounts pairwise: one endpoint
 returning the same response to 2 000 accounts is one defect and 1 999 000 rows,
 which used to end the run in `RangeError: Invalid string length` at the moment of
