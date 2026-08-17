@@ -41,7 +41,7 @@ import type {
   Severity,
   TenantNode,
 } from "../core/index.js";
-import { groupDefects, principalOf, SEVERITY_ORDER } from "../core/index.js";
+import { defectSignature, groupDefects, principalOf, SEVERITY_ORDER } from "../core/index.js";
 import type {
   AccountConfig,
   ContextAttributeValue,
@@ -647,7 +647,25 @@ export interface RunReport {
   /** The run was cut short before it reached the end of the matrix. */
   readonly truncated: boolean;
   readonly observations: readonly ReportedObservation[];
+  /**
+   * The evidence rows, at most `MAX_ROWS_PER_DEFECT` of them per defect.
+   *
+   * Not the whole of what was found — `summary.findings` is that number, and it
+   * is counted before the cap, as are `summary.byKind`, `summary.bySeverity`,
+   * every entry in `defects` and the verdict itself. So `findings.length` may be
+   * smaller than `summary.findings`; `findingsOmitted` is the difference, and a
+   * reader who wants the identity back has `findings.length + findingsOmitted
+   * === summary.findings`.
+   */
   readonly findings: readonly ReportFinding[];
+  /**
+   * How many evidence rows the cap left out. Zero on nearly every run.
+   *
+   * A field rather than an inference from two numbers, because the inference is
+   * only available to a reader who already knows the cap exists — and the whole
+   * point is to tell one who does not.
+   */
+  readonly findingsOmitted: number;
 
   /** The inputs the conclusions rest on. */
   readonly inputs: RunInputs;
@@ -1119,6 +1137,44 @@ function namedScheme(scheme: AuthScheme): ReportedAuthScheme {
  * the terminal and another way in the file is two statements a reader has to
  * reconcile. See `RunReport.warnings`.
  */
+/**
+ * How many evidence rows one defect may put in the file.
+ *
+ * The isolation check compares accounts pairwise, so on an endpoint that leaks
+ * to everybody it produces one row per pair: quadratic in accounts, while the
+ * one guard that bounds a run — `--max-requests`, 2000 by default — is linear in
+ * them. Measured on 17 August 2026: 100 accounts on a single endpoint give 4 950
+ * rows and a 1.65 MB file, 200 give 19 900 and 6.6 MB, and 2 000 accounts — one
+ * request each, exactly the default budget — give 1 999 000 rows, at which point
+ * `JSON.stringify` throws `RangeError: Invalid string length` and the whole run
+ * is lost at its last step, to an error that names a string length rather than
+ * anything the operator did.
+ *
+ * Those rows are also redundant, which is what makes a cap the right answer
+ * rather than a compromise: the report already collapses all 4 950 of them into
+ * **one** defect group, and the counts, the severities and the exit code are all
+ * computed before this cap applies. What a reader loses is the 51st example of a
+ * thing they have 50 examples of.
+ *
+ * Per defect and not over the whole list — see `defectSignature`. A first-N cap
+ * over the flat list would let the endpoint that leaks to two thousand accounts
+ * spend the whole budget and leave a rarer defect with no evidence at all, and
+ * the rare one is the interesting one.
+ *
+ * **Fifty rather than a larger number** because the many-defects case is what
+ * actually bounds a file, and it was measured too: 200 endpoints all leaking to
+ * 50 accounts produce 245 000 rows across 200 defects, which is 4.5 MB at fifty
+ * rows each and 13.9 MB at two hundred. With a single defect the constant barely
+ * shows — 0.55 MB against 0.60 MB, because the observations dominate — so fifty
+ * costs nothing where it does not matter and three times less where it does.
+ * Fifty examples is also far past what anybody reads to see a pattern.
+ *
+ * Found by measuring for I-5 and I-6 on 17 August 2026; the audit of 14 August
+ * had both as "nothing to measure against until somebody runs it at that size".
+ * See ADR-0029.
+ */
+export const MAX_ROWS_PER_DEFECT = 50;
+
 export const WARNINGS = {
   unnamedTarget:
     "The target is unnamed: target has no label field. The report will not " +
@@ -1132,6 +1188,13 @@ export const WARNINGS = {
   noCanary:
     "Authentication is unverified: no account has a canary, so nothing confirms " +
     "the accounts were authenticated at all.",
+  findingsCapped:
+    "Some evidence rows were left out of this file: a defect was observed more " +
+    `times than the ${MAX_ROWS_PER_DEFECT} rows kept per defect. Nothing about ` +
+    "the verdict changes — summary.findings, summary.byKind, summary.bySeverity " +
+    "and every defect group are counted from all of them — and findingsOmitted " +
+    "says how many rows are missing. Each defect keeps its own examples, so none " +
+    "of them is left with no evidence at all.",
 } as const;
 
 /**
@@ -1149,6 +1212,9 @@ function warningsFor(report: VerdictInputs, config: RunConfig): readonly string[
   }
   if (report.summary.observations > 0 && report.coverage.outcomes.denied === 0) {
     warnings.push(WARNINGS.nothingRefused);
+  }
+  if (report.findingsOmitted > 0) {
+    warnings.push(WARNINGS.findingsCapped);
   }
   if (report.canariesChecked === 0 && report.accounts.some((account) => !account.anonymous)) {
     warnings.push(WARNINGS.noCanary);
@@ -1296,6 +1362,46 @@ function countByContext(options: BuildReportOptions): Readonly<Record<string, nu
   return counts;
 }
 
+/**
+ * Keeps at most `MAX_ROWS_PER_DEFECT` rows per defect, in the order they came.
+ *
+ * A finding that names no cell is always kept: it is a statement about the run
+ * rather than about the platform, it has no defect signature to be capped
+ * within, and there is one of each.
+ */
+function capRows(findings: readonly ReportFinding[]): {
+  readonly rows: readonly ReportFinding[];
+  readonly omitted: number;
+} {
+  const seen = new Map<string, number>();
+  const rows: ReportFinding[] = [];
+  let omitted = 0;
+
+  for (const finding of findings) {
+    if (finding.accountId === undefined || finding.endpointId === undefined) {
+      rows.push(finding);
+      continue;
+    }
+    const signature = defectSignature({
+      endpointId: finding.endpointId,
+      accountId: finding.accountId,
+      kind: finding.kind,
+      severity: finding.severity,
+      ...(finding.relation === undefined ? {} : { relation: finding.relation }),
+      ...(finding.contextId === undefined ? {} : { contextId: finding.contextId }),
+    });
+    const kept = seen.get(signature) ?? 0;
+    if (kept >= MAX_ROWS_PER_DEFECT) {
+      omitted += 1;
+      continue;
+    }
+    seen.set(signature, kept + 1);
+    rows.push(finding);
+  }
+
+  return { rows, omitted };
+}
+
 export function buildReport(options: BuildReportOptions): RunReport {
   // The findings first: a verdict on a cell depends on them, and merging depends
   // on the raw observations rather than on the verdicts, so the order is forced.
@@ -1328,6 +1434,9 @@ export function buildReport(options: BuildReportOptions): RunReport {
           : { ...finding, counterpartAccountId: finding.relatedAccountId },
       ),
   );
+  // After the grouping and before the file: the counts above answer for every
+  // finding, the rows below are the evidence and evidence has a budget.
+  const capped = capRows(merged);
   const report: VerdictInputs = {
     schemaVersion: REPORT_SCHEMA_VERSION,
     runId: randomUUID(),
@@ -1398,7 +1507,12 @@ export function buildReport(options: BuildReportOptions): RunReport {
     staleCredentials: options.staleCredentials ?? [],
     truncated: options.truncated,
     observations,
-    findings: merged,
+    // The rows, after the per-defect cap. Everything derived from findings —
+    // `summary`, `defects`, the cell verdicts on the observations above — was
+    // computed from `merged` before this line, so a capped file carries the same
+    // verdict, the same counts and the same exit code as an uncapped one.
+    findings: capped.rows,
+    findingsOmitted: capped.omitted,
     coverage: {
       endpointsTotal: options.endpoints.length,
       endpointsProbed: options.probed?.length ?? options.endpoints.length - options.skipped.length,

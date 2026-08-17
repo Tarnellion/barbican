@@ -66,6 +66,11 @@ function report(overrides: {
     schemaVersion: "1",
     runId: "00000000-0000-4000-8000-000000000000",
     configDigest: "0000000000000000",
+    // Nothing here is capped: these rows are assembled by hand rather than by
+    // `buildReport`, which is B-14's open half. The field is required, so the
+    // compiler asks for it — and a hand-built report that claimed rows were
+    // omitted would be describing a cap that never ran.
+    findingsOmitted: 0,
     coverage: {
       endpointsTotal: 0,
       endpointsProbed: 0,

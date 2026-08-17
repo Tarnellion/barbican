@@ -129,11 +129,22 @@ function citableKey(diff: GroupableFinding): string {
   ].join(" ");
 }
 
-function keyOf(diff: GroupableFinding): string {
+/**
+ * The signature two findings share when they describe one breakage.
+ *
+ * Exported because the report has to cap its evidence rows **per defect** rather
+ * than globally, and the only way to do that without a second, drifting notion
+ * of "the same defect" is to ask the grouping what it thinks. A first-N cap over
+ * the flat list would let one endpoint leaking to two thousand accounts crowd
+ * out the single row of a rarer defect — and the rare one is the interesting one.
+ */
+export function defectSignature(diff: GroupableFinding): string {
   // A separator that never occurs in identifiers: gluing with a hyphen would
   // admit a collision of two different signatures into one string.
   return [diff.endpointId, diff.kind, diff.relation ?? "", diff.contextId ?? ""].join(SEPARATOR);
 }
+
+const keyOf = defectSignature;
 
 /**
  * Reduces discrepancies to signatures.

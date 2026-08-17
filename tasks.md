@@ -1114,12 +1114,38 @@ readability, failed on B-2 / H-3 above and was closed with it.
       Original finding: `resolveExpectedVerdict` scans every policy rule per cell
       and never breaks. Control: 440 rules to 2 takes `findUnauthenticated` from
       275 ms to 21 ms.
-- [ ] **I-5.** The isolation check emits O(accounts^2) **rows**: 11 -> 37,
-      21 -> 150, 41 -> 600, 81 -> 2 400. One missing tenant filter on a platform
-      with a hundred accounts is some 4 000 rows per endpoint.
-- [ ] **I-6.** The full matrix lives in memory and is serialised as one string;
-      observations are 70 % of both the memory and the file and are row-independent.
-- [ ] **The practical ceiling is about 20 000 cells** — 400 endpoints x 40
+- [x] **I-5 + I-6.** Closed 17 August, [ADR-0029](docs/adr/0029-evidence-rows-have-a-budget.md).
+      Measured first, and the measurement found something the finding did not:
+      the failure is **reachable inside the default request budget**. One
+      endpoint, every account in its own tenant, every response identical —
+      100 accounts give 4 950 rows and 1.65 MB, 200 give 19 900 and 6.64 MB, and
+      2 000 accounts are 2 000 requests, exactly `--max-requests`, and 1 999 000
+      rows, at which point `JSON.stringify` throws `RangeError: Invalid string
+      length`. The walk finishes, the checks finish, the defect is correctly
+      identified, and the run is then lost at its last step to an error naming a
+      string length. The one guard that bounds a run is linear in accounts and
+      the check is quadratic in them.
+      Two things made the cure cheap, and both were measured rather than assumed:
+      the report **already** collapses all 4 950 rows into one defect group, and
+      every number a verdict rests on is computed before a row is written. So the
+      report now carries at most 50 rows per defect with `findingsOmitted` saying
+      how many it left out, and `findings.length + findingsOmitted ===
+      summary.findings`. Per defect and not over the flat list — otherwise the
+      endpoint leaking to two thousand accounts spends the whole budget and the
+      rarer defect arrives with no evidence to cite. The constant is decided by
+      the many-defects case: 200 endpoints leaking to 50 accounts is 245 000 rows
+      across 200 defects, 4.5 MB at fifty and 13.9 MB at two hundred. A warning
+      and not exit 2: unlike `truncated`, everything here was probed and counted,
+      and the verdict is the one an unabridged file would carry — asserted.
+      2 000 accounts now give a 0.55 MB report, exit 1, `summary.findings`
+      1 999 000. Mutations, each caught: a flat cap instead of a per-defect one,
+      counting the summary after the cap rather than before, dropping the warning.
+      **Left open on purpose:** one finding per collision class instead of per
+      pair, which is the information-theoretically right shape. It moves every
+      expected count in the hand-written `polygon/ground-truth.json`, and
+      rewriting the oracle to agree with a code change is what CLAUDE.md forbids.
+      The cap does not preclude it and nothing is on fire without it.
+- [~] **The practical ceiling is about 20 000 cells** — 400 endpoints x 40
       accounts at 80 resources. What bound first was walk time, because the walk
       was sequential: 15 minutes at 50 ms RTT, and nothing shortened it. Since
       I-1 the walk is parallel and that number now moves with `--concurrency`;
@@ -1128,6 +1154,13 @@ readability, failed on B-2 / H-3 above and was closed with it.
       walk between 36 000 and 72 000 cells. **Memory does not bind at all** in the
       range measured — a useful negative result. Note that the default
       `--max-requests 2000` makes the ceiling 2 000 cells unless it is raised.
+      **Corrected 17 August:** "quadratic post-processing overtakes the walk
+      between 36 000 and 72 000 cells" measures the wrong quantity. The
+      quadratic term is in **accounts**, not cells, and it lands in the report
+      rather than in the clock: 2 000 accounts on one endpoint is 2 000 cells —
+      a tenth of this ceiling and exactly the default budget — and it used to end
+      in `RangeError` while writing the file. Cells were never the binding
+      dimension for it. See I-5 + I-6 and ADR-0029.
 
 ### The public surface
 
@@ -1560,9 +1593,12 @@ nowhere, and it drops accordingly.
     pnpm 11 upgrade and nothing said so; F-5 asked for a dependabot ecosystem
     that does not exist for a binary fetched by URL, and F-6's "it exits 1 today"
     had expired.
-16. **I-5 + I-6** — scale past the present ceiling. Nothing to measure against
-    until somebody runs it at that size, and guessing is what the estimate in
-    `plan.md` already did once.
+16. ~~**I-5 + I-6** — scale past the present ceiling.~~ Done 17 August. This
+    entry said "nothing to measure against until somebody runs it at that size" —
+    so it was run at that size, and the answer was not a ceiling but a hard
+    failure inside the default request budget: `RangeError` at the moment of
+    writing the file, after a complete and correct run. Measuring first is what
+    turned a parked item into a fixed defect.
 
 ## Readiness for different authentication surfaces
 

@@ -68,6 +68,27 @@ protection. For the same reason 3xx, 5xx and 400 land in `error`, not in `denied
 | `matrix` | comparison against the declared policy | `expected`, `actual`, `relation` |
 | `check` | a check from the registry | `title`, `evidence` |
 
+### The array may be abridged; the counts are not
+
+`findings` carries at most **50 rows per defect**, and `findingsOmitted` says how
+many it left out — zero on nearly every run. So
+
+```
+findings.length + findingsOmitted === summary.findings
+```
+
+and it is `summary.findings` that answers "how much was found". Everything a
+verdict rests on — the summary, every `defects` entry, the cell verdicts, the
+exit code — is counted before the cap applies, so an abridged report carries the
+same conclusion as an unabridged one. When rows are dropped, `warnings` says so.
+
+The reason is that the isolation check compares accounts pairwise: one endpoint
+returning the same response to 2 000 accounts is one defect and 1 999 000 rows,
+which used to end the run in `RangeError: Invalid string length` at the moment of
+writing the file — inside the default `--max-requests` budget. Rows past the
+fiftieth are examples of something already counted. See
+[ADR-0029](adr/0029-evidence-rows-have-a-budget.md).
+
 Both share `kind`, `severity`, `accountId`, `endpointId` and `request`. For
 matrix discrepancies `kind` is the kind of discrepancy (`privilege-escalation`
 and others); for check findings it is the check's identifier.
@@ -91,7 +112,7 @@ guess identifiers — logging in is enough.
 | Field | What it means |
 |---|---|
 | `observations` | how many cells were probed |
-| `findings` | finding rows — **not** the number of defects; equals the length of the array |
+| `findings` | finding rows — **not** the number of defects, and **not** always the length of the array: see the abridgement note below |
 | `checkFindings` | how many findings were found by body rather than by status |
 | `byKind` | by kind; the keys are kinds of discrepancy and check identifiers |
 | `bySeverity` | by severity |
