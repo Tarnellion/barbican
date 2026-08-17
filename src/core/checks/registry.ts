@@ -168,16 +168,30 @@ export class CheckRegistry {
       return this.list();
     }
     const known = this.list().map((check) => check.id);
-    return wanted
+    const names = wanted
       .split(",")
       .map((one) => one.trim())
-      .filter((one) => one !== "")
-      .map((id) => {
-        const check = this.#checks.get(id);
-        if (check === undefined) {
-          throw new UnknownCheckError(id, known);
-        }
-        return check;
-      });
+      .filter((one) => one !== "");
+    // An empty selection is a typo, not a choice.
+    //
+    // `--checks ""`, `--checks ,` and `--checks " "` all arrived here as "run
+    // nothing" and were obeyed in silence: the body channel switched off, the
+    // report carrying `checksRun: []`, no warning, and a leak visible only by
+    // body leaving the run green. An unknown name is refused with a message
+    // naming what is available, and an empty one deserves the same treatment
+    // rather than the opposite. There is deliberately no way to spell "run no
+    // checks": a check left out is coverage left out, and the flag exists to
+    // narrow a run rather than to disarm it. Found by adversarial review on
+    // 17 August 2026.
+    if (names.length === 0) {
+      throw new UnknownCheckError(wanted, known);
+    }
+    return names.map((id) => {
+      const check = this.#checks.get(id);
+      if (check === undefined) {
+        throw new UnknownCheckError(id, known);
+      }
+      return check;
+    });
   }
 }

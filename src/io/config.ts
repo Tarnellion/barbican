@@ -2072,7 +2072,8 @@ export class SharedCredentialError extends Error {
         `an account with itself and report the match as isolation. ` +
         (variable === other.variable
           ? `Both read it from ${variable} — give each account a variable of its own.`
-          : `${other.variable} and ${variable} hold the same value.`),
+          : `${other.variable} and ${variable} hold the same value — the same once ` +
+            `surrounding whitespace is removed, which is what a platform compares.`),
     );
     this.name = "SharedCredentialError";
     this.accountId = accountId;
@@ -2128,11 +2129,26 @@ export function resolveTokens(
     if (!isHeaderValue(value)) {
       throw new InvalidCredentialError(account.id, account.tokenEnv);
     }
-    const other = presentedBy.get(value);
+    // Keyed by the **trimmed** value, because that is what the platform compares.
+    //
+    // Raw values were compared until 17 August 2026, and one trailing space took
+    // the whole check off: `tok-alice` and `"tok-alice "` are two different
+    // strings and one credential — every parser trims the optional whitespace a
+    // header value may carry, and the reference platform in this repository does
+    // it in the regular expression that reads `Authorization`. Both accounts then
+    // authenticated as alice, both canaries passed, and the run reported
+    // isolation proved by comparing an account with itself: exactly the failure
+    // this check exists to refuse, wearing a space. Found by adversarial review.
+    //
+    // Trimming is the only normalisation applied. What a platform does beyond it
+    // — case, encoding, a prefix of its own — is unknown here, and guessing would
+    // trade a refusal that is right for one that is plausible.
+    const presented = value.trim();
+    const other = presentedBy.get(presented);
     if (other !== undefined) {
       throw new SharedCredentialError(account.id, account.tokenEnv, other);
     }
-    presentedBy.set(value, { id: account.id, variable: account.tokenEnv });
+    presentedBy.set(presented, { id: account.id, variable: account.tokenEnv });
     tokens.set(account.id, value);
   }
   return tokens;

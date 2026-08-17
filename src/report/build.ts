@@ -1792,12 +1792,24 @@ export function buildReport(options: BuildReportOptions): RunReport {
       cellsObserved: options.observations.length,
       cellsNotObserved: notObserved,
       notProbed: countByReason(options.skipped),
-      bodiesComparedOn: ((probed) =>
-        options.endpoints
-          .filter(
-            (endpoint) => endpoint.responseMustDifferByTenant === true && probed.has(endpoint.id),
-          )
-          .map((endpoint) => endpoint.id))(probedEndpointIds(options)),
+      // Declared, probed, **and with a check to ask the question**.
+      //
+      // The list was built from declarations and the walk and never from whether
+      // anything ran, so a run with no checks selected named every declared
+      // endpoint as compared while `checksRun` was empty beside it. That is the
+      // field lying in the one direction it exists to prevent — its own comment
+      // says so, and B-5 closed the other direction on 15 August. Being on this
+      // list means the question was asked; with no check registered it was asked
+      // nowhere. Found by adversarial review on 17 August 2026.
+      bodiesComparedOn: ((probed, asked) =>
+        asked
+          ? options.endpoints
+              .filter(
+                (endpoint) =>
+                  endpoint.responseMustDifferByTenant === true && probed.has(endpoint.id),
+              )
+              .map((endpoint) => endpoint.id)
+          : [])(probedEndpointIds(options), (options.checksRun ?? []).length > 0),
       writeMethodsProbed: options.unsafeMethods ?? false,
       checksRun: options.checksRun ?? [],
       byCheck: options.byCheck ?? [],

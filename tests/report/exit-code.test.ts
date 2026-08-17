@@ -238,6 +238,14 @@ describe("coverage and run identification", () => {
       truncated: false,
       findings: [],
       policy: { fallback: "denied", rules: [] },
+      // A check ran. Without one, nothing compared any body, and since
+      // 17 August `bodiesComparedOn` says so — the field means "the question was
+      // asked", and with no check registered it was asked nowhere. These cases
+      // are about *which* endpoints the question reached, so the run has to be
+      // one where it was asked at all.
+      checksRun: [
+        { id: "identical-response-across-tenants", description: "bodies differ", standards: [] },
+      ],
       startedAt: new Date(0),
       finishedAt: new Date(1),
       ...overrides,
@@ -290,6 +298,19 @@ describe("coverage and run identification", () => {
    * A caller that does not say which endpoints were probed gets the same answer
    * by subtraction — the fallback `endpointsProbed` already uses.
    */
+  /**
+   * And nowhere at all when no check ran.
+   *
+   * The list was built from the declarations and the walk and never from whether
+   * anything ran, so `--checks ""` switched the body channel off and left every
+   * declared endpoint named here as compared, with `checksRun: []` beside it. The
+   * same lie B-5 closed from the other side. Found by adversarial review on
+   * 17 August 2026.
+   */
+  it("names nothing when no check was run", () => {
+    expect(build({ checksRun: [] }).coverage.bodiesComparedOn).toEqual([]);
+  });
+
   it("falls back to the endpoints minus the skipped ones", () => {
     const built = build({
       endpoints: [

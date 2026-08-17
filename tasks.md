@@ -1873,15 +1873,22 @@ to be cut, and `src/adapters` and `src/report` had both changed that day.
 
 Open, from the same review, in the order they were ranked:
 
-- [ ] **`SharedCredentialError` is removed by a trailing space.** The check
-      compares raw environment values; the platform trims. Two accounts on
-      `tok-alice` and `"tok-alice "` both authenticate as alice and the run
-      reports isolation, which is the whole failure the check was added for.
-- [ ] **`--checks ""` disables the body channel in silence**, and
-      `coverage.bodiesComparedOn` then claims a comparison that did not happen —
-      the field exists precisely to tell "compared and matched" from "not
-      compared". `byCheck` tells the truth beside it; `bodiesComparedOn` is built
-      from declarations rather than from what ran.
+- [x] **`SharedCredentialError` is removed by a trailing space.** Closed
+      17 August: the comparison is over the trimmed value, which is what a
+      platform sees — a header value may carry surrounding whitespace and every
+      parser drops it, the reference platform in this repository in the regular
+      expression that reads `Authorization`. Trimming is the only normalisation
+      applied: what a platform does beyond it is unknown here, and guessing would
+      trade a refusal that is right for one that is plausible.
+- [x] **`--checks ""` disables the body channel in silence.** Closed 17 August,
+      and it was two defects. An empty selection is now refused like a
+      misspelling — there is deliberately no way to spell "run no checks", since
+      the flag narrows a run rather than disarming it. And `bodiesComparedOn` now
+      requires a check to have run: it was built from the declarations and the
+      walk and never from whether anything ran, so it named every declared
+      endpoint as compared with `checksRun: []` beside it. The same lie B-5 closed
+      from the other side, in the field whose own comment says it exists to
+      prevent exactly this.
 - [ ] **The response-header allowlist leaks through two names.**
       `www-authenticate` carries free text and RFC 6750 puts `error_description`
       in it; `sanitizeLocation` strips query and fragment and keeps the **path**,

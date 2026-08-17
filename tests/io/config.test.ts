@@ -289,6 +289,37 @@ describe("credentials", () => {
   });
 
   /**
+   * A trailing space is not a second credential.
+   *
+   * Raw values were compared until 17 August 2026, so `tok-alice` and
+   * `"tok-alice "` looked like two tokens and were one: a header value may carry
+   * surrounding whitespace and every parser drops it — the reference platform in
+   * this repository does it in the regular expression that reads `Authorization`.
+   * Both accounts authenticated as alice, both canaries passed, and the run
+   * reported isolation proved by comparing an account with itself. Found by
+   * adversarial review.
+   */
+  it("is not removed by whitespace around the token", () => {
+    const config = parseRunConfig(VALID);
+
+    expect(() =>
+      resolveTokens(config, { TOKEN_PLAYER_A: "one-token", TOKEN_ADMIN_A: "one-token " }),
+    ).toThrow(SharedCredentialError);
+    expect(() =>
+      resolveTokens(config, { TOKEN_PLAYER_A: " one-token", TOKEN_ADMIN_A: "one-token\t" }),
+    ).toThrow(SharedCredentialError);
+  });
+
+  /** And two genuinely different tokens still pass, whitespace or not. */
+  it("lets two different tokens through", () => {
+    const config = parseRunConfig(VALID);
+
+    expect(() =>
+      resolveTokens(config, { TOKEN_PLAYER_A: "one-token ", TOKEN_ADMIN_A: " another-token" }),
+    ).not.toThrow();
+  });
+
+  /**
    * The refusal must not become the leak it prevents.
    *
    * An error message is the one thing here that reaches a terminal, a CI log and

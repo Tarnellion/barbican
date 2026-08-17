@@ -102,8 +102,22 @@ describe("assembling a registry for a particular run", () => {
     expect(() => registry.select("frist")).toThrow(/first, second/);
   });
 
-  it("selects nothing when asked for nothing", () => {
-    expect(registry.select("")).toEqual([]);
+  /**
+   * An empty selection is a typo, not a choice.
+   *
+   * It used to return an empty list and be obeyed in silence: `--checks ""`,
+   * `--checks ,` and `--checks " "` switched the body channel off, and a leak
+   * visible only by body left the run green with `checksRun: []` in the report
+   * and no warning anywhere. There is deliberately no way to spell "run no
+   * checks" — the flag narrows a run, it does not disarm it. Found by
+   * adversarial review on 17 August 2026.
+   */
+  it("refuses an empty selection rather than running nothing", () => {
+    expect(() => registry.select("")).toThrow(UnknownCheckError);
+    expect(() => registry.select(",")).toThrow(UnknownCheckError);
+    expect(() => registry.select(" ")).toThrow(UnknownCheckError);
+    // The message names what is available, as it does for a misspelling.
+    expect(() => registry.select("")).toThrow(/first, second/);
   });
 });
 
