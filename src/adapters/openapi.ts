@@ -37,7 +37,8 @@
 
 import SwaggerParser from "@apidevtools/swagger-parser";
 import { parse as parseYaml } from "yaml";
-import type { Endpoint, HttpMethod } from "../core/types.js";
+import type { Endpoint } from "../core/types.js";
+import { HTTP_METHODS } from "../core/types.js";
 import type { SpecParser } from "./ports.js";
 
 export interface SpecParserLimits {
@@ -93,8 +94,6 @@ export class SpecParseError extends Error {
     this.name = "SpecParseError";
   }
 }
-
-const HTTP_METHODS = ["get", "head", "post", "put", "patch", "delete", "options"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -179,20 +178,25 @@ function toEndpoints(document: unknown): readonly Endpoint[] {
     if (!isRecord(item)) {
       continue;
     }
-    for (const method of HTTP_METHODS) {
-      const operation = item[method];
+    // The set comes from the core rather than being spelled out again here. A
+    // list of its own read `HttpMethod` nowhere, so a method added to the domain
+    // would have been skipped by this loop without a word: every operation of
+    // that method absent from the matrix, and coverage reporting a hundred
+    // percent — of what was parsed.
+    for (const method of Object.values(HTTP_METHODS)) {
+      // A path item names its operations in lower case; the domain in upper.
+      const operation = item[method.toLowerCase()];
       if (!isRecord(operation)) {
         continue;
       }
 
-      const upper = method.toUpperCase() as HttpMethod;
       const rawId = operation.operationId;
       const operationId = typeof rawId === "string" && rawId.length > 0 ? rawId : undefined;
 
       endpoints.push(
         operationId === undefined
-          ? { id: `${upper} ${path}`, method: upper, path }
-          : { id: operationId, method: upper, path, operationId },
+          ? { id: `${method} ${path}`, method, path }
+          : { id: operationId, method, path, operationId },
       );
     }
   }

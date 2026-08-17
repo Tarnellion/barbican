@@ -510,9 +510,16 @@ are declared, `signals`.
   "expected": "denied",       // what the human declared
   "relation": "foreign-tenant",
   "match": true,              // tested and agreed
-  "ruleIndex": 11             // which rule gave the expectation; absent — the fallback fired
+  "basis": "rule",            // a rule of the policy decided this, not the fallback
+  "ruleIndex": 11             // and this is the rule, in inputs.policy.rules
 }
 ```
+
+`basis` is on the observation and not only on the finding since 17 August 2026.
+Before that, the grounds for an expectation were on the rows that disagreed and
+missing from the rows that agreed — so "the fallback decided this cell" and "the
+tool did not fill the field in" looked the same on exactly the cells a reader
+goes to when they doubt the declaration. See "Which rule gave the verdict" below.
 
 `match: true` is **the only place in the report where a positive result is
 visible cell by cell and not as a total**. It was absent on principle before, and
@@ -536,7 +543,7 @@ is a real cell from that run:
   "expected": "allowed",      // declared allowed, and allowed is what happened
   "match": false,             // and still it did not agree
   "findingKinds": ["identical-response-across-tenants"],
-  "ruleIndex": 1
+  "basis": "rule", "ruleIndex": 1
 }
 ```
 
@@ -780,7 +787,9 @@ Two fields answer this, and the second exists because the first could not.
 
 `basis` says what declared the expectation: `"rule"` or `"fallback"`. `ruleIndex`
 is the rule's position in `inputs.policy.rules`, present only when `basis` is
-`"rule"`.
+`"rule"`. Both are on `findings[]` and, since 17 August 2026, on `observations[]`
+as well — a cell that agreed has grounds too, and they are what a reader checks
+when they suspect the declaration rather than the platform.
 
 The absence of `ruleIndex` used to be the whole answer, and it was not a good
 one: on the reference run 37 of 80 matrix findings carried no index, and 22 of

@@ -39,6 +39,7 @@
 
 import { parse as parseYaml } from "yaml";
 import type { Endpoint, HttpMethod } from "../core/types.js";
+import { HTTP_METHODS } from "../core/types.js";
 import type { SpecParser } from "./ports.js";
 
 export interface PostmanCollectionLimits {
@@ -147,24 +148,7 @@ export class DuplicatePostmanEndpointIdError extends Error {
   }
 }
 
-/**
- * The allowed methods.
- *
- * Written as `Record<HttpMethod, ...>` rather than as an array: the type forces
- * every method of the domain to be listed, so an extension of `HttpMethod` will
- * not slip past this list silently.
- */
-const KNOWN_METHODS: Readonly<Record<HttpMethod, true>> = {
-  GET: true,
-  HEAD: true,
-  POST: true,
-  PUT: true,
-  PATCH: true,
-  DELETE: true,
-  OPTIONS: true,
-};
-
-const METHOD_NAMES = Object.keys(KNOWN_METHODS).join(", ");
+const METHOD_NAMES = Object.keys(HTTP_METHODS).join(", ");
 
 /** The schemas the adapter undertakes to read. */
 const SUPPORTED_SCHEMA = /\/collection\/v2\.[01]\./;
@@ -210,7 +194,7 @@ function describe(cause: unknown): string {
 /** The method is upper-cased: in the domain it is always `GET`, never `get`. */
 function toMethod(value: string): HttpMethod | undefined {
   const upper = value.trim().toUpperCase();
-  return Object.hasOwn(KNOWN_METHODS, upper) ? (upper as HttpMethod) : undefined;
+  return Object.hasOwn(HTTP_METHODS, upper) ? (upper as HttpMethod) : undefined;
 }
 
 function locationOf(trail: readonly string[]): string {

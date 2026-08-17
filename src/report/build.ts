@@ -47,6 +47,7 @@ import type {
   ContextAttributeValue,
   RequestContextConfig,
   RunConfig,
+  RunTarget,
 } from "../io/config.js";
 import type { ProbeFailure, SkippedEndpoint } from "../runner.js";
 
@@ -287,6 +288,20 @@ export interface RequestRecord {
  */
 export interface ReportedObservation extends AccessObservation {
   readonly expected?: ExpectedOutcome;
+  /**
+   * What declared the expectation: a rule of the policy, or the fallback.
+   *
+   * Present exactly when `expected` is — both come from the cell verdict, and a
+   * row with an expectation and no grounds for it is the state this field was
+   * introduced to end. `ruleIndex` names the rule when `basis` is `"rule"`;
+   * absence of `ruleIndex` on its own cannot be told from a field the tool
+   * failed to fill in, which is why the core says it in a field.
+   *
+   * Typed from `CellVerdict` rather than restating the two words: the vocabulary
+   * belongs to the core, and a copy of it here would be one more shape described
+   * twice.
+   */
+  readonly basis?: CellVerdict["basis"];
   readonly match?: boolean;
   /**
    * The kinds of finding recorded against this cell. Absent means none.
@@ -334,6 +349,55 @@ export interface RunInputs {
    * the report — it has to be taken on trust.
    */
   readonly throttle?: ThrottleLimits;
+}
+
+/**
+ * A row of `accounts`: a declared account, or that same account under one
+ * declared set of request conditions.
+ *
+ * A type of its own rather than a shape written inline in `RunReport`, so that
+ * the mapping that fills it has something to satisfy in full — the half of the
+ * cure `describeChecks` applied to `CheckRun`. See `reportedAccount`.
+ */
+export interface ReportedAccount {
+  readonly id: string;
+  readonly role: string;
+  /** The set of memberships, when the account sits in several tenants at once. */
+  readonly tenants?: readonly string[] | undefined;
+  /** Declared without credentials: it makes its requests anonymously. */
+  readonly anonymous?: boolean;
+  /**
+   * The name of the environment variable holding the token — **the name, not
+   * the value**.
+   *
+   * Without it there is nothing to reproduce a finding with: 'add the
+   * authentication header of account alice-a' does not say where to get that
+   * token.
+   */
+  readonly tokenEnv?: string;
+  /**
+   * The original account, when this row is that same account under request
+   * conditions.
+   *
+   * Without it the `@` suffix stays the only carrier of the structure, and it
+   * reads as 'a user at a domain' — that is, as a different account.
+   */
+  readonly baseAccountId?: string;
+  /**
+   * The request conditions this row exists under.
+   *
+   * The same account with the same credentials: what changes is the request, not
+   * the account. Absent means baseline conditions.
+   */
+  readonly contextId?: string;
+  /**
+   * The scheme the account presented itself with. Only the kind and the names,
+   * no values. On an anonymous account it means nothing — there is nothing to
+   * present.
+   */
+  readonly auth?: AuthScheme;
+  /** Absent on an account outside of tenants: the key is simply not in the JSON. */
+  readonly tenant?: string | undefined;
 }
 
 export interface ReportedContext {
@@ -555,46 +619,7 @@ export interface RunReport {
      */
     readonly label?: string;
   };
-  readonly accounts: readonly {
-    readonly id: string;
-    readonly role: string;
-    /** The set of memberships, when the account sits in several tenants at once. */
-    readonly tenants?: readonly string[] | undefined;
-    /** Declared without credentials: it makes its requests anonymously. */
-    readonly anonymous?: boolean;
-    /**
-     * The name of the environment variable holding the token — **the name, not
-     * the value**.
-     *
-     * Without it there is nothing to reproduce a finding with: 'add the
-     * authentication header of account alice-a' does not say where to get that
-     * token.
-     */
-    readonly tokenEnv?: string;
-    /**
-     * The original account, when this row is that same account under request
-     * conditions.
-     *
-     * Without it the `@` suffix stays the only carrier of the structure, and it
-     * reads as 'a user at a domain' — that is, as a different account.
-     */
-    readonly baseAccountId?: string;
-    /**
-     * The request conditions this row exists under.
-     *
-     * The same account with the same credentials: what changes is the request, not
-     * the account. Absent means baseline conditions.
-     */
-    readonly contextId?: string;
-    /**
-     * The scheme the account presented itself with. Only the kind and the names,
-     * no values. On an anonymous account it means nothing — there is nothing to
-     * present.
-     */
-    readonly auth?: AuthScheme;
-    /** Absent on an account outside of tenants: the key is simply not in the JSON. */
-    readonly tenant?: string | undefined;
-  }[];
+  readonly accounts: readonly ReportedAccount[];
   readonly endpoints: readonly Endpoint[];
   /**
    * The resources requested. Without them a finding about broken isolation cannot
@@ -810,6 +835,29 @@ function cellKey(of: {
   return `${of.accountId}\u0000${of.endpointId}\u0000${of.resourceId ?? ""}`;
 }
 
+/**
+ * Takes whatever a mapping did not name, and does not compile when there is any.
+ *
+ * The mappings below rebuild a structure by naming its fields one at a time,
+ * which is the right shape for a published format: the report must not pass on
+ * what it does not mean to publish, and spreading a source object into it would
+ * answer every future question with "publish it". What such a mapping never had
+ * is a way to notice a field added upstream — and this file records two that
+ * were lost exactly so: `CheckRun.description`, left out by a mapping in
+ * `src/cli.ts` that named `id` and `standards`, and `contextId`, left off a
+ * check finding by `mergeFindings` below.
+ *
+ * Passing the rest of a destructuring through here is that notice. The
+ * parameter admits only an object with nothing left in it, so a field added to
+ * the source and named by neither half — carried, or withheld with the reason
+ * written beside it — stops the build with the one question worth asking: which
+ * of the two is it? Found by the audit of 14 August 2026 (B-12).
+ */
+function nothingLeftUnnamed(_unnamed: Record<string, never>): void {
+  // Nothing to do at runtime: the statement has already been checked by the
+  // compiler, and the call is only what carries it to the mapping it is about.
+}
+
 function mergeFindings(
   diffs: readonly AccessDiff[],
   checks: readonly ResolvedFinding[],
@@ -927,35 +975,52 @@ function mergeFindings(
    * interim counter `coverage.checksWithUnusableFindings` is gone with it: a
    * field that could only ever be empty is its own kind of lie.
    */
-  const fromChecks: readonly ReportFinding[] = checks.map((check) =>
-    withRequest({
-      kind: check.checkId,
+  const fromChecks: readonly ReportFinding[] = checks.map((check) => {
+    // Every field of the finding named, and the remainder asserted empty. This
+    // is the mapping `contextId` was lost by; naming the fields is still right,
+    // and what was missing is the compiler noticing the next one that appears.
+    // See `nothingLeftUnnamed`.
+    const {
+      checkId,
+      severity,
+      title,
+      accountId,
+      endpointId,
+      contextId,
+      relatedAccountId,
+      evidence,
+      ...unnamed
+    } = check;
+    nothingLeftUnnamed(unnamed);
+    const standards = standardsOf(checkId);
+    return withRequest({
+      kind: checkId,
       source: "check" as const,
-      severity: check.severity,
+      severity,
       // Both absent on a run-level finding, and both stay absent rather than
       // being filled with a placeholder: a reader who sees an endpoint id
       // believes there was a request.
-      ...(check.accountId === undefined ? {} : { accountId: check.accountId }),
-      ...(check.endpointId === undefined ? {} : { endpointId: check.endpointId }),
+      ...(accountId === undefined ? {} : { accountId }),
+      ...(endpointId === undefined ? {} : { endpointId }),
       // The conditions are carried over like everything else. The fields were
       // copied by naming each one, and a new one was silently lost: a check
       // finding made under conditions looked like a baseline one, grouping
       // merged it with the baseline one, and `request` was printed without the
       // attributes. Found by a cold read.
-      ...(check.contextId === undefined ? {} : { contextId: check.contextId }),
-      title: check.title,
+      ...(contextId === undefined ? {} : { contextId }),
+      title,
       // Which clauses this finding answers for. Declared on the check since
       // ADR-0003 and read by nothing until now, so the traceability the plan
       // promises could not be built from a saved report.
-      ...(standardsOf(check.checkId).length === 0 ? {} : { standards: standardsOf(check.checkId) }),
-      ...(check.relatedAccountId === undefined ? {} : { relatedAccountId: check.relatedAccountId }),
-      evidence: check.evidence,
+      ...(standards.length === 0 ? {} : { standards }),
+      ...(relatedAccountId === undefined ? {} : { relatedAccountId }),
+      evidence,
       // The second request of the pair. Taken from the observations by the name
       // of the other side: the check knows nothing about transport and stores
       // no addresses.
       ...relatedRequestOf(check),
-    }),
-  );
+    });
+  });
 
   // Severity first, then the cell, and the two channels interleave rather than
   // sitting in two blocks. The list used to be every matrix row and then every
@@ -1006,6 +1071,17 @@ function countByReason(skipped: readonly SkippedEndpoint[]): Readonly<Record<str
 }
 
 /**
+ * A declared account, or that same account under one set of declared conditions.
+ *
+ * What `reportedAccount` maps from, named so that the mapping has one source to
+ * answer for rather than a shape restated at two call sites.
+ */
+type ConfiguredAccountRow = AccountConfig & {
+  readonly contextId?: string;
+  readonly baseAccountId?: string;
+};
+
+/**
  * The account rows, including accounts under conditions.
  *
  * An account under conditions is a matrix row of its own, and that is what a
@@ -1013,9 +1089,7 @@ function countByReason(skipped: readonly SkippedEndpoint[]): Readonly<Record<str
  * reader sees `alice-a@geo-blocked`, looks for it in the account list and does not
  * find it.
  */
-function withContextAccounts(
-  options: BuildReportOptions,
-): readonly (AccountConfig & { readonly contextId?: string; readonly baseAccountId?: string })[] {
+function withContextAccounts(options: BuildReportOptions): readonly ConfiguredAccountRow[] {
   const base = options.config.accounts;
   const byId = new Map(base.map((account) => [account.id, account]));
   const derived: (AccountConfig & {
@@ -1036,6 +1110,116 @@ function withContextAccounts(
     derived.push({ ...source, id: account.id, contextId: account.contextId, baseAccountId });
   }
   return [...base, ...derived];
+}
+
+/**
+ * One account as the report publishes it.
+ *
+ * A whole function for what used to be an object literal inside `buildReport`,
+ * for the reason `describeChecks` is a function: a mapping that names fields
+ * needs one place to name them in and one type to satisfy, or the next field
+ * added to `AccountConfig` goes the way `CheckRun.description` went. Every
+ * field of the source is accounted for below — carried, or withheld with the
+ * reason beside it — and `nothingLeftUnnamed` is what makes that a statement
+ * the compiler checks rather than a claim in a comment. Found by the audit of
+ * 14 August 2026 (B-12).
+ */
+function reportedAccount(account: ConfiguredAccountRow, config: RunConfig): ReportedAccount {
+  const {
+    id,
+    role,
+    tenant,
+    tenants,
+    tokenEnv,
+    contextId,
+    baseAccountId,
+    // Withheld. `canary` is the endpoint the operator nominated for the
+    // pre-flight check: what the canaries did is in `canaries`, and which
+    // endpoint was picked says nothing about access. `authScheme` is a
+    // reference into `authSchemes` by name, and `auth` below carries the scheme
+    // that reference resolves to — publishing both would put one fact in the
+    // file twice, free to disagree.
+    canary: _canary,
+    authScheme: _authScheme,
+    ...unnamed
+  } = account;
+  nothingLeftUnnamed(unnamed);
+  return {
+    id,
+    role,
+    tenant,
+    // The set of memberships is printed just like a single tenant. Without this
+    // an account with a set looked in the report like an account with no tenant
+    // at all — that is, indistinguishable from an anonymous one — even though
+    // the verdicts on it are correct.
+    tenants,
+    // An account without credentials is declared anonymous. Without an explicit
+    // mark the report's only positive conclusion — 'the anonymous account got
+    // 401 everywhere' — is unprovable: an account whose token was passed wrongly
+    // would look the same.
+    anonymous: tokenEnv === undefined,
+    // The name of the variable, not the value. It sits in the configuration
+    // anyway, the one that is meant to be committed, and without it the reader
+    // of the report does not know which token to reproduce the finding with.
+    // Found by a third cold read.
+    ...(tokenEnv === undefined ? {} : { tokenEnv }),
+    // The conditions this row exists under. Absent means baseline.
+    ...(contextId === undefined ? {} : { contextId, baseAccountId }),
+    // Which surface the account went through. Not written at all for an
+    // anonymous one: it has nothing to present, and a scheme recorded there only
+    // confused. Without this the reader cannot tell 'the endpoint is closed'
+    // from 'we knocked with the wrong transport': both give 401. Only the kind
+    // of scheme and the name of the header or the cookie here — no values
+    // anywhere.
+    ...(tokenEnv === undefined
+      ? {}
+      : {
+          // By the original account: the scheme is a property of the surface,
+          // not of a matrix row. A row under conditions used to look the scheme
+          // up by its own id, fail to find it and print the root one — that is,
+          // the field lied exactly where it is the only thing needed: 'the
+          // endpoint is closed' against 'we knocked with the wrong transport'.
+          // Found by a cold read.
+          auth: namedScheme(config.accountAuth.get(baseAccountId ?? id) ?? config.auth),
+        }),
+  };
+}
+
+/**
+ * One declared set of request conditions as the report publishes it.
+ *
+ * Everything the configuration declares about the conditions is published:
+ * 'access under context: geo-blocked' can be neither reproduced nor disputed
+ * without the attributes, and there are no secrets among them — a human wrote
+ * the values, and `{ env: NAME }` names a variable rather than carrying one.
+ * The rest of the destructuring is asserted empty for the same reason as in
+ * `reportedAccount`: an attribute added to the declaration must not be able to
+ * go missing here in silence.
+ */
+function reportedContext(context: RequestContextConfig): ReportedContext {
+  const { id, description, headers, query, endpointIds, accountIds, ...unnamed } = context;
+  nothingLeftUnnamed(unnamed);
+  return {
+    id,
+    ...(description === undefined ? {} : { description }),
+    headers,
+    query,
+    endpointIds,
+    accountIds,
+  };
+}
+
+/**
+ * The system under test, as the report names it.
+ *
+ * The whole of `RunTarget` is published — there is nothing in it a report about
+ * that target should withhold — and the assertion is what keeps that true of
+ * the next field rather than of this list.
+ */
+function reportedTarget(target: RunTarget): RunReport["target"] {
+  const { baseUrl, allowedHosts, label, ...unnamed } = target;
+  nothingLeftUnnamed(unnamed);
+  return { baseUrl, allowedHosts, ...(label === undefined ? {} : { label }) };
 }
 
 /**
@@ -1063,11 +1247,15 @@ function withVerdicts(
   // what was declared", whatever the status code was.
   const kindsOf = new Map<string, string[]>();
   for (const finding of findings) {
-    // Unreachable today, and a type guard rather than a decision: matrix
-    // discrepancies always name both, and `mergeFindings` drops a check finding
-    // that names neither — reporting it under
-    // `coverage.checksWithUnusableFindings` rather than in silence. A finding
-    // with no cell cannot narrow the verdict on one.
+    // A run-level finding — "this clause is covered by nothing" — names no
+    // cell, and a statement about the run cannot narrow the verdict on one.
+    //
+    // The comment that stood here called this branch unreachable, on the
+    // grounds that `mergeFindings` dropped such a finding and counted it under
+    // `coverage.checksWithUnusableFindings`. Both stopped being true on
+    // 15 August: the filter is gone, the counter is gone, and the finding
+    // reaches this loop. Noticed while closing B-12 — the same class as B-12
+    // itself, a line about the code that the code stopped agreeing with.
     if (finding.accountId === undefined || finding.endpointId === undefined) {
       continue;
     }
@@ -1089,24 +1277,55 @@ function withVerdicts(
     if (cell === undefined) {
       return observation;
     }
+    // The verdict's fields named one at a time, and the remainder asserted
+    // empty — see `nothingLeftUnnamed`. This mapping is where `basis` was lost.
+    const {
+      expected,
+      basis,
+      match,
+      relation,
+      ruleIndex,
+      // Withheld, because the observation this row is built on already carries
+      // each of them. `accountId`, `endpointId` and `resourceId` are the key
+      // the two were joined on a line above; `contextId` travels on the account
+      // the row names; and `actual` is `observation.outcome` under a second
+      // name. Printing them again would put one fact in two places on one line,
+      // free to disagree.
+      accountId: _accountId,
+      endpointId: _endpointId,
+      resourceId: _resourceId,
+      contextId: _contextId,
+      actual: _actual,
+      ...unnamed
+    } = cell;
+    nothingLeftUnnamed(unnamed);
     const kinds = kindsOf.get(key);
     return {
       ...observation,
-      expected: cell.expected,
+      expected,
+      // What declared the expectation. The core has computed it on every cell
+      // since the absence of `ruleIndex` proved to be a poor answer, and this
+      // mapping named four of the cell's fields and not this one — so on an
+      // observation a missing `ruleIndex` was still the whole answer, and it
+      // cannot be told from a field the tool failed to fill in. Findings have
+      // carried it all along, which is what made the gap invisible: the two
+      // halves of `docs/report.md`'s "Which rule gave the verdict" were true of
+      // different rows. Found by the audit of 14 August 2026 (B-12).
+      basis,
       // The walk's verdict **and** the checks. `match` used to be the walk alone,
       // so a cell could be `match: true` and carry a body finding at the same
       // time: twelve of them did on the reference run. A reader who started from
       // the observation closed it as works-as-designed, and both arithmetic
       // self-checks this report offers came out wrong. Found by the audit of
       // 14 August 2026.
-      match: cell.match && kinds === undefined,
+      match: match && kinds === undefined,
       // Why it did not agree, next to the cell itself. Without this a body
       // finding leaves an unexplainable row behind: expectation `allowed`,
       // outcome `allowed`, `match: false`, and nothing on the line saying which
       // channel objected.
       ...(kinds === undefined ? {} : { findingKinds: [...kinds].sort() }),
-      ...(cell.relation === undefined ? {} : { relation: cell.relation }),
-      ...(cell.ruleIndex === undefined ? {} : { ruleIndex: cell.ruleIndex }),
+      ...(relation === undefined ? {} : { relation }),
+      ...(ruleIndex === undefined ? {} : { ruleIndex }),
     };
   });
 }
@@ -1454,55 +1673,10 @@ export function buildReport(options: BuildReportOptions): RunReport {
     },
     startedAt: options.startedAt.toISOString(),
     finishedAt: options.finishedAt.toISOString(),
-    target: {
-      baseUrl: options.config.target.baseUrl,
-      allowedHosts: options.config.target.allowedHosts,
-      ...(options.config.target.label === undefined ? {} : { label: options.config.target.label }),
-    },
-    accounts: withContextAccounts(options).map((account) => ({
-      id: account.id,
-      role: account.role,
-      tenant: account.tenant,
-      // The set of memberships is printed just like a single tenant. Without this
-      // an account with a set looked in the report like an account with no tenant
-      // at all — that is, indistinguishable from an anonymous one — even though
-      // the verdicts on it are correct.
-      tenants: account.tenants,
-      // An account without credentials is declared anonymous. Without an explicit
-      // mark the report's only positive conclusion — 'the anonymous account got
-      // 401 everywhere' — is unprovable: an account whose token was passed wrongly
-      // would look the same.
-      anonymous: account.tokenEnv === undefined,
-      // The name of the variable, not the value. It sits in the configuration
-      // anyway, the one that is meant to be committed, and without it the reader
-      // of the report does not know which token to reproduce the finding with.
-      // Found by a third cold read.
-      ...(account.tokenEnv === undefined ? {} : { tokenEnv: account.tokenEnv }),
-      // The conditions this row exists under. Absent means baseline.
-      ...(account.contextId === undefined
-        ? {}
-        : { contextId: account.contextId, baseAccountId: account.baseAccountId }),
-      // Which surface the account went through. Not written at all for an
-      // anonymous one: it has nothing to present, and a scheme recorded there only
-      // confused. Without this the reader cannot tell 'the endpoint is closed'
-      // from 'we knocked with the wrong transport': both give 401. Only the kind
-      // of scheme and the name of the header or the cookie here — no values
-      // anywhere.
-      ...(account.tokenEnv === undefined
-        ? {}
-        : {
-            // By the original account: the scheme is a property of the surface,
-            // not of a matrix row. A row under conditions used to look the scheme
-            // up by its own id, fail to find it and print the root one — that is,
-            // the field lied exactly where it is the only thing needed: 'the
-            // endpoint is closed' against 'we knocked with the wrong transport'.
-            // Found by a cold read.
-            auth: namedScheme(
-              options.config.accountAuth.get(account.baseAccountId ?? account.id) ??
-                options.config.auth,
-            ),
-          }),
-    })),
+    target: reportedTarget(options.config.target),
+    accounts: withContextAccounts(options).map((account) =>
+      reportedAccount(account, options.config),
+    ),
     endpoints: options.endpoints,
     resources: options.config.resources,
     skipped: options.skipped,
@@ -1567,14 +1741,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
       auth: namedScheme(options.config.auth),
       exclude: options.config.exclude,
       ...(options.throttle === undefined ? {} : { throttle: options.throttle }),
-      contexts: options.config.contexts.map((context) => ({
-        id: context.id,
-        ...(context.description === undefined ? {} : { description: context.description }),
-        headers: context.headers,
-        query: context.query,
-        endpointIds: context.endpointIds,
-        accountIds: context.accountIds,
-      })),
+      contexts: options.config.contexts.map(reportedContext),
     },
     defects: groups,
     summary: {

@@ -648,8 +648,15 @@ everything downstream of it.
       `SEVERITY_ORDER` and prints all five — `critical, high, medium, low, info` —
       so the level introduced for registry checks reaches the screen. Both the
       row counts and the defect counts go through it.
-- [ ] The cure is not a shared type but a **single source for the per-cell
-      verdict** and a single threshold rule in `runVerdict`.
+- [x] The cure is not a shared type but a **single source for the per-cell
+      verdict** and a single threshold rule in `runVerdict`. Both landed with
+      B-2 / H-3 on 15 August ([ADR-0022](docs/adr/0022-one-verdict-per-cell.md));
+      this line was the prescription and stayed unticked until 17 August, when it
+      was checked against the code. `withVerdicts` computes `match` in one place
+      and from both channels at once — `cell.match && kinds === undefined` —
+      `src/core/diff.ts` produces the cells and the discrepancies in a single
+      pass rather than two that could drift, and the threshold is the one named
+      constant `UNTRUSTWORTHY_ERROR_SHARE`, read at exactly one site.
 
 ### Terminal errors lost at a layer boundary
 
@@ -693,15 +700,87 @@ everything downstream of it.
 
 ### The shape of data described twice
 
-- [ ] **B-10.** The HTTP method set lives in five places; two copies the compiler
-      does not check (`openapi.ts:83` without `satisfies`, `config.ts:66` with no
-      tie to the type). The technique for checking it is documented in this
-      repository and applied in three of the five.
-- [ ] **B-11.** `z.infer` is used nowhere; every configuration interface is
-      written by hand beside its schema, so "the schema grew, the interface did
-      not" is undiagnosable.
-- [ ] **B-12.** Contexts and accounts are carried into the report by naming each
-      field — the mechanism the same file documents as having already lost one.
+- [x] **B-10.** Closed 17 August, and the count was exact. Five places: the
+      `HttpMethod` definition, the lower-case list in `openapi.ts`, the
+      `z.enum([...])` in `config.ts`, and `Record<HttpMethod, true>` in both
+      endpoint sources. Measured before touching anything — adding `TRACE` to the
+      domain produced errors in exactly two files, the two adapters; the OpenAPI
+      parser and the configuration schema said nothing, so a new method would
+      have been skipped by the parser without a word and refused by the schema as
+      invalid.
+      One source now: `HTTP_METHODS: Readonly<Record<HttpMethod, HttpMethod>>` in
+      the core, read by all four consumers. `Record` rather than
+      `satisfies readonly HttpMethod[]`, because `satisfies` checks that entries
+      belong to the set and never that the set is covered. The value repeats the
+      key because `Object.keys` hands back plain strings and it is the values
+      that carry the type onward — which also removed a cast in the parser. The
+      generated JSON Schema is byte-identical.
+      Mutations: `+TRACE` in the domain now gives one error, in `types.ts`,
+      naming the missing key; restoring both old copies leaves `typecheck`
+      silent and fails 5 of the 6 tests in the new
+      `tests/http-method-set.test.ts` — the finding reproduced in full. That file
+      reads the set from `HTTP_METHODS` rather than listing it, since a list
+      would be a sixth copy, and its hand-written half is `TRACE`, a method the
+      domain does not have: without it the tests would agree with any set.
+- [x] **B-11.** Closed 17 August, and the finding understates it. `z.infer`
+      occurred nowhere in `src`, `tests` or `docs`. Measured by breaking the
+      schema: adding a field to `accounts`, **required or optional**, left
+      `typecheck` silent, and so did removing an optional one; only the
+      disappearance of a required field was caught. A value with extra fields is
+      still assignable to a narrower type, so "the schema grew, the interface did
+      not" was invisible in the one direction that matters.
+      **Tied rather than derived, deliberately.** These are the package's
+      published types — `src/index.ts` re-exports the module in full — and
+      `z.infer` returns mutable shapes: `readonly allowedHosts: readonly string[]`
+      would become `allowedHosts: string[]`, buying a rule with a guarantee a
+      consumer already has. The prose over each field does not survive inference
+      either, and hovering a name is where most of it is read. So `SameFields` /
+      `Tied` relate five types to their schemas by field name and the error type
+      **names the field that drifted and in which direction**.
+      Left hand-written with the reason beside them: `TenantConfig` and
+      `RequestContextConfig`, which are the result of a conversion rather than a
+      mirror (`parent` → `parentId`, `endpoints` → `endpointIds`, the short form
+      expanded), and `ContextAttributeValue`, a union where field names say
+      nothing — already tied by the call into `normalizeContexts`, and that is
+      tested.
+      Mutations, each naming its field in the compiler error: a field added to
+      `accounts`, `target`, `bodySignals`, `signals[]` and `contexts[]`; a field
+      removed from `accounts`; a third member added to the attribute union.
+      **Not proved:** the tie is over field *names*. Narrowing a field's type in
+      a schema — `z.string()` to `z.literal("x")` — passes both halves, leaving
+      the published type wider than reality. Reasoned, not measured.
+- [x] **B-12.** Closed 17 August. Eight places in `src/report/build.ts` rebuild a
+      structure by naming its fields; three of them exist **to keep something
+      out** — a `RequestRecord` takes 4 of an observation's 12 fields, and adding
+      one "for convenience" would put headers, statuses and signals into a
+      reproduction line — and those stay. Five could lose a field by accident and
+      are now held by `nothingLeftUnnamed`, which takes the rest of a
+      destructuring and does not compile if anything is in it: a field added
+      upstream must be either carried or withheld with a reason beside it. The
+      report is not widened — no source object is spread into it anywhere.
+      **The finding named the wrong place.** Contexts and accounts are indeed
+      copied field by field, and neither had lost anything: all six context
+      fields are carried, and the two missing from accounts are withheld on
+      purpose. The place where the loss had **already happened** is one B-12 does
+      not mention — `withVerdicts` named four fields of the cell verdict and not
+      `basis`, the field the core computes on every cell precisely because "no
+      `ruleIndex`" cannot be told from "the tool did not fill it in". Findings
+      carried it through a spread; observations did not, so the grounds were on
+      the rows that disagreed and missing from the rows that agreed.
+      Closed on the way, one layer down: `AccessDiff` in the core never declared
+      `basis` either, though `diffAccess` has written it since cell verdicts
+      existed — a library consumer could not read `finding.basis` at all. Now
+      declared, and asserted by an annotation rather than a `toEqual`, which
+      compares values and never names a type. `docs/report.md` had two examples
+      showing `ruleIndex` with the wording `basis` replaces; both corrected.
+      Mutations: a field added to `ConfiguredAccountRow`, `RequestContextConfig`,
+      `RunTarget`, `ResolvedFinding` or `CellVerdict` fails the compile at a named
+      line; dropping `basis` fails two named tests; removing the declaration from
+      `AccessDiff` fails the typecheck in `tests/core/diff.test.ts`.
+      **One mutation did not fail at first** — removing `tenants` — because no
+      fixture had an account with a tenant set, so the test would have stayed
+      silent about losing it. An account was added and it fails now; recorded in
+      the test.
 - [x] **B-13.** Closed 17 August, and it had spread: three `.d.mts` files, not
       one — `tools/oracle/index.d.mts`, and the two added on 17 August for
       `is-main` and `managed-block`, each written by hand beside the module it
@@ -1248,11 +1327,20 @@ readability, failed on B-2 / H-3 above and was closed with it.
 
 ### The public surface
 
-- [ ] **E-1 / B-8.** `createSignalExtractor` is the one adapter factory missing
-      from `src/index.ts`. Body-signal findings are unreachable from the library
-      while the check that consumes them is exported, and `http.d.ts` declares a
-      public `signalExtractor?: SignalExtractor` — a type the consumer cannot
-      name. The comment in `src/index.ts` states exactly the policy this breaks.
+- [x] **E-1 / B-8.** Closed 17 August: `src/adapters/signals.js` joins the
+      re-exports. The finding holds exactly as written — every other adapter was
+      there, `createHttpClient` takes a public `signalExtractor?: SignalExtractor`
+      whose type a consumer could not write down, and the body-signal half of the
+      tool was unreachable from the library while the check consuming its output
+      was exported in full.
+      The cure is not the line, it is `tests/public-surface.test.ts`: the list of
+      adapters is read off the directory rather than repeated, because a comment
+      cannot notice the next module and a second list would be the same fact
+      written twice — which is how this one went stale. The name is asserted
+      through a real import, and the **type** through an annotation that does not
+      compile without the export, since the type is the half that made
+      `signalExtractor?:` unusable. Mutation: removing the re-export fails two
+      named tests and gives three compiler errors.
 - [x] **E-2.** Closed 15 August. The example calls `expandPolicy` and says in two
       lines why the endpoint list is declared separately. It is no longer a copy
       of anything: `tests/docs/readme-example.test.ts` carries the same text
@@ -1482,10 +1570,20 @@ readability, failed on B-2 / H-3 above and was closed with it.
       through a walk against the polygon.
       Original finding: the exit-code table covers neither a failed startup nor
       `SIGINT`, which gives **130**.
-- [ ] **G-9.** Policy rule numbering is zero-based and presented as an ordinal:
-      a typo in the fourth rule reports `Policy rule #3`.
-- [ ] **G-10.** `EISDIR` names neither the file nor the flag, with at least two
-      paths on the command line.
+- [x] **G-9.** Closed with item 12 of the second ranking on 16 August; the box
+      here stayed open until 17 August, when it was settled against the code
+      rather than against either mark. `describeRule` in `src/core/expected.ts`
+      names a rule by its path plus its position from the top, and the comment
+      records why one-based numbering was rejected: the same number travels into
+      the report as `ruleIndex`, where it is an index a consumer reads
+      `policy.rules[ruleIndex]` with, so renumbering the message alone would give
+      one rule two numbering schemes.
+- [x] **G-10.** Closed with the same item; the box was likewise stale.
+      `readNamedFile(flag, path)` in `src/cli.ts` wraps the read and names both
+      the flag and the path, listing the four flags a run can carry and pointing
+      at a directory as the usual cause — because `EISDIR: illegal operation on a
+      directory, read` tells an operator that one of their paths is wrong and not
+      which.
 - [x] **D-5.** Closed 16 August: the extractor sets `bodyOverLimit` when a body
       was too large to read, so "no comparison was made" and "the bodies
       differed" stop looking the same in the report — which is the pair this

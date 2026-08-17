@@ -17,6 +17,36 @@ export type RoleId = string;
 export type HttpMethod = "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
 
 /**
+ * Every method of the domain, as data.
+ *
+ * A type does not exist at runtime, and four places need the set as values: the
+ * two endpoint sources, the OpenAPI parser and the run configuration's schema.
+ * Each of them used to write the set out again, and two of those copies were tied
+ * to nothing the compiler reads — the audit of 14 August 2026 (B-10). A method
+ * added to `HttpMethod` passed both of them by in silence: every operation of
+ * that method dropped out of the matrix while coverage went on reporting a
+ * hundred percent of what was parsed, and a policy rule naming the method was
+ * refused as invalid.
+ *
+ * `Record<HttpMethod, …>` rather than a list, which is the tie the endpoint
+ * sources already used: the type forces every method to be listed.
+ * `satisfies readonly HttpMethod[]` cannot do that — it checks that the entries
+ * belong to the set, never that the set is covered.
+ *
+ * The value repeats the key because `Object.keys` hands back plain strings: it is
+ * the values that carry the type on to whoever reads the set.
+ */
+export const HTTP_METHODS: Readonly<Record<HttpMethod, HttpMethod>> = {
+  GET: "GET",
+  HEAD: "HEAD",
+  POST: "POST",
+  PUT: "PUT",
+  PATCH: "PATCH",
+  DELETE: "DELETE",
+  OPTIONS: "OPTIONS",
+};
+
+/**
  * The methods performed without the explicit `--unsafe-methods` flag.
  *
  * A security invariant: extending this list changes the tool's default behaviour
@@ -452,8 +482,24 @@ export interface AccessDiff {
   readonly actual?: AccessOutcome;
   readonly kind: DiffKind;
   /**
-   * The policy rule that declared the expectation. Absence means `fallback`: no
-   * rule matched, and that is a meaningful answer, not an omission.
+   * What declared the expectation: a rule of the policy, or the fallback.
+   *
+   * Written by `diffAccess` on every discrepancy since the cell verdicts were
+   * introduced, and declared here only from 17 August 2026 — so a consumer of
+   * the library could not read `finding.basis` without the compiler refusing a
+   * field that was in the value all along. The same family as B-12, one layer
+   * down: a shape described in two places, where the copy that describes it to
+   * everyone else went stale.
+   *
+   * The reason it exists at all: absence of `ruleIndex` cannot be told from a
+   * field the tool failed to fill in, so "the fallback decided this" is said in
+   * a field rather than inferred from a hole.
+   */
+  readonly basis?: "rule" | "fallback";
+  /**
+   * The policy rule that declared the expectation. Present only when `basis` is
+   * `rule`; absence means the fallback answered, which is a decision and not an
+   * omission.
    */
   readonly ruleIndex?: number;
   /**

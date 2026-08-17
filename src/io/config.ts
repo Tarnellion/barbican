@@ -28,6 +28,7 @@ import {
   DEFAULT_DIGEST_SIGNAL,
   describePolicyRule,
   FLAT_HIERARCHY,
+  HTTP_METHODS,
   isUsablePathSegment,
   RESOURCE_RELATIONS,
 } from "../core/index.js";
@@ -131,7 +132,12 @@ const endpointSelectorSchema = z.union([
       z.union([
         z.string().min(1),
         z.object({
-          method: z.enum(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]).optional(),
+          // The set comes from the core, like `RESOURCE_RELATIONS` below and for
+          // the same reason: a list written out here read the type nowhere, so a
+          // method added to the domain would be refused by this schema as
+          // invalid — a rule about the new method could not be declared at all,
+          // and the endpoints it covers would fall through to the fallback.
+          method: z.enum(HTTP_METHODS).optional(),
           path: z.string().min(1),
         }),
       ]),
@@ -524,6 +530,74 @@ export interface BodySignalsConfig {
   readonly signals?: readonly DeclaredSignal[] | undefined;
 }
 
+/** The fields one of two shapes declares and the other does not. */
+type ExtraFields<A, B> = Exclude<keyof A, keyof B>;
+
+/**
+ * `true` when two shapes declare the same fields, and otherwise an object type
+ * that names the ones that drifted apart.
+ *
+ * The object branch is what a reader sees in the error, so it says which
+ * direction the drift went: the compiler prints the type it could not satisfy.
+ */
+type SameFields<Declared, Parsed> = [ExtraFields<Parsed, Declared>] extends [never]
+  ? [ExtraFields<Declared, Parsed>] extends [never]
+    ? true
+    : { readonly declaredHereButNotInTheSchema: ExtraFields<Declared, Parsed> }
+  : { readonly inTheSchemaButNotDeclaredHere: ExtraFields<Parsed, Declared> };
+
+/** Compiles only for `true`. The constraint is where a drift is reported. */
+type Tied<Same extends true> = Same;
+
+type ParsedConfig = z.infer<typeof configSchema>;
+
+/**
+ * The published configuration types, tied to the schema that produces them.
+ *
+ * Every one of them is written out by hand beside a schema that says the same
+ * thing, and nothing related the two copies: the audit of 14 August 2026 (B-11).
+ * Measured before this was written — adding a field to the `accounts` schema,
+ * required or optional, left `pnpm run typecheck` silent, because a value with
+ * extra fields is still assignable to a narrower type. So "the schema grew, the
+ * interface did not" was not a thing anyone could be told about; the field would
+ * simply be absent from the type a library consumer names, while the validator
+ * accepted it.
+ *
+ * Tied rather than derived, and deliberately. These are the package's published
+ * types (`src/index.ts` re-exports this module in full), and `z.infer` gives back
+ * mutable shapes: `readonly allowedHosts: readonly string[]` would become
+ * `allowedHosts: string[]`, and a consumer would lose a guarantee to buy a rule.
+ * The prose above each field would go too — it does not survive inference, and
+ * hovering a name is where most of it gets read.
+ *
+ * The tie is over the field names; their types are held by the assignments in
+ * `parseRunConfig`, which is where the parsed value becomes a `RunConfig`. Two
+ * halves, and neither is enough alone: an assignment does not see a new field,
+ * and a name does not see a changed type.
+ *
+ * `TenantConfig` and `RequestContextConfig` are not here. They are not copies of
+ * a schema shape but the result of a conversion — `parent` becomes `parentId`,
+ * `endpoints` becomes `endpointIds`, the short string form of a tenant expands —
+ * so equal field names would be the wrong thing to demand of them. What a context
+ * is converted **from** is a mirror, and it is tied: `DeclaredContext`, below.
+ * `ContextAttributeValue` needs no line here either — it is a union, where field
+ * names say nothing, and passing the parsed contexts into `normalizeContexts`
+ * already refuses a member the type does not name.
+ */
+type _RunTargetIsTiedToTheSchema = Tied<SameFields<RunTarget, ParsedConfig["target"]>>;
+type _AccountConfigIsTiedToTheSchema = Tied<
+  SameFields<AccountConfig, ParsedConfig["accounts"][number]>
+>;
+type _BodySignalsConfigIsTiedToTheSchema = Tied<
+  SameFields<BodySignalsConfig, NonNullable<ParsedConfig["bodySignals"]>>
+>;
+type _DeclaredSignalIsTiedToTheSchema = Tied<
+  SameFields<
+    DeclaredSignal,
+    NonNullable<NonNullable<ParsedConfig["bodySignals"]>["signals"]>[number]
+  >
+>;
+
 export class DuplicateSignalNameError extends Error {
   constructor(name: string) {
     super(
@@ -613,6 +687,33 @@ export interface RequestContextConfig {
   /** The accounts they apply to. Empty means all of them. */
   readonly accountIds: readonly string[];
 }
+
+/**
+ * One set of conditions as it was written, before `normalizeContexts` converts it.
+ *
+ * Named rather than spelled out in that function's signature so the tie below can
+ * reach it. This shape is a mirror of a `contexts` entry — the same field names —
+ * which is what makes the tie the right thing to ask of it; `RequestContextConfig`
+ * above is not, because the conversion renames `endpoints` and `accounts` and
+ * turns two optional records into required ones.
+ *
+ * Not exported: what a library consumer gets back from `parseRunConfig` is the
+ * converted form, and publishing the intermediate one would offer a second answer
+ * to the question of what a context is.
+ */
+interface DeclaredContext {
+  readonly id: string;
+  readonly description?: string | undefined;
+  readonly headers?: Readonly<Record<string, ContextAttributeValue>> | undefined;
+  /** A literal: the schema admits no `{ env: … }` here, and the report prints it. */
+  readonly query?: Readonly<Record<string, string>> | undefined;
+  readonly endpoints: readonly string[];
+  readonly accounts?: readonly string[] | undefined;
+}
+
+type _DeclaredContextIsTiedToTheSchema = Tied<
+  SameFields<DeclaredContext, NonNullable<ParsedConfig["contexts"]>[number]>
+>;
 
 export class ConfigParseError extends Error {
   constructor(message: string, options?: { cause: unknown }) {
@@ -1592,15 +1693,7 @@ const FORBIDDEN_QUERY_KEYS: ReadonlySet<string> = new Set([
  * applies to nothing.
  */
 function normalizeContexts(
-  declared: readonly {
-    readonly id: string;
-    readonly description?: string | undefined;
-    readonly headers?: Readonly<Record<string, ContextAttributeValue>> | undefined;
-    /** A literal: the schema admits no `{ env: … }` here, and the report prints it. */
-    readonly query?: Readonly<Record<string, string>> | undefined;
-    readonly endpoints: readonly string[];
-    readonly accounts?: readonly string[] | undefined;
-  }[],
+  declared: readonly DeclaredContext[],
   options: {
     readonly accountIds: ReadonlySet<string>;
     readonly resourceQueryKeys: ReadonlySet<string>;

@@ -114,6 +114,25 @@ describe("diffAccess", () => {
     ]);
   });
 
+  /**
+   * And a consumer of the library can read it.
+   *
+   * `diffAccess` has written `basis` onto every discrepancy since the cell
+   * verdicts were introduced, and `AccessDiff` did not declare it until
+   * 17 August 2026 — so the value was in the object and the type refused the
+   * field. The assertion is the annotation: this does not compile while the
+   * declaration is missing, which the `toEqual` above cannot say, since it
+   * compares values and never names a type. Found while closing B-12, one layer
+   * below where B-12 was looking.
+   */
+  it("declares the grounds it writes, so a library consumer can name them", () => {
+    const [found] = diffAccess(matrixWith(escalationObservations), policy);
+
+    const basis: "rule" | "fallback" | undefined = found?.basis;
+
+    expect(basis).toBe("fallback");
+  });
+
   it("finds an unexpected denial: access was expected, a denial came back", () => {
     const diffs = diffAccess(matrixWith(denialObservations), policy);
 
