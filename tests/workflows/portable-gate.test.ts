@@ -32,6 +32,11 @@ interface Workflow {
       readonly strategy?: {
         readonly matrix?: { readonly include?: readonly Record<string, unknown>[] };
       };
+      readonly steps?: readonly {
+        readonly name?: string;
+        readonly run?: string;
+        readonly with?: Record<string, unknown>;
+      }[];
     }
   >;
 }
@@ -101,16 +106,26 @@ describe("the job that would notice", () => {
 });
 
 /**
- * `engines.node` and the matrix are one fact written in two files.
+ * `engines.node` is a promise, and something has to run at the number in it.
  *
- * The floor said `>=22.12.0` and the matrix said `node: 22`, which setup-node
- * resolves to the newest 22.x — so the one version the package promised to work
- * on was the one version nothing ran on. A floor nothing runs on is a number,
- * not a bound. Found by the audit of 14 August 2026 (F-4).
+ * It said `>=22.12.0` and CI said `node: 22`, which setup-node resolves to the
+ * newest 22.x — so the one version the package promised to work on was the one
+ * version nothing ran on. A floor nothing runs on is a number, not a bound.
+ * Found by the audit of 14 August 2026 (F-4).
  *
- * Asserted by relating the two rather than by pinning a literal here: a literal
- * would be a third copy of the same fact, and the next person to raise the floor
- * would have two places to remember instead of one.
+ * Putting `22.12.0` into the gate's matrix was the first attempt and it failed
+ * on both operating systems, which is the finding paying for itself twice over:
+ * **pnpm 11.20.0 declares `>=22.13`**, so the project's own floor cannot install
+ * the project's own dependencies. Those are two floors for two audiences — the
+ * consumer's, set by `commander@15` at exactly `>=22.12.0`, and the
+ * contributor's, set by the package manager — and lowering the promise to make a
+ * job pass would refuse installation to a consumer for whom the package works.
+ * So the `floor` job builds on the development version and then runs the built
+ * CLI on the declared floor, which is what a consumer receives anyway.
+ *
+ * Asserted by relating the workflow to `package.json` rather than by pinning a
+ * literal here: a literal would be a third copy of the same fact, and the next
+ * person to raise the floor would have two places to remember instead of one.
  */
 describe("the node versions the package claims", () => {
   const floor = (
@@ -123,11 +138,32 @@ describe("the node versions the package claims", () => {
     expect(floor).toMatch(/^>=\d+\.\d+\.\d+$/);
   });
 
+  /**
+   * Something runs at exactly the promised number. Read out of `package.json` by
+   * the job itself, so the assertion is that the job reads it — not that
+   * somebody remembered to copy it.
+   */
   it("are exercised at exactly that lower bound", () => {
-    const entries = CI.jobs["check"]?.strategy?.matrix?.include ?? [];
-    const wanted = floor.replace(">=", "");
+    const steps = CI.jobs["floor"]?.steps ?? [];
+    const reads = steps.some((step) => (step.run ?? "").includes("engines.node"));
+    const uses = steps.some((step) =>
+      String(step.with?.["node-version"] ?? "").includes("floor.outputs.version"),
+    );
 
-    expect(entries.map((one) => String(one["node"]))).toContain(wanted);
+    expect(reads).toBe(true);
+    expect(uses).toBe(true);
+  });
+
+  /**
+   * And what runs there is the built package, not the sources. `engines` is a
+   * statement about what gets published; a job that ran `vitest` on the floor
+   * would be answering a question nobody asked.
+   */
+  it("run the built artifact on it, not the repository", () => {
+    const commands = (CI.jobs["floor"]?.steps ?? []).map((step) => step.run ?? "").join("\n");
+
+    expect(commands).toContain("dist/cli.js");
+    expect(commands).not.toContain("pnpm run test");
   });
 
   /**

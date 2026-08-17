@@ -1292,22 +1292,34 @@ readability, failed on B-2 / H-3 above and was closed with it.
       Proven in an isolated package with `engines.node` of `>=99`: pnpm refuses
       from the workspace file and says "Already up to date" from `.npmrc`. The
       documentation agrees: under pnpm 11 that file is auth and registry only.
-- [x] **F-4.** Closed 17 August. The matrix now runs `22.12.0` exactly — the
-      declared floor, which `node: 22` had never exercised because setup-node
-      resolves it to the newest 22.x, so the one version the package promises to
-      work on was the one version nothing ran on. A floor nothing runs on is a
-      number, not a bound. And node **26**, the current major (v26.7.0, released
-      5 August 2026): `>=22.12.0` names no upper bound, so it promises every
-      release above it, and running only the floor and the LTS left the version a
-      fresh `nvm install node` gives promised and untested. 24 stays as the
-      current LTS.
-      `engines.node` and the matrix are one fact in two files, so
-      `tests/workflows/portable-gate.test.ts` relates them rather than pinning a
-      third copy of the number: raise the floor and forget the matrix, and the
-      test says so. Mutations: both entries back to a floating `22` fails
-      "exercised at exactly that lower bound"; dropping the 26 entry fails
-      "exercised above the current LTS"; raising `engines` to `>=22.14.0` alone
-      fails the first again.
+- [x] **F-4.** Closed 17 August, and it paid for itself twice.
+      `node: 22` in the matrix resolves to the newest 22.x, so `>=22.12.0` — the
+      one version the package promises to work on — was the one version nothing
+      ran on. A floor nothing runs on is a number, not a bound.
+      **Putting `22.12.0` into the gate's matrix failed on both operating
+      systems**, which is the second finding: `pnpm@11.20.0` declares `>=22.13`,
+      so the project's own declared floor cannot install the project's own
+      dependencies. Those are two floors for two audiences. The consumer's is set
+      by `commander@15`, which asks for exactly `>=22.12.0` — that is where the
+      number came from — and the contributor's by the package manager. Lowering
+      the promise to 22.13 to make a job go green would have refused installation
+      to a consumer for whom the package works, so the promise stays and the way
+      it is checked changed: a `floor` job builds on the development version and
+      then runs the **built CLI** on the declared floor, which is what a consumer
+      receives anyway. `--version`, `run --help` and `schema` between them load
+      commander, the configuration parser with zod and the report layer, with no
+      network and no target.
+      Node **26** is in the matrix too (v26.7.0, 5 August 2026): `>=22.12.0` names
+      no upper bound, so it promises every release above it, and the LTS pair
+      alone left the version a fresh `nvm install node` gives promised and
+      untested.
+      `tests/workflows/portable-gate.test.ts` relates the workflow to
+      `package.json` rather than pinning a third copy of the number — it asserts
+      the job **reads** `engines.node` and feeds it to setup-node, and that what
+      runs there is `dist/` and not the sources. Mutations: pinning the version as
+      a literal in the job fails "exercised at exactly that lower bound"; running
+      `pnpm run test` there instead of the built CLI fails "run the built artifact
+      on it"; dropping the 26 entry fails "exercised above the current LTS".
 - [x] **F-5.** Closed 16 August, though not the way the finding suggests: **no
       dependabot ecosystem covers a binary fetched by URL**, and that is why the
       official actions were rejected here in the first place. The pin now carries
