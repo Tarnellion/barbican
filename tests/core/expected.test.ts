@@ -3,6 +3,7 @@ import type { ResolvedAccessPolicy } from "../../src/core/index.js";
 import {
   ANY,
   assertPolicyIsSound,
+  describePolicyRule,
   EmptyRuleSelectorError,
   indexPolicy,
   resolveExpected,
@@ -215,5 +216,66 @@ describe("assertPolicyIsSound", () => {
     expect(() => {
       assertPolicyIsSound(broken);
     }).toThrow(EmptyRuleSelectorError);
+  });
+});
+
+/**
+ * How a rule is named to whoever has to go and fix it.
+ *
+ * G-9 of the audit of 14 August 2026: the index was zero-based and was printed as
+ * an ordinal — a typo in the fourth rule reported "Policy rule #3". The reader
+ * counts to the third rule, finds it correct, and stops trusting the tool.
+ *
+ * The number itself is not renumbered: the same index travels into the report as
+ * `ruleIndex`, where a consumer reads `policy.rules[ruleIndex]` out of the
+ * serialized configuration. Only the phrasing changes — a path plus a position.
+ */
+describe("naming a policy rule", () => {
+  const withBrokenFourthRule = (): ResolvedAccessPolicy => ({
+    fallback: "denied",
+    rules: [
+      { roles: ANY, endpoints: ["ep.a"], outcome: "allowed" },
+      { roles: ANY, endpoints: ["ep.b"], outcome: "allowed" },
+      { roles: ANY, endpoints: ["ep.c"], outcome: "allowed" },
+      { roles: [], endpoints: ANY, outcome: "allowed" },
+    ],
+  });
+
+  it("points at the fourth rule as the fourth, not as number three", () => {
+    expect(() => {
+      assertPolicyIsSound(withBrokenFourthRule());
+    }).toThrow(/policy\.rules\[3\] \(4th from the top\)/);
+  });
+
+  it("never offers the index as a bare ordinal", () => {
+    let message = "";
+    try {
+      assertPolicyIsSound(withBrokenFourthRule());
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    // "#3" for the fourth rule is the whole of the defect: a reader who counts
+    // rules lands on a correct one and doubts the tool rather than the policy.
+    expect(message).not.toMatch(/#\s*3\b/);
+  });
+
+  it("carries the number the report cites the rule by", () => {
+    // The path is the index, unchanged. If these two ever disagree, a reader
+    // holding a finding with `ruleIndex: 3` cannot match it to the message.
+    const index = indexPolicy(policy);
+    const cited = resolveIndexedVerdict(index, "admin", "ep.tickets.list").ruleIndex ?? -1;
+
+    expect(describePolicyRule(cited)).toContain(`policy.rules[${cited}]`);
+  });
+
+  it("spells the position in English, teens included", () => {
+    // 11 is not "11st". The suffix is picked from the last two digits, and a
+    // policy of a dozen rules is the ordinary size rather than the exotic one.
+    expect(describePolicyRule(0)).toContain("1st from the top");
+    expect(describePolicyRule(1)).toContain("2nd from the top");
+    expect(describePolicyRule(2)).toContain("3rd from the top");
+    expect(describePolicyRule(10)).toContain("11th from the top");
+    expect(describePolicyRule(20)).toContain("21st from the top");
   });
 });

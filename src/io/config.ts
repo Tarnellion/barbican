@@ -25,6 +25,7 @@ import {
   assertPolicyIsSound,
   createTenantHierarchy,
   DEFAULT_DIGEST_SIGNAL,
+  describePolicyRule,
   FLAT_HIERARCHY,
   isUsablePathSegment,
   RESOURCE_RELATIONS,
@@ -777,7 +778,7 @@ export class UnusedContextError extends Error {
 export class UnknownContextReferenceError extends Error {
   constructor(index: number, contextId: string, declared: readonly string[]) {
     super(
-      `Policy rule #${index} references context "${contextId}", which does not exist. ` +
+      `${describePolicyRule(index)} references context "${contextId}", which does not exist. ` +
         `Declared: ${declared.length === 0 ? "none" : declared.join(", ")}. ` +
         `A typo here silently changes the verdict: the rule applies to no cell at all.`,
     );
@@ -878,7 +879,7 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
         continue;
       }
       if (!known.has(entry)) {
-        throw new UnknownEndpointReferenceError(`Policy rule #${index}`, entry, [...known]);
+        throw new UnknownEndpointReferenceError(describePolicyRule(index), entry, [...known]);
       }
     }
   });

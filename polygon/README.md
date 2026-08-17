@@ -793,7 +793,7 @@ way of describing such an account), the platform untouched:
     sara-ac × orders.read × order-b-2001 [privilege-escalation]
     sara-ac × orders.read × order-b-2002 [privilege-escalation]
   MISMATCH: exit code 1, expected 0
-  ... Rows by severity: critical 2, high 0, medium 0, low 0
+  ... Rows by severity: critical 2, high 0, medium 0, low 0, info 0
 ```
 
 Two critical findings on a **correct** platform — a lawful read by support of its

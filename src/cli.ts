@@ -23,7 +23,7 @@ import { createPostmanCollectionParser } from "./adapters/postman.js";
 import { createSignalExtractor } from "./adapters/signals.js";
 import type { ThrottleLimits } from "./adapters/throttle.js";
 import { createThrottle } from "./adapters/throttle.js";
-import type { Check, Endpoint, RunScope } from "./core/index.js";
+import type { Check, Endpoint, RunScope, Severity } from "./core/index.js";
 import {
   buildAccessMatrix,
   CheckRegistry,
@@ -99,6 +99,59 @@ function skipBreakdown(report: {
     ([reason, count]) => `${SKIP_REASONS[reason]?.short ?? reason} ${count}`,
   );
   return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
+}
+
+/**
+ * The order the screen prints severity levels in, worst first.
+ *
+ * A `Record<Severity, …>` and not a list of names: both severity lines used to
+ * spell out four levels by hand, and `info` — the level a registry check may
+ * report — was on neither, while the report counted it and the run's verdict
+ * knew about it. A finding existed that the operator's screen said nothing
+ * about. A list that misses a level compiles; this table does not, so the next
+ * level added to `Severity` cannot reach the report without reaching the screen.
+ * Found by the audit of 14 August 2026 (B-16).
+ */
+const SEVERITY_ORDER: Readonly<Record<Severity, number>> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  info: 4,
+};
+
+/** One severity line, built from the table above rather than from a list beside it. */
+function bySeverityLine(label: string, counts: Readonly<Record<Severity, number>>): string {
+  const levels = (Object.keys(SEVERITY_ORDER) as readonly Severity[])
+    .slice()
+    .sort((a, b) => SEVERITY_ORDER[a] - SEVERITY_ORDER[b]);
+  return `${label}: ${levels.map((level) => `${level} ${counts[level]}`).join(", ")}`;
+}
+
+/**
+ * A file named on the command line, read with the flag that named it.
+ *
+ * `readFile` on a directory throws `EISDIR: illegal operation on a directory,
+ * read` — which names neither the path nor the flag, while a run takes up to
+ * four of them. The operator is told that one of their paths is wrong and not
+ * which. The same shape as `assertReportPathIsWritable` does for `--report`, and
+ * for the same reason: this is the last place the flag is still known. Found by
+ * the audit of 14 August 2026 (G-10).
+ *
+ * @throws {Error} with the flag named, because a command line carries several paths
+ */
+async function readNamedFile(flag: string, path: string): Promise<string> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (cause) {
+    throw new Error(
+      `${flag} cannot be read from "${path}": ${
+        cause instanceof Error ? cause.message : String(cause)
+      }. The system error names neither the flag nor the path, and a run takes up ` +
+        `to four of them — --config, --spec, --endpoints, --postman — so check the ` +
+        `one named here. A path pointing at a directory is the usual cause.`,
+    );
+  }
 }
 
 /**
@@ -326,7 +379,7 @@ function describePlan(
 }
 
 async function run(flags: RunFlags): Promise<number> {
-  const config = parseRunConfig(await readFile(flags.config, "utf8"));
+  const config = parseRunConfig(await readNamedFile("--config", flags.config));
 
   // A warning, not a refusal: on your own polygon the label is not needed, while
   // on someone else's platform a report without it cannot go into a ticket — it
@@ -341,12 +394,15 @@ async function run(flags: RunFlags): Promise<number> {
 
   // Exactly one endpoint source: two would silently diverge, and none would give
   // a report with no findings, indistinguishable from a successful one.
+  // The flag travels with the path: below this point only the path is left, and a
+  // failure to read it could then name neither.
   const sources = [
-    { path: flags.spec, create: createOpenApiParser },
-    { path: flags.endpoints, create: createEndpointListParser },
-    { path: flags.postman, create: createPostmanCollectionParser },
+    { flag: "--spec", path: flags.spec, create: createOpenApiParser },
+    { flag: "--endpoints", path: flags.endpoints, create: createEndpointListParser },
+    { flag: "--postman", path: flags.postman, create: createPostmanCollectionParser },
   ].filter(
-    (entry): entry is { path: string; create: () => SpecParser } => entry.path !== undefined,
+    (entry): entry is { flag: string; path: string; create: () => SpecParser } =>
+      entry.path !== undefined,
   );
   const [source] = sources;
   if (sources.length !== 1 || source === undefined) {
@@ -355,7 +411,7 @@ async function run(flags: RunFlags): Promise<number> {
         "--endpoints (a hand-written list) or --postman (a Postman collection).",
     );
   }
-  const parsed = await source.create().parse(await readFile(source.path, "utf8"));
+  const parsed = await source.create().parse(await readNamedFile(source.flag, source.path));
   // References are checked after the spec is parsed: before that there are no
   // endpoints yet.
   assertReferencesResolve(config, parsed);
@@ -763,18 +819,12 @@ async function run(flags: RunFlags): Promise<number> {
       `not observed ${summary.byKind["not-observed"] ?? 0}, ` +
       `probe errors ${summary.byKind["probe-error"] ?? 0}`,
     // Where the reader starts: 17 findings in one list is not a report.
-    summary.findings === 0
-      ? undefined
-      : `Rows by severity: critical ${summary.bySeverity.critical}, ` +
-        `high ${summary.bySeverity.high}, medium ${summary.bySeverity.medium}, ` +
-        `low ${summary.bySeverity.low}`,
+    summary.findings === 0 ? undefined : bySeverityLine("Rows by severity", summary.bySeverity),
     // The same by defects, right next to it. Otherwise 'critical 10' reads as ten
     // problems, while it is one missing filter across ten cells.
     summary.findings === 0
       ? undefined
-      : `Defects by severity: critical ${summary.defectsBySeverity.critical}, ` +
-        `high ${summary.defectsBySeverity.high}, medium ${summary.defectsBySeverity.medium}, ` +
-        `low ${summary.defectsBySeverity.low}`,
+      : bySeverityLine("Defects by severity", summary.defectsBySeverity),
     // The number of rows tells the size of the matrix, the number of signatures
     // the number of problems. 'At least', not 'exactly': two defects with the same
     // signature are indistinguishable from the outside, and the precision must not

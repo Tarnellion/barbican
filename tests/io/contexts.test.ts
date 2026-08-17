@@ -226,6 +226,29 @@ contexts:
       ),
     ).toThrow(UnknownContextReferenceError);
   });
+
+  /**
+   * G-9 of the audit of 14 August 2026: the rule was cited as `Policy rule #2`
+   * while being the third one in the file. The index is the position in
+   * `policy.rules` and stays zero-based — it is what the report's `ruleIndex`
+   * means — so the message names the path and the position instead of an ordinal.
+   */
+  it("names the rule with the typo so it can be found in the file", () => {
+    expect(() =>
+      parseRunConfig(
+        config(`
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [orders.list], outcome: denied }
+    - { roles: "*", endpoints: [orders.list], context: geo-blocked, outcome: denied }
+    - { roles: "*", endpoints: [orders.list], context: geo-blockd, outcome: denied }
+contexts:
+  - { id: geo-blocked, headers: { cf-ipcountry: AQ }, endpoints: [orders.list] }
+`),
+      ),
+    ).toThrow(/policy\.rules\[2\] \(3rd from the top\)/);
+  });
 });
 
 describe("the strict rule schema", () => {

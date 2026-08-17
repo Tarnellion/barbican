@@ -502,6 +502,24 @@ policy:
   });
 
   /**
+   * G-9 of the audit of 14 August 2026. The rule index is zero-based — it is the
+   * position in `policy.rules` and the same number the report carries as
+   * `ruleIndex` — and it used to be printed as `Policy rule #1` for the second
+   * rule. A reader counting rules in their own YAML lands on the wrong one.
+   */
+  it("names the offending rule by a position a reader can count to", () => {
+    const twoRules = base.replace(
+      "    - { roles: [player], endpoints: [orders.read], scope: own, outcome: allowed }",
+      "    - { roles: [player], endpoints: [orders.read], scope: own, outcome: allowed }\n" +
+        "    - { roles: [player], endpoints: [orders.raed], outcome: denied }",
+    );
+
+    expect(() => assertReferencesResolve(parseRunConfig(twoRules), endpoints)).toThrow(
+      /policy\.rules\[1\] \(2nd from the top\)/,
+    );
+  });
+
+  /**
    * A cold read of 14 August: the error explained why the mismatch mattered and
    * left the reader to guess what the right name was. With `--spec` the answer is
    * not guessable at all — the identifier is the `operationId`, and an operation

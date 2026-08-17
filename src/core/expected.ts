@@ -76,10 +76,55 @@ export interface ExpectedAccessPolicy {
   readonly rules: readonly ExpectedAccessRule[];
 }
 
+/** `1` -> `1st`, `2` -> `2nd`, `11` -> `11th`. English, because the repository is. */
+function ordinal(n: number): string {
+  const teens = n % 100;
+  if (teens >= 11 && teens <= 13) {
+    return `${n}th`;
+  }
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
+}
+
+/**
+ * How a policy rule is named to a human, from its index in `policy.rules`.
+ *
+ * The numbering is **zero-based and stays that way**, and this function is what
+ * stops it being read as an ordinal. It used to be printed as `Policy rule #3`
+ * for the fourth rule: the reader counted to the third rule, found it correct,
+ * and concluded the tool was pointing at the wrong line — which is the one thing
+ * an error message must never make a reader believe. Found by the audit of
+ * 14 August 2026 (G-9).
+ *
+ * One-based numbering was the other candidate and was rejected. The same number
+ * travels into the report as `ruleIndex` on every finding and every cell verdict,
+ * where it is an **index** — a consumer reads `policy.rules[ruleIndex]` out of the
+ * serialized configuration in the same document. Renumbering the messages alone
+ * would leave two numbering schemes for one rule, and renumbering the report too
+ * would break every consumer of a published format to fix a sentence. So the
+ * number stays what it is and the phrasing stops pretending otherwise: a path,
+ * which is unambiguous to a machine, plus the position from the top, which is
+ * unambiguous to whoever is counting rules in their YAML.
+ *
+ * The one place this phrase is written: three messages carried their own copy of
+ * `#${index}` and would have had to be corrected three times.
+ */
+export function describePolicyRule(index: number): string {
+  return `The rule at policy.rules[${index}] (${ordinal(index + 1)} from the top)`;
+}
+
 export class EmptyRuleSelectorError extends Error {
   constructor(index: number, field: "roles" | "endpoints") {
     super(
-      `Rule #${index}: field "${field}" is an empty list. ` +
+      `${describePolicyRule(index)}: field "${field}" is an empty list. ` +
         `Such a rule never applies; use "${ANY}" or delete it.`,
     );
     this.name = "EmptyRuleSelectorError";
