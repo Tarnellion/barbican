@@ -20,6 +20,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { throughColdStart } from "../../tools/cold-start.mjs";
 import { isMainModule } from "../../tools/is-main.mjs";
 
 /**
@@ -86,12 +87,29 @@ function postJson(baseUrl, path, payload, token) {
  * row would run into "User already exists", and the password of that account would
  * already be unknown — it is random and is not saved.
  */
-export async function resetDatabase(baseUrl) {
-  const { status, body } = await request(baseUrl, "/createdb");
-  if (status !== 200) {
-    throw new ProvisionError(`GET /createdb returned ${status}`);
+export async function resetDatabase(baseUrl, { log = () => {} } = {}) {
+  // Retried, because the banner endpoint answers before the database layer is
+  // ready — `GET /` touches no database — and asking for the schema a moment too
+  // early gets a 500. Measured on 18 August 2026 over 31 cold starts: one
+  // refusal, a 200 a second later. It used to end the run at setup, and running
+  // it again worked, which is the least useful shape a failure can take.
+  //
+  // Safe to repeat: `/createdb` drops the schema and creates it again, so a
+  // second call does what the first would have.
+  const { value, taken } = await throughColdStart(async () => {
+    const { status, body } = await request(baseUrl, "/createdb");
+    if (status !== 200) {
+      throw new ProvisionError(`GET /createdb returned ${status}`);
+    }
+    return body;
+  });
+
+  // Said out loud rather than swallowed. A deployment that needs three attempts
+  // every time is broken, and a silent retry is what would make it look healthy.
+  if (taken > 1) {
+    log(`/createdb answered only on attempt ${taken} — the container was still warming up`);
   }
-  return body;
+  return value;
 }
 
 /**
@@ -102,7 +120,7 @@ export async function resetDatabase(baseUrl) {
  */
 export async function provision({ baseUrl, reset = true, log = () => {} }) {
   if (reset) {
-    await resetDatabase(baseUrl);
+    await resetDatabase(baseUrl, { log });
     log("the polygon database was recreated");
   }
 

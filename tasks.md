@@ -177,9 +177,30 @@ Left over from this topic:
       crAPI — 60 cells, 16 findings, 0 discrepancies. Along the way both got a
       `target.label`: the crAPI report did not name the system under test, and by my own
       rule you cannot file a ticket from a report like that.
-- [ ] A VAmPI flake: `GET /createdb` answered 500 twice in a row, and the third run went
+- [x] A VAmPI flake: `GET /createdb` answered 500 twice in a row, and the third run went
       through with no edits. It looks like container state rather than the tool —
       but if it repeats, the deployment is worth restarting between modes.
+      Closed 18 August. It does repeat, and it is container state: reproduced by
+      bringing the container up cold 31 times and calling `/createdb` the instant the
+      banner answered — one 500, which was a 200 a second later. About three per cent,
+      which is often enough to lose a run and rare enough that nobody catches it in
+      the act. The mechanism is that `GET /` touches no database, so the banner this
+      script waits on says nothing about whether the schema can be created yet.
+      The remedy the item proposed would not have helped, and this is the useful part:
+      `checkMode` already does `compose down -v` and `up` for each mode, so the
+      deployment **is** restarted between them — and every restart is another cold
+      start, which is another draw against those three per cent. Restarting more is
+      the wrong direction.
+      Tolerance at the one call instead: `tools/cold-start.mjs`, bounded and not
+      silent — the caller is handed the number of attempts and says so above one, so a
+      deployment needing three every time cannot pass for a healthy one. `/createdb`
+      is safe to repeat by construction: it drops the schema and creates it again.
+      The cause of the 500 itself was not captured — the failing run could not be
+      reproduced again with the container log in hand — and that is left unsaid rather
+      than guessed at.
+      Verified against a stub that refuses twice: three requests, the line naming
+      attempt 3, and silence when the first attempt works. Both live modes still match
+      the oracle, 27 cells each.
 
 Found by the run against VAmPI and fixed:
 
