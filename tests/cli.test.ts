@@ -15,12 +15,13 @@
  * afterwards — the CLI sets it, and vitest's own exit code is the same field.
  */
 
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Severity } from "../src/core/index.js";
+import { MAX_ROWS_PER_DEFECT, WARNINGS } from "../src/report/build.js";
 
 /** Every level of the type, so that a level added later is not left off the screen. */
 const SEVERITIES: readonly Severity[] = ["info", "low", "medium", "high", "critical"];
@@ -40,6 +41,14 @@ interface RunResult {
 async function runCli(...argv: readonly string[]): Promise<RunResult> {
   const savedArgv = process.argv;
   const savedExitCode = process.exitCode;
+  const savedIsTty = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
+  // The CLI colours its output only on a TTY, and vitest may be run on one. A
+  // test that asserts a line is *exactly* a sentence would then be comparing it
+  // against the sentence wrapped in escape codes, and would pass or fail by how
+  // the suite was invoked. Pinned rather than stripped afterwards: the plain
+  // branch is what a redirected run gets, and that is the output worth asserting
+  // on.
+  Object.defineProperty(process.stderr, "isTTY", { value: false, configurable: true });
   const stderr: string[] = [];
   const stdout: string[] = [];
   const errSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
@@ -62,6 +71,11 @@ async function runCli(...argv: readonly string[]): Promise<RunResult> {
     errSpy.mockRestore();
     outSpy.mockRestore();
     process.exitCode = savedExitCode;
+    if (savedIsTty === undefined) {
+      delete (process.stderr as { isTTY?: boolean }).isTTY;
+    } else {
+      Object.defineProperty(process.stderr, "isTTY", savedIsTty);
+    }
   }
 }
 
@@ -119,15 +133,58 @@ endpoints:
     path: /v1/admin/accounts
 `;
 
-function configFor(port: number): string {
+/** The same list plus an endpoint that takes a resource, for the cases needing many cells. */
+const ENDPOINTS_WITH_ITEMS = `
+endpoints:
+  - id: me
+    method: GET
+    path: /v1/me
+  - id: items.get
+    method: GET
+    path: /v1/items/{itemId}
+`;
+
+/**
+ * What to leave out of the configuration, for the warnings that fire on absence.
+ *
+ * Everything defaults to the complete configuration the first two tests use, so
+ * a case names only the thing it is about.
+ */
+interface ConfigOptions {
+  /** `target.label`, whose absence is `WARNINGS.unnamedTarget`. */
+  readonly label?: boolean;
+  /** The account's canary, whose absence is `WARNINGS.noCanary`. */
+  readonly canary?: boolean;
+  /** How many resources to declare, all of one tenant and one endpoint. */
+  readonly resources?: number;
+  /**
+   * Whether the account presents credentials at all.
+   *
+   * `false` is an anonymous run — "check that nobody at all can get in here" —
+   * which has nothing to authenticate and therefore owes no canary.
+   */
+  readonly credentials?: boolean;
+}
+
+function configFor(port: number, options: ConfigOptions = {}): string {
+  const { label = true, canary = true, resources = 0, credentials = true } = options;
+  // One tenant and no owner on any of them, so every cell of `items.get` gets the
+  // same relation and therefore the same defect signature: the cap is per defect,
+  // and fifty-one resources spread over several signatures would not reach it.
+  const resourceLines = Array.from(
+    { length: resources },
+    (_unused, index) =>
+      `  - { id: item-${index + 1}, tenant: tenant-a, params: { itemId: "I-${index + 1}" } }`,
+  );
   return `
 target:
-  label: cli test stand
-  baseUrl: http://127.0.0.1:${port}
+${label ? "  label: cli test stand\n" : ""}  baseUrl: http://127.0.0.1:${port}
   allowedHosts: [127.0.0.1]
 
 accounts:
-  - { id: alice, role: user, tenant: tenant-a, tokenEnv: CLI_TEST_TOKEN_ALICE, canary: me }
+  - { id: alice, role: user, tenant: tenant-a${
+    credentials ? `, tokenEnv: CLI_TEST_TOKEN_ALICE${canary ? ", canary: me" : ""}` : ""
+  } }
 
 policy:
   fallback: denied
@@ -135,7 +192,51 @@ policy:
     - { roles: [user], endpoints: [me], outcome: allowed }
 
 tenants: [tenant-a]
-`;
+${resources === 0 ? "" : `\nresources:\n${resourceLines.join("\n")}\n`}`;
+}
+
+interface ReportFile {
+  readonly warnings: readonly string[];
+  readonly summary: { readonly findings: number };
+}
+
+/**
+ * One run against the plain stand, with the report read back off the disk.
+ *
+ * The file and not stdout: what these tests compare is the two channels a human
+ * receives, and reading the artifact is how the file's half is obtained.
+ */
+async function runAgainstStand(options: {
+  readonly config: (port: number) => string;
+  readonly endpoints: string;
+  readonly flags?: readonly string[];
+}): Promise<RunResult & { readonly report: ReportFile }> {
+  const target = await startTarget();
+  const directory = await mkdtemp(join(tmpdir(), "barbican-cli-"));
+  const configPath = join(directory, "run.yaml");
+  const endpointsPath = join(directory, "endpoints.yaml");
+  const reportPath = join(directory, "report.json");
+  await writeFile(configPath, options.config(target.port), "utf8");
+  await writeFile(endpointsPath, options.endpoints, "utf8");
+  process.env.CLI_TEST_TOKEN_ALICE = "token-alice";
+
+  try {
+    const result = await runCli(
+      "run",
+      "--config",
+      configPath,
+      "--endpoints",
+      endpointsPath,
+      "--report",
+      reportPath,
+      ...(options.flags ?? []),
+    );
+    const report = JSON.parse(await readFile(reportPath, "utf8")) as ReportFile;
+    return { ...result, report };
+  } finally {
+    delete process.env.CLI_TEST_TOKEN_ALICE;
+    await target.close();
+  }
 }
 
 describe("the severity summary on the screen", () => {
@@ -233,5 +334,344 @@ describe("a path on the command line that cannot be read", () => {
     } finally {
       await target.close();
     }
+  });
+});
+
+/**
+ * A run that makes one warning fire, and why it does.
+ *
+ * Four fixtures rather than one, because the four warnings answer to four
+ * different things and a run cannot be in all four states at once.
+ */
+interface WarningCase {
+  /** What in this configuration produces the warning. */
+  readonly why: string;
+  readonly config: (port: number) => string;
+  readonly endpoints: string;
+  readonly flags?: readonly string[];
+}
+
+/**
+ * A run for every key of `WARNINGS`.
+ *
+ * A `Record` over the keys and not a list of cases, for the reason `SEVERITIES`
+ * above is exhaustive: a warning added to the report layer with no run to reach
+ * it here does not compile. That is the half of the guard the drift needed —
+ * `findingsCapped` was in the report from the day the cap was added and reached
+ * no screen at any point, and no test noticed because no test was looking at all
+ * four.
+ */
+const WARNING_CASES: Readonly<Record<keyof typeof WARNINGS, WarningCase>> = {
+  unnamedTarget: {
+    why: "the configuration declares no target.label",
+    config: (port) => configFor(port, { label: false }),
+    endpoints: ENDPOINTS,
+  },
+  noCanary: {
+    why: "the account has credentials and no canary to prove they work",
+    config: (port) => configFor(port, { canary: false }),
+    endpoints: ENDPOINTS,
+  },
+  nothingRefused: {
+    why: "the stand answers 200 to everything, so no cell was ever refused",
+    config: (port) => configFor(port),
+    endpoints: ENDPOINTS,
+  },
+  findingsCapped: {
+    why: "one defect over MAX_ROWS_PER_DEFECT + 1 resources, so a row is dropped",
+    config: (port) => configFor(port, { resources: MAX_ROWS_PER_DEFECT + 1 }),
+    endpoints: ENDPOINTS_WITH_ITEMS,
+    // Fifty-two cells at the conservative default of five a second is ten seconds
+    // of waiting for a local stand to answer itself.
+    flags: ["--rps", "200", "--concurrency", "8"],
+  },
+};
+
+describe("the warnings on the screen and the warnings in the file", () => {
+  /**
+   * The adversarial review of 18 August 2026.
+   *
+   * `Report.warnings` was documented as "the same ones the console shows, from
+   * the same constants", and `WARNINGS` did not occur in `src/cli.ts` at all: the
+   * CLI wrote its own copies. Two had already drifted — the file said
+   * "Authentication is unverified: ... so nothing confirms the accounts were
+   * authenticated at all", the screen said "... If the tokens do not work, the
+   * run will report 'no escalations found' having tested nothing", about the same
+   * run — and `findingsCapped` was printed nowhere, so a run whose evidence rows
+   * were dropped said so only in the file while the terminal went on printing the
+   * uncapped row count.
+   *
+   * Two assertions, and the second is the property. The first only proves the
+   * fixture reaches the warning at all; without it a case that stopped firing
+   * would leave the second one asserting over an empty list and passing.
+   */
+  for (const key of Object.keys(WARNING_CASES) as readonly (keyof typeof WARNINGS)[]) {
+    const scenario = WARNING_CASES[key];
+    it(`says ${key} on the screen in the words the report uses (${scenario.why})`, async () => {
+      const { stderr, report } = await runAgainstStand(scenario);
+
+      expect(report.warnings).toContain(WARNINGS[key]);
+      for (const warning of report.warnings) {
+        expect(stderr).toContain(warning);
+      }
+      // And nothing the other way round. The fix proves the file's warnings all
+      // reach the screen; a warning the screen adds on its own is the same
+      // disagreement, told by the half that leaves no artifact behind — and the
+      // reader comparing a ticket against the terminal it came from has no way to
+      // tell which of the two was wrong.
+      for (const other of Object.keys(WARNINGS) as readonly (keyof typeof WARNINGS)[]) {
+        if (stderr.includes(WARNINGS[other])) {
+          expect(report.warnings).toContain(WARNINGS[other]);
+        }
+      }
+    });
+  }
+
+  /**
+   * The one run on which the screen warned and the file did not.
+   *
+   * An anonymous run has nothing to authenticate: `warningsFor` asks for an
+   * account that is not anonymous before it warns about canaries, and
+   * `runVerdict` excludes such a run from the rule that makes a missing canary
+   * exit 2. The screen asked only whether any canary had been probed, so it
+   * printed the warning — and the warning ends "which is why a run without a
+   * canary ends with exit code 2", which is untrue of this run.
+   *
+   * Kept as a case of its own because the loop above cannot reach it: every
+   * fixture there declares credentials, so the two predicates agree on all four
+   * and a screen that warns unconditionally passes them all.
+   */
+  it("says nothing about canaries on a run that has nothing to authenticate", async () => {
+    const { stderr, report, exitCode } = await runAgainstStand({
+      config: (port) => configFor(port, { credentials: false }),
+      endpoints: ENDPOINTS,
+    });
+
+    expect(report.warnings).not.toContain(WARNINGS.noCanary);
+    expect(stderr).not.toContain(WARNINGS.noCanary);
+    // The exit code is not the assertion. This run does end with 2, on the
+    // separate rule for an account that opened nothing it was declared able to
+    // open — the stand answers 401 to a request with no token, and the policy
+    // declares `me` allowed. What must not be there is the canary's reason, which
+    // is the rule `runVerdict` excludes an anonymous run from.
+    expect(exitCode).toBe(2);
+    expect(stderr).not.toContain("no canary was checked");
+    // And it is a real run rather than a refusal before the first request: the
+    // whole matrix was walked.
+    expect(stderr).toContain("Cells probed: 2");
+  });
+});
+
+/**
+ * A deployment whose one defect is invisible to the status code.
+ *
+ * Two tenants, both authenticated, both allowed exactly what the policy declares
+ * — and `/v1/orders` answering the same list to each. There is no privilege
+ * escalation here to find: every status agrees with the policy, and the only
+ * disagreement is in a body the tool reduces to a digest. That is the shape of
+ * run the green headline used to be printed on.
+ *
+ * With `leak: false` the list carries the tenant and the digests differ: the same
+ * platform with the defect taken out, and the run the headline has to keep saying
+ * plainly — a fix that hedged every run would be the same defect pointing the
+ * other way.
+ */
+async function startTenantTarget(options: { readonly leak: boolean }) {
+  const tenantOf = new Map([
+    ["token-alice", "tenant-a"],
+    ["token-carol", "tenant-b"],
+  ]);
+  const server = createServer((request, response) => {
+    const token = (request.headers.authorization ?? "").replace("Bearer ", "");
+    const tenant = tenantOf.get(token);
+    const url = request.url ?? "";
+    if (tenant === undefined) {
+      response.writeHead(401).end();
+      return;
+    }
+    if (url === "/v1/me") {
+      response.writeHead(200, { "content-type": "application/json" }).end(`{"me":"${tenant}"}`);
+      return;
+    }
+    if (url === "/v1/orders") {
+      response
+        .writeHead(200, { "content-type": "application/json" })
+        .end(options.leak ? '{"orders":[{"id":"1"}]}' : `{"orders":[{"id":"${tenant}-1"}]}`);
+      return;
+    }
+    // Everything else is properly closed. Without a single refusal the run would
+    // also warn that nothing on this platform is protected, which is a different
+    // line about a different defect.
+    response.writeHead(403).end();
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    throw new Error("could not start the deployment");
+  }
+  return {
+    port: address.port,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error === undefined) {
+            resolve();
+          } else {
+            reject(error);
+          }
+        });
+      }),
+  };
+}
+
+const TENANT_ENDPOINTS = `
+endpoints:
+  - id: me
+    method: GET
+    path: /v1/me
+  - id: orders.list
+    method: GET
+    path: /v1/orders
+  - id: admin.accounts
+    method: GET
+    path: /v1/admin/accounts
+`;
+
+function tenantConfigFor(port: number, canary = true): string {
+  const mark = canary ? ", canary: me" : "";
+  return `
+target:
+  label: cli test stand
+  baseUrl: http://127.0.0.1:${port}
+  allowedHosts: [127.0.0.1]
+
+accounts:
+  - { id: alice-a, role: user, tenant: tenant-a, tokenEnv: CLI_TEST_TOKEN_ALICE${mark} }
+  - { id: carol-b, role: user, tenant: tenant-b, tokenEnv: CLI_TEST_TOKEN_CAROL${mark} }
+
+policy:
+  fallback: denied
+  rules:
+    - { roles: [user], endpoints: [me, orders.list], outcome: allowed }
+
+tenants: [tenant-a, tenant-b]
+
+bodySignals:
+  responseMustDifferByTenant: [orders.list]
+`;
+}
+
+async function runAgainstTenantStand(options: {
+  readonly leak: boolean;
+  readonly canary?: boolean;
+}): Promise<RunResult & { readonly report: ReportFile }> {
+  const target = await startTenantTarget({ leak: options.leak });
+  const directory = await mkdtemp(join(tmpdir(), "barbican-cli-"));
+  const configPath = join(directory, "run.yaml");
+  const endpointsPath = join(directory, "endpoints.yaml");
+  const reportPath = join(directory, "report.json");
+  await writeFile(configPath, tenantConfigFor(target.port, options.canary ?? true), "utf8");
+  await writeFile(endpointsPath, TENANT_ENDPOINTS, "utf8");
+  process.env.CLI_TEST_TOKEN_ALICE = "token-alice";
+  process.env.CLI_TEST_TOKEN_CAROL = "token-carol";
+
+  try {
+    const result = await runCli(
+      "run",
+      "--config",
+      configPath,
+      "--endpoints",
+      endpointsPath,
+      "--report",
+      reportPath,
+      "--rps",
+      "200",
+      "--concurrency",
+      "8",
+    );
+    const report = JSON.parse(await readFile(reportPath, "utf8")) as ReportFile;
+    return { ...result, report };
+  } finally {
+    delete process.env.CLI_TEST_TOKEN_ALICE;
+    delete process.env.CLI_TEST_TOKEN_CAROL;
+    await target.close();
+  }
+}
+
+/**
+ * The sentence under test, exactly as a clean run is entitled to print it.
+ *
+ * Compared with `toBe` and not `toContain` in both directions: the defect was
+ * that this claim stood alone and unqualified where it should not have, and the
+ * cure would be worthless if it were allowed to stand alone anyway with a caveat
+ * appended somewhere else on the screen.
+ */
+const NO_ESCALATION = "No privilege escalation found";
+
+function headlineOf(stderr: string): string | undefined {
+  return stderr.split("\n").find((line) => line.startsWith(NO_ESCALATION));
+}
+
+describe("the headline of the screen", () => {
+  /**
+   * The adversarial review of 18 August 2026.
+   *
+   * Against the polygon with `POLYGON_DEFECT_LIST_NO_FILTER=1` the screen printed
+   * "No privilege escalation found" in green and, four lines below it, "Of those,
+   * found by body rather than status: 12" — a sentence referring to the ones the
+   * green line had just called absent. The line was literally true, because
+   * `summary.byKind["privilege-escalation"]` counts matrix kinds only, and it was
+   * the headline of a run whose verdict was exit code 1.
+   */
+  it("does not stand alone on a run whose findings came by the body", async () => {
+    const { stderr, report, exitCode } = await runAgainstTenantStand({ leak: true });
+
+    // The fixture really is the case under test: findings, and none of them an
+    // escalation. Without this the assertions below would hold on a clean run.
+    expect(report.summary.findings).toBeGreaterThan(0);
+    expect(stderr).toContain("Of those, found by body rather than status:");
+    expect(exitCode).toBe(1);
+
+    const headline = headlineOf(stderr);
+    expect(headline).toBeDefined();
+    expect(headline).not.toBe(NO_ESCALATION);
+    expect(headline).toContain(String(report.summary.findings));
+  });
+
+  /**
+   * The other direction, and the reason the fix is a condition rather than a
+   * caveat glued on unconditionally: a run that genuinely found nothing must say
+   * so without hedging, or the line stops meaning anything and the next reader
+   * learns to skip it.
+   */
+  it("stands alone, and unqualified, on a run that found nothing and proved it", async () => {
+    const { stderr, report, exitCode } = await runAgainstTenantStand({ leak: false });
+
+    expect(report.summary.findings).toBe(0);
+    expect(exitCode).toBe(0);
+    expect(headlineOf(stderr)).toBe(NO_ESCALATION);
+  });
+
+  /**
+   * The third state, which is neither: nothing was found and nothing was proved.
+   * Without a canary the run walks the whole matrix, confirms no authentication
+   * and exits 2 — and the headline used to be green on it too.
+   */
+  it("does not stand alone on a run that found nothing and proved nothing", async () => {
+    const { stderr, report, exitCode } = await runAgainstTenantStand({
+      leak: false,
+      canary: false,
+    });
+
+    expect(report.summary.findings).toBe(0);
+    expect(exitCode).toBe(2);
+
+    const headline = headlineOf(stderr);
+    expect(headline).toBeDefined();
+    expect(headline).not.toBe(NO_ESCALATION);
+    expect(headline).toContain("exit code 2");
   });
 });

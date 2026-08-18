@@ -47,7 +47,7 @@ import {
 } from "./io/config.js";
 import { findUnauthenticated } from "./report/authenticity.js";
 import type { CanaryOutcome } from "./report/build.js";
-import { buildReport, runVerdict } from "./report/build.js";
+import { buildReport, runVerdict, WARNINGS } from "./report/build.js";
 import {
   assertCanariesUsable,
   collectObservations,
@@ -128,6 +128,136 @@ function bySeverityLine(label: string, counts: Readonly<Record<Severity, number>
     .slice()
     .sort((a, b) => SEVERITY_ORDER[a] - SEVERITY_ORDER[b]);
   return `${label}: ${levels.map((level) => `${level} ${counts[level]}`).join(", ")}`;
+}
+
+/**
+ * How loudly each warning is said — and that is all this file decides about one.
+ *
+ * The sentences are `WARNINGS` in the report layer and are printed from there
+ * verbatim. They used to be written out a second time here, while the comment on
+ * `Report.warnings` claimed the console and the file showed "the same ones, from
+ * the same constants": `WARNINGS` did not occur in this file at all, `noCanary`
+ * and `nothingRefused` had already drifted apart in wording, and `findingsCapped`
+ * reached no screen at any point — a run whose evidence rows were dropped by the
+ * cap said so only in the file, while the terminal printed the uncapped row count
+ * with nothing to say the file would not hold that many. Found by the adversarial
+ * review of 18 August 2026.
+ *
+ * A `Record` over the keys of `WARNINGS` and not a list, for the reason
+ * `SEVERITY_ORDER` above is one: a warning added to the report layer without a
+ * colour here does not compile, so it cannot reach the file and miss the screen
+ * the way `findingsCapped` did.
+ *
+ * Green appears nowhere in it. A warning is never good news, and the one thing
+ * this screen must not do is make a caveat look like a clearance.
+ */
+const WARNING_STYLE: Readonly<Record<keyof typeof WARNINGS, "red" | "yellow">> = {
+  // Both put every finding on the screen in doubt: one says the run may have
+  // been talking to nobody, the other that a refusal was never seen.
+  nothingRefused: "red",
+  noCanary: "yellow",
+  // Both are about reading the artifact afterwards, and neither changes a count
+  // or the verdict.
+  unnamedTarget: "yellow",
+  findingsCapped: "yellow",
+};
+
+type WarningKey = keyof typeof WARNINGS;
+
+/** One warning, in its own words and this screen's colour. */
+function warningLine(key: WarningKey): string {
+  return paint(WARNINGS[key], WARNING_STYLE[key]);
+}
+
+/**
+ * The same table read by sentence, for the warnings the report hands back as text.
+ *
+ * `Report.warnings` is a list of strings — it is a JSON document and can be
+ * nothing else — so the colour has to be found from the sentence. Built from
+ * `WARNING_STYLE` rather than written out again: a second table is the defect
+ * this whole change is about.
+ */
+const WARNING_STYLE_BY_TEXT: ReadonlyMap<string, "red" | "yellow"> = new Map(
+  (Object.keys(WARNING_STYLE) as readonly WarningKey[]).map((key) => [
+    WARNINGS[key],
+    WARNING_STYLE[key],
+  ]),
+);
+
+/**
+ * The headline of the screen, and the one line most readers stop at.
+ *
+ * It printed `No privilege escalation found` in green whenever
+ * `byKind["privilege-escalation"]` was zero. On the polygon with
+ * `POLYGON_DEFECT_LIST_NO_FILTER=1` that is a run with twelve cross-tenant leaks:
+ * the green line, and four lines below it "Of those, found by body rather than
+ * status: 12" — a sentence referring to the ones the green line had just called
+ * absent. Literally true, since that counter holds matrix kinds only; and the
+ * reader who stopped at the first green line took away the opposite of the run's
+ * verdict, which was 1. Found by the adversarial review of 18 August 2026.
+ *
+ * The count is not deleted and the wording is not hedged into uselessness. The
+ * argument is the one L-3 made about `nothingRefused` further down: a real result
+ * must not be swallowed by a caveat, and a caveat must not be dressed as a
+ * result. What was wrong here was only the second half — the **reassurance**. So:
+ *
+ * - green on a run that earned it, and only there: nothing found at all, and a
+ *   verdict of 0. Not "zero escalations", which is one counter of several, and
+ *   not the verdict alone, which is 0 on a run whose findings were all notes.
+ * - the same fact in plain words otherwise, with what contradicts it named on the
+ *   same line — the row count when something was found, and the run's own exit
+ *   code when nothing was found and the run still cannot support the conclusion
+ *   (no canary, cut short, credentials gone stale).
+ *
+ * Yellow and not red for the two: the findings have their own red lines below,
+ * and a screen where everything is red says nothing by being red. What yellow
+ * says here is "this line does not settle it", which is exactly the defect.
+ */
+function escalationLine(
+  escalations: number,
+  summary: { readonly findings: number },
+  verdict: { readonly code: number },
+): string {
+  if (escalations > 0) {
+    return paint(`Privilege escalation: ${escalations}`, "red");
+  }
+  const claim = "No privilege escalation found";
+  if (summary.findings === 0 && verdict.code === 0) {
+    return paint(claim, "green");
+  }
+  if (summary.findings > 0) {
+    return paint(
+      `${claim} — but that is one kind of discrepancy out of several, and this run ` +
+        `is not clean: ${summary.findings} finding ` +
+        `${summary.findings === 1 ? "row" : "rows"} of other kinds are counted on ` +
+        `the lines below.`,
+      "yellow",
+    );
+  }
+  // The reason is not repeated here: it is the last line of this same screen, in
+  // red, and it is what CI reads. Two copies of one sentence would be the defect
+  // above this function in miniature.
+  return paint(
+    `${claim}, and nothing else either — but nothing was proved: this run ends ` +
+      `with exit code ${verdict.code}, and the last line says why.`,
+    "yellow",
+  );
+}
+
+/**
+ * Whether a canary is owed at all.
+ *
+ * An anonymous run — "check that nobody at all can get in here" — has nothing to
+ * authenticate, and `runVerdict` excludes it from the rule that makes a run
+ * without canaries exit 2. The same predicate the report calls `!anonymous`,
+ * which is `tokenEnv` being set. Asked here so that the screen's warning fires on
+ * exactly the runs the file's does: a warning printed under a wider condition
+ * than the one it describes is the same disagreement in a subtler form, and the
+ * sentence it prints ends "which is why a run without a canary ends with exit
+ * code 2" — untrue of a run with nothing to authenticate.
+ */
+function needsCanary(config: RunConfig): boolean {
+  return config.accounts.some((account) => account.tokenEnv !== undefined);
 }
 
 /**
@@ -320,7 +450,7 @@ function describePlan(
   }, 0);
 
   const withCanary = config.accounts.filter((account) => account.canary !== undefined).length;
-  const needCanary = config.accounts.some((account) => account.tokenEnv !== undefined);
+  const needCanary = needsCanary(config);
   const budget = limits?.maxRequests;
   const wanted = cells + withCanary;
 
@@ -384,15 +514,27 @@ function describePlan(
 async function run(flags: RunFlags): Promise<number> {
   const config = parseRunConfig(await readNamedFile("--config", flags.config));
 
+  /**
+   * The warnings already said before the walk, so the summary does not repeat them.
+   *
+   * Two of the four are worth more early than late: they are about the run being
+   * about to be wasted, and the summary arrives after the traffic has been spent.
+   * The other two cannot be known until the report exists. Either way the words
+   * are the report's, so this set holds the report's own strings and the summary
+   * subtracts it from `report.warnings` — the screen ends up saying everything
+   * the file says, once each.
+   */
+  const saidEarly = new Set<string>();
+  const sayEarly = (key: WarningKey): void => {
+    saidEarly.add(WARNINGS[key]);
+    process.stderr.write(`${warningLine(key)}\n`);
+  };
+
   // A warning, not a refusal: on your own polygon the label is not needed, while
   // on someone else's platform a report without it cannot go into a ticket — it
   // does not name the target.
   if (config.target.label === undefined) {
-    process.stderr.write(
-      `${paint("The target is unnamed:", "yellow")} target has no label field. ` +
-        `The report will not identify the system under test, and a reader cannot tell ` +
-        `a run against a real environment from a run against a demo polygon.\n`,
-    );
+    sayEarly("unnamedTarget");
   }
 
   // Exactly one endpoint source: two would silently diverge, and none would give
@@ -524,11 +666,9 @@ async function run(flags: RunFlags): Promise<number> {
   // field it has not heard of is dropped in silence.
   let canaryOutcomes: readonly CanaryOutcome[] = [];
   if (canaries.length === 0) {
-    process.stderr.write(
-      `${paint("Authentication is unverified:", "yellow")} no account has a canary. ` +
-        `If the tokens do not work, the run will report 'no escalations found' having ` +
-        `tested nothing. The run will end with exit code 2.\n`,
-    );
+    if (needsCanary(config)) {
+      sayEarly("noCanary");
+    }
   } else {
     const results = await probeCanaries({
       baseUrl: config.target.baseUrl,
@@ -806,24 +946,6 @@ async function run(flags: RunFlags): Promise<number> {
     summary.failures > 0
       ? paint(`Requests that failed: ${summary.failures} (reasons in the report)`, "yellow")
       : undefined,
-    // Nothing was ever refused. The one question worth asking of a report full
-    // of findings, asked by the tool instead of left to the reader: a platform
-    // that answers 200 with the outcome in the body reads as "allowed"
-    // everywhere, and every cell the policy denies becomes a privilege
-    // escalation. Both readings are named because from status codes alone they
-    // are the same picture — and both are worth stopping for. Not an exit code:
-    // a genuinely wide-open platform is the worst finding there is, and hiding
-    // it behind "cannot be trusted" would be the opposite mistake. See L-3.
-    report.summary.observations > 0 && report.coverage.outcomes.denied === 0
-      ? paint(
-          `Not one of the ${report.summary.observations} requests was refused. ` +
-            `Either nothing on this platform is protected, or it refuses with 200 ` +
-            `and states the outcome in the body — which this tool reads as ` +
-            `"allowed" everywhere, making every finding above false. Open one cell ` +
-            `you are sure about before believing this report.`,
-          "red",
-        )
-      : undefined,
     // A resource nobody could reach settles nothing about isolation: a 404
     // satisfies a denial whether the object is protected or simply absent. Said
     // out loud, because the cells for it otherwise read as "tested and agreed".
@@ -835,9 +957,7 @@ async function run(flags: RunFlags): Promise<number> {
           "yellow",
         )
       : undefined,
-    escalations > 0
-      ? paint(`Privilege escalation: ${escalations}`, "red")
-      : paint("No privilege escalation found", "green"),
+    escalationLine(escalations, summary, verdict),
     `Other discrepancies: unexpected denials ${summary.byKind["unexpected-denial"] ?? 0}, ` +
       `not observed ${summary.byKind["not-observed"] ?? 0}, ` +
       `probe errors ${summary.byKind["probe-error"] ?? 0}`,
@@ -861,6 +981,23 @@ async function run(flags: RunFlags): Promise<number> {
     summary.checkFindings > 0
       ? paint(`Of those, found by body rather than status: ${summary.checkFindings}`, "red")
       : undefined,
+    // Everything the file warns about, said here in the file's own words and
+    // under the file's own conditions — `report.warnings` is the list, not a
+    // second set of `if`s over the same numbers. Two of them were already said
+    // before the walk and are not repeated.
+    //
+    // Below the counts rather than among them, which is where `nothingRefused`
+    // wanted to be all along: it ends "making every finding above false" and used
+    // to be printed above the findings. And it is still not an exit code — a
+    // genuinely wide-open platform is the worst finding there is, and hiding it
+    // behind "cannot be trusted" would be the opposite mistake. See L-3.
+    ...report.warnings
+      .filter((text) => !saidEarly.has(text))
+      // A sentence with no colour in the table cannot arrive — `WARNING_STYLE` is
+      // a total map over the keys of `WARNINGS` — but the lookup is by string and
+      // the type system cannot see that, and an unstyled warning must still be
+      // printed rather than swallowed.
+      .map((text) => paint(text, WARNING_STYLE_BY_TEXT.get(text) ?? "yellow")),
     flags.report === undefined ? undefined : `Report: ${flags.report}`,
     // The last line, and the one CI acts on. Without it the reader is left to
     // reconcile "Distinct defects: at least 1" with a zero exit code by himself,

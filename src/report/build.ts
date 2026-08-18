@@ -787,7 +787,13 @@ export interface RunReport {
    * Not failures — those are in `verdict` — and not everything the CLI prints:
    * only what is derivable from the report itself, so that the two cannot say
    * different things. The sentences are the same ones the console shows, from
-   * the same constants.
+   * the same constants — and that sentence was false for four days. `WARNINGS`
+   * did not occur in `src/cli.ts` at all: the CLI wrote its own copies, two of
+   * the four had already drifted apart in wording, and `findingsCapped` was
+   * never printed on screen, so a run whose evidence rows were dropped said so
+   * only here. The CLI now prints **this array**, which makes the claim true of
+   * the conditions as well as of the words. Found by the adversarial review of
+   * 18 August 2026; held by `tests/cli.test.ts`.
    */
   readonly warnings: readonly string[];
 }
@@ -1519,6 +1525,26 @@ function namedScheme(scheme: AuthScheme): ReportedAuthScheme {
  */
 export const MAX_ROWS_PER_DEFECT = 50;
 
+/**
+ * The warning sentences, for the file and for the terminal both.
+ *
+ * The one place they are written. `src/cli.ts` imports this object and prints
+ * the strings verbatim; it does not paraphrase them, and it does not build a
+ * sentence of its own around a number. Only the colour is the terminal's to
+ * decide, and a JSON file has none.
+ *
+ * That is the second attempt at the arrangement. The first was "write the same
+ * sentence in both places and remember to keep them level", and it lasted until
+ * somebody improved one of the two: by 18 August 2026 the console's `noCanary`
+ * and the file's said different things about the same run, and a reader holding
+ * the artifact could not tell which of them the tool had meant.
+ *
+ * A plain string and not a template taking the run's numbers, deliberately. A
+ * warning that interpolates is a warning the two sides can format differently —
+ * which is exactly what `nothingRefused` did, "Not one of the 144 requests" on
+ * screen against "Not one request" in the file. The count is not lost: it is
+ * `summary.observations`, printed as "Cells probed" on the line above.
+ */
 export const WARNINGS = {
   unnamedTarget:
     "The target is unnamed: target has no label field. The report will not " +
@@ -1529,9 +1555,15 @@ export const WARNINGS = {
     "or it refuses with 200 and states the outcome in the body — which this tool " +
     'reads as "allowed" everywhere, making every finding above false. Open one ' +
     "cell you are sure about before believing this report.",
+  // The union of the two texts that had drifted, not a choice between them. The
+  // file's half said what is unproved; the console's half said what it costs —
+  // and the reader of the artifact is the one who needs to know why the run came
+  // back 2 without a single finding to explain it.
   noCanary:
     "Authentication is unverified: no account has a canary, so nothing confirms " +
-    "the accounts were authenticated at all.",
+    "the accounts were authenticated at all. If the tokens do not work, the run " +
+    "reports 'no escalations found' having tested nothing, which is why a run " +
+    "without a canary ends with exit code 2.",
   findingsCapped:
     "Some evidence rows were left out of this file: a defect was observed more " +
     `times than the ${MAX_ROWS_PER_DEFECT} rows kept per defect. Nothing about ` +
