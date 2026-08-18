@@ -386,19 +386,46 @@ thing and nowhere says so.
       query parameters only. A deliberate boundary today, and it is the boundary a
       platform reaches the moment an endpoint decides by a field in the payload.
 
+- [x] **A role a rule names and no account carries fails in silence.** Found while
+      checking the two items below against the code: the guide said "read a role
+      selector twice; nothing else will", and that was accurate. Measured on the
+      reference platform — `roles: [admin]` misspelled `admni` takes a clean run
+      from exit 0 and no findings to exit 1 with a privilege escalation against
+      `admin-a × admin.accounts` that is not there, `warnings: []`, and no line
+      saying a rule matched nothing. The evidence is in the report and unsurfaced:
+      that finding's `basis` is `fallback` where a rule was meant to decide.
+      The quieter direction is worse. Misspell the role on a rule declaring
+      `outcome: denied` and the expectation disappears; the cell agrees with the
+      fallback, and the finding the rule was written to catch is not reported.
+      Refused at startup like every other declaration that matches nothing — an
+      unknown endpoint id, an empty rule selector, a policy pattern fitting no
+      endpoint, a resource fitting no endpoint. The reverse direction is left
+      alone deliberately: an account whose role no rule mentions is a real
+      statement, and with `fallback: denied` a useful one.
+
 ### The documentation does not say it
 
-- [ ] **What `role` actually is.** It is a label for a group of accounts expected to
+- [x] **What `role` actually is.** It is a label for a group of accounts expected to
       have the **same** access — it need not match the platform's own role names,
       and nothing in the guide says so. The whole question of how to model customer
       statuses hangs off this sentence, and today a reader has to infer it.
-- [ ] **A status of an account is not a condition of a request, and the two are easy
+      Closed 18 August: `docs/guide.md` gains "A role is a group of accounts, and a
+      status is not a condition", which says it in the first line and gives the case
+      that forces the point — a brand administrator and a holding administrator are
+      one word in the platform's table and must be two labels here, because under a
+      single label every rule about one is a rule about the other.
+      Marked open until today though the section had been written: the eleventh
+      checkbox this month whose work was already done.
+- [x] **A status of an account is not a condition of a request, and the two are easy
       to confuse.** A blocked customer, an unverified one, a VIP tier — persistent
       state, expressed as separate accounts under distinct role labels, and each
       needs a real account in that state. A customer from a prohibited country, an
       unrecognised device — conditions of the request, expressed as a `context`
       over one account. Pick the wrong one and you either cannot get the accounts,
       or you check a restriction where you meant to check an entitlement.
+      Closed 18 August, in the same section: the same platform and the same
+      endpoint modelled both ways, side by side, and what each declaration ends up
+      asserting.
 - [x] **How to carry over an existing Roles & Access Matrix.** Closed 18 August:
       `docs/guide.md` gains "Carrying over a matrix you already have". One row of a
       spreadsheet — three ticks — becomes five rules, and the section says what the

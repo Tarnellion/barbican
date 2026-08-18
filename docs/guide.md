@@ -292,13 +292,21 @@ a holding administrator are frequently one word in the platform's own table and
 two labels here — they differ by an entire subtree, and under a single label
 every rule about one of them is a rule about the other.
 
-Because nothing outside your file defines the set, nothing can check it. A role
-is the one reference in a configuration that fails in silence: an endpoint
-identifier, a context name, an authentication scheme name and — once `tenants`
-is declared — a tenant name each stop the run when they resolve to nothing,
-while `roles: [custommer]` matches no account, every cell the rule was written
-for falls through to `fallback`, and no line of the report says a rule never
-applied. Read a role selector twice; nothing else will.
+Nothing outside your file defines the set, so the accounts in it are the set:
+`roles: [custommer]` in a rule, against accounts that say `customer`, stops the
+run and names what the accounts actually declare. That is the same treatment an
+endpoint identifier, a context name, an authentication scheme name and — once
+`tenants` is declared — a tenant name have always had.
+
+It was the one reference that failed in silence, until 18 August 2026. Worth
+knowing what it cost, because it says what the check is for: on the reference
+platform a single wrong letter in `roles: [admin]` turned a clean run into one
+privilege escalation that was not there — the rule stopped applying, the cell
+fell through to `fallback: denied`, the platform allowed it, and nothing said a
+rule had matched nothing. The other direction is quieter still. Misspell the
+role on a rule that declares `outcome: denied` and the expectation simply
+disappears; the cell agrees with the fallback, and a finding you wrote the rule
+to catch is not reported.
 
 The second question follows from the first, because both answers are ways of
 declaring that two outcomes should differ — and only one of them is a group of

@@ -37,6 +37,7 @@ import {
   UnknownAuthSchemeError,
   UnknownEndpointReferenceError,
   UnknownResourceOwnerError,
+  UnknownRoleReferenceError,
   UnknownTenantError,
   UnusablePathParameterError,
   UnusedAuthSchemeError,
@@ -695,6 +696,55 @@ policy:
     const config = parseRunConfig(base.replace('params: { orderId: "1" },', "params: {},"));
 
     expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnusedResourceError);
+  });
+
+  /**
+   * A role a rule names and no account carries.
+   *
+   * The last reference in a configuration that failed in silence, and the guide
+   * said so out loud — "read a role selector twice; nothing else will". Measured
+   * on the reference platform: `roles: [admin]` misspelled `admni` takes a clean
+   * run from exit 0 with no findings to exit 1 with a privilege escalation
+   * against `admin-a × admin.accounts` that is not there, `warnings: []`, and no
+   * line saying a rule never applied. The `basis` of that finding is `fallback`
+   * where a rule was meant to decide, so the report holds the evidence and
+   * surfaces none of it.
+   *
+   * That direction fabricates a finding, which somebody eventually chases down.
+   * The quieter one is a misspelled role on a rule with `outcome: denied`: the
+   * expectation disappears and the cell agrees with the fallback instead.
+   */
+  it("rejects a rule written for a role no account declares", () => {
+    const config = parseRunConfig(base.replace("roles: [player]", "roles: [palyer]"));
+
+    expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnknownRoleReferenceError);
+    // The message names what the accounts actually declare, since the set is
+    // exactly that and nothing else defines it.
+    expect(() => assertReferencesResolve(config, endpoints)).toThrow(/"player"/);
+  });
+
+  it("accepts the wildcard, which names no role and matches every one", () => {
+    const config = parseRunConfig(base.replace("roles: [player]", 'roles: "*"'));
+
+    expect(() => assertReferencesResolve(config, endpoints)).not.toThrow();
+  });
+
+  /**
+   * And the reverse direction stays legitimate: an account whose role no rule
+   * mentions is a declaration, not an oversight. Every cell of it falls through
+   * to `fallback`, and with `fallback: denied` that is the statement "this role
+   * may do nothing" — which is one of the more useful things to assert.
+   */
+  it("accepts an account whose role no rule mentions", () => {
+    const config = parseRunConfig(
+      base.replace(
+        "  - { id: u, role: player, tenant: t, tokenEnv: TOK, canary: me }",
+        "  - { id: u, role: player, tenant: t, tokenEnv: TOK, canary: me }\n" +
+          "  - { id: g, role: guest, tenant: t, tokenEnv: TOK_G, canary: me }",
+      ),
+    );
+
+    expect(() => assertReferencesResolve(config, endpoints)).not.toThrow();
   });
 
   it("rejects a query-only resource that names none", () => {

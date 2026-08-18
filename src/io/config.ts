@@ -1047,6 +1047,54 @@ export class UnusedResourceError extends Error {
   }
 }
 
+/**
+ * A rule written for a role no account carries.
+ *
+ * The one reference in a configuration that used to fail in silence, and
+ * `docs/guide.md` said so in as many words — "read a role selector twice;
+ * nothing else will". Measured on the reference platform on 18 August 2026:
+ * `roles: [admin]` misspelled `admni` takes a clean run from exit 0 and no
+ * findings to exit 1 with a privilege escalation against `admin-a ×
+ * admin.accounts` that is not there, `warnings: []`, and nothing anywhere saying
+ * a rule never applied. The tell is in the report — the finding's `basis` is
+ * `fallback` where a rule was meant to decide — and nothing surfaces it.
+ *
+ * That direction manufactures a finding, which a reader eventually chases down.
+ * The other direction is worse and quieter: the same typo on a rule with
+ * `outcome: denied` removes an expectation, and a cell that should have been
+ * called out agrees with the fallback instead.
+ *
+ * Refused rather than warned about, which is what this project does with every
+ * other declaration matching nothing — an unknown endpoint id, an empty rule
+ * selector, a policy pattern that fits nothing, a resource that fits no
+ * endpoint. Accounts and policy are declared in the same document, so a rule
+ * naming a role absent from it is a typo or dead weight in that same file, and
+ * neither is worth a silent run.
+ *
+ * The reverse direction is deliberately not checked: an account whose role no
+ * rule mentions is a real declaration — everything about it falls through to
+ * `fallback`, and with `fallback: denied` that is the statement "this role may
+ * do nothing", which is worth making.
+ */
+export class UnknownRoleReferenceError extends Error {
+  readonly roleId: string;
+
+  constructor(where: string, roleId: string, known: readonly string[]) {
+    const ordered = nearestFirst(roleId, known);
+
+    super(
+      `${where} applies to role "${roleId}", which no account declares. The rule ` +
+        `matches nothing, so every cell it was written for falls through to the ` +
+        `policy fallback and the report never says the rule did not apply. Roles ` +
+        `are not read from a token or checked against the platform — the set is ` +
+        `exactly what the accounts in this file declare: ` +
+        `${ordered.length === 0 ? "(none)" : ordered.map((one) => `"${one}"`).join(", ")}.`,
+    );
+    this.name = "UnknownRoleReferenceError";
+    this.roleId = roleId;
+  }
+}
+
 export class UnknownEndpointReferenceError extends Error {
   constructor(where: string, endpointId: string, known: readonly string[]) {
     const ordered = nearestFirst(endpointId, known);
@@ -1092,7 +1140,18 @@ export class UnknownEndpointReferenceError extends Error {
 export function assertReferencesResolve(config: RunConfig, endpoints: readonly Endpoint[]): void {
   const known = new Set(endpoints.map((endpoint) => endpoint.id));
 
+  const declaredRoles = new Set(config.accounts.map((account) => account.role));
+
   config.policy.rules.forEach((rule, index) => {
+    if (rule.roles !== ANY) {
+      for (const roleId of rule.roles) {
+        if (!declaredRoles.has(roleId)) {
+          throw new UnknownRoleReferenceError(describePolicyRule(index), roleId, [
+            ...declaredRoles,
+          ]);
+        }
+      }
+    }
     if (rule.endpoints === ANY) {
       return;
     }
