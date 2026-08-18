@@ -1984,18 +1984,36 @@ Open, from the same review, in the order they were ranked:
       two hundred lines above the paragraph admitting it can exceed the truth on
       that one axis. Both now say the same thing, and the caveat sits where the
       number is defined rather than where a reader might not reach.
-- [ ] **The file half of the `$ref` invariant is held by barriers 2 and 3**, not
+- [x] **The file half of the `$ref` invariant is held by barriers 2 and 3**, not
       by barrier 1 as the module header now says — an absolute path and `file://`
       need no base. The header was rewritten on 17 August from a measurement that
       covered http only, and the tripwire counts http requests alone.
-- [ ] **`ReportFinding` declares neither `basis` nor `ruleIndex`** though every
-      matrix finding carries them.
-      Half of this item is closed and the other half was not: the sixth reason for
-      exit 2 is in the table in `docs/report.md`, with the note that it was missing
-      until 17 August. `basis` and `ruleIndex` went onto `ReportedObservation` — the
-      matrix rows — and `ReportFinding` still has neither, so the two fields are on
-      the row and absent from the finding that cites it. Recorded here on 18 August
-      after checking rather than assuming: the item had been read as done.
+      Closed 18 August. Measured rather than reasoned, and the premise turned out
+      to understate it: swagger-parser 12.1.0 resolves `./package.json` and even
+      `package.json` from a document handed over as an object, taking the
+      **process's working directory** as the base — so the header's "a relative
+      `$ref` has nothing to count from" was false in every form, not only for
+      absolute ones.
+      Which barrier holds it, by removing them one at a time against a canary file:
+      barrier 2 off with `external: false` kept — nothing read; barrier 2 on with
+      `external: true` — refused before swagger-parser is called. Both hold
+      independently; barrier 1 holds neither. A third stale claim fell out of the
+      same measurement: the test guarding the option said it protects nothing
+      today and is kept for a future version, which is true of the http half only.
+      The file half is covered by two tests of the shape the http tripwire uses —
+      they assert the danger is real now, so the day the library stops reading
+      files by absolute path, somebody has to read the header again.
+- [x] **`ReportFinding` declares neither `basis` nor `ruleIndex`** though every
+      matrix finding carries them; `staleCredentials` is a sixth reason for exit 2
+      and `docs/report.md` lists five.
+      Both halves closed 17 August. The sixth reason is in the table in
+      `docs/report.md`, with a note saying it was missing until that day, and
+      `ReportFinding` declares `basis` and `ruleIndex` with the reasoning beside
+      them.
+      I recorded the opposite here earlier on 18 August — "the fields went onto
+      `ReportedObservation` and the finding still has neither" — from a listing of
+      the interface that stopped short of them; they are 45 lines further down.
+      Both interfaces carry the pair. The claim was wrong, not the code.
 
 ## Adversarial review of 18 August 2026 (the gate itself)
 

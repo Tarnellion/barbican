@@ -5,16 +5,27 @@
  * that is verified by experiment, not deduced from general reasoning:
  *
  * 1. The parser knows no paths. It is given text rather than a path to a file,
- *    so a relative `$ref` has nothing to count from, and the adapter itself
- *    opens nothing in the file system.
+ *    and the adapter itself opens nothing in the file system.
+ *
+ *    This is worth less than it reads. It used to say that a relative `$ref`
+ *    "has nothing to count from", and that is not so: measured on 18 August 2026
+ *    against swagger-parser 12.1.0, a document handed over as an object still
+ *    resolves `./package.json` and `package.json` — the base is the process's
+ *    working directory, not the document's location. An absolute path and a
+ *    `file://` URL need no base at all, and with `resolve.external` on both are
+ *    read and their contents land in the returned document. So barrier 1 keeps
+ *    this adapter from naming a directory; it does not keep the library from
+ *    reading a file.
  * 2. External `$ref`s are rejected with an explicit error before the document
  *    reaches swagger-parser. This is a defence not against SSRF but against
  *    **silent degradation**: with barrier 2 switched off, swagger-parser returns
  *    a result without an error, leaving the reference unresolved. The tool would
  *    carry on with an incomplete list of endpoints and report "no discrepancies"
  *    where the check never happened.
- * 3. `resolve.external = false` — kept as the defence against SSRF proper, and
- *    **not currently the thing that provides it**. That sentence used to read
+ * 3. `resolve.external = false` — the defence against SSRF proper. Over http it
+ *    is **not currently the thing that provides it**; over the file system it is
+ *    one of the two things that do, and the header said otherwise until 18 August
+ *    2026. That sentence used to read
  *    "verified separately: with barrier 2 removed, a request to the address from
  *    the `$ref` still does not go out", which is true and proves nothing: no
  *    request goes out with the option **on** either. Measured on 17 August 2026
@@ -23,9 +34,24 @@
  *    swagger-parser 12.1.0 never fetches an http `$ref` at all. With the option
  *    off the reference is left in place in silence, which is precisely the
  *    silent degradation barrier 2 exists to catch; with it on the call throws
- *    "Unable to resolve $ref pointer". Neither opens a socket, so what holds
- *    here today is barrier 1: this adapter is handed text and never a location,
- *    so nothing has a base to resolve from.
+ *    "Unable to resolve $ref pointer". Neither opens a socket, so over http
+ *    nothing here is holding anything: the library has no working resolver, and
+ *    the tripwire in the tests is there for the version that gains one.
+ *
+ *    The file system is the other way round, and the header claimed otherwise
+ *    until 18 August 2026 — it credited barrier 1 with both halves, from a
+ *    measurement that had covered http only. The library does read files, needs
+ *    no base to read one named absolutely, and takes the working directory as
+ *    the base for one named relatively.
+ *
+ *    What stops it is barriers 2 and 3, each on its own. Measured by taking them
+ *    away one at a time, against a canary file in a temporary directory: with the
+ *    rejection removed and `external: false` kept, the reference is left in place
+ *    and nothing is read; with the rejection in place and `external: true`, it is
+ *    refused before swagger-parser is called. So over the file system this option
+ *    is not the dormant guard the http half makes it look like — it is one of the
+ *    two things holding, which is why the test that asserts it is still passed
+ *    says what it says.
  *
  *    The option stays, because a version that does resolve is exactly what it is
  *    for, and `tests/adapters/openapi.test.ts` carries a tripwire that fails on

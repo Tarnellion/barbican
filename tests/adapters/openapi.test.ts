@@ -248,11 +248,15 @@ paths:
    *
    * Asserted on the source because there is no other way: with barrier 2 in
    * front of it, deleting the option changes nothing any test can observe today.
-   * That is exactly what makes the guard worth having — the header now says in
-   * so many words that the option is not what protects this adapter, and the
-   * next reader may take that as licence to remove it. It is kept for the
-   * version of the library where it does protect, and this is the line that says
-   * so out loud.
+   *
+   * The reason given here used to be that the option protects nothing and is kept
+   * for the version of the library where it would. That is true of the http half
+   * only. Measured on 18 August 2026 by removing the barriers one at a time: over
+   * the file system the option is load-bearing right now — with barrier 2 gone
+   * and the option kept, a `$ref` naming a file by absolute path is left
+   * unresolved and nothing is read, and swagger-parser reads that same file
+   * happily when the option is turned on. So this line guards a live defence and
+   * not a dormant one, which is a stronger reason than the one it had.
    */
   it("is still asked for, which nothing else here would notice", () => {
     const source = readFileSync(
@@ -359,6 +363,63 @@ paths:
 `;
 
     await expect(parser.parse(spec)).rejects.toThrow(ExternalRefError);
+  });
+
+  /**
+   * Which barrier is holding this half, measured rather than assumed.
+   *
+   * The three tests above prove the adapter refuses. They do not say what would
+   * happen without the refusal, and the module header answered that from a
+   * measurement that had covered http only: it credited barrier 1 — "the parser
+   * knows no paths" — with the file system too.
+   *
+   * Over http that reading is fair enough, because swagger-parser 12.1.0 fetches
+   * nothing whichever way the option is set; the tripwire above watches for the
+   * version that does. The file system is the opposite case. The library reads
+   * files, an absolute path and a `file://` URL need no base to be read, and a
+   * relative one takes the process's working directory as its base — so a
+   * document handed over as an object, with no location of its own, still
+   * resolves `./package.json`. Barrier 1 keeps this adapter from naming a
+   * directory. It does not keep the library from reading a file.
+   *
+   * So this asserts something the project does not want, in the shape the http
+   * tripwire uses: the danger is real today, and barrier 2 is what stands in
+   * front of it. The day these fail, swagger-parser has stopped reading files by
+   * absolute path — and the header above has to be read again before anyone
+   * relaxes the rejection on the strength of it.
+   */
+  it("is held by the rejection: the library itself reads the file when asked to", async () => {
+    const document = {
+      openapi: "3.0.0",
+      info: { title: "t", version: "1" },
+      paths: {
+        "/a": { get: { responses: { "200": { $ref: secretPath } } } },
+      },
+    };
+
+    const resolved = await SwaggerParser.dereference(document, {
+      resolve: { external: true },
+    });
+
+    expect(JSON.stringify(resolved)).toContain(CANARY);
+  });
+
+  it("and takes the working directory as the base for a relative one", async () => {
+    const document = {
+      openapi: "3.0.0",
+      info: { title: "t", version: "1" },
+      paths: {
+        "/a": { get: { responses: { "200": { $ref: "./package.json" } } } },
+      },
+    };
+
+    const resolved = await SwaggerParser.dereference(document, {
+      resolve: { external: true },
+    });
+
+    // This repository's own manifest, read because the process happens to be
+    // running here — the document said nothing about where it lives.
+    expect(JSON.stringify(resolved)).toContain('"name":"barbican"');
   });
 });
 
