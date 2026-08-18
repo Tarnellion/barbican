@@ -1934,7 +1934,7 @@ Open, from the same review, in the order they were ranked:
       a genuinely missing variable still stops the dry run, which is what the
       command is for. The command a reader is told to try first on somebody
       else's deployment was the one that failed and blamed them for it.
-- [~] **`Finding.evidence` admits strings** where `SignalValue` does not, so the
+- [x] **`Finding.evidence` admits strings** where `SignalValue` does not, so the
       PII ban is structural on one and disciplinary on the other. **Named rather
       than closed, on 17 August**, and the reasoning is in the type: `string` has
       to be allowed there — a counterpart account id, an endpoint, a reason are
@@ -1945,12 +1945,19 @@ Open, from the same review, in the order they were ranked:
       interface a future module is built on. What was wrong was the comment
       claiming a rule that nothing enforced; it now says which of the two channels
       the type system closes and which one review does.
-      **Still open:** two mappings spread their source instead of naming fields —
-      matrix findings and `withVerdicts` — so a field added to `AccessDiff` or
-      `AccessObservation` publishes itself. That is not hypothetical: `basis` and
-      `ruleIndex` arrived in the report exactly that way and went undeclared in
-      `ReportFinding` for as long as they existed, closed the same day one layer
-      down. `nothingLeftUnnamed` guards the other five mappings.
+      **The spread that made it possible is closed**, 17 August: matrix findings
+      are named field by field like the check mapping beside them, and
+      `nothingLeftUnnamed` guards the rest. `ReportFinding` does not extend
+      `AccessDiff` — it merges two sources and re-declares what they share — so
+      `{ ...diff }` carried whatever the core put on a discrepancy, declared here
+      or not, which is exactly how `basis` and `ruleIndex` reached every report
+      and were named by that interface nowhere. Mutation: a field added to
+      `AccessDiff` now fails the compile at a named line.
+      `withVerdicts` keeps its spread **on purpose**: `ReportedObservation`
+      extends `AccessObservation`, so carrying every field is what the type says
+      it does. A spread is wrong where the target re-declares its fields and right
+      where it inherits them — which is the distinction the finding did not
+      draw.
 - [x] **`defectGroups` is not a lower bound across `contextId`.** Closed
       17 August as a documentation defect, which is what it was: the design is
       deliberate and already defended in the section on conditions — a defect

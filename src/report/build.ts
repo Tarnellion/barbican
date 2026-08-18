@@ -1004,9 +1004,53 @@ function mergeFindings(
     };
   }
 
-  const fromMatrix: readonly ReportFinding[] = diffs.map((diff) =>
-    withRequest({ ...diff, source: "matrix" as const }),
-  );
+  const fromMatrix: readonly ReportFinding[] = diffs.map((diff) => {
+    // Named field by field, like the check mapping below and for the reason the
+    // spread that used to stand here proved.
+    //
+    // `ReportFinding` does not extend `AccessDiff` — it merges two sources and
+    // re-declares what they share — so `{ ...diff }` carried whatever the core
+    // put on a discrepancy, declared here or not. `basis` and `ruleIndex` went
+    // that way: written on every matrix finding since cell verdicts existed,
+    // present in every report, named by this interface nowhere, so a consumer
+    // typed against it could not read the two fields `docs/report.md` devotes a
+    // section to. A field added to `AccessDiff` tomorrow would publish itself the
+    // same way. Found by adversarial review on 17 August 2026.
+    //
+    // The observation mapping keeps its spread on purpose: `ReportedObservation`
+    // **extends** `AccessObservation`, so carrying every field is what that type
+    // says it does. A spread is wrong where the target re-declares its fields and
+    // right where it inherits them.
+    const {
+      accountId,
+      endpointId,
+      contextId,
+      resourceId,
+      relation,
+      expected,
+      actual,
+      kind,
+      basis,
+      ruleIndex,
+      severity,
+      ...unnamed
+    } = diff;
+    nothingLeftUnnamed(unnamed);
+    return withRequest({
+      kind,
+      source: "matrix" as const,
+      severity,
+      accountId,
+      endpointId,
+      expected,
+      ...(actual === undefined ? {} : { actual }),
+      ...(contextId === undefined ? {} : { contextId }),
+      ...(resourceId === undefined ? {} : { resourceId }),
+      ...(relation === undefined ? {} : { relation }),
+      ...(basis === undefined ? {} : { basis }),
+      ...(ruleIndex === undefined ? {} : { ruleIndex }),
+    });
+  });
 
   /**
    * A check finding that names neither an account nor an endpoint is dropped.
