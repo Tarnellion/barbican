@@ -12,12 +12,19 @@ import type {
   AccessOutcome,
   Account,
   Endpoint,
+  ResolvedAccessPolicy,
   Resource,
   SignalSpec,
   SignalValue,
   TenantId,
 } from "./core/index.js";
-import { DEFAULT_DIGEST_SIGNAL, principalOf, resourceApplies, SAFE_METHODS } from "./core/index.js";
+import {
+  DEFAULT_DIGEST_SIGNAL,
+  principalOf,
+  resolveExpectedVerdict,
+  resourceApplies,
+  SAFE_METHODS,
+} from "./core/index.js";
 import { pathSegment } from "./io/untrusted.js";
 
 /**
@@ -443,6 +450,34 @@ export class ExcludedCanaryError extends Error {
   }
 }
 
+/**
+ * A canary the policy denies for that account's role.
+ *
+ * Two statements by the same person that cannot both be true. A canary is chosen
+ * because the account demonstrably reaches the endpoint — the run stops if it
+ * does not — and the policy says the role may not. Left alone, the walk probes
+ * the same endpoint, gets the same 200, and files a `privilege-escalation`
+ * against a platform that did nothing wrong.
+ */
+export class DeniedCanaryError extends Error {
+  readonly accountId: string;
+  readonly endpointId: string;
+
+  constructor(accountId: string, endpointId: string, roleId: string) {
+    super(
+      `The canary of account "${accountId}" points at "${endpointId}", which the ` +
+        `policy denies to role "${roleId}". A canary is a request the account is ` +
+        `expected to succeed at, so this configuration says two things at once — ` +
+        `and the run would report a privilege escalation on that cell no matter ` +
+        `how the platform behaves. Pick a canary the policy allows this role, or ` +
+        `declare a rule saying the access is expected.`,
+    );
+    this.name = "DeniedCanaryError";
+    this.accountId = accountId;
+    this.endpointId = endpointId;
+  }
+}
+
 export class TemplatedCanaryError extends Error {
   constructor(accountId: string, endpointId: string) {
     super(
@@ -474,11 +509,22 @@ export class TemplatedCanaryError extends Error {
  * @throws {UnknownCanaryEndpointError}
  * @throws {TemplatedCanaryError}
  * @throws {ExcludedCanaryError}
+ * @throws {DeniedCanaryError}
  */
 export function assertCanariesUsable(options: {
   readonly endpoints: readonly Endpoint[];
-  readonly canaries: readonly { readonly accountId: string; readonly endpointId: string }[];
+  readonly canaries: readonly {
+    readonly accountId: string;
+    readonly endpointId: string;
+    /** The account's role, when the policy is given. */
+    readonly roleId?: string;
+  }[];
   readonly exclude?: readonly string[];
+  /**
+   * The resolved policy, for the fourth check. Optional so that a caller with
+   * nothing to compare against still gets the first three.
+   */
+  readonly policy?: ResolvedAccessPolicy;
 }): void {
   const byId = new Map(options.endpoints.map((endpoint) => [endpoint.id, endpoint]));
   for (const canary of options.canaries) {
@@ -491,6 +537,25 @@ export function assertCanariesUsable(options: {
     }
     if ((options.exclude ?? []).includes(canary.endpointId)) {
       throw new ExcludedCanaryError(canary.accountId, canary.endpointId);
+    }
+    // A canary the policy denies is a contradiction inside the declaration.
+    //
+    // Both halves are the operator's own statement, and they cannot both be
+    // true: a canary is chosen because the account demonstrably reaches that
+    // endpoint — the run aborts if it does not — while the policy says the role
+    // may not. The walk then probes the same endpoint, gets the same 200, and
+    // reports a `privilege-escalation` that is a defect in nobody's platform.
+    //
+    // Refused here rather than reported later, for the reason every other
+    // contradiction in a configuration is: a finding that was inevitable before
+    // the first request is not evidence, and it costs a reader the trust they
+    // spend on the findings beside it. Found by a subagent writing the guide's
+    // section on roles, in its own example, on 18 August 2026.
+    if (options.policy !== undefined && canary.roleId !== undefined) {
+      const verdict = resolveExpectedVerdict(options.policy, canary.roleId, canary.endpointId);
+      if (verdict.outcome === "denied") {
+        throw new DeniedCanaryError(canary.accountId, canary.endpointId, canary.roleId);
+      }
     }
   }
 }

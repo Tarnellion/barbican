@@ -281,6 +281,100 @@ work. The tool has no way to tell that apart from a real defect. If the run goes
 through someone else's perimeter, confirm attribute delivery separately: with a
 gateway log, an echo endpoint, anything outside the tool.
 
+#### A role is a group of accounts, and a status is not a condition
+
+`role` is a label for a group of accounts **expected to have the same access**,
+and that is the whole of it. It is not read out of a token, it is not matched
+against the platform's own role names, and it need not resemble them: two
+platform roles whose expected reach is identical may share one label, and one
+platform role has to be split in two where it is not. A brand administrator and
+a holding administrator are frequently one word in the platform's own table and
+two labels here — they differ by an entire subtree, and under a single label
+every rule about one of them is a rule about the other.
+
+Because nothing outside your file defines the set, nothing can check it. A role
+is the one reference in a configuration that fails in silence: an endpoint
+identifier, a context name, an authentication scheme name and — once `tenants`
+is declared — a tenant name each stop the run when they resolve to nothing,
+while `roles: [custommer]` matches no account, every cell the rule was written
+for falls through to `fallback`, and no line of the report says a rule never
+applied. Read a role selector twice; nothing else will.
+
+The second question follows from the first, because both answers are ways of
+declaring that two outcomes should differ — and only one of them is a group of
+accounts. **A persistent state of the account is; a property of one request is
+not.** A blocked customer, one who has not passed KYC, a VIP tier — those are
+accounts, one per state, each under a role label of its own and each backed by a
+real account on the platform in that state. A customer connecting from a
+prohibited jurisdiction, from an unrecognised device, through a partner channel —
+that is one account with a `context` over it.
+
+The same platform and the same endpoint, modelled both ways. A state:
+
+```yaml
+accounts:
+  - { id: alice, role: customer, tenant: brand-a, tokenEnv: TOKEN_ALICE, canary: orders.list }
+  - { id: boris, role: customer-blocked, tenant: brand-a, tokenEnv: TOKEN_BORIS, canary: profile.read }
+
+policy:
+  fallback: denied
+  rules:
+    - { roles: [customer], endpoints: [orders.list], outcome: allowed }
+    - { roles: [customer-blocked], endpoints: [orders.list], outcome: denied }
+    # The block leaves this one open, which is what makes it usable as a canary.
+    - { roles: [customer, customer-blocked], endpoints: [profile.read], outcome: allowed }
+```
+
+And a condition — one account, alice above, and the same request tagged:
+
+```yaml
+contexts:
+  - id: geo-blocked
+    description: the same customer, connecting from a prohibited jurisdiction
+    headers: { cf-ipcountry: AQ }
+    endpoints: [orders.list]
+
+policy:
+  fallback: denied
+  rules:
+    - { roles: [customer], endpoints: [orders.list], outcome: allowed }
+    - { roles: [customer], endpoints: [orders.list], context: geo-blocked, outcome: denied }
+```
+
+**A state written as a condition invents a finding.** An attribute like
+`x-account-status: blocked` is accepted — it presents no credentials, overrides
+no method and rewrites no address — and it is still a header you made up, sent
+into someone else's system. The platform does not honour it, so the request is
+the baseline request under another name: it is served, the rule said `denied`,
+and the cell becomes a `privilege-escalation` against a platform whose blocking
+works correctly. Nothing downstream separates that from a real one, because the
+tool never sees whether an attribute arrived. Meanwhile the blocked customer was
+asked nothing at all: there was no blocked account in the run.
+
+**A condition written as a state cannot be obtained.** No account is permanently
+in Antarctica — the country is a property of the request, and `tokenEnv` names a
+variable holding a credential, not a place. Declaring `alice-from-aq` as a second
+account leaves nothing to put in that variable but alice's own token, and the run
+stops before the first request: two accounts presenting one credential are
+refused by name, because every check across them would compare an account with
+itself. That refusal is the good outcome. Given two genuinely different tokens
+the run does start, and then it compares two customers and reports the difference
+as a country.
+
+**A state modelled as accounts needs one door the state leaves open.** Declare
+`customer-blocked` denied everywhere and a token that never worked produces
+exactly the report a block that works produces: every cell refuses, every refusal
+agrees with the policy, and the run reads as "tested and agreed". The canary is
+half the answer — without one, nothing confirms that account authenticated at
+all. The safeguard that catches a dead token is the other half, and against a
+label denied everywhere it is silent by construction: it counts the cells the
+policy declares accessible and asks whether any of them was granted, and a label
+with no `allowed` rule has none to count. Hence the third rule above and
+`canary: profile.read` — one endpoint the block does not close, declared open and
+probed before the walk and after it. If the state really closes everything,
+nothing the tool has can tell that account from a wrong token, and that is worth
+knowing before the report is read rather than after.
+
 #### An account in several tenants at once
 
 When an account's reach is not a subtree but a **set** of nodes, write `tenants`

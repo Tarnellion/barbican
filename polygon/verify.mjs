@@ -250,6 +250,33 @@ async function assertDryRunTellsTheTruth(baseUrl, reportDir) {
     fail(`the dry run accepted a canary on an excluded endpoint:\n${g1.stderr}`);
   }
 
+  // A canary the policy denies is a contradiction inside the declaration, and the
+  // run refuses it. Asserted here because the wiring is what breaks: the check
+  // lives in `assertCanariesUsable` and only fires if the CLI hands it the
+  // expanded policy — a unit test of the function passes with that argument
+  // dropped. Found on 18 August 2026 while closing it.
+  //
+  // The case is the one the configuration itself warns about: the affiliate's
+  // canary is `affiliate.stats` and not `orders.list`, because that list is
+  // declared closed to it — the comment beside the account says a canary there
+  // "would stop the run with the false alarm: the token does not work". Point it
+  // at `orders.list` and the contradiction is back. It has two symptoms depending
+  // on how the platform answers, a false alarm or a fabricated escalation, and
+  // the refusal replaces both with a sentence naming the two declarations.
+  const deniedCanary = join(reportDir, "denied-canary.yaml");
+  await writeFile(
+    deniedCanary,
+    config.replace("    canary: affiliate.stats", "    canary: orders.list"),
+    "utf8",
+  );
+  const denied = await runCli(undefined, environment, false, ["-c", deniedCanary, "--dry-run"]);
+  if (!denied.stderr.includes("which the policy denies to role")) {
+    fail(
+      `the dry run accepted a canary the policy denies — the run would have filed a\n` +
+        `privilege escalation on that cell whatever the platform did:\n${denied.stderr}`,
+    );
+  }
+
   // G-3 and G-7 on the polygon's own configuration: a budget below the matrix,
   // and a report path that will not be written.
   const wontExist = join(reportDir, "never-written.json");

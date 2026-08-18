@@ -16,10 +16,13 @@ import type {
   SignedRequest,
 } from "../src/adapters/ports.js";
 import type { Account, Endpoint } from "../src/core/index.js";
+import { expandPolicy } from "../src/core/index.js";
 import { safeHeaders } from "../src/io/untrusted.js";
 import {
+  assertCanariesUsable,
   classifyStatus,
   collectObservations,
+  DeniedCanaryError,
   ExcludedCanaryError,
   planEndpoints,
   probeCanaries,
@@ -609,6 +612,74 @@ describe("safeguards against an untrustworthy run", () => {
       }),
     ).rejects.toThrow(ExcludedCanaryError);
     expect(seen).toEqual([]);
+  });
+
+  /**
+   * A canary the policy denies is two statements by the same person that cannot
+   * both be true.
+   *
+   * A canary is chosen because the account demonstrably reaches the endpoint —
+   * the run stops if it does not — and the policy says the role may not. Left
+   * alone, the walk probes the same endpoint, gets the same 200, and files a
+   * `privilege-escalation` against a platform that did nothing wrong: a finding
+   * that was inevitable before the first request, sitting beside findings that
+   * were not, and costing them the trust a reader spends on the list.
+   *
+   * Found on 18 August 2026 by a subagent writing the guide's section on roles —
+   * in its own example, which is where the contradiction is easiest to make.
+   */
+  it("rejects a canary the policy denies to that account's role", () => {
+    const policy = expandPolicy({ fallback: "denied", rules: [] }, endpoints);
+
+    expect(() =>
+      assertCanariesUsable({
+        endpoints,
+        canaries: [{ accountId: "a", endpointId: "me", roleId: "customer" }],
+        policy,
+      }),
+    ).toThrow(DeniedCanaryError);
+    // The message names both halves of the contradiction, or it is not actionable.
+    expect(() =>
+      assertCanariesUsable({
+        endpoints,
+        canaries: [{ accountId: "a", endpointId: "me", roleId: "customer" }],
+        policy,
+      }),
+    ).toThrow(/customer[\s\S]*privilege escalation|privilege escalation[\s\S]*customer/);
+  });
+
+  it("accepts a canary the policy allows", () => {
+    const policy = expandPolicy(
+      {
+        fallback: "denied",
+        rules: [{ roles: ["customer"], endpoints: ["me"], outcome: "allowed" }],
+      },
+      endpoints,
+    );
+
+    expect(() =>
+      assertCanariesUsable({
+        endpoints,
+        canaries: [{ accountId: "a", endpointId: "me", roleId: "customer" }],
+        policy,
+      }),
+    ).not.toThrow();
+  });
+
+  /** And a caller with no policy to compare against still gets the other three. */
+  it("keeps the first three checks when no policy is given", () => {
+    expect(() =>
+      assertCanariesUsable({
+        endpoints,
+        canaries: [{ accountId: "a", endpointId: "me", roleId: "customer" }],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertCanariesUsable({
+        endpoints,
+        canaries: [{ accountId: "a", endpointId: "nope" }],
+      }),
+    ).toThrow(UnknownCanaryEndpointError);
   });
 
   it("rejects a canary on an endpoint with a path parameter", async () => {

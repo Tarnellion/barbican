@@ -467,9 +467,14 @@ async function run(flags: RunFlags): Promise<number> {
   assertCanariesUsable({
     endpoints,
     canaries: config.accounts.flatMap((account) =>
-      account.canary === undefined ? [] : [{ accountId: account.id, endpointId: account.canary }],
+      account.canary === undefined
+        ? []
+        : [{ accountId: account.id, endpointId: account.canary, roleId: account.role }],
     ),
     ...(config.exclude === undefined ? {} : { exclude: config.exclude }),
+    // The fourth check needs the expanded policy: a canary the policy denies is a
+    // contradiction the run would otherwise report as a platform defect.
+    policy,
   });
 
   // Everything above this line is validation and parsing; nothing has reached the
