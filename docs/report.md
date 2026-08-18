@@ -23,8 +23,13 @@ So the number of probed cells is not "accounts × endpoints": it is larger.
 
 ```
 Cells probed: 144 (matrix rows 27, of them accounts 9 and the same accounts
-under contexts, endpoints 6, resources 6)
+under contexts, endpoints 7, resources 6)
 ```
+
+Seven endpoints and 144 cells rather than more, because one of the seven is a
+write and a run without `--unsafe-methods` does not probe it — `skipped` says so.
+That is the arithmetic to expect, and it is why the number of endpoints alone
+never predicts the number of cells.
 
 Every number quoted in this document comes from one run — the reference polygon
 with all defects switched on, 13 August 2026. They illustrate the shape of the
