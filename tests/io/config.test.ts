@@ -40,6 +40,7 @@ import {
   UnknownTenantError,
   UnusablePathParameterError,
   UnusedAuthSchemeError,
+  UnusedResourceError,
 } from "../../src/io/config.js";
 
 const VALID = `
@@ -641,6 +642,70 @@ policy:
     );
 
     expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnknownEndpointReferenceError);
+  });
+
+  /**
+   * The same class one field over, and the one that stayed open.
+   *
+   * A typo in a resource's **endpoint list** was already refused; a typo in a
+   * **parameter name** was not. `resourceApplies` asks that every parameter in an
+   * endpoint's path be an own property of `params`, so one wrong letter makes the
+   * resource fit nothing and every cell declared for it is quietly not walked.
+   * Measured on the reference platform: `orderId` → `orderid` takes a run from
+   * 144 cells to 126 and privilege escalations from 10 to 7, with `warnings: []`,
+   * `resourcesNotFound: []` and the resource still listed among the inputs.
+   *
+   * Refused at startup like every other declaration that matches nothing — a
+   * policy pattern that fits no endpoint, an empty rule selector — because
+   * staying silent about those is not allowed either. Found by adversarial review
+   * on 18 August 2026.
+   */
+  it("rejects a misspelled parameter name, which fits no endpoint at all", () => {
+    const config = parseRunConfig(base.replace("orderId:", "orderid:"));
+
+    expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnusedResourceError);
+    // The message names the parameters it has, since that is where the typo is.
+    expect(() => assertReferencesResolve(config, endpoints)).toThrow(/"orderid"/);
+  });
+
+  /**
+   * A resource carrying only a query is legitimate and must name its endpoints —
+   * `resourceApplies` attaches a resource without path parameters to nothing
+   * unless it does, which is deliberate: otherwise it would attach to every
+   * endpoint in a row.
+   */
+  it("accepts a query-only resource that names an endpoint taking no parameter", () => {
+    const config = parseRunConfig(
+      base.replace(
+        'params: { orderId: "1" }, endpoints: [orders.read]',
+        "params: {}, endpoints: [me], query: { include: totals }",
+      ),
+    );
+
+    expect(() => assertReferencesResolve(config, endpoints)).not.toThrow();
+  });
+
+  /**
+   * And naming an endpoint whose path **does** take a parameter, without
+   * supplying it, is the same hole in a different spelling: the resource fits
+   * nothing, the cells are not walked, and the list of endpoints looks deliberate
+   * enough to read as intent.
+   */
+  it("rejects a resource that names an endpoint whose parameter it does not carry", () => {
+    const config = parseRunConfig(base.replace('params: { orderId: "1" },', "params: {},"));
+
+    expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnusedResourceError);
+  });
+
+  it("rejects a query-only resource that names none", () => {
+    const config = parseRunConfig(
+      base.replace(
+        'params: { orderId: "1" }, endpoints: [orders.read]',
+        "params: {}, query: { include: totals }",
+      ),
+    );
+
+    expect(() => assertReferencesResolve(config, endpoints)).toThrow(UnusedResourceError);
   });
 
   it("rejects a typo in a canary", () => {

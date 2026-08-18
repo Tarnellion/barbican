@@ -31,6 +31,7 @@ import {
   HTTP_METHODS,
   isUsablePathSegment,
   RESOURCE_RELATIONS,
+  resourceApplies,
 } from "../core/index.js";
 import type { HeaderValue } from "./untrusted.js";
 import { isHeaderName, isHeaderValue, lookup, safeHeaders } from "./untrusted.js";
@@ -1022,6 +1023,30 @@ function nearestFirst(target: string, known: readonly string[]): readonly string
   return [...known].sort((a, b) => sharedPrefix(b) - sharedPrefix(a) || a.localeCompare(b));
 }
 
+/**
+ * A declared resource that fits none of the endpoints.
+ *
+ * Almost always a misspelled parameter name: the names in `params` have to match
+ * the ones in an endpoint's path exactly, and nothing else in a configuration
+ * makes a silent hole of a typo this small.
+ */
+export class UnusedResourceError extends Error {
+  readonly resourceId: string;
+
+  constructor(resourceId: string, parameterNames: readonly string[]) {
+    super(
+      `Resource "${resourceId}" fits no endpoint, so every cell declared for it ` +
+        `is left unwalked and the report says nothing about it. Its parameters are ` +
+        `${parameterNames.length === 0 ? "(none)" : parameterNames.map((one) => `"${one}"`).join(", ")} — ` +
+        `these names must match the ones in an endpoint's path exactly, and a ` +
+        `resource with no path parameters has to name its endpoints in ` +
+        `\`endpoints\`. A misspelled parameter is the usual cause.`,
+    );
+    this.name = "UnusedResourceError";
+    this.resourceId = resourceId;
+  }
+}
+
 export class UnknownEndpointReferenceError extends Error {
   constructor(where: string, endpointId: string, known: readonly string[]) {
     const ordered = nearestFirst(endpointId, known);
@@ -1090,6 +1115,25 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
           ...known,
         ]);
       }
+    }
+    // A resource that fits no endpoint is a declaration that never took effect.
+    //
+    // `resourceApplies` asks that every parameter in an endpoint's path be an own
+    // property of `params`, so one wrong letter — `orderid` for `orderId` — makes
+    // the resource fit nothing, and every cell it was declared for is simply not
+    // walked. Measured on the reference platform: that single typo takes a run
+    // from 144 cells to 126 and privilege escalations from 10 to 7, with
+    // `warnings: []`, `resourcesNotFound: []`, and the resource still listed in
+    // the report among the inputs. Nothing anywhere says a declaration did
+    // nothing.
+    //
+    // Refused at startup, which is what this project already does with every
+    // other declaration that matches nothing: a policy pattern matching no
+    // endpoint stops the run, and so does an empty rule selector, both because
+    // staying silent about them is not allowed. A resource was the one left out.
+    // Found by adversarial review on 18 August 2026.
+    if (!endpoints.some((endpoint) => resourceApplies(endpoint, resource))) {
+      throw new UnusedResourceError(resource.id, Object.keys(resource.params));
     }
   }
 

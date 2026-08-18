@@ -2034,12 +2034,21 @@ Open, from the same review:
       weight of a finding rests on hand-written fixtures rather than on the gate,
       and the polygon README's claim that a relation "travelled all the way to a
       line of the report" is prose, not a check.
-- [ ] **A typo in a resource parameter name silently removes its cells.** `orderId`
-      → `orderid` takes a run from 144 cells to 126 and privilege escalations from
-      10 to 7, with `warnings: []`, `resourcesNotFound: []`, and the resource still
-      listed in the report. A policy pattern matching nothing is refused at
-      startup, an empty selector is refused, an unknown endpoint reference is
-      refused; a resource matching **no endpoint at all** is not.
+- [x] **A typo in a resource parameter name silently removes its cells.** Closed
+      18 August: `assertReferencesResolve` refuses a resource that fits no
+      endpoint, which is what this project already does with every other
+      declaration matching nothing — a policy pattern that fits nothing stops the
+      run, so does an empty rule selector, both because staying silent about them
+      is not allowed. A resource was the one left out, and a typo in its
+      **endpoint list** was already refused while a typo in a **parameter name**
+      was not. The message names the parameters the resource carries, since that
+      is where the typo is.
+      Verified on the polygon's own configuration: `orderId` → `orderid` used to
+      take a run from 144 cells to 126 in silence and now stops it before the
+      first request. Four cases covered, including the two that must still pass —
+      a query-only resource naming an endpoint that takes no parameter — and the
+      one that must not: a resource naming an endpoint whose parameter it does not
+      carry, which is the same hole in a different spelling.
 - [ ] **`checkCoverage` proves something narrower than its own header claims.** It
       checks that each `status`/`body-signal` defect is named in at least one
       finding, not "is everything declared tested at all". Downgrading one defect
