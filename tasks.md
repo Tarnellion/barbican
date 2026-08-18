@@ -399,14 +399,30 @@ thing and nowhere says so.
       unrecognised device — conditions of the request, expressed as a `context`
       over one account. Pick the wrong one and you either cannot get the accounts,
       or you check a restriction where you meant to check an entitlement.
-- [ ] **How to carry over an existing Roles & Access Matrix.** This is the most
-      common way in: the matrix already exists, usually as a spreadsheet of ticks
-      down "role × endpoint". Every tick has an invisible asterisk — **own or
-      anyone's?** — and that asterisk is precisely where BOLA lives, because by the
-      tick a broken platform is indistinguishable from a healthy one. The guide
-      should show one row of such a matrix turning into rules with `scope`, and say
-      out loud that a matrix exported from the code or generated from the same
-      specification is worthless here for the reason in ADR-0006.
+- [x] **How to carry over an existing Roles & Access Matrix.** Closed 18 August:
+      `docs/guide.md` gains "Carrying over a matrix you already have". One row of a
+      spreadsheet — three ticks — becomes five rules, and the section says what the
+      transcription forces somebody to decide: a tick means *own* or *anyone's*,
+      the sheet cannot tell them apart, and that gap is where BOLA lives.
+      Three things it states that the sheet never records. The `denied` rules are
+      not redundant even under `fallback: denied` — a matched rule is named in
+      `basis` and `ruleIndex`, so a finding cites the line somebody wrote instead
+      of "no rule matched", which is the difference between a ticket a team
+      accepts and one they argue with. A missing `scope` is not `own` but "any
+      relation", the widest reading and the one that hides BOLA. And a matrix
+      exported from the code compares an implementation with itself and would pass
+      with every check removed — ADR-0006.
+      Plus the advice that keeps a large sheet from being transcribed pointlessly:
+      only rows whose path takes a resource identifier have a relation to get
+      wrong, so twenty well-declared endpoints say more than two hundred guessed.
+      The example is parsed and its references resolved by a test that reads it out
+      of the document, because a guide whose only configuration example does not
+      parse teaches the format wrong — which is what E-2 was.
+      **Two wrong guesses on the way, both recorded in that test**, and both the
+      same shape this project keeps finding: `parseRunConfig` does not resolve
+      endpoint names and `expandPolicy` does not either — it expands pattern
+      objects and passes a literal through untouched. A deliberate typo survived
+      both. `assertReferencesResolve` is the step that catches it.
 
 ## Full audit of 14 August 2026
 

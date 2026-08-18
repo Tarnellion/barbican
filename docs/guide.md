@@ -477,6 +477,80 @@ hosts must be in this same list.
 address like `/createdb` resets the database while remaining a GET. One like that
 was actually called by the tool on the VAmPI polygon — hence the list.
 
+## Carrying over a matrix you already have
+
+This is the usual way in. The matrix exists — a spreadsheet of ticks down
+"role × endpoint", or a table in a wiki — and the question is what it becomes.
+
+Take one row of such a sheet:
+
+| Endpoint | player | support | admin |
+|---|---|---|---|
+| `GET /v1/orders/{orderId}` | ✅ | ✅ | ✅ |
+
+Three ticks, and every one of them carries an invisible asterisk: **own, or
+anyone's?** A player who may read *their own* order and a player who may read
+*any* order produce the same tick, and the second is a BOLA. The sheet cannot
+tell them apart, and neither can a run that is configured from it as written —
+which is the whole reason this tool asks for a relation and not for a permission.
+
+So the row becomes three rules, and writing them is the moment somebody has to
+say out loud what the tick meant:
+
+```yaml
+policy:
+  fallback: denied
+  rules:
+    # A player reads their own order and nobody else's. The second half is the
+    # claim worth testing, and the sheet never made it.
+    - { roles: [player], endpoints: [orders.read], scope: own, outcome: allowed }
+    # Support reads anything inside its own tenant, and nothing outside it.
+    - { roles: [support], endpoints: [orders.read], scope: same-tenant, outcome: allowed }
+    - { roles: [support], endpoints: [orders.read], scope: foreign-tenant, outcome: denied }
+    # An admin of a holding reads down the tree, not sideways into another one.
+    - { roles: [admin], endpoints: [orders.read], scope: descendant-tenant, outcome: allowed }
+    - { roles: [admin], endpoints: [orders.read], scope: foreign-tenant, outcome: denied }
+```
+
+Two things are worth noticing about what just happened.
+
+**The denials are not redundant.** `fallback: denied` already refuses everything
+unstated, so the two `outcome: denied` rules above change no verdict. They change
+what the report can say: a rule that matched is named in `basis` and `ruleIndex`,
+so a finding on that cell cites the line somebody wrote, rather than "no rule
+matched". On a matrix of any size that is the difference between a ticket a team
+accepts and one they argue with. Write them where the sheet's tick was ambiguous
+and you resolved it — those are exactly the cells worth being explicit about.
+
+**A missing `scope` is not the same as `own`.** It means "under any relation",
+which is the widest reading of a tick and the one that hides BOLA. If you are
+transcribing a sheet quickly and honestly do not know, leave the scope off and
+**write down that you did not know** — the run will then agree with a broken
+platform and a healthy one alike, and at least the configuration says so.
+
+### A matrix generated from the code is worth nothing here
+
+If the sheet was exported from the source — from decorators, from a permissions
+table, from the same OpenAPI document you are about to feed in — then comparing
+the platform against it compares an implementation with itself. It will pass. It
+would pass with every check removed, because both sides move together.
+
+The declaration has to come from somewhere the code cannot reach: a requirement,
+a contract, a regulator's clause, or a person saying what is supposed to be true.
+That is the reason `ExpectedAccessPolicy` is written by hand and never derived —
+see [ADR-0006](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0006-expected-access-declaration.md).
+
+### What to do about a sheet with hundreds of rows
+
+Do not transcribe all of it. The tool is at its most useful on the rows where the
+asterisk is unresolved, and those are a small share: endpoints that take a
+resource identifier. A row with no `{param}` in the path has no relation to get
+wrong, and `fallback` plus a handful of `allowed` rules covers it.
+
+Start with the endpoints that read somebody's data by id, declare the relations
+for those, and let everything else fall through. A run over twenty well-declared
+endpoints says more than one over two hundred where every scope was guessed.
+
 ## Running
 
 ```bash
