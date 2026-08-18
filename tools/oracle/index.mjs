@@ -41,9 +41,22 @@
  * @property {string} id
  * @property {Readonly<Record<string, unknown>>} selector
  * @property {number} expectedExitCode
- * @property {number} expectedCells how many cells the run must probe. Written by
+ * @property {number} [expectedCells] how many cells the run must probe. Written by
  *   hand like everything else here, and the one number that says the run happened
- *   at all — see the validation below
+ *   at all — see the validation below.
+ *
+ *   Optional, and not because it is optional to care. A polygon whose endpoint
+ *   list lives in this repository can state the number and must: `polygon/` and
+ *   `polygons/vampi/` do, and `tests/tools/ground-truth-files.test.ts` refuses a
+ *   variant of theirs that leaves it out. crAPI's endpoints come from an OpenAPI
+ *   document in the crAPI checkout, outside this tree and versioned by somebody
+ *   else — the count there is a property of a file this repository does not hold,
+ *   and a hand-written constant for it would be a number nobody can maintain.
+ *
+ *   Made optional on 18 August 2026, after being made mandatory on the 17th
+ *   without either external polygon being loaded once: both `ground-truth.json`
+ *   files under `polygons/` stopped parsing at the first line, and no test
+ *   noticed, because no test opened them
  * @property {readonly OracleFinding[]} findings
  * @property {Readonly<Record<string, string>>} [relations] copied from the root
  *   by `loadGroundTruth`, not written by hand on a variant
@@ -227,9 +240,12 @@ export function loadGroundTruth(source) {
   const seen = new Set();
   for (const variant of root.variants) {
     requireObject(variant, "variants[]");
-    if (!Number.isInteger(variant.expectedCells) || variant.expectedCells <= 0) {
+    if (
+      variant.expectedCells !== undefined &&
+      (!Number.isInteger(variant.expectedCells) || variant.expectedCells <= 0)
+    ) {
       throw new GroundTruthError(
-        `variants[].expectedCells: expected a positive integer, got ` +
+        `variants[].expectedCells: expected a positive integer or nothing at all, got ` +
           `${JSON.stringify(variant.expectedCells)}`,
       );
     }
@@ -754,7 +770,7 @@ export function compareVariant(variant, report, exitCode) {
   // A number per variant, written by hand like every other fixture here: it is
   // not derived from a run, so a run cannot agree with itself about it.
   const probed = (report.observations ?? []).length;
-  if (probed !== variant.expectedCells) {
+  if (variant.expectedCells !== undefined && probed !== variant.expectedCells) {
     problems.push(
       `probed ${probed} cells, expected ${variant.expectedCells} — the matrix ` +
         `changed size, and a comparison of findings cannot see that`,

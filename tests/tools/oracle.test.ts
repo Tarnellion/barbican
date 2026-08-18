@@ -464,16 +464,48 @@ describe("the number of cells a variant must probe", () => {
   });
 
   /**
-   * And the ground truth may not omit the number: a variant added without it
-   * would be one the gate cannot measure, which is the state this closes.
+   * A variant may omit the number, and then this module claims nothing about the
+   * size of the matrix — the requirement is not here.
+   *
+   * It was here for a day. Made mandatory on 17 August 2026 and added to
+   * `polygon/ground-truth.json`, the only oracle the change was tried against;
+   * both files under `polygons/` stopped parsing at their first variant and no
+   * test noticed, because no test opened them. crAPI cannot carry the number at
+   * all: its endpoints come from an OpenAPI document in the crAPI checkout, so
+   * the count is a property of a file this repository does not hold.
+   *
+   * Which polygons owe it, and crAPI's exemption in as many words, are in
+   * `tests/tools/ground-truth-files.test.ts` — together with the check that every
+   * oracle in the tree loads, which is the one that would have caught this.
    */
-  it("must be declared by every variant", () => {
+  it("may be omitted, and then nothing is claimed about the size of the matrix", () => {
     const source = sourceOf((value) => ({
       ...value,
       variants: value.variants.map(({ expectedCells: _dropped, ...rest }) => rest),
     }));
 
-    expect(() => loadGroundTruth(source)).toThrow(/expectedCells/);
+    expect(() => loadGroundTruth(source)).not.toThrow();
+
+    const truth = loadGroundTruth(source);
+    const variant = truth.variants[0];
+    if (variant === undefined) {
+      throw new Error("the fixture has no variant to compare");
+    }
+    const result = compareVariant(
+      variant,
+      {
+        findings: [],
+        observations: [
+          { accountId: "a", endpointId: "e" },
+          { accountId: "b", endpointId: "e" },
+        ],
+      },
+      0,
+    );
+
+    // Two cells against a fixture that declared one: the size goes unremarked,
+    // and the findings are compared as before.
+    expect(result.problems.join("\n")).not.toMatch(/cells/);
   });
 
   it("must be a positive integer", () => {

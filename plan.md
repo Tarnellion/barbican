@@ -97,7 +97,7 @@ only source of switchable defects fit to serve as an oracle.
 
 **Exit criterion — met.** Every switchable defect is detected when it is on and produces
 no finding when it is off, and the traceability between the findings and the ground truth
-is reproducible: 28 combinations, 0 mismatches, run in CI rather than from a laptop. The
+is reproducible: 29 combinations, 0 mismatches, run in CI rather than from a laptop. The
 platform ended up bigger than the minimal version described above — twelve switches, a
 three-level tenant tree, an account with a set of tenants, declared request conditions,
 and since 14 August a write endpoint that keeps `--unsafe-methods` from being a code path
@@ -196,7 +196,7 @@ gives a document that confirms compliance which does not exist — that is worse
 having no document.
 
 **That condition is met as of 17 August 2026**: phase 3 closed with the reference
-platform and its hand-written oracle — 28 combinations, 0 mismatches on every run
+platform and its hand-written oracle — 29 combinations, 0 mismatches on every run
 — and phase 4 closed with the release of `0.3.0`. This is the next phase, and the
 first thing it needs is not code: the clause-by-clause content was never
 estimated, and choosing which standard to map first (GLI-19, the AGCO

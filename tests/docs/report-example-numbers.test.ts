@@ -25,6 +25,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseRunConfig } from "../../src/io/config.js";
+import { loadGroundTruth } from "../../tools/oracle/index.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const REPORT_DOC = readFileSync(resolve(ROOT, "docs/report.md"), "utf8");
@@ -75,5 +76,31 @@ describe("the example output at the top of docs/report.md", () => {
 
     expect(rows).toBeGreaterThan(CONFIG.accounts.length);
     expect((CONFIG.contexts ?? []).length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The one number in the prose that counts something this repository holds.
+ *
+ * "In 3 of the 28 combinations" was written when the oracle had 28 variants; the
+ * twenty-ninth was added on 18 August 2026 and the sentence stayed. A denominator
+ * is the easiest number in a document to leave behind, because nothing about it
+ * looks stale — it is the numerator a reader checks.
+ *
+ * Only the denominator is asserted. The numerator is a claim about which of the
+ * combinations produce the overlap, which is a fact about the platform's defects
+ * and not a count of anything in a file here; tying it to something derived would
+ * make it agree with itself.
+ */
+describe("the count of gate combinations quoted in docs/report.md", () => {
+  const quoted = /(\d+) of the (\d+) combinations/.exec(REPORT_DOC);
+
+  it("is there to be checked", () => {
+    expect(quoted).not.toBeNull();
+  });
+
+  it("names as many combinations as the oracle declares variants", () => {
+    const truth = loadGroundTruth(readFileSync(resolve(ROOT, "polygon/ground-truth.json"), "utf8"));
+    expect(Number(quoted?.[2])).toBe(truth.variants.length);
   });
 });

@@ -160,7 +160,7 @@ it at all answers a request it should refuse *and* returns the same body to ever
 tenant, so it produced a `privilege-escalation` group and an
 `identical-response-across-tenants` group — two entries for one missing check,
 which is the one thing a lower bound may never be: larger than the truth. On the
-reference platform this happened in 3 of the 28 combinations, taking 7 defects to
+reference platform this happened in 3 of the 29 combinations, taking 7 defects to
 6 and 13 to 11. Each group now carries `kinds`, every way its cells were found to
 be broken, so nothing is lost by the merge. See
 [ADR-0030](adr/0030-a-defect-is-not-its-channel.md).
