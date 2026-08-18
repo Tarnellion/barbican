@@ -123,7 +123,7 @@ guess identifiers — logging in is enough.
 | `checkFindings` | how many findings were found by body rather than by status |
 | `byKind` | by kind; the keys are kinds of discrepancy and check identifiers |
 | `bySeverity` | by severity |
-| `defectGroups` | distinct defect signatures — a **lower bound** |
+| `defectGroups` | distinct defect signatures — a lower bound, **with one exception**: two groups differing only by `contextId` are usually one breakage. See below |
 | `defectsBySeverity` | the same by severity, but counting **defects**, not rows |
 | `defects[].violations` | how many rows this defect produced — **not** "probes performed". For findings by body a row is a **pair of accounts**, not a cell |
 | `skipped` / `failures` | what was not probed and what failed, with reasons |
@@ -138,6 +138,16 @@ Rows collapse to the signature "endpoint × relation × conditions". Role is not
 part of the signature: an endpoint open to a user and to an admin alike is one
 defect, not two. Relation is part of it: BOLA inside a tenant and a cross-tenant
 leak live on the same endpoint and break independently.
+
+**It is a lower bound everywhere but one axis, and that is worth knowing before
+the number is quoted.** Conditions are part of the signature on purpose — the
+country check and the permission check are different mechanisms that break
+independently — and the price is that a defect visible both with a declared
+attribute and without it counts twice. The tool does not merge those, because
+from the outside they may be two paths in the code; the section on conditions
+below spells this out. So `defectGroups` is a floor against everything except a
+defect seen under several sets of conditions, and the CLI's "at least N" carries
+the same caveat.
 
 **The kind of finding is not part of it, and was until 17 August 2026.** How a
 defect was noticed is not what a defect is. An endpoint with no authorization on
@@ -247,6 +257,7 @@ these holds:
 | an account got no access anywhere it was declared to have some | the credentials do not work, or the address is wrong |
 | **no canary was checked**, while at least one account carries credentials | authentication is confirmed by nothing. A policy made only of denials leaves the safety net above with nothing to say: nothing is declared accessible, so "no access anywhere" never triggers |
 | **half or more of the requests failed** | the report describes the state of the network or the deployment, not the platform. Fewer failures are ordinary partial failures: they are visible in `failures` and in `byKind`, and they do not cancel the verdicts on the cells that survived |
+| **credentials went stale during the walk** | an account's canary passed before the walk and failed after it, so every cell probed past that point recorded a refusal that says nothing about access. `staleCredentials` names the accounts. This row was missing from the table until 17 August 2026 — five reasons listed and six in the code, which is the shape of gap this document exists to close |
 
 **A check finding fails the run at any severity but `info`**, which is the same
 line the matrix channel has. Until 15 August 2026 it needed `high` or

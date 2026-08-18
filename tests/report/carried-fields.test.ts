@@ -21,7 +21,7 @@
 import { describe, expect, it } from "vitest";
 import type { CellVerdict } from "../../src/core/index.js";
 import { parseRunConfig, toAccounts } from "../../src/io/config.js";
-import type { BuildReportOptions, RunReport } from "../../src/report/build.js";
+import type { BuildReportOptions, ReportFinding, RunReport } from "../../src/report/build.js";
 import { buildReport } from "../../src/report/build.js";
 
 /**
@@ -269,5 +269,34 @@ describe("the grounds for an expectation", () => {
     expect(unjudged).toBeDefined();
     expect(unjudged).not.toHaveProperty("basis");
     expect(unjudged).not.toHaveProperty("expected");
+  });
+});
+
+/**
+ * The two fields a matrix finding has always carried and the type did not name.
+ *
+ * `docs/report.md` gives them a section — "Which rule gave the verdict" — and a
+ * consumer typed against `ReportFinding` could read neither, because they arrive
+ * through the spread from `AccessDiff` and the interface declared them nowhere.
+ * The same shape as `AccessDiff.basis` one layer down, closed the same day.
+ * Found by adversarial review on 17 August 2026.
+ */
+describe("the grounds on a finding", () => {
+  it("are declared, so a consumer can name them", () => {
+    const finding: ReportFinding = {
+      kind: "privilege-escalation",
+      source: "matrix",
+      severity: "high",
+      basis: "rule",
+      ruleIndex: 11,
+    };
+
+    // The assertion is the annotation: this does not compile while the
+    // declaration is missing, and a value comparison never names a type.
+    const basis: "rule" | "fallback" | undefined = finding.basis;
+    const ruleIndex: number | undefined = finding.ruleIndex;
+
+    expect(basis).toBe("rule");
+    expect(ruleIndex).toBe(11);
   });
 });

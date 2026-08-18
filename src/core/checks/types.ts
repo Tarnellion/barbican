@@ -67,6 +67,22 @@ export interface Finding {
    *
    * Scalars only, and non-confidential values only: statuses, flags,
    * identifiers. Response bodies and authorization headers do not get in here.
+   *
+   * **That last sentence is a rule for whoever writes a check, and nothing
+   * enforces it.** Worth saying plainly, because the neighbouring guarantee is of
+   * a different kind: `SignalValue` is `number | boolean`, so a response body
+   * cannot be expressed in it at all, and CLAUDE.md says the ban on PII in the
+   * report rests on that type. Here `string` is allowed and has to be — a
+   * counterpart account id, an endpoint, a reason are all strings, and the
+   * evidence pack of Module 2 is built out of them.
+   *
+   * So the two channels are not equally strong and the difference is deliberate:
+   * one is closed by the type system, the other by review of the check being
+   * registered. Narrowing this type would close the extension point the registry
+   * exists for; bounding the length of a value would stop a body and not a
+   * credential, which is a bound rather than a guarantee and needs an ADR of its
+   * own before it goes into an interface a future module is built on. Recorded
+   * rather than papered over — found by adversarial review on 17 August 2026.
    */
   readonly evidence: Readonly<Record<string, string | number | boolean>>;
 }

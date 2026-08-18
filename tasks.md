@@ -1934,13 +1934,33 @@ Open, from the same review, in the order they were ranked:
       a genuinely missing variable still stops the dry run, which is what the
       command is for. The command a reader is told to try first on somebody
       else's deployment was the one that failed and blamed them for it.
-- [ ] **`Finding.evidence` admits strings** where `SignalValue` does not, so the
-      PII ban is structural on one and disciplinary on the other. Two mappings —
-      matrix findings and `withVerdicts` — spread their source instead of naming
-      fields, which is what `nothingLeftUnnamed` was written against.
-- [ ] **`defectGroups` is not a lower bound across `contextId`**: one missing
-      filter visible in two contexts is two groups. `docs/report.md` says so in
-      one section and calls the number a lower bound in another.
+- [~] **`Finding.evidence` admits strings** where `SignalValue` does not, so the
+      PII ban is structural on one and disciplinary on the other. **Named rather
+      than closed, on 17 August**, and the reasoning is in the type: `string` has
+      to be allowed there — a counterpart account id, an endpoint, a reason are
+      all strings, and Module 2's evidence pack is built out of them. Narrowing
+      the type would close the extension point the registry exists for; bounding
+      a value's length would stop a body and not a credential, which is a bound
+      rather than a guarantee and belongs in an ADR before it goes into an
+      interface a future module is built on. What was wrong was the comment
+      claiming a rule that nothing enforced; it now says which of the two channels
+      the type system closes and which one review does.
+      **Still open:** two mappings spread their source instead of naming fields —
+      matrix findings and `withVerdicts` — so a field added to `AccessDiff` or
+      `AccessObservation` publishes itself. That is not hypothetical: `basis` and
+      `ruleIndex` arrived in the report exactly that way and went undeclared in
+      `ReportFinding` for as long as they existed, closed the same day one layer
+      down. `nothingLeftUnnamed` guards the other five mappings.
+- [x] **`defectGroups` is not a lower bound across `contextId`.** Closed
+      17 August as a documentation defect, which is what it was: the design is
+      deliberate and already defended in the section on conditions — a defect
+      visible with a declared attribute and without it may be two paths in the
+      code, and conditions are in the signature precisely because the country
+      check and the permission check break independently. What contradicted it was
+      the summary table calling the number a lower bound with no qualification,
+      two hundred lines above the paragraph admitting it can exceed the truth on
+      that one axis. Both now say the same thing, and the caveat sits where the
+      number is defined rather than where a reader might not reach.
 - [ ] **The file half of the `$ref` invariant is held by barriers 2 and 3**, not
       by barrier 1 as the module header now says — an absolute path and `file://`
       need no base. The header was rewritten on 17 August from a measurement that

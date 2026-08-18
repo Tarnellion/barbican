@@ -242,6 +242,22 @@ export interface ReportFinding {
   readonly expected?: ExpectedOutcome;
   readonly actual?: AccessOutcome;
   /**
+   * What declared the expectation, and which rule if a rule did.
+   *
+   * Every matrix finding has carried both since cell verdicts existed — they
+   * arrive through the spread from `AccessDiff` — and this interface declared
+   * neither until 17 August 2026. So a consumer typed against `ReportFinding`
+   * could not read the two fields `docs/report.md` devotes a whole section to,
+   * while the values sat in the object. The same shape as `AccessDiff.basis`,
+   * which was closed the same day one layer down; found by adversarial review.
+   *
+   * Absent on a check finding: a check does not compare against the policy, so
+   * there is no rule behind what it found.
+   */
+  readonly basis?: "rule" | "fallback";
+  /** The rule's position in `inputs.policy.rules`. Only when `basis` is `rule`. */
+  readonly ruleIndex?: number;
+  /**
    * The response headers, redacted as everywhere else.
    *
    * A finding carried a status and no headers, and those are the one thing that
