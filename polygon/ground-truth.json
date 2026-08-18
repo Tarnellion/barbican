@@ -82,6 +82,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 0,
+      "expectedCells": 144,
       "findings": []
     },
     {
@@ -101,6 +102,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -201,6 +203,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -277,6 +280,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -329,6 +333,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "helen-h1",
@@ -365,6 +370,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -433,6 +439,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -493,6 +500,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "sara-ac",
@@ -529,6 +537,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -685,6 +694,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -817,6 +827,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -925,6 +936,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -1041,6 +1053,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "helen-h1",
@@ -1125,6 +1138,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -1193,6 +1207,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -1381,6 +1396,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "admin-a",
@@ -1498,6 +1514,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "note": "The request conditions as a dimension of the matrix. In the correct mode the same cells give 451 — a denial for legal reasons — and there are no findings; from which it also follows that not one previous combination is touched by this flag: without it the geo cells answer 451 under any other defects.",
       "findings": [
         {
@@ -1672,6 +1689,7 @@
       },
       "unsafeMethods": true,
       "expectedExitCode": 1,
+      "expectedCells": 180,
       "note": "The first variant that runs with --unsafe-methods. Without the flag orders.cancel is skipped and the report says so; with it the same matrix machinery walks it, and a write cell turns out to be an ordinary cell whose method changes state.",
       "findings": [
         {
@@ -1774,6 +1792,7 @@
       },
       "unsafeMethods": true,
       "expectedExitCode": 1,
+      "expectedCells": 180,
       "note": "The write counterpart of idor-same-tenant. The sets of cells of the two write defects do not intersect, for the same reason the read ones do not: one lives on foreign tenants, the other inside one's own.",
       "findings": [
         {
@@ -1827,6 +1846,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -2111,6 +2131,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -2411,6 +2432,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -2759,6 +2781,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -3107,6 +3130,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "findings": [
         {
           "account": "alice-a",
@@ -3471,6 +3495,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "note": "The conditions with a query parameter. There are no matrix discrepancies and there must not be: the parameter by itself neither grants nor takes away permissions, and the outcome stays as it was. What breaks is the content of the response, and that is visible only by comparing bodies within one and the same set of conditions — the pair \"a base request against a request with the parameter\" is deliberately not compared, two variables would change there at once (ADR-0019).",
       "findings": [
         {
@@ -3540,6 +3565,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "note": "All nine defects at once. The findings must be a union: the discrepancies of the base conditions — the same as in all-eight, cell for cell — plus the same defects seen under the geo-blocked conditions. The claim of orthogonality is tested right here: the conditions change not one base cell, while the geo cells repeat the picture of permissions, because with the geo barrier removed the same authorization runs. There is one exception, and a substantive one: the collapsed set of memberships is visible in the base conditions as a denial (unexpected-denial on sara-ac), and under the geo conditions it is not visible at all — there a denial is the declared expectation.",
       "findings": [
         {
@@ -4217,6 +4243,7 @@
         "POLYGON_DEFECT_WRITE_NO_OWNER_CHECK": false
       },
       "expectedExitCode": 1,
+      "expectedCells": 144,
       "note": "All ten defects at once, and the picture is identical to all-nine — cell for cell, 82 findings against 82. This is a claim, not a coincidence: the tenth defect, the hidden `?scope=all`, removes the tenant filter from the brand list, and with `list-no-filter` on there is no filter there any more — nothing left to remove. A defect invisible in the presence of another one is a normal thing, and it is worth having it visible as a number rather than as an argument. The six wide-scope pairs that `scope-all` produces on its own are already present in all-nine, produced there by `list-no-filter`.",
       "findings": [
         {
@@ -4895,6 +4922,7 @@
       },
       "unsafeMethods": true,
       "expectedExitCode": 1,
+      "expectedCells": 180,
       "note": "Both write defects at once. The findings must be the union, 14 cells: the sets do not intersect, and that is the claim being checked, not an observation about the implementation.",
       "findings": [
         {

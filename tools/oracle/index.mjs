@@ -41,6 +41,9 @@
  * @property {string} id
  * @property {Readonly<Record<string, unknown>>} selector
  * @property {number} expectedExitCode
+ * @property {number} expectedCells how many cells the run must probe. Written by
+ *   hand like everything else here, and the one number that says the run happened
+ *   at all — see the validation below
  * @property {readonly OracleFinding[]} findings
  *
  * @typedef {object} GroundTruth
@@ -144,6 +147,12 @@ export function loadGroundTruth(source) {
   const seen = new Set();
   for (const variant of root.variants) {
     requireObject(variant, "variants[]");
+    if (!Number.isInteger(variant.expectedCells) || variant.expectedCells <= 0) {
+      throw new GroundTruthError(
+        `variants[].expectedCells: expected a positive integer, got ` +
+          `${JSON.stringify(variant.expectedCells)}`,
+      );
+    }
     if (typeof variant.id !== "string" || variant.id === "") {
       throw new GroundTruthError("variants[].id: expected a non-empty string");
     }
@@ -489,6 +498,30 @@ export function compareVariant(variant, report, exitCode) {
   if (unexpected.length > 0) {
     problems.push(
       `found beyond the ground truth (${unexpected.length}):\n    ${unexpected.join("\n    ")}`,
+    );
+  }
+  // How many cells the run actually probed.
+  //
+  // Everything above compares **sets of cells a finding is expected on**, and a
+  // cell nobody expects a finding on is therefore outside the comparison
+  // entirely. The ground truth never names the anonymous account, `health`,
+  // `affiliate.stats` or the accounts under `wide-scope` — some 34 of 144 cells —
+  // so a change that stops probing them is invisible here by construction.
+  //
+  // Demonstrated on 18 August 2026 by adversarial review: one line dropping the
+  // anonymous account from every run leaves `tsc` clean, 859 tests green, and
+  // this gate reporting 28 combinations and 0 mismatches, with the matrix down
+  // from 144 cells to 128. The account whose whole purpose is the claim "this
+  // endpoint is not public" simply stopped being asked, and the strongest gate
+  // this project has said nothing.
+  //
+  // A number per variant, written by hand like every other fixture here: it is
+  // not derived from a run, so a run cannot agree with itself about it.
+  const probed = (report.observations ?? []).length;
+  if (probed !== variant.expectedCells) {
+    problems.push(
+      `probed ${probed} cells, expected ${variant.expectedCells} — the matrix ` +
+        `changed size, and a comparison of findings cannot see that`,
     );
   }
   if (exitCode !== variant.expectedExitCode) {

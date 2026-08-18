@@ -1992,6 +1992,77 @@ Open, from the same review, in the order they were ranked:
       matrix finding carries them; `staleCredentials` is a sixth reason for exit 2
       and `docs/report.md` lists five.
 
+## Adversarial review of 18 August 2026 (the gate itself)
+
+Two more attackers, on what the reviews of 17 August did not touch: the polygon
+and its oracle, the tenancy and relation core, and the CLI's terminal output.
+
+- [x] **The oracle could not see a cell it expects no finding on.** `compareVariant`
+      compares **sets of cells a finding is expected on**, so a cell named in no
+      variant's findings is outside the comparison entirely — on this platform
+      that is some 34 of 144: the anonymous account, `health`, `affiliate.stats`,
+      and the accounts under `wide-scope`. Demonstrated and reproduced: one line
+      dropping the anonymous account from every run leaves `tsc` clean, 859 tests
+      green, and the gate reporting 28 combinations and 0 mismatches with the
+      matrix down to 128 cells. The account whose entire purpose is the claim
+      "this endpoint is not public" stopped being asked and nothing said so.
+      Closed: every variant declares `expectedCells`, written by hand like the
+      rest of the ground truth, `loadGroundTruth` refuses a variant without it,
+      and `compareVariant` reports a size change as a mismatch that names why a
+      finding comparison could not have caught it.
+- [x] **The one coverage number came from the first combination.** The README
+      table said "Cells probed per combination: 144", taken from `rows[0]` — and
+      it was already wrong for the three write combinations, which probe 180. It
+      was also the only measure of coverage anywhere in the gate, so a regression
+      halving the matrix in 27 of 28 combinations reproduced the committed table
+      byte for byte. The count is now a column, row by row.
+- [x] **A canary the policy denies.** Found by the other agent while writing the
+      guide, in its own example: `assertCanariesUsable` checked existence,
+      templating and exclusion, and nobody checked that the policy declares the
+      endpoint reachable for that role. Two of the operator's own statements that
+      cannot both be true, and the run reported the contradiction as a
+      `privilege-escalation` on the platform. Refused before the first request.
+
+Open, from the same review:
+
+- [ ] **`relationOf` can be broken so that severity drops and the gate stays
+      green.** Replacing the final `foreign-tenant` with `ancestor-tenant` takes
+      every cross-tenant leak from `critical` to `high`, and 28 combinations still
+      match: `cellKey` carries no relation, the signature checks compare the report
+      with itself, and `severity` is only ever checked as a sum. Unit tests in
+      `tests/core/tenancy.test.ts` do catch this particular mutation — so the
+      weight of a finding rests on hand-written fixtures rather than on the gate,
+      and the polygon README's claim that a relation "travelled all the way to a
+      line of the report" is prose, not a check.
+- [ ] **A typo in a resource parameter name silently removes its cells.** `orderId`
+      → `orderid` takes a run from 144 cells to 126 and privilege escalations from
+      10 to 7, with `warnings: []`, `resourcesNotFound: []`, and the resource still
+      listed in the report. A policy pattern matching nothing is refused at
+      startup, an empty selector is refused, an unknown endpoint reference is
+      refused; a resource matching **no endpoint at all** is not.
+- [ ] **`checkCoverage` proves something narrower than its own header claims.** It
+      checks that each `status`/`body-signal` defect is named in at least one
+      finding, not "is everything declared tested at all". Downgrading one defect
+      to `out-of-scope` and deleting its two variants leaves the gate reporting 26
+      combinations, 0 mismatches, and coverage complete — nothing records how many
+      defects or variants there should be. Separately: `PRIMARY_TENANT_ONLY` also
+      breaks a write, and no variant exercises it with `--unsafe-methods`, so an
+      independent oracle finds two cells the ground truth does not record.
+- [ ] **The terminal and the file disagree, under a comment saying they cannot.**
+      `build.ts` says the warnings are "the same ones the console shows, from the
+      same constants"; `WARNINGS` does not occur in `src/cli.ts` at all, two of the
+      texts have already drifted apart, and `findingsCapped` is never printed on
+      screen — a run whose evidence rows were dropped says so only in the file.
+- [ ] **A green line on a run with twelve cross-tenant leaks.** "No privilege
+      escalation found" is literally true — `byKind` there counts matrix kinds
+      only — and it is the headline of the screen, coloured green, with "Of those,
+      found by body rather than status: 12" below it referring to the ones it just
+      called absent.
+- [ ] **Stale claims in `polygon/server.mjs`.** The header still says "every defect
+      must show itself in the response status", untrue since ADR-0011; the comment
+      on `DEFECT_FLAGS` says "eight of the ten" where the object holds twelve. The
+      README beside it was corrected and the numbers in the source were not.
+
 ## Readiness for different authentication surfaces
 
 - [x] **ADR-0016: an authentication scheme per account.** Named schemes at the root,

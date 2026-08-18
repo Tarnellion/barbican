@@ -597,7 +597,11 @@ defect groups that differ only by their conditions.
 ## The result of the verification
 
 The numbers below come from the run of **14 August 2026** — the one that
-regenerated the table — all twenty-eight combinations, 144 cells, 8 canaries.
+regenerated the table — all twenty-eight combinations, 8 canaries, and 144
+cells in each except the three that pass `--unsafe-methods`, where
+`orders.cancel` brings it to 180. The count is in the table row by row for
+that reason: one number above it was wrong for three combinations and could
+not have shown a change in any of the other twenty-seven.
 There are more cells not because the platform grew: 54 of them are the same
 endpoints under declared request conditions (ADR-0019).
 
@@ -609,38 +613,38 @@ affecting the result, and it must not.
 
 <!-- verify:begin -->
 
-Cells probed per combination: 144. Combinations: 28.
+Combinations: 28.
 
-| Combination | Findings | Oracle expects | Verdict | Exit code |
-|---|---|---|---|---|
-| `clean`                          | 0 | 0 | match | 0 |
-| `cross-tenant`                   | 10 | 10 | match | 1 |
-| `no-role-check`                  | 7 | 7 | match | 1 |
-| `idor-same-tenant`               | 4 | 4 | match | 1 |
-| `cross-holding`                  | 2 | 2 | match | 1 |
-| `ancestor-leak`                  | 6 | 6 | match | 1 |
-| `parent-leak`                    | 5 | 5 | match | 1 |
-| `primary-tenant-only`            | 2 | 2 | match | 1 |
-| `cross-tenant+no-role-check`     | 17 | 17 | match | 1 |
-| `cross-tenant+idor-same-tenant`  | 14 | 14 | match | 1 |
-| `no-role-check+idor-same-tenant` | 11 | 11 | match | 1 |
-| `cross-tenant+cross-holding`     | 12 | 12 | match | 1 |
-| `ancestor-leak+cross-holding`    | 8 | 8 | match | 1 |
-| `ancestor-leak+parent-leak`      | 6 | 6 | match | 1 |
-| `all`                            | 21 | 21 | match | 1 |
-| `list-no-filter`                 | 12, of them by body 12 | 12 | match | 1 |
-| `geo-bypass`                     | 19 | 19 | match | 1 |
-| `write-cross-tenant`             | 10 | 10 | match | 1 |
-| `write-no-owner-check`           | 4 | 4 | match | 1 |
-| `all-four`                       | 33, of them by body 12 | 33 | match | 1 |
-| `all-five`                       | 35, of them by body 12 | 35 | match | 1 |
-| `all-six`                        | 41, of them by body 12 | 41 | match | 1 |
-| `all-seven`                      | 41, of them by body 12 | 41 | match | 1 |
-| `all-eight`                      | 43, of them by body 12 | 43 | match | 1 |
-| `scope-all`                      | 6, of them by body 6 | 6 | match | 1 |
-| `all-nine`                       | 82, of them by body 18 | 82 | match | 1 |
-| `all-ten`                        | 82, of them by body 18 | 82 | match | 1 |
-| `both-writes`                    | 14 | 14 | match | 1 |
+| Combination | Cells | Findings | Oracle expects | Verdict | Exit code |
+|---|---|---|---|---|---|
+| `clean`                          | 144 | 0 | 0 | match | 0 |
+| `cross-tenant`                   | 144 | 10 | 10 | match | 1 |
+| `no-role-check`                  | 144 | 7 | 7 | match | 1 |
+| `idor-same-tenant`               | 144 | 4 | 4 | match | 1 |
+| `cross-holding`                  | 144 | 2 | 2 | match | 1 |
+| `ancestor-leak`                  | 144 | 6 | 6 | match | 1 |
+| `parent-leak`                    | 144 | 5 | 5 | match | 1 |
+| `primary-tenant-only`            | 144 | 2 | 2 | match | 1 |
+| `cross-tenant+no-role-check`     | 144 | 17 | 17 | match | 1 |
+| `cross-tenant+idor-same-tenant`  | 144 | 14 | 14 | match | 1 |
+| `no-role-check+idor-same-tenant` | 144 | 11 | 11 | match | 1 |
+| `cross-tenant+cross-holding`     | 144 | 12 | 12 | match | 1 |
+| `ancestor-leak+cross-holding`    | 144 | 8 | 8 | match | 1 |
+| `ancestor-leak+parent-leak`      | 144 | 6 | 6 | match | 1 |
+| `all`                            | 144 | 21 | 21 | match | 1 |
+| `list-no-filter`                 | 144 | 12, of them by body 12 | 12 | match | 1 |
+| `geo-bypass`                     | 144 | 19 | 19 | match | 1 |
+| `write-cross-tenant`             | 180 | 10 | 10 | match | 1 |
+| `write-no-owner-check`           | 180 | 4 | 4 | match | 1 |
+| `all-four`                       | 144 | 33, of them by body 12 | 33 | match | 1 |
+| `all-five`                       | 144 | 35, of them by body 12 | 35 | match | 1 |
+| `all-six`                        | 144 | 41, of them by body 12 | 41 | match | 1 |
+| `all-seven`                      | 144 | 41, of them by body 12 | 41 | match | 1 |
+| `all-eight`                      | 144 | 43, of them by body 12 | 43 | match | 1 |
+| `scope-all`                      | 144 | 6, of them by body 6 | 6 | match | 1 |
+| `all-nine`                       | 144 | 82, of them by body 18 | 82 | match | 1 |
+| `all-ten`                        | 144 | 82, of them by body 18 | 82 | match | 1 |
+| `both-writes`                    | 180 | 14 | 14 | match | 1 |
 
 <!-- verify:end -->
 

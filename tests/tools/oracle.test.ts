@@ -24,12 +24,14 @@ const MINIMAL: GroundTruth = {
       id: "clean",
       selector: { FLAG: false },
       expectedExitCode: 0,
+      expectedCells: 1,
       findings: [],
     },
     {
       id: "broken",
       selector: { FLAG: true },
       expectedExitCode: 1,
+      expectedCells: 1,
       findings: [
         {
           account: "alice",
@@ -143,6 +145,7 @@ describe("checkCoverage", () => {
           id: "both",
           selector: {},
           expectedExitCode: 1,
+          expectedCells: 1,
           findings: [
             {
               account: "a",
@@ -323,6 +326,10 @@ describe("compareVariant", () => {
       {
         findings: [],
         checks: [],
+        // One cell, because the variant declares one. Without it the size check
+        // fires first and hides the problem each of these cases is about — which
+        // is right for a real report and wrong for a fixture pretending to be one.
+        observations: [{ accountId: "alice", endpointId: "orders.read" }],
         truncated: true,
       },
       0,
@@ -346,11 +353,13 @@ describe("compareVariant", () => {
     const clean = MINIMAL.variants[0] as Variant;
     const withCheck = (check: Readonly<Record<string, unknown>>) => ({
       findings: [],
-      observations: [],
+      // One cell, because the variant declares one — see the note above. The
+      // summary counts it too, since the oracle checks the report against itself.
+      observations: [{ accountId: "alice", endpointId: "orders.read" }],
       defects: [],
       summary: {
         findings: 0,
-        observations: 0,
+        observations: 1,
         checkFindings: 0,
         defectGroups: 0,
         bySeverity: {},
@@ -397,11 +406,83 @@ describe("compareVariant", () => {
       {
         findings: [],
         checks: [],
+        // One cell, because the variant declares one. Without it the size check
+        // fires first and hides the problem each of these cases is about — which
+        // is right for a real report and wrong for a fixture pretending to be one.
+        observations: [{ accountId: "alice", endpointId: "orders.read" }],
         unauthenticated: ["alice"],
       },
       0,
     );
 
     expect(result.problems[0]).toMatch(/no access anywhere/);
+  });
+});
+
+/**
+ * The size of the matrix, which the comparison of findings cannot see.
+ *
+ * Everything else in `compareVariant` compares **sets of cells a finding is
+ * expected on**, so a cell nobody expects a finding on is outside the comparison
+ * entirely. On the reference platform that is some 34 cells of 144: the anonymous
+ * account, `health`, `affiliate.stats`, and the accounts under `wide-scope` are
+ * named in no variant's findings.
+ *
+ * Demonstrated on 18 August 2026 by adversarial review: one line dropping the
+ * anonymous account from every run left `tsc` clean, 859 tests green, and this
+ * gate reporting 28 combinations and 0 mismatches, with the matrix down from 144
+ * cells to 128. The account whose entire purpose is the claim "this endpoint is
+ * not public" stopped being asked, and the strongest gate in the project said
+ * nothing.
+ */
+describe("the number of cells a variant must probe", () => {
+  const clean = MINIMAL.variants[0] as Variant;
+
+  it("is a mismatch when the matrix shrank, even with every finding still right", () => {
+    const result = compareVariant(clean, { findings: [], observations: [] }, 0);
+
+    expect(result.problems[0]).toMatch(/probed 0 cells, expected 1/);
+    // And says why a finding comparison could not have caught it.
+    expect(result.problems[0]).toMatch(/cannot see that/);
+  });
+
+  it("is a mismatch when the matrix grew", () => {
+    const result = compareVariant(
+      clean,
+      {
+        findings: [],
+        observations: [
+          { accountId: "a", endpointId: "e" },
+          { accountId: "b", endpointId: "e" },
+        ],
+      },
+      0,
+    );
+
+    expect(result.problems[0]).toMatch(/probed 2 cells, expected 1/);
+  });
+
+  /**
+   * And the ground truth may not omit the number: a variant added without it
+   * would be one the gate cannot measure, which is the state this closes.
+   */
+  it("must be declared by every variant", () => {
+    const source = sourceOf((value) => ({
+      ...value,
+      variants: value.variants.map(({ expectedCells: _dropped, ...rest }) => rest),
+    }));
+
+    expect(() => loadGroundTruth(source)).toThrow(/expectedCells/);
+  });
+
+  it("must be a positive integer", () => {
+    for (const bad of [0, -1, 1.5, "144"]) {
+      const source = sourceOf((value) => ({
+        ...value,
+        variants: value.variants.map((variant) => ({ ...variant, expectedCells: bad })),
+      }));
+
+      expect(() => loadGroundTruth(source)).toThrow(GroundTruthError);
+    }
   });
 });

@@ -394,15 +394,24 @@ function renderTable(rows) {
   const lines = rows.map((row) => {
     const name = `\`${row.id}\``.padEnd(width + 2);
     const body = row.byBody > 0 ? `, of them by body ${row.byBody}` : "";
-    return `| ${name} | ${row.findings}${body} | ${row.expected} | ${row.matched ? "match" : "MISMATCH"} | ${row.code} |`;
+    return `| ${name} | ${String(row.cells).padStart(3)} | ${row.findings}${body} | ${row.expected} | ${row.matched ? "match" : "MISMATCH"} | ${row.code} |`;
   });
   return [
     TABLE_BEGIN,
     "",
-    `Cells probed per combination: ${rows[0]?.cells ?? 0}. Combinations: ${rows.length}.`,
+    // The cell count is per row, not one number above the table.
+    //
+    // It used to be `rows[0].cells` — the `clean` combination — described as
+    // "per combination", and it was already wrong: the three write combinations
+    // probe 180 cells rather than 144, because `--unsafe-methods` adds
+    // `orders.cancel`. Worse than wrong, it was the only measure of coverage in
+    // the whole gate, so a regression halving the matrix in 27 of the 28
+    // combinations reproduced the committed table byte for byte and passed
+    // `--check-readme`. Found by adversarial review on 18 August 2026.
+    `Combinations: ${rows.length}.`,
     "",
-    "| Combination | Findings | Oracle expects | Verdict | Exit code |",
-    "|---|---|---|---|---|",
+    "| Combination | Cells | Findings | Oracle expects | Verdict | Exit code |",
+    "|---|---|---|---|---|---|",
     ...lines,
     "",
     TABLE_END,
