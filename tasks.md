@@ -172,6 +172,24 @@ Left over from this topic:
       the declaration — and since it cannot, it has no right to stay silent. Found by
       checking against the oracle: the holding was denied its own brand, and the run returned 0.
 - [ ] Juice Shop — on leftover time.
+      Recon done 18 August 2026, written up in `docs/polygons/juice-shop.md`. It is the
+      best of the three: a broad set of access-control defects that are visible in the
+      **response status** on **GET**, of exactly the two kinds module 1 checks — an
+      object read by somebody who does not own it, and an endpoint open to somebody who
+      has not authenticated. Measured, not taken from the project's challenge list.
+      Three findings that shape the build. The login response carries `bid`, the basket
+      id, and it is **not** the user id — alice registered as user 25 and got basket 6,
+      so the one owned resource here has to be taken from the login rather than derived.
+      A basket that does not exist answers **200** with `data: null`, so the status does
+      not tell "no such basket" from "somebody else's" — provisioning has to materialise
+      what it declares or the cell is a finding that means nothing. And the
+      administrator is indistinguishable from a customer on every one of seventeen GET
+      endpoints measured, so the role is left out for the reason VAmPI's configuration
+      leaves out its own: a column identical to another is the appearance of coverage.
+      Still to build: the polygon directory itself — compose, run configuration,
+      endpoint list, `tokens.mjs`, `verify.mjs`, hand-written `ground-truth.json`,
+      README. No tenancy here, so this covers half of what the reference platform does
+      and nothing should read as covering the other half.
 - [x] **Both external polygons were re-verified on 13 August 2026** after request
       conditions, verdicts next to observations and the report edits: VAmPI — 2 modes,
       crAPI — 60 cells, 16 findings, 0 discrepancies. Along the way both got a
