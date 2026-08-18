@@ -225,14 +225,44 @@ the configuration format — [ADR-0008](docs/adr/0008-run-configuration-format.m
 | What | Condition | Where we go |
 |---|---|---|
 | `@apidevtools/swagger-parser` | 18 months without a release. The latest is 12.1.0 of 14.10.2025, so the threshold arrives around **April 2027** | `@readme/openapi-parser` (7.0.1 of 07.08.2026, active) |
-| TypeScript 6 | TS 7 leaves preview and stabilizes its public API | migrate to 7.x |
+| TypeScript 6 | TS 7 leaves preview and stabilizes its public API | migrate to 7.x — **the condition has been met, see the review below** |
 | The build through `tsc` | CJS or a bundle is needed | `tsup`, then `tsdown` |
 | Biome | rules are missing | ESLint 9 flat + `oxlint` in CI |
-| `fast-redact` | 28 months without a release; it mutates the source object | `@pinojs/redact` |
-| `pdfkit` | it cannot carry the report we need | HTML → PDF as a separate step |
+| `fast-redact` (a candidate, not installed) | 28 months without a release; it mutates the source object | `@pinojs/redact` |
+| `pdfkit` (a candidate, not installed) | it cannot carry the report we need | HTML → PDF as a separate step |
 | Any dependency | a supply-chain incident | a 7-day cooldown gives time for a version to be pulled |
 
 Check on every dependency update, and at least once a quarter.
+
+### Reviewed 18 August 2026
+
+Measured against the registry rather than recalled, since a table of conditions
+nobody checks is the same as no table. Two of the rows are candidates that were
+never installed — `fast-redact` is deferred by ADR-0001, `pdfkit` belongs to
+module 2 — and they are marked as such above, because a row that reads like a
+dependency invites somebody to go looking for it in the lockfile.
+
+| Row | Measured | Fired? |
+|---|---|---|
+| `@apidevtools/swagger-parser` | latest 12.1.0 of 14.10.2025, 10 months ago | no — April 2027 stands |
+| TypeScript 6 | 7.0.2 of 08.07.2026 is on `dist-tags.latest`, 40 days old | **yes** |
+| `fast-redact` | latest 3.5.0 of 19.03.2024, 29 months ago | **yes**, against a threshold of 28 — but it is not installed, so what this settles is where to go if redaction ever needs a library: `@pinojs/redact`, 0.4.0 of 14.10.2025 |
+| `pdfkit` | 0.19.1 of 10.06.2026, active | not yet applicable |
+| The build through `tsc`, Biome | conditions are internal, nothing to measure | no |
+
+**TypeScript, in detail, because the row now asks for a decision.** The second
+half of the condition — "stabilizes its public API" — does not apply to this
+project: nothing here imports the TypeScript API, `tsc` is invoked from the
+command line in exactly two scripts. What was left to check was whether the
+project builds, and it does, unchanged: `tsc --noEmit` under 7.0.2 is clean
+against the same `tsconfig.json`, and `tsconfig.build.json` emits the same 26
+JavaScript files. Byte-for-byte the same, with one exception —
+`core/types.d.ts`, where 7.0.2 keeps the per-element doc comments on
+`RESOURCE_RELATIONS` that 6.0.3 dropped, which is a gain for a consumer reading
+the declarations. Type checking takes 0.2–0.3 s against 2.3–2.4 s.
+
+That is the measurement, not the decision. Bumping the compiler's major version
+changes the stack CLAUDE.md declares and wants an ADR of its own.
 
 ---
 

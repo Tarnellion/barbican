@@ -2766,5 +2766,22 @@ Lift these bans together with the corresponding ADR, not "along for the ride" wi
       number, and **the hook actually runs the comparison**. That last one is the
       guard that matters: a guard nobody calls passes review and is invisible.
 - [ ] A quarterly review of the thresholds for revisiting decisions — the table in [plan.md](plan.md).
-      The nearest one expected: `@apidevtools/swagger-parser` around April 2027.
+      Standing, so it is not ticked off. Done 18 August 2026, against the registry rather
+      than from memory; the result is recorded under the table.
+      The sentence that used to close this line — "the nearest one expected:
+      `@apidevtools/swagger-parser` around April 2027" — was wrong, and wrong in the
+      direction a table of conditions fails in: the nearest one had already arrived.
+      **TypeScript 7 left preview**; 7.0.2 has been on `dist-tags.latest` since 8 July.
+      `fast-redact` passed its 28-month mark too, at 29, though it is a candidate that
+      was never installed, so what that settles is where to go if redaction ever needs a
+      library. swagger-parser is the one still ahead, and April 2027 is right for it.
 - [ ] Revisit TypeScript 7 once it leaves preview and stabilizes its public API.
+      Revisited 18 August 2026, and the condition is met — the decision is what is left.
+      The second half does not apply here: nothing in this repository imports the
+      TypeScript API, `tsc` is called from the command line in two scripts and nowhere
+      else. Measured under 7.0.2 with no change to any configuration: `tsc --noEmit`
+      clean, `tsconfig.build.json` emitting the same 26 files, byte-identical but for
+      `core/types.d.ts`, where 7.0.2 keeps the per-element doc comments on
+      `RESOURCE_RELATIONS` that 6.0.3 dropped. Type checking 0.2–0.3 s against 2.3–2.4 s.
+      Left open deliberately: the stack in CLAUDE.md names TypeScript 6, and a compiler
+      major is an ADR, not a bump somebody makes while passing.
