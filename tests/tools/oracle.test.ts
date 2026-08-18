@@ -13,6 +13,7 @@ import {
   compareVariant,
   GroundTruthError,
   loadGroundTruth,
+  severityByAdr0014,
 } from "../../tools/oracle/index.mjs";
 
 const MINIMAL: GroundTruth = {
@@ -484,5 +485,209 @@ describe("the number of cells a variant must probe", () => {
 
       expect(() => loadGroundTruth(source)).toThrow(GroundTruthError);
     }
+  });
+});
+
+/**
+ * What the report says about a cell, not only which cells it names.
+ *
+ * `cellKey` is built from account, endpoint, kind and resource, so `relation`
+ * and `severity` took no part in the comparison at all. Adversarial review of
+ * 18 August 2026 measured the hole end to end: replace the last
+ * `return "foreign-tenant"` in `src/core/tenancy.ts` with `"ancestor-tenant"`
+ * and every cross-tenant leak on the reference platform drops from `critical` to
+ * `high` while all 28 combinations still match. The severity was checked only as
+ * a sum equal to the number of findings, which that mutation leaves untouched.
+ *
+ * Reproduced here against a built binary before the fix and after it: the gate
+ * said "MATCHES the ground truth" on `cross-tenant` with the mutation in place,
+ * and after the fix named all ten cells, each with its relation and its weight.
+ */
+describe("the relation and the weight on a finding", () => {
+  const RELATED: GroundTruth = {
+    defects: { leak: { visibility: "status" } },
+    relations: { "alice × o-1": "foreign-tenant" },
+    checkSeverities: { "identical-response-across-tenants": "high" },
+    variants: [
+      {
+        id: "broken",
+        selector: { FLAG: true },
+        expectedExitCode: 1,
+        expectedCells: 1,
+        findings: [
+          {
+            account: "alice",
+            endpoint: "orders.read",
+            resource: "o-1",
+            kind: "privilege-escalation",
+            defects: ["leak"],
+          },
+        ],
+      },
+    ],
+  };
+
+  /** The tables reach `compareVariant` through the variant, so this is how they get there. */
+  const variantOf = (patch: (value: GroundTruth) => unknown = (value) => value): Variant =>
+    loadGroundTruth(JSON.stringify(patch(structuredClone(RELATED)))).variants[0] as Variant;
+
+  /**
+   * A whole report, consistent with itself, around the one finding under test.
+   *
+   * The counters and the defect group are derived from that finding rather than
+   * written out, because they are not what these cases are about: leave them off
+   * and `checkReportConsistency` fills the result with problems of its own, and
+   * the assertion below stops being able to tell silence from noise.
+   */
+  const reportWith = (patch: Readonly<Record<string, unknown>>) => {
+    const finding = {
+      accountId: "alice",
+      endpointId: "orders.read",
+      resourceId: "o-1",
+      kind: "privilege-escalation",
+      source: "matrix",
+      relation: "foreign-tenant",
+      severity: "critical",
+      ...patch,
+    } as Record<string, unknown>;
+
+    return {
+      findings: [finding],
+      observations: [{ accountId: "alice", endpointId: "orders.read" }],
+      defects: [
+        {
+          key: "one",
+          endpointId: finding.endpointId,
+          relation: finding.relation,
+          kinds: [finding.kind],
+          violations: 1,
+        },
+      ],
+      summary: {
+        findings: 1,
+        observations: 1,
+        checkFindings: finding.source === "check" ? 1 : 0,
+        defectGroups: 1,
+        bySeverity: { [String(finding.severity)]: 1 },
+        byKind: { [String(finding.kind)]: 1 },
+      },
+    };
+  };
+
+  it("stays silent when both agree with the ground truth", () => {
+    expect(compareVariant(variantOf(), reportWith({}), 1).problems).toEqual([]);
+  });
+
+  /** The mutation itself: the relation drops a rung and the weight follows it down. */
+  it("names the cell when the relation is not the declared one", () => {
+    const problems = compareVariant(
+      variantOf(),
+      reportWith({ relation: "ancestor-tenant", severity: "high" }),
+      1,
+    ).problems;
+
+    expect(problems.join("\n")).toMatch(/relation ancestor-tenant, the ground truth declares/);
+    expect(problems.join("\n")).toMatch(/severity high, ADR-0014 gives critical/);
+  });
+
+  /**
+   * And the weight alone, with the relation still right: a change to the table
+   * of ADR-0014 in `severityOf` moves every finding of a whole class without
+   * touching a single cell key.
+   */
+  it("names the cell when only the weight moved", () => {
+    const problems = compareVariant(variantOf(), reportWith({ severity: "high" }), 1).problems;
+
+    expect(problems.join("\n")).toMatch(/severity high, ADR-0014 gives critical/);
+  });
+
+  /**
+   * A finding on a cell the table says nothing about cannot be weighed, and
+   * silence there would let the whole table be emptied one line at a time.
+   */
+  it("refuses a finding the ground truth declares no relation for", () => {
+    const problems = compareVariant(
+      variantOf(),
+      reportWith({ resourceId: "o-2", relation: "own", severity: "medium" }),
+      1,
+    ).problems;
+
+    expect(problems.join("\n")).toMatch(/declares no relation for this cell/);
+  });
+
+  /**
+   * With no resource there is nothing to stand in relation to, and a relation
+   * there is not a spare field: the report groups its defects by
+   * "endpoint × relation × conditions", so one would split a group in two.
+   */
+  it("refuses a relation on a cell that addresses no resource", () => {
+    const problems = compareVariant(
+      variantOf(),
+      reportWith({ resourceId: undefined, relation: "own", severity: "high" }),
+      1,
+    ).problems;
+
+    expect(problems.join("\n")).toMatch(/with no resource to relate to/);
+  });
+
+  /**
+   * A check declares the severity of its own findings, so the oracle declares it
+   * too: the table of ADR-0014 is about matrix discrepancies and never sees one.
+   * Asserted on the severity line alone — a check finding is a different cell key
+   * from the one this variant declares, so the comparison of cells has plenty to
+   * say about it, and none of that is the point here.
+   */
+  it("checks a check finding against the severity declared for that check", () => {
+    const asCheck = {
+      source: "check",
+      kind: "identical-response-across-tenants",
+      relation: undefined,
+      standards: [{ standard: "OWASP-API-2023", clause: "API1" }],
+    };
+
+    expect(
+      compareVariant(variantOf(), reportWith({ ...asCheck, severity: "high" }), 1).problems.join(
+        "\n",
+      ),
+    ).not.toMatch(/severity/);
+    expect(
+      compareVariant(variantOf(), reportWith({ ...asCheck, severity: "low" }), 1).problems.join(
+        "\n",
+      ),
+    ).toMatch(/severity low, the ground truth declares high/);
+  });
+
+  /**
+   * A polygon with no relations to declare — VAmPI has no such thing as a
+   * foreign tenant — makes no claim, and the module says nothing rather than
+   * computing a weight as though the cell had no relation at all.
+   */
+  it("says nothing about relations a ground truth does not declare", () => {
+    const bare = variantOf(({ relations: _dropped, ...rest }) => rest);
+
+    expect(
+      compareVariant(bare, reportWith({ relation: "same-tenant", severity: "info" }), 1).problems,
+    ).toEqual([]);
+  });
+
+  /** A relation nobody defined would make the table accept a typo for a claim. */
+  it("refuses a relation value that is not one of the five", () => {
+    expect(() =>
+      variantOf((value) => ({ ...value, relations: { "alice × o-1": "foreign_tenant" } })),
+    ).toThrow(/allowed/);
+  });
+
+  /**
+   * The table transcribed from ADR-0014, spot-checked at the two rows the
+   * mutation moves between and at the two that do not depend on a relation.
+   */
+  it("transcribes ADR-0014", () => {
+    expect(severityByAdr0014("privilege-escalation", "foreign-tenant")).toBe("critical");
+    expect(severityByAdr0014("privilege-escalation", "ancestor-tenant")).toBe("high");
+    expect(severityByAdr0014("privilege-escalation", "own")).toBe("medium");
+    expect(severityByAdr0014("privilege-escalation", undefined)).toBe("high");
+    expect(severityByAdr0014("unexpected-denial", "foreign-tenant")).toBe("medium");
+    expect(severityByAdr0014("not-observed", "foreign-tenant")).toBe("low");
+    expect(severityByAdr0014("probe-error", undefined)).toBe("low");
   });
 });

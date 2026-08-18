@@ -283,6 +283,17 @@ been indistinguishable from correct behaviour — there was nothing to declare t
 second brand one's own with, and a denial on it would have matched the
 expectation.
 
+It also has **two faces**, and until 18 August 2026 only one of them was ever
+under test. `visibleTenants` is read by `authorizeOrder` and by `authorizeCancel`
+both, so collapsing the membership set costs support the second brand's orders on
+cancel exactly as it costs them on read — and no combination switched the flag on
+with `--unsafe-methods`, so those two cells were in no ground truth at all. Found
+by adversarial review; the combination `primary-tenant-only+writes` is the same
+flag with the write endpoint probed, and it gives four cells rather than two. The
+read half is repeated there rather than left to the combination beside it: the
+claim is that both faces appear together under one flag, and a combination naming
+only the writes would not state it.
+
 The sets of cells do not intersect — **except for one pair**, and that exception
 is exactly what is under test here. `PARENT_LEAK` is wholly contained in
 `ANCESTOR_LEAK`: disclosure one step up is a special case of disclosure along the
@@ -437,7 +448,7 @@ nothing, while the run would look substantive all the same.
 
 ```
 pnpm run build            # verify.mjs runs the built dist/cli.js
-node polygon/verify.mjs   # all twenty-eight flag combinations
+node polygon/verify.mjs   # all twenty-nine flag combinations
 node polygon/verify.mjs ancestor-leak parent-leak  # only the named ones
 ```
 
@@ -596,12 +607,12 @@ defect groups that differ only by their conditions.
 
 ## The result of the verification
 
-The numbers below come from the run of **14 August 2026** — the one that
-regenerated the table — all twenty-eight combinations, 8 canaries, and 144
-cells in each except the three that pass `--unsafe-methods`, where
+The numbers below come from the run of **18 August 2026** — the one that
+regenerated the table — all twenty-nine combinations, 8 canaries, and 144
+cells in each except the four that pass `--unsafe-methods`, where
 `orders.cancel` brings it to 180. The count is in the table row by row for
-that reason: one number above it was wrong for three combinations and could
-not have shown a change in any of the other twenty-seven.
+that reason: one number above it was wrong for the write combinations and could
+not have shown a change in any of the others.
 There are more cells not because the platform grew: 54 of them are the same
 endpoints under declared request conditions (ADR-0019).
 
@@ -613,7 +624,7 @@ affecting the result, and it must not.
 
 <!-- verify:begin -->
 
-Combinations: 28.
+Combinations: 29.
 
 | Combination | Cells | Findings | Oracle expects | Verdict | Exit code |
 |---|---|---|---|---|---|
@@ -625,6 +636,7 @@ Combinations: 28.
 | `ancestor-leak`                  | 144 | 6 | 6 | match | 1 |
 | `parent-leak`                    | 144 | 5 | 5 | match | 1 |
 | `primary-tenant-only`            | 144 | 2 | 2 | match | 1 |
+| `primary-tenant-only+writes`     | 180 | 4 | 4 | match | 1 |
 | `cross-tenant+no-role-check`     | 144 | 17 | 17 | match | 1 |
 | `cross-tenant+idor-same-tenant`  | 144 | 14 | 14 | match | 1 |
 | `no-role-check+idor-same-tenant` | 144 | 11 | 11 | match | 1 |
@@ -675,6 +687,29 @@ matrix and the diff all the way to a line of the report. And the affiliate's cel
 carry it too, both of them: `ancestor-tenant` does not count steps, and the same
 relation at different distances is exactly the place where the tool and the
 platform diverge differently under different defects.
+
+That paragraph was prose until 18 August 2026, and prose it could stay: the
+comparison above is a comparison of **cells**, and `cellKey` is built from the
+account, the endpoint, the kind and the resource — so what the report wrote on a
+cell took no part in it. Adversarial review measured the room that left. Replace
+the last `return "foreign-tenant"` in `src/core/tenancy.ts` with
+`"ancestor-tenant"`: every cross-tenant leak here drops from `critical` to
+`high`, and all combinations still match, because the severity was only ever
+checked as a sum equal to the number of findings and the defect signatures
+compare the report with itself. It is a check now. `ground-truth.json` declares
+`relations` — the relation the tool must arrive at on each of the thirty-four
+cells the findings name, read off the tenant tree by hand — and the weight
+follows from it by the table of ADR-0014, which `tools/oracle/index.mjs`
+transcribes by hand as well. Two hand-written statements, neither taken from a
+run. With the mutation in place the gate now names all ten cells of
+`cross-tenant`, each with its relation and its weight.
+
+The relation table is keyed by the account with its request conditions stripped
+off, and that is a second claim rather than a shortcut: `alice-a@geo-blocked`
+stands in the same relation to her own order as `alice-a`, because a condition
+changes the request and not who is making it. A `relationOf` reading the matrix
+row instead of the account would answer `foreign-tenant` there, and the table
+says `own`.
 
 A separate pair of combinations, `cross-holding` and `ancestor-leak`, gives a leak
 in each direction of the tree apart, while `ancestor-leak+cross-holding` gives

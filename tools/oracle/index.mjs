@@ -45,6 +45,9 @@
  *   hand like everything else here, and the one number that says the run happened
  *   at all — see the validation below
  * @property {readonly OracleFinding[]} findings
+ * @property {Readonly<Record<string, string>>} [relations] copied from the root
+ *   by `loadGroundTruth`, not written by hand on a variant
+ * @property {Readonly<Record<string, string>>} [checkSeverities] likewise
  *
  * @typedef {object} GroundTruth
  * @property {string} [note]
@@ -52,6 +55,13 @@
  * @property {string} [target]
  * @property {Readonly<Record<string, DefectDeclaration>>} defects
  * @property {readonly Variant[]} variants
+ * @property {string} [relationsNote]
+ * @property {Readonly<Record<string, string>>} [relations] `"account × resource"`
+ *   → the relation the tool must arrive at. Written by hand from the tenant tree;
+ *   see `checkRelations` below for why a set of cells is not enough
+ * @property {Readonly<Record<string, string>>} [checkSeverities] the severity a
+ *   named check must give its findings. A check declares its own, so the table
+ *   of ADR-0014 does not reach it
  *
  * @typedef {object} Comparison
  * @property {readonly string[]} missing
@@ -85,6 +95,57 @@ export const VISIBILITIES = [
 
 /** The kinds for which a defect must be detected. */
 export const DETECTABLE = ["status", "body-signal"];
+
+/**
+ * The relations a cell can have. The tree and the definitions — ADR-0013.
+ *
+ * Repeated here rather than imported from `src/core`: this module is the oracle,
+ * and an oracle that takes its vocabulary from the program under test cannot
+ * disagree with it about a name. The list is short and it is a published API of
+ * the tool — a value added to it and not added here fails loudly, which is the
+ * intended direction of the failure.
+ */
+export const RELATIONS = [
+  "own",
+  "same-tenant",
+  "descendant-tenant",
+  "ancestor-tenant",
+  "foreign-tenant",
+];
+
+/**
+ * The severity of a matrix discrepancy, by ADR-0014.
+ *
+ * Hand-transcribed from the ADR rather than imported from `severityOf`, for the
+ * reason the whole ground truth is hand-written: a table taken from the code
+ * agrees with the code by construction. This one disagrees when the code
+ * changes, which is the only way it is worth having.
+ *
+ * `relation` is undefined on endpoints with no path parameters — there is no
+ * resource to stand in relation to — and the ADR gives those the same weight as
+ * a discrepancy inside one's own tenant.
+ *
+ * @param {string} kind
+ * @param {string | undefined} relation
+ * @returns {string}
+ */
+export function severityByAdr0014(kind, relation) {
+  if (kind === "not-observed" || kind === "probe-error") {
+    return "low";
+  }
+  if (kind === "unexpected-denial") {
+    return "medium";
+  }
+  if (relation === "foreign-tenant") {
+    return "critical";
+  }
+  // Reaching one's own resource where the policy said no is far more often a
+  // mistake in the policy than a hole in the platform.
+  if (relation === "own") {
+    return "medium";
+  }
+  return "high";
+}
 
 export class GroundTruthError extends Error {
   /** @param {string} message */
@@ -140,6 +201,25 @@ export function loadGroundTruth(source) {
     }
   }
 
+  // The relation table, when a polygon declares one. It is optional because a
+  // single-tenant polygon has no relations to declare — VAmPI has no such thing
+  // as a foreign tenant at all — and mandatory in substance for one that does:
+  // see `tests/tools/polygon-oracle-facts.test.ts`, which requires the reference
+  // platform's oracle to declare a relation for every cell its findings name.
+  if (root.relations !== undefined) {
+    const relations = requireObject(root.relations, "relations");
+    for (const [cell, relation] of Object.entries(relations)) {
+      if (!RELATIONS.includes(relation)) {
+        throw new GroundTruthError(
+          `relations["${cell}"] = ${JSON.stringify(relation)}; allowed: ${RELATIONS.join(", ")}`,
+        );
+      }
+    }
+  }
+  if (root.checkSeverities !== undefined) {
+    requireObject(root.checkSeverities, "checkSeverities");
+  }
+
   if (!Array.isArray(root.variants) || root.variants.length === 0) {
     throw new GroundTruthError("variants: expected a non-empty array");
   }
@@ -185,19 +265,41 @@ export function loadGroundTruth(source) {
         }
       }
     }
+    // The relation table and the checks' severities belong to the platform, not
+    // to a combination of flags, so they are declared once at the root — and
+    // handed to every variant here, rather than passed to `compareVariant` as
+    // one more argument. The reason is the failure this file has already seen
+    // twice: a check that reads an argument the caller forgot to pass does not
+    // fail, it silently asserts nothing. `assertCanariesUsable` was in that
+    // state on 18 August, and its unit test passed throughout. Attached to the
+    // variant, the data cannot be left behind by a caller that has the variant.
+    variant.relations = root.relations;
+    variant.checkSeverities = root.checkSeverities;
   }
 
   return /** @type {GroundTruth} */ (root);
 }
 
 /**
- * Checks the oracle for completeness.
+ * Checks the oracle against itself: every defect it declares detectable is named
+ * by a finding somewhere, and no defect it declares unreachable is.
  *
- * It answers not the question "did it match" but the question "is everything
- * declared tested at all". A defect declared visible and occurring in no variant is
- * either a forgotten variant or a wrong visibility mark. A defect declared
- * unreachable and yet expected among the findings is a contradiction inside the
- * oracle itself.
+ * That is narrower than "is everything declared tested at all", which is what
+ * the header claimed until 18 August 2026, and the difference is not academic.
+ * Both halves read the **same file**, so an edit that changes both halves at
+ * once passes: downgrade one defect to `out-of-scope`, delete the two variants
+ * that switched it on, and the gate reports 26 combinations, 0 mismatches and
+ * complete coverage. Nothing here counts how many defects the platform has,
+ * because nothing here has ever read the platform.
+ *
+ * The missing half cannot live in this module — it is a claim about a
+ * particular deployment, and the shared format knows nothing about how a
+ * polygon switches its defects on: this one uses environment variables named
+ * exactly like its defect ids, VAmPI a single `vulnerable` flag. It lives in
+ * `tests/tools/polygon-oracle-facts.test.ts`, which counts the switches out of
+ * `polygon/server.mjs` and requires the oracle to declare each one and to
+ * switch each one on in some variant. Together the two make the header's old
+ * claim true; apart, this one alone never did.
  */
 /**
  * @param {GroundTruth} groundTruth
@@ -227,6 +329,140 @@ export function checkCoverage(groundTruth) {
       );
     }
   }
+  return problems;
+}
+
+/**
+ * Who is really asking, with the request conditions stripped off.
+ *
+ * A row of the matrix is an account under conditions and is named `alice-a@geo-blocked`;
+ * the relation is a property of `alice-a`. That is not a convenience of this
+ * module, it is a claim of the tool's own — "request conditions do not cancel
+ * ownership", written beside `relationOf` — and keying the table by the
+ * principal is what puts the claim under test: a `relationOf` that started
+ * reading the row instead of the account would answer `foreign-tenant` where the
+ * table says `own`.
+ *
+ * @param {unknown} accountId
+ * @returns {string}
+ */
+function principalOf(accountId) {
+  // `?? ""` because `split` is typed as possibly returning nothing at index 0
+  // under `noUncheckedIndexedAccess`; it cannot, and an empty principal would
+  // simply miss the table and be reported as a cell with no declared relation.
+  return String(accountId ?? "").split("@")[0] ?? "";
+}
+
+/**
+ * @param {Readonly<Record<string, any>> | undefined} table
+ * @param {string} key
+ * @returns {string | undefined}
+ */
+function lookup(table, key) {
+  return table !== undefined && Object.hasOwn(table, key) ? table[key] : undefined;
+}
+
+/**
+ * The relation and the weight of every finding, against the hand-written tree.
+ *
+ * The comparison above is over **sets of cells**, and `cellKey` is built from
+ * account, endpoint, kind and resource — so what the report *says* about a cell
+ * took no part in it. Adversarial review of 18 August 2026 measured the size of
+ * that hole: replace the last `return "foreign-tenant"` in `src/core/tenancy.ts`
+ * with `"ancestor-tenant"` and every cross-tenant leak on this platform drops
+ * from `critical` to `high` while all 28 combinations still match. The severity
+ * was checked only as a sum equal to the number of findings, which that mutation
+ * leaves alone; the signature checks compare the report with itself, and agree
+ * with themselves whatever the relation is.
+ *
+ * The relation is deliberately **not** folded into `cellKey`. It would be
+ * caught there too, as one missing cell and one unexpected cell per finding —
+ * twenty-four lines of that on `all-nine`, none of which says the word
+ * `relation`. Named here instead, the mismatch reads as what it is.
+ *
+ * Both tables are written by hand: `relations` from the tenant tree in
+ * `barbican.run.yaml`, `severityByAdr0014` from the ADR. Nothing in either is
+ * derived from a run, so the gate cannot agree with itself about them.
+ *
+ * @param {Variant} variant
+ * @param {Readonly<Record<string, any>>} report
+ * @returns {string[]}
+ */
+function checkRelations(variant, report) {
+  /** @type {string[]} */
+  const problems = [];
+  /** @type {any[]} */
+  const findings = report.findings ?? [];
+
+  for (const finding of findings) {
+    const key = cellKey(finding);
+
+    // A check settles the severity of its own findings (`Check.severity`, and
+    // `runChecks` in the registry), so the table of ADR-0014 has no say over
+    // them and the ground truth declares theirs by check id.
+    if (finding.source === "check") {
+      const declared = lookup(variant.checkSeverities, finding.kind);
+      if (declared !== undefined && finding.severity !== declared) {
+        problems.push(
+          `${key}: severity ${finding.severity}, the ground truth declares ${declared}`,
+        );
+      }
+      continue;
+    }
+
+    // No resource, no relation — and then the relation is known without a table,
+    // so the weight is checkable on any polygon. A relation on a cell that
+    // addresses nothing is not a harmless extra field either: the report groups
+    // its defects by it, and one would split a group in two.
+    if (finding.resourceId === undefined) {
+      if (finding.relation !== undefined) {
+        problems.push(`${key}: carries relation ${finding.relation} with no resource to relate to`);
+      }
+      const severity = severityByAdr0014(finding.kind, undefined);
+      if (finding.severity !== severity) {
+        problems.push(
+          `${key}: severity ${finding.severity}, ADR-0014 gives ${severity} for ${finding.kind}`,
+        );
+      }
+      continue;
+    }
+
+    // A polygon that declares no relations makes no claim about them, and this
+    // says nothing rather than guessing: a single-tenant deployment has no
+    // relations to state, and computing the weight as though the relation were
+    // absent would be wrong for a cell that has one.
+    if (variant.relations === undefined) {
+      continue;
+    }
+
+    const declared = lookup(
+      variant.relations,
+      `${principalOf(finding.accountId)} × ${finding.resourceId}`,
+    );
+    if (declared === undefined) {
+      problems.push(
+        `${key}: the ground truth declares no relation for this cell — ` +
+          `a finding whose relation nothing states is one the gate cannot weigh`,
+      );
+      continue;
+    }
+    if (finding.relation !== declared) {
+      problems.push(
+        `${key}: relation ${finding.relation ?? "—"}, the ground truth declares ${declared}`,
+      );
+    }
+    // From the declared relation, never from the reported one: computing the
+    // expected severity out of the value under test is how a check comes to
+    // agree with whatever it is handed.
+    const severity = severityByAdr0014(finding.kind, declared);
+    if (finding.severity !== severity) {
+      problems.push(
+        `${key}: severity ${finding.severity}, ADR-0014 gives ${severity} ` +
+          `for ${finding.kind} on ${declared}`,
+      );
+    }
+  }
+
   return problems;
 }
 
@@ -538,6 +774,7 @@ export function compareVariant(variant, report, exitCode) {
   if ((report.staleCredentials ?? []).length > 0) {
     problems.push(`credentials went stale mid-run: ${report.staleCredentials.join(", ")}`);
   }
+  problems.push(...checkRelations(variant, report));
   problems.push(...checkReportConsistency(report));
 
   return { missing, unexpected, problems };

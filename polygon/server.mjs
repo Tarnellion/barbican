@@ -5,13 +5,23 @@
  *
  * Why it exists. VAmPI and crAPI are single-tenant — there is no "foreign tenant"
  * in them at all — and VAmPI's vulnerability switch turned out to be useless,
- * because its modes differed only by response bodies (ADR-0009). The tool does not
- * read bodies on principle, so a hard requirement holds here:
+ * because its modes differed only by response bodies (ADR-0009). The tool stores
+ * no response body, so a hard requirement holds here:
  *
- *   **every defect must show itself in the response status.**
+ *   **every defect must be visible without keeping one.**
  *
- * A difference visible only in the JSON does not exist for the tool and cannot
+ * Ten of the twelve are visible in the status: 200 where a correct implementation
+ * answers 403 or 451. The other two are visible only through an irreversible
+ * scalar read over the body in transit — a number or a boolean, kept nowhere
+ * (ADR-0011). A difference that is neither is invisible to the tool and cannot
  * serve as an oracle.
+ *
+ * The requirement used to be written here as "every defect must show itself in
+ * the response status", and it stayed that way for the two body-signal defects
+ * that came after ADR-0011: `polygon/README.md` beside this file was corrected
+ * and the source was not. Both numbers above are now counted out of this file and
+ * out of the oracle by `tests/tools/polygon-oracle-facts.test.ts` — prose with a
+ * number in it goes stale, and the only cure that holds is a test that reads it.
  *
  * Zero runtime dependencies: the built-in `node:http` only. It listens strictly on
  * 127.0.0.1 — a deployment with deliberate defects must not be reachable from
@@ -262,10 +272,14 @@ const STATEMENTS = [
 /**
  * The defect switches.
  *
- * Eight of the ten are visible in the status: 200 where a correct implementation
- * answers 403 or 451. The other two are fundamentally different: `listNoFilter`
- * and `scopeAllHonored` change no status at all and are visible only through a
- * signal over the body (ADR-0011).
+ * Ten of the twelve are visible in the status: 200 where a correct implementation
+ * answers 403 or 451. The other two are visible only through a signal over the
+ * body — `listNoFilter` and `scopeAllHonored` change no status at all, which
+ * makes them a different kind of thing entirely (ADR-0011).
+ *
+ * The count said "eight of the ten" while this object held twelve, from the day
+ * the two write defects were added until 18 August 2026. It is checked now rather
+ * than kept by hand: see the note in the module header.
  *
  * The sets of cells do not intersect — except for the pair `ancestorLeak` and
  * `parentLeak`, where the second is wholly contained in the first. That exception
