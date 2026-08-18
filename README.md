@@ -163,6 +163,40 @@ could not be told from a field the tool failed to fill in, and on rows that
 **[docs/library.md](docs/library.md) says what the public API is** — the four
 entry points, and which of the exported names are a contract.
 
+An adversarial review on the day of the 0.3.0 release found fourteen more, and
+thirteen are fixed here. The ones that change what you see:
+
+**A run where nothing answered could exit `0`.** The evidence cap introduced in
+0.3.0 made `findings` the abridged array, and the verdict was derived by filtering
+it against a denominator that is not abridged — so 101 cells that all failed to
+answer read as "checked, and clean". It needs a little over a hundred accounts on
+one endpoint, which is inside the default `--max-requests`. The counts the verdict
+is made of now travel in `summary.verdictInputs`, taken before the cap; that is
+the field to read if you recompute a verdict from a saved report.
+
+**A query string in an endpoint path is refused.** `?_method=DELETE` written into
+an OpenAPI `paths` key, an endpoint list or a Postman collection used to travel to
+the platform verbatim, so a run without `--unsafe-methods` performed a write and
+exited 0. `..` in a path is refused for the same reason: it reached a different
+endpoint, past the exclusion list. `resources[].query` is now guarded the way
+`contexts[].query` always was.
+
+**The cell that received a leak is no longer printed as agreed.** A finding by
+body is about a pair, and only one side narrowed the cell verdict — twelve cells
+on the reference run.
+
+**`location` keeps only its origin**, and `www-authenticate` only its scheme.
+Both used to carry more: a password-reset token lives in a path, and RFC 6750
+puts `error_description` in a challenge.
+
+**`--checks ""` is an error** rather than a silent way to disable the body
+channel, and `coverage.bodiesComparedOn` is empty when no check ran instead of
+naming every declared endpoint.
+
+**Two accounts presenting the same token are refused even if one has trailing
+whitespace**, `Retry-After` can no longer shorten the backoff below the tool's own
+formula, and `--dry-run` no longer refuses configurations that run.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.
