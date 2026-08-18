@@ -1,0 +1,114 @@
+# The hand-written list of the Juice Shop endpoints this polygon uses.
+#
+# Not a dump of a specification: Juice Shop serves none that covers `/rest`, and
+# the list has to be complete in the sense that matters — including what the tool
+# will never reach. A write in the report as a skip is more honest than a write
+# left out of the file, because the second reads as "there was nothing there".
+#
+# Measured on 18 August 2026 against 20.2.0; see docs/polygons/juice-shop.md.
+endpoints:
+  # The version banner. Answers everybody, and a correct shop may publish it: it
+  # is the control that the deployment is alive at all.
+  - id: app.version
+    method: GET
+    path: /rest/admin/application-version
+
+  # Named `admin` by the application itself and served to anybody who asks.
+  - id: app.config
+    method: GET
+    path: /rest/admin/application-configuration
+
+  - id: products.list
+    method: GET
+    path: /api/Products
+
+  - id: products.read
+    method: GET
+    path: /api/Products/{productId}
+
+  - id: product.reviews
+    method: GET
+    path: /rest/products/{productId}/reviews
+
+  # Every registered user with their email address.
+  - id: users.list
+    method: GET
+    path: /api/Users
+
+  - id: users.read
+    method: GET
+    path: /api/Users/{userId}
+
+  # The one owned resource on this platform worth addressing. The identifier comes
+  # from the login response (`bid`) and is not the user's id — see the recon.
+  - id: basket.read
+    method: GET
+    path: /rest/basket/{basketId}
+
+  - id: basket.items
+    method: GET
+    path: /api/BasketItems
+
+  - id: cards
+    method: GET
+    path: /api/Cards
+
+  # Juice Shop's own spelling, with the three s's. Not a typo here.
+  - id: addresses
+    method: GET
+    path: /api/Addresss
+
+  - id: complaints
+    method: GET
+    path: /api/Complaints
+
+  - id: feedbacks
+    method: GET
+    path: /api/Feedbacks
+
+  - id: recycles
+    method: GET
+    path: /api/Recycles
+
+  # Stock levels.
+  - id: quantities
+    method: GET
+    path: /api/Quantitys
+
+  - id: deliveries
+    method: GET
+    path: /api/Deliverys
+
+  # Photographs uploaded by users.
+  - id: memories
+    method: GET
+    path: /rest/memories
+
+  - id: security.questions
+    method: GET
+    path: /api/SecurityQuestions
+
+  # The only endpoint on this list that is closed properly: 401 to everybody,
+  # authenticated or not.
+  - id: security.answers
+    method: GET
+    path: /api/SecurityAnswers
+
+  # A directory listing.
+  - id: ftp
+    method: GET
+    path: /ftp
+
+  - id: whoami
+    method: GET
+    path: /rest/user/whoami
+
+  # Writes. The tool does not issue them without --unsafe-methods, and they are
+  # here so that the report says so rather than staying silent about them.
+  - id: user.register
+    method: POST
+    path: /api/Users/
+
+  - id: user.login
+    method: POST
+    path: /rest/user/login

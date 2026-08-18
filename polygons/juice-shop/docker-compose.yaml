@@ -1,0 +1,31 @@
+# Juice Shop as a polygon: one container, no state outside it.
+#
+# There is no mode switch here, and that is deliberate rather than a limitation of
+# the image. VAmPI has one and it turned out to be useless to this tool (ADR-0009):
+# its modes differ only in response bodies. The oracle for this polygon is a
+# hand-written list of defects, which is what ADR-0009 settled on for every polygon.
+
+services:
+  juice-shop:
+    # Pinned by digest, not by tag. `v20.2.0` exists and `20.2.0` does not — the
+    # application reports a version the registry does not carry as a tag, which is
+    # exactly the kind of near-miss a digest removes. It also removes the other
+    # one: a tag that moves under a polygon whose oracle is a hand-written list of
+    # that build's defects. This digest is v20.2.0, resolved 18 August 2026.
+    #
+    # To move it: pull the tag you want, take `docker image inspect --format
+    # '{{index .RepoDigests 0}}'`, put it here, and re-derive the oracle — the
+    # user and basket ids are the image's to assign, and tokens.mjs stops the run
+    # when they no longer match.
+    image: bkimminich/juice-shop@sha256:73c53fbf442e8337b3ea3d98c7e8550308854701ebdfce4cc39768f36b75430e
+    container_name: barbican-juice-shop
+    ports:
+      # Loopback only. The polygon is deliberately vulnerable: `/ftp` serves a
+      # directory listing to anybody, `/api/Users` hands over every registered
+      # address to any logged-in customer. `3010:3000` with no address would put
+      # that on the local network.
+      - "127.0.0.1:${JUICE_PORT:-3010}:3000"
+    environment:
+      # The tutorial overlay intercepts the first requests of a fresh instance and
+      # is of no use to a machine.
+      - NODE_ENV=unsafe

@@ -58,6 +58,51 @@ describe("a setup call against a container still warming up", () => {
     expect(calls).toBe(4);
   });
 
+  /**
+   * Found by using it. Registration against Juice Shop was wrapped without a
+   * predicate, and a second run answered 400 "email must be unique" — a
+   * definitive answer, retried five times before the error the operator needed
+   * reached them. A 4xx is the server saying what it thinks; a 5xx or a refused
+   * connection is the server not being ready.
+   */
+  it("does not repeat a failure the caller calls definitive", async () => {
+    let calls = 0;
+    const attempt = throughColdStart(
+      async () => {
+        calls += 1;
+        throw Object.assign(new Error("email must be unique"), { definitive: true });
+      },
+      {
+        attempts: 5,
+        delayMs: 0,
+        retryable: (error) => !(error as { definitive?: boolean }).definitive,
+      },
+    );
+
+    await expect(attempt).rejects.toThrow("email must be unique");
+    expect(calls).toBe(1);
+  });
+
+  it("still repeats one the predicate lets through", async () => {
+    let calls = 0;
+    const result = await throughColdStart(
+      async () => {
+        calls += 1;
+        if (calls < 2) {
+          throw Object.assign(new Error("503"), { definitive: false });
+        }
+        return "ok";
+      },
+      {
+        attempts: 5,
+        delayMs: 0,
+        retryable: (error) => !(error as { definitive?: boolean }).definitive,
+      },
+    );
+
+    expect(result.taken).toBe(2);
+  });
+
   it("tries exactly once when asked for one attempt", async () => {
     let calls = 0;
     await expect(

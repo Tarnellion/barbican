@@ -26,14 +26,26 @@
  */
 
 /**
+ * Not everything that fails is cold.
+ *
+ * `retryable` exists because the first caller got this wrong. Registration
+ * against Juice Shop was wrapped without it, and a second run answered 400
+ * "email must be unique" — a definitive answer, repeated five times before the
+ * error the operator needed finally surfaced. A 4xx is the server saying what it
+ * thinks; only a 5xx or a refused connection is the server not being ready.
+ *
+ * The default retries everything, because the caller that needs no distinction
+ * should not have to write one, and because a predicate that silently skips
+ * retries is worse than a few wasted ones.
+ *
  * @template T
  * @param {() => Promise<T>} work what to do, throwing when it did not take
- * @param {{ attempts?: number, delayMs?: number }} [limits]
+ * @param {{ attempts?: number, delayMs?: number, retryable?: (error: unknown) => boolean }} [limits]
  * @returns {Promise<{ value: T, taken: number }>} the result, and how many
  *   attempts it cost — 1 when it worked the first time
  */
 export async function throughColdStart(work, limits = {}) {
-  const { attempts = 5, delayMs = 500 } = limits;
+  const { attempts = 5, delayMs = 500, retryable = () => true } = limits;
   if (!Number.isInteger(attempts) || attempts < 1) {
     throw new RangeError(`attempts must be a positive integer, got ${attempts}`);
   }
@@ -45,7 +57,7 @@ export async function throughColdStart(work, limits = {}) {
       // The last failure is thrown as it came: a wrapper here would bury the
       // reason the setup gave, and that reason is the whole diagnosis when the
       // deployment is genuinely broken rather than cold.
-      if (taken >= attempts) {
+      if (taken >= attempts || !retryable(error)) {
         throw error;
       }
       await new Promise((done) => setTimeout(done, delayMs));

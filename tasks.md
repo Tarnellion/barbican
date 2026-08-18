@@ -171,7 +171,7 @@ Left over from this topic:
       whichever way it points; the tool cannot know which side is wrong — the platform or
       the declaration — and since it cannot, it has no right to stay silent. Found by
       checking against the oracle: the holding was denied its own brand, and the run returned 0.
-- [ ] Juice Shop — on leftover time.
+- [x] Juice Shop — on leftover time.
       Recon done 18 August 2026, written up in `docs/polygons/juice-shop.md`. It is the
       best of the three: a broad set of access-control defects that are visible in the
       **response status** on **GET**, of exactly the two kinds module 1 checks — an
@@ -186,10 +186,19 @@ Left over from this topic:
       administrator is indistinguishable from a customer on every one of seventeen GET
       endpoints measured, so the role is left out for the reason VAmPI's configuration
       leaves out its own: a column identical to another is the appearance of coverage.
-      Still to build: the polygon directory itself — compose, run configuration,
-      endpoint list, `tokens.mjs`, `verify.mjs`, hand-written `ground-truth.json`,
-      README. No tenancy here, so this covers half of what the reference platform does
-      and nothing should read as covering the other half.
+      Built the same day: `polygons/juice-shop/`. The oracle was written by hand from
+      the recon table **before** the first run — ten defects, twenty-five cells — and
+      the run agreed with it cell by cell on the first attempt: 69 cells probed, 25
+      findings, 0 mismatches, every declared defect present among them.
+      No tenancy here, so this covers half of what the reference platform does and
+      nothing should read as covering the other half.
+      Two things the build turned up. The image tag `20.2.0` does not exist — the
+      application reports a version the registry does not carry — so the container is
+      pinned by digest, which also stops a tag moving under an oracle written for one
+      build. And `throughColdStart` was retrying a 400 "email must be unique" five
+      times: a 4xx is the server saying what it thinks, not a container that is not
+      ready. It takes a `retryable` predicate now, found by using it rather than by
+      reading it.
 - [x] **Both external polygons were re-verified on 13 August 2026** after request
       conditions, verdicts next to observations and the report edits: VAmPI — 2 modes,
       crAPI — 60 cells, 16 findings, 0 discrepancies. Along the way both got a

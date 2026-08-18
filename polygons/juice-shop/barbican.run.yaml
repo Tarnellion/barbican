@@ -1,0 +1,137 @@
+# The run configuration against Juice Shop (the format — ADR-0008).
+#
+# No tokens here: an account names an environment variable. The values are set by
+# `tokens.mjs`, which registers the two customers with random passwords and logs
+# them in — see README.md.
+#
+# The policy is a human's declaration of how a correct shop must behave, not a
+# retelling of what Juice Shop does (ADR-0006). It is also not a transcription of
+# Juice Shop's challenge list: that list says what its authors planted, which is a
+# different statement from what a shop owes its customers. The findings come from
+# the difference between this declaration and the observed behaviour.
+
+target:
+  # The port must match JUICE_PORT in docker-compose.yaml. `verify.mjs` takes it
+  # from here and passes it to compose, so there is nowhere for the two to diverge.
+  baseUrl: http://127.0.0.1:3010
+  allowedHosts: [127.0.0.1]
+  label: OWASP Juice Shop 20.2.0 (a training application, all defects always on)
+
+# Juice Shop is single-tenant: one shop, and every customer is inside it. A
+# cross-tenant leak cannot be modelled here at all — see the recon for what that
+# means for what this polygon is worth. `none` is the service tenant of the
+# anonymous account, so that every resource is foreign-tenant to it.
+tenants: [shop, none]
+
+accounts:
+  # Two customers, because ownership needs somebody to not be the owner. This is
+  # the whole reason there are two: BOLA inside one tenant is invisible with one
+  # account, and that is the defect this polygon is best at.
+  - id: alice
+    role: customer
+    tenant: shop
+    tokenEnv: JUICE_TOKEN_ALICE
+    # Not `whoami`: it answers 200 without a token, so it cannot tell a working
+    # token from a missing one — which is the one thing a canary is for. `/api/Cards`
+    # is 401 without a token and 200 with one.
+    canary: cards
+  - id: bob
+    role: customer
+    tenant: shop
+    tokenEnv: JUICE_TOKEN_BOB
+    canary: cards
+
+  # Without an anonymous account half the findings here are unreachable: they are
+  # all of the form "this endpoint must not answer somebody who has not logged in".
+  - id: anonymous
+    role: anonymous
+    tenant: none
+
+# The administrator is deliberately not modelled. `admin@juice-sh.op` exists and
+# its token says `role: admin`, and across seventeen GET endpoints not one status
+# differs between it and an ordinary customer. An admin account would add a column
+# of the matrix identical to the customer's and create the appearance of a role
+# being covered. Measured 18 August 2026; see docs/polygons/juice-shop.md.
+
+# The resources requests address (ADR-0010). The identifiers are declared rather
+# than fished out of responses: bodies are not read.
+#
+# These numbers are what a fresh container assigns, checked twice on 18 August 2026:
+# alice becomes user 25 with basket 6, bob user 26 with basket 7. `tokens.mjs`
+# asserts that what it was handed matches what is declared here and stops the run
+# when it does not — an image that seeds differently would otherwise leave this
+# polygon quietly probing somebody else's basket.
+resources:
+  # The basket identifier comes from the login response (`bid`) and is not the
+  # user's id. Getting that wrong is the easiest mistake available here.
+  - id: basket-alice
+    tenant: shop
+    owner: alice
+    params: { basketId: "6" }
+  - id: basket-bob
+    tenant: shop
+    owner: bob
+    params: { basketId: "7" }
+
+  - id: user-alice
+    tenant: shop
+    owner: alice
+    params: { userId: "25" }
+  - id: user-bob
+    tenant: shop
+    owner: bob
+    params: { userId: "26" }
+
+  # The shop's own goods: no owner, because nobody's. Declared so that the
+  # catalogue endpoints have something to address.
+  - id: product-apple-juice
+    tenant: shop
+    params: { productId: "1" }
+
+policy:
+  # Everything not declared is forbidden.
+  fallback: denied
+  rules:
+    # The shopfront. A shop that hides its catalogue has no customers, and the
+    # version banner is the control that the deployment is up at all.
+    - roles: "*"
+      endpoints: [app.version, products.list, products.read, product.reviews]
+      outcome: allowed
+
+    # Needed before registration, so it cannot require a login.
+    - roles: "*"
+      endpoints: [security.questions]
+      outcome: allowed
+
+    # Arguable, and declared allowed on purpose. A shop may publish where and how
+    # it delivers, and a ground truth padded with findings its author is not sure
+    # about is worth less than a smaller one that is certain.
+    - roles: "*"
+      endpoints: [deliveries]
+      outcome: allowed
+
+    # Lists scoped to the caller: your cards, your addresses, your complaints, the
+    # contents of your basket, and who you are. Allowed to a customer, and to
+    # nobody else — an unauthenticated caller has no "own" for these to be scoped
+    # to.
+    - roles: [customer]
+      endpoints: [whoami, basket.items, cards, addresses, complaints]
+      outcome: allowed
+
+    # Your own basket, and only your own. This is the rule the polygon exists for.
+    - roles: [customer]
+      endpoints: [basket.read]
+      scope: own
+      outcome: allowed
+
+    # Your own profile. Another customer's is not something handed out by number.
+    - roles: [customer]
+      endpoints: [users.read]
+      scope: own
+      outcome: allowed
+
+    # Everything else stays under fallback: denied — `app.config`, `users.list`,
+    # `feedbacks`, `recycles`, `quantities`, `memories`, `ftp`, `security.answers`.
+    # Stock levels, every registered address, uploaded photographs and a directory
+    # listing are not public data, and an endpoint the application itself calls
+    # `admin` is not either.
