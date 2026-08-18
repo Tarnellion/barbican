@@ -154,10 +154,16 @@ jobs:
     name: secret scan
     runs-on: ubuntu-latest
     # The version matches the local one so that CI and pre-commit never differ in
-    # their verdicts. The binary is installed directly rather than through
-    # gitleaks-action: the action computes a commit range from the parent of the
-    # first commit, which does not exist, and fails on the first push. It also
-    # pulls its own, older version of gitleaks.
+    # their verdicts. That used to be a sentence and nothing else: the local
+    # binary comes from Homebrew and moves whenever its owner upgrades, while
+    # this is a string somebody has to remember. The pre-commit hook now reads
+    # this number and says so when the two differ (tools/gitleaks-pin.mjs); it
+    # does not block, because CI scans the full history either way.
+    #
+    # The binary is installed directly rather than through gitleaks-action: the
+    # action computes a commit range from the parent of the first commit, which
+    # does not exist, and fails on the first push. It also pulls its own, older
+    # version of gitleaks.
     env:
       GITLEAKS_VERSION: "8.30.1"
       GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"

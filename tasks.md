@@ -2729,9 +2729,21 @@ Lift these bans together with the corresponding ADR, not "along for the ride" wi
       one step behind the latest on purpose: 2.5.0 came out a week ago, while the cooldown
       threshold in this project is 7 days. Checked locally on this same
       lockfile: 128 packages, no findings.
-- [ ] Keep the gitleaks version in CI (`GITLEAKS_VERSION` in ci.yml) in agreement with the
+- [x] Keep the gitleaks version in CI (`GITLEAKS_VERSION` in ci.yml) in agreement with the
       local one from Homebrew. When the local one is updated, update the version and
       `GITLEAKS_SHA256`, otherwise CI and pre-commit will start to differ in their verdicts.
+      Closed 18 August, and not by remembering: the pre-commit hook reads the pin out
+      of `ci.yml` and says so when the local binary is a different version. Silent when
+      they agree, which today they do (8.30.1 both sides). Non-blocking on purpose —
+      CI scans the full history on every push and, since `release.yml` calls `ci.yml`
+      whole, on every release, so a mismatch costs a differing verdict and not a hole;
+      a hook that refuses for a reason the committer cannot fix teaches `--no-verify`,
+      which switches off the scan itself. A missing pin does fail: that is the
+      repository being wrong rather than the machine.
+      The half a machine can check without the binary is a test — the pin exists, the
+      download URL is built from the variable rather than from a second copy of the
+      number, and **the hook actually runs the comparison**. That last one is the
+      guard that matters: a guard nobody calls passes review and is invisible.
 - [ ] A quarterly review of the thresholds for revisiting decisions — the table in [plan.md](plan.md).
       The nearest one expected: `@apidevtools/swagger-parser` around April 2027.
 - [ ] Revisit TypeScript 7 once it leaves preview and stabilizes its public API.

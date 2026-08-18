@@ -16,6 +16,13 @@ pre-commit:
     - name: gitleaks
       run: gitleaks git --staged --redact --no-banner
 
+    # Says nothing when the local gitleaks is the one ci.yml pins, which is the
+    # usual case. It does not block: CI scans the full history whichever way the
+    # two differ, and a hook that refuses for a reason the committer cannot fix
+    # in the moment teaches people --no-verify, which turns off the scan above.
+    - name: gitleaks-pin
+      run: node tools/gitleaks-pin.mjs
+
 # The message, not the diff: the language guard in the test suite reads
 # git ls-files and never sees history. 100 of the first 131 messages were Russian
 # before anything checked.
