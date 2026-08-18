@@ -1989,8 +1989,13 @@ Open, from the same review, in the order they were ranked:
       need no base. The header was rewritten on 17 August from a measurement that
       covered http only, and the tripwire counts http requests alone.
 - [ ] **`ReportFinding` declares neither `basis` nor `ruleIndex`** though every
-      matrix finding carries them; `staleCredentials` is a sixth reason for exit 2
-      and `docs/report.md` lists five.
+      matrix finding carries them.
+      Half of this item is closed and the other half was not: the sixth reason for
+      exit 2 is in the table in `docs/report.md`, with the note that it was missing
+      until 17 August. `basis` and `ruleIndex` went onto `ReportedObservation` — the
+      matrix rows — and `ReportFinding` still has neither, so the two fields are on
+      the row and absent from the finding that cites it. Recorded here on 18 August
+      after checking rather than assuming: the item had been read as done.
 
 ## Adversarial review of 18 August 2026 (the gate itself)
 
@@ -2025,7 +2030,7 @@ and its oracle, the tenancy and relation core, and the CLI's terminal output.
 
 Open, from the same review:
 
-- [ ] **`relationOf` can be broken so that severity drops and the gate stays
+- [x] **`relationOf` can be broken so that severity drops and the gate stays
       green.** Replacing the final `foreign-tenant` with `ancestor-tenant` takes
       every cross-tenant leak from `critical` to `high`, and 28 combinations still
       match: `cellKey` carries no relation, the signature checks compare the report
@@ -2034,6 +2039,16 @@ Open, from the same review:
       weight of a finding rests on hand-written fixtures rather than on the gate,
       and the polygon README's claim that a relation "travelled all the way to a
       line of the report" is prose, not a check.
+      Closed 18 August, commit 981a561. The ground truth now carries a
+      hand-written `relations` table — 34 entries, keyed by the account without
+      its request conditions — and `compareVariant` checks each finding's
+      relation against it and its severity against the one ADR-0014's table gives
+      for that relation and kind. Verified by my own mutation: the same
+      `foreign-tenant` → `ancestor-tenant` edit took the gate from MATCHES on
+      every variant to 16 mismatches, each naming both the relation and the
+      weight. The relation is deliberately not in `cellKey`: there the mutation
+      prints 24 lines of "missing and unexpected" with the word relation in none
+      of them.
 - [x] **A typo in a resource parameter name silently removes its cells.** Closed
       18 August: `assertReferencesResolve` refuses a resource that fits no
       endpoint, which is what this project already does with every other
@@ -2049,7 +2064,7 @@ Open, from the same review:
       a query-only resource naming an endpoint that takes no parameter — and the
       one that must not: a resource naming an endpoint whose parameter it does not
       carry, which is the same hole in a different spelling.
-- [ ] **`checkCoverage` proves something narrower than its own header claims.** It
+- [x] **`checkCoverage` proves something narrower than its own header claims.** It
       checks that each `status`/`body-signal` defect is named in at least one
       finding, not "is everything declared tested at all". Downgrading one defect
       to `out-of-scope` and deleting its two variants leaves the gate reporting 26
@@ -2057,20 +2072,69 @@ Open, from the same review:
       defects or variants there should be. Separately: `PRIMARY_TENANT_ONLY` also
       breaks a write, and no variant exercises it with `--unsafe-methods`, so an
       independent oracle finds two cells the ground truth does not record.
-- [ ] **The terminal and the file disagree, under a comment saying they cannot.**
+      Closed 18 August, commit 981a561, by doing both halves. The header is
+      narrowed to what the function proves, and the missing half is a new test
+      that counts the switches out of `polygon/server.mjs` itself — the set of
+      `POLYGON_DEFECT_*` must equal the oracle's defect keys, each must be on in
+      some variant, and each variant must state every flag rather than some,
+      because `verify.mjs` inherits the environment and an unnamed flag is a flag
+      in whatever state the operator's shell had. It could not live in
+      `checkCoverage`: the ADR-0012 format knows nothing about how a polygon
+      switches a defect on. Verified by mutation: renaming one flag in the
+      platform fails three of them. `PRIMARY_TENANT_ONLY` got its write variant —
+      180 cells, 4 findings, written out by hand before the run.
+- [x] **The terminal and the file disagree, under a comment saying they cannot.**
       `build.ts` says the warnings are "the same ones the console shows, from the
       same constants"; `WARNINGS` does not occur in `src/cli.ts` at all, two of the
       texts have already drifted apart, and `findingsCapped` is never printed on
       screen — a run whose evidence rows were dropped says so only in the file.
-- [ ] **A green line on a run with twelve cross-tenant leaks.** "No privilege
+      Closed 18 August, commit 2a01626. The CLI prints `report.warnings` itself,
+      so `warningsFor` is the one place that decides what is warned about; this
+      file keeps only the colour, as a total `Record` over the keys of `WARNINGS`,
+      which is the half of the guard `findingsCapped` lacked. Verified by
+      mutation: a fifth key added to `WARNINGS` fails `tsc` twice.
+      I found one direction untested and closed it: the fix proves every warning
+      in the file reaches the screen, and nothing proved the reverse — making
+      `needsCanary` return `true` unconditionally left all ten tests green, which
+      is the same disagreement told by the half that leaves no artifact behind.
+      The anonymous run is now a case of its own.
+- [x] **A green line on a run with twelve cross-tenant leaks.** "No privilege
       escalation found" is literally true — `byKind` there counts matrix kinds
       only — and it is the headline of the screen, coloured green, with "Of those,
       found by body rather than status: 12" below it referring to the ones it just
       called absent.
-- [ ] **Stale claims in `polygon/server.mjs`.** The header still says "every defect
+      Closed 18 August, commit 2a01626. Green now requires nothing found at all
+      **and** a verdict of 0 — not "zero escalations", which is one counter of
+      several, and not the verdict alone, which is 0 on a run whose findings were
+      all notes. Otherwise the same fact in plain words with what contradicts it
+      named on the same line. Both directions are held: a run that genuinely found
+      nothing and proved it still says so unqualified, or the line stops meaning
+      anything and the next reader learns to skip it.
+- [x] **Stale claims in `polygon/server.mjs`.** The header still says "every defect
       must show itself in the response status", untrue since ADR-0011; the comment
       on `DEFECT_FLAGS` says "eight of the ten" where the object holds twelve. The
       README beside it was corrected and the numbers in the source were not.
+
+      Closed 18 August, commit 981a561. Both numbers are now counted out of the
+      file by a test rather than kept by hand. Verified by mutation: changing "ten
+      of the twelve" to "nine" in the prose fails two tests.
+- [x] **Two polygons' oracles had stopped parsing, and no test opened them.**
+      Found by an agent while working the item above, and it is mine: making
+      `expectedCells` mandatory on 17 August was tried against
+      `polygon/ground-truth.json` alone, and both files under `polygons/` began
+      throwing at their first variant. The suite stayed green because nothing
+      loads them — they are run by hand against a polygon in Docker, so this would
+      have surfaced whenever somebody next brought one up.
+      Closed 18 August, commit 08c88c1. crAPI cannot carry the number at all: its
+      endpoints come from an OpenAPI document inside the crAPI checkout, so the
+      count is a property of a file this repository does not hold. The field is
+      optional again and checked when present; which polygons owe it, and crAPI's
+      exemption in as many words, are a test. VAmPI declares 27, counted by hand
+      and confirmed against `--dry-run`, which plans the matrix without sending
+      anything and needs no Docker.
+      The guard that would have caught it: every tracked `ground-truth.json` is
+      found by `git ls-files` and loaded. Found rather than listed — a list is the
+      same defect one level up.
 
 ## Readiness for different authentication surfaces
 
