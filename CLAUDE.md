@@ -50,6 +50,7 @@ pnpm run test:watch   # vitest in watch mode
 pnpm run test:coverage # vitest with coverage and thresholds
 pnpm run build        # tsc -> dist, + the executable bit on cli.js
 pnpm run schema       # regenerate schema/barbican.run.schema.json (needs a build)
+pnpm run deps:behind  # what is behind, and what the cooldown is holding (needs the network)
 pnpm run check        # everything at once, as in CI
 pnpm run hooks:install # git hooks (lefthook)
 ```

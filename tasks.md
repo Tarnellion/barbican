@@ -2436,10 +2436,31 @@ two of the project's defences against each other:
       `pnpm audit` is clean, `--frozen-lockfile` passes, and if a future
       resolution ever did pick 3.3.17 the OSV scan would say so, which is the
       safety net the removal condition was written against.
-- [ ] `pnpm update` says nothing when the cooldown has fired: it prints
+- [x] `pnpm update` says nothing when the cooldown has fired: it prints
       "Lockfile passes supply-chain policies" and leaves the old version.
       You cannot tell "there are no updates" from "the update was blocked by the threshold"
       from the output — exactly the class of silence the whole project is written against.
+      Closed 18 August: `pnpm run deps:behind`. Three states per direct dependency —
+      nothing newer, available, or held with the date the wait ends.
+      The premise was right and understated the problem. `pnpm update` is silent for a
+      different reason than the item assumed: versions here are pinned exactly, so
+      nothing is ever in range for it to move and "Already up to date" is true of what
+      it did while reading as an all-clear about what there is. Measured: three
+      dependencies behind while it said that.
+      And `pnpm outdated`, the command one would reach for next, is the worse of the
+      two because it looks like the answer — it reports the newest version the cooldown
+      **allows**, not the newest published. It named biome 2.5.8 while 2.5.9 existed at
+      four days old; with the window widened to 41 days as an experiment `@types/node`
+      went from "26.2.0 available" to "26.1.0 available" and the two packages whose only
+      newer versions fell inside the window vanished from the list. So the tool for
+      saying what is behind hides exactly what the cooldown holds.
+      That is why the report asks the registry instead of reading `pnpm outdated`: built
+      on that source it could never print the middle state, and a state that cannot be
+      reached is a comment, not a state. Caught while checking the tool against live
+      data — the first version of it did read `pnpm outdated`, and its "held" branch
+      would have been unreachable.
+      Not in `check`: it needs the network and turns red whenever a maintainer
+      publishes. Recorded as an addendum to ADR-0004.
 - [x] The example numbers in `docs/report.md` are marked with the run they were taken from,
       and it is said outright: they show the shape of the output, not a reference to compare
       against, and a difference is not a discrepancy. Generation does not cure this: the numbers

@@ -150,3 +150,40 @@ rather than a rule. A package with no row in that file has not been vetted,
 whatever anybody remembers.
 
 Found by the audit of 14 August 2026 (F-3, F-5, F-6, F-7, F-9).
+
+## Addendum of 2026-08-18: the cooldown holds versions nothing reports
+
+`minimumReleaseAge` works. What was missing is any way to see it working, and
+the two commands one would reach for say the opposite of what they mean.
+
+`pnpm update` prints "Lockfile passes supply-chain policies" and "Already up to
+date". That is true and it is not an answer: this project pins exact versions,
+so nothing is ever in range for `update` to move, and the sentence reads as an
+all-clear whatever is actually behind. On the day this was written three direct
+dependencies had newer versions.
+
+`pnpm outdated` is the worse of the two, because it looks like the answer.
+It reports the newest version the cooldown **allows**, not the newest published:
+it named `@biomejs/biome` 2.5.8 while 2.5.9 existed and was four days old, and
+with the window widened to 41 days as an experiment `@types/node` changed from
+"26.2.0 available" to "26.1.0 available" while the two packages whose only newer
+versions fell inside the window disappeared from the list entirely. So the tool
+that exists to say what is behind is precisely the one that hides what a cooldown
+is holding.
+
+Neither is a defect in pnpm — both answer the question they were asked. But the
+consequence for this policy is that "nothing to update" and "held for six more
+days" were indistinguishable from the outside, which is the class of silence this
+project is written against.
+
+`pnpm run deps:behind` answers it: for every direct dependency, the version
+pinned here against `dist-tags.latest` from the registry, and one of three
+states — nothing newer, available, or held with the date the wait ends. It asks
+the registry rather than reading `pnpm outdated`, for the reason above: a report
+built on that source could never print the middle state, and a state that cannot
+be reached is a comment rather than a state.
+
+Deliberately not part of `pnpm run check`. It needs the network and it turns red
+the day any maintainer publishes, and a gate that is red for something nobody is
+expected to fix today is a gate people stop reading. The decision of when to take
+an available update stays a person's.
