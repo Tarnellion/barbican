@@ -198,6 +198,46 @@ ${resources === 0 ? "" : `\nresources:\n${resourceLines.join("\n")}\n`}`;
 interface ReportFile {
   readonly warnings: readonly string[];
   readonly summary: { readonly findings: number };
+  readonly coverage: { readonly resourcesNotFound: readonly string[] };
+}
+
+/**
+ * A deployment where the declared objects are simply not there.
+ *
+ * `/v1/me` answers the token and everything else is 404. Every cell over a
+ * resource then agrees with a policy of denial — a 404 satisfies a denial — while
+ * having settled nothing, which is the run the green headline used to clear.
+ */
+async function startNotFoundTarget() {
+  const server = createServer((request, response) => {
+    const token = (request.headers.authorization ?? "").replace("Bearer ", "");
+    if ((request.url ?? "") === "/v1/me") {
+      response.writeHead(token === "token-alice" ? 200 : 401).end();
+      return;
+    }
+    response.writeHead(404).end();
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    throw new Error("could not start the deployment");
+  }
+  return {
+    port: address.port,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error === undefined) {
+            resolve();
+          } else {
+            reject(error);
+          }
+        });
+      }),
+  };
 }
 
 /**
@@ -210,8 +250,10 @@ async function runAgainstStand(options: {
   readonly config: (port: number) => string;
   readonly endpoints: string;
   readonly flags?: readonly string[];
+  /** A deployment other than the plain one, for the cases that need it. */
+  readonly target?: () => Promise<{ port: number; close: () => Promise<void> }>;
 }): Promise<RunResult & { readonly report: ReportFile }> {
-  const target = await startTarget();
+  const target = await (options.target ?? startTarget)();
   const directory = await mkdtemp(join(tmpdir(), "barbican-cli-"));
   const configPath = join(directory, "run.yaml");
   const endpointsPath = join(directory, "endpoints.yaml");
@@ -653,6 +695,34 @@ describe("the headline of the screen", () => {
     expect(report.summary.findings).toBe(0);
     expect(exitCode).toBe(0);
     expect(headlineOf(stderr)).toBe(NO_ESCALATION);
+  });
+
+  /**
+   * The state the first fix missed: nothing found, verdict 0, and nothing tested.
+   *
+   * Adversarial review of 19 August 2026. Every declared resource answers 404 to
+   * everybody, so the whole isolation half of the matrix is cells that agree
+   * because there was nothing there — and the run still came out with the bare
+   * green sentence, while the report itself carried `nothingRefused`, the warning
+   * this screen paints red and calls a reason to doubt every finding on it.
+   *
+   * The counters were the whole condition and they answer a different question:
+   * they say nothing was found, not that anything was looked at.
+   */
+  it("does not stand alone on a run whose resources answered 404 to everyone", async () => {
+    const { stderr, report, exitCode } = await runAgainstStand({
+      config: (port) => configFor(port, { resources: 2 }),
+      endpoints: ENDPOINTS_WITH_ITEMS,
+      target: startNotFoundTarget,
+    });
+
+    // The fixture really is the case: nothing found, a clean verdict, and cells
+    // that settled nothing.
+    expect(report.summary.findings).toBe(0);
+    expect(exitCode).toBe(0);
+    expect(report.coverage.resourcesNotFound.length).toBeGreaterThan(0);
+
+    expect(headlineOf(stderr)).not.toBe(NO_ESCALATION);
   });
 
   /**

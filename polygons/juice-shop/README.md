@@ -58,10 +58,17 @@ twice on 18 August 2026.
 and it is why the basket identifier is taken from the `bid` field of the login
 response rather than derived from anything.
 
-Both numbers are declared in `barbican.run.yaml` and asserted from both sides:
-`tokens.mjs` stops the run when the login returns something else, and
-`verify.mjs` stops it when the configuration no longer declares what
-`tokens.mjs` expects. An image that seeds differently would otherwise leave this
+Both numbers are declared in `barbican.run.yaml` and asserted **against their
+owner**: `tokens.mjs` parses the `resources` block and requires that the resource
+owned by alice carry alice's basket and alice's user id.
+
+That is the second version. The first asked only whether the numbers appeared
+somewhere in the file, and adversarial review pointed all four resources at the
+administrator's objects, left 6, 7, 25 and 26 in a comment, and got a full match
+out of a run that never touched alice's or bob's basket — the four cells this
+polygon exists for comparing the administrator's basket with itself. A
+declaration is a structure, and checking it by substring is what let a comment
+stand in for one. An image that seeds differently would otherwise leave this
 polygon quietly probing somebody else's basket and reporting that everything
 agrees.
 
@@ -87,8 +94,8 @@ bodies.
 
 ## What it finds
 
-Twenty-five cells over ten defects, all of them visible in the response status,
-all on GET. Two shapes, and both are what module 1 exists for.
+Twenty-eight cells over eleven defects, all of them visible in the response
+status, all on GET. Two shapes, and both are what module 1 exists for.
 
 **An object read by somebody who does not own it.** Another customer's basket
 (Juice Shop's own list calls this one "View Basket") and another customer's
@@ -96,12 +103,20 @@ profile by number. Four cells: the policy allows both endpoints with `scope:
 own`, so the cells where a customer reads their own agree and only the crossed
 pairs are findings.
 
-**An endpoint open to somebody who should not have it.** The full user directory
-with every registered email address, served to any logged-in customer; and six
-endpoints served to anybody at all — the configuration the application itself
-calls `admin`, customer feedback, recycling requests, stock levels, uploaded
-photographs, and a directory listing at `/ftp`. Plus `whoami`, which answers 200
-to a request carrying no token, which is also why it cannot be the canary.
+**An endpoint open to somebody who should not have it.** Served to any logged-in
+customer: the full user directory with every registered email address, the items
+of every basket, and other customers' complaints. Served to anybody at all: the
+configuration the application itself calls `admin`, customer feedback, recycling
+requests, stock levels, uploaded photographs, and a directory listing at `/ftp`.
+
+The three that changed on 19 August are worth naming. `/api/BasketItems` and
+`/api/Complaints` were declared allowed to a customer as "lists scoped to the
+caller" and are nothing of the kind — measured, they hand over every basket's
+items and another customer's complaint. Four real cross-customer reads were
+unfindable because of a line in the policy rather than anything about the tool.
+And `whoami` was declared a defect and is not one: it answers 200 to everybody
+and `{"user":{}}` to everybody, so an authenticated caller learns nothing an
+anonymous one does not. It is still the reason it cannot be the canary.
 
 ## What it does not find, and must not be read as covering
 

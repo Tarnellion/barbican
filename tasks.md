@@ -2127,6 +2127,110 @@ Open, from the same review, in the order they were ranked:
       original defect: `package.json` back to 6.0.3 with nothing reinstalled fails
       three of the four.
 
+## Adversarial review of 19 August 2026 (the week's new code)
+
+Three attackers over the ~1500 lines added on 18–19 August that nobody had looked
+at adversarially: the Juice Shop polygon, the three new tools, and the changes in
+`src/`. Twenty findings between them; the ones below are closed, the rest are
+recorded underneath.
+
+- [x] **The polygon's id assertions did not bind an id to its owner.** Both sides
+      asked "is basket 6 declared somewhere", neither asked whose, and both read raw
+      text — so a comment satisfied them. A configuration aiming all four resources at
+      the administrator's objects reported 69 cells, a full match, and never touched
+      alice's or bob's basket. Closed: `tokens.mjs` parses the `resources` block and
+      requires the resource owned by alice to carry alice's numbers. Proven by the
+      mutation — pointing alice's resource at bob's basket now stops the run.
+- [x] **The policy declared two global lists as "scoped to the caller".** Measured:
+      `/api/BasketItems` returns eight items out of baskets 1–5 to a customer who owns
+      none of them, byte for byte the same for both customers; `/api/Complaints`
+      returns user 3's complaint. Four genuine cross-customer reads were unfindable
+      **because of a line in the policy**, not because of anything in the tool — the
+      failure this format is most exposed to. Closed: both moved under `fallback:
+      denied`, two defects and four cells added, 25 findings to 28.
+- [x] **`whoami` was a defect in the oracle and is not one.** It answers 200 and
+      `{"user":{}}` to everybody: an authenticated caller learns nothing an anonymous
+      one does not, so calling the anonymous 200 a privilege escalation attributes a
+      disclosure that does not happen. Declared allowed to `*`, cell removed. Still
+      the reason it cannot be the canary.
+- [x] **The polygon's gate could not see relation or severity** — the same hole
+      closed for the reference platform on 18 August, reopened by a new oracle without
+      a `relations` table. Mutating the four BOLA findings from `same-tenant` to `own`
+      reported a match. Closed: 15 hand-written relations; the same mutation now gives
+      14 mismatches naming both.
+- [x] **The green headline cleared a run that tested nothing.** Every declared
+      resource answering 404 to everyone gives no findings and verdict 0, and the bare
+      green sentence was printed over a matrix whose isolation half was never
+      exercised — with `nothingRefused` in the report's own warnings, which the same
+      screen paints red. Closed: green now also requires the report to carry no
+      warning and no resource that answered 404 to everyone.
+- [x] **`deps:behind` gave worse advice than `pnpm outdated` in its own headline
+      state.** It printed "biome 2.5.7 -> 2.5.9 held until 2026-08-24" and never
+      mentioned 2.5.8, eight days old and installable that morning. Closed: the held
+      line names what can be installed today. Found along the way that the abbreviated
+      registry document carries no `time` field at all, so the obvious economy on 30 MB
+      a run costs every verdict — written into the file.
+- [x] **`gitleaks-pin` could fail a commit, which is the one thing it promised not
+      to do.** An unreadable or half-edited `ci.yml` threw out of the hook. Closed:
+      unreadable is silent, a parsed workflow with no pin still exits 1.
+- [x] **Its reasoning rested on a false claim about CI.** "CI runs gitleaks on every
+      push" — `ci.yml` runs on pushes to `main` and on pull requests; a push to a
+      branch with no PR is not scanned. Which makes the two directions unequal: a local
+      gitleaks older than the pin waves through what CI would catch, and this
+      repository is public, so that is a rotation and not a fix. The message now says
+      which direction it is.
+- [x] **`throughColdStart` lost the caller's failure to a throwing predicate**, and
+      did not validate `delayMs` though it validated `attempts`. Both closed.
+- [x] **`cooldownVerdict` turned an unparseable date into "held" and then crashed
+      the whole report** on `toISOString`. Closed: it is `unknown`, which is what the
+      three states were for.
+- [x] **Two facts in the Juice Shop recon were wider than the measurement.** 403
+      does exist (`/rest/order-history/orders`, `/api/Quantitys/1` — to everyone), and
+      the administrator *is* distinguishable somewhere (`/rest/deluxe-membership`: 200
+      to a customer, 400 to the admin). Neither is on the polygon's endpoint list, so
+      neither changes a decision; both claims are now the size of what was measured.
+
+### Recorded, not yet closed
+
+- [ ] **`UnusedResourceError` does not cover its own second half.** A resource that
+      fits only endpoints this run will never walk — excluded by name, or a write
+      without `--unsafe-methods` — is not refused and not warned about. The check runs
+      before planning and never sees the flags. Likely shape: a fifth `WARNINGS` entry
+      after planning rather than a refusal.
+- [ ] **A role typo that lands on another account's role is still silent.** Two
+      accounts, `alice: user` and `bob: usre`, a rule for `[user]`: the rule resolves,
+      bob falls through to fallback, and nothing says so. The asymmetry is right as a
+      principle — a role no rule mentions is a real declaration — but the reasoning in
+      the comment is wider than the fact. `nearestFirst` is already in the file; a
+      warning for a role one edit away from a declared one would close it.
+- [ ] **`--dry-run` still paraphrases `noCanary` in its own words and its own
+      colour** — red in `describePlan`, yellow in `WARNING_STYLE`, one fact said twice.
+      The command the guide tells you to run first is the one place the 18 August fix
+      did not reach.
+- [ ] **The two new file-system tripwires in `openapi.test.ts` remove both barriers
+      at once**, so they cannot tell which one holds — the header claims each holds
+      independently and the tests do not measure that. One five-line test with
+      `external: false` and barrier 2 bypassed would.
+- [ ] **`polygons/**` is outside the `tsconfig` program.** Checked separately, both
+      polygons' `tokens.mjs` carry real type errors nobody sees. Adding them to
+      `include` surfaces a batch of existing ones — its own task.
+- [ ] **`cooldownPolicy` reads `minimumReleaseAgeExclude` more narrowly than pnpm
+      does** — pnpm accepts a bare package name, a union, and globs, and normalises
+      versions; this compares `pkg@version` as a string. A scalar entry silently
+      becomes a set of characters. The list is empty today, so it sleeps.
+- [ ] **The Juice Shop oracle declares no defect the tool cannot see** — no
+      `body-only`, no `unsafe-method`, no `out-of-scope`, though the recon spends a
+      section on exactly those. `/rest/products/1/reviews` hands the reviewers' email
+      addresses to anybody and the policy allows the endpoint.
+- [ ] **Two status-visible endpoints are missing from the polygon's list**:
+      `/rest/user/authentication-details/` (the whole user catalogue to any customer)
+      and `/api/BasketItems/1` (an object-level BOLA on a non-basket resource). Adding
+      both gives four more findings with no policy change.
+- [ ] **The `app.config` cells are justified by the endpoint's name.** Its 23 KB is
+      Angular bootstrap configuration a shopfront needs before login; the note should
+      cite the field that makes it a defect, or the three cells will not survive a
+      reviewer.
+
 ## Adversarial review of 18 August 2026 (the gate itself)
 
 Two more attackers, on what the reviews of 17 August did not touch: the polygon

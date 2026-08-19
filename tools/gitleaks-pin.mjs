@@ -10,14 +10,23 @@
  * to change. Two numbers in two places with a sentence promising they agree —
  * the shape this project keeps finding stale.
  *
- * Non-blocking on purpose, and this is the one judgement in the file. A
- * mismatch is not a hole: CI runs gitleaks over the full history on every push
- * and, since `release.yml` calls `ci.yml` whole, on every release too, so the
- * backstop holds whichever way the versions differ. What a mismatch costs is
- * that a commit passing here can fail there, or the reverse — a nuisance worth
- * a sentence and not worth blocking a commit over. A hook that refuses for a
- * reason the person cannot fix in the moment is a hook people learn to pass
- * `--no-verify` to, and that switch turns off the scan itself.
+ * Non-blocking on purpose, and this is the one judgement in the file. A hook
+ * that refuses for a reason the person cannot fix in the moment is a hook people
+ * learn to pass `--no-verify` to, and that switch turns off the scan itself.
+ *
+ * The first version of this comment justified it with "CI runs gitleaks over the
+ * full history on every push", and that is not what `ci.yml` says: it runs on
+ * pushes to `main` and on pull requests. A push to a branch with no pull request
+ * is not scanned at all. Corrected on 19 August 2026 by adversarial review.
+ *
+ * Which makes the two directions unequal, and the message says which one this is.
+ * A local gitleaks **newer** than the pin scans with rules CI does not have yet:
+ * noise, nothing more. A local one **older** scans with fewer rules than CI, so a
+ * secret this hook waves through is one CI would have caught — and this
+ * repository is public, so by the time CI says so the secret is published and the
+ * answer is rotation, not a fix. Still not blocking, because `brew upgrade
+ * gitleaks` is a fix the committer can reach for and the sentence says so; but it
+ * is a different sentence.
  *
  * A missing pin is different and does exit non-zero: that is this repository
  * being wrong rather than the machine, and it means the workflow no longer says
@@ -45,7 +54,16 @@ export const WORKFLOW = resolve(ROOT, ".github/workflows/ci.yml");
  * agreement with nothing at all.
  */
 export function pinnedGitleaksVersion(text = readFileSync(WORKFLOW, "utf8")) {
-  const workflow = parseYaml(text);
+  let workflow;
+  try {
+    workflow = parseYaml(text);
+  } catch {
+    // A workflow being edited is not this hook's business. Thrown from here it
+    // reached lefthook as an unhandled rejection and failed the commit — which is
+    // exactly the refusal the comment above promises never to make, over a file
+    // the commit may not even touch.
+    return undefined;
+  }
   for (const job of Object.values(workflow?.jobs ?? {})) {
     const pinned = job?.env?.GITLEAKS_VERSION;
     if (typeof pinned === "string" && pinned !== "") {
@@ -64,8 +82,38 @@ function installedGitleaksVersion() {
   }
 }
 
+/**
+ * Whether `left` is an earlier release than `right`. Both are `x.y.z`.
+ *
+ * @param {string} left
+ * @param {string} right
+ */
+function isOlder(left, right) {
+  const a = left.split(".").map(Number);
+  const b = right.split(".").map(Number);
+  for (let part = 0; part < 3; part += 1) {
+    if ((a[part] ?? 0) !== (b[part] ?? 0)) {
+      return (a[part] ?? 0) < (b[part] ?? 0);
+    }
+  }
+  return false;
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const pinned = pinnedGitleaksVersion();
+  // Read and parsed here rather than inside the reader, because the two failures
+  // are different. A workflow that cannot be read or parsed is a file mid-edit,
+  // and this hook has no business failing a commit over it — silence, like a
+  // gitleaks that is not installed. A workflow that parses and carries no pin is
+  // this repository being wrong, and that is worth an exit code.
+  let text;
+  try {
+    text = readFileSync(WORKFLOW, "utf8");
+    parseYaml(text);
+  } catch {
+    process.exit(0);
+  }
+
+  const pinned = pinnedGitleaksVersion(text);
   if (pinned === undefined) {
     process.stderr.write(
       `No GITLEAKS_VERSION in ${WORKFLOW}. CI no longer states which gitleaks it ` +
@@ -76,12 +124,18 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
   const installed = installedGitleaksVersion();
   if (installed !== undefined && installed !== pinned) {
+    const behind = isOlder(installed, pinned);
     process.stderr.write(
-      `gitleaks ${installed} locally, ${pinned} pinned in ci.yml. The two scan with ` +
-        `different rules, so this commit can pass here and fail there, or the ` +
-        `reverse. Not blocking — CI scans the full history either way. To settle ` +
-        `it: \`brew upgrade gitleaks\`, then set GITLEAKS_VERSION and ` +
-        `GITLEAKS_SHA256 in .github/workflows/ci.yml to match.\n`,
+      `gitleaks ${installed} locally, ${pinned} pinned in ci.yml. ` +
+        (behind
+          ? `Yours is the older one, so this hook scans with fewer rules than CI: a ` +
+            `secret it waves through is one CI would catch, and CI runs on pushes to ` +
+            `main and on pull requests — not on every push. This repository is ` +
+            `public, so that is a rotation and not a fix. \`brew upgrade gitleaks\`.`
+          : `Yours is the newer one, which only means you may see findings CI does ` +
+            `not. Set GITLEAKS_VERSION and GITLEAKS_SHA256 in ` +
+            `.github/workflows/ci.yml to match when convenient.`) +
+        `\n`,
     );
   }
 }

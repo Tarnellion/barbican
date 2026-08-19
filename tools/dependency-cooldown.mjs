@@ -113,6 +113,17 @@ export function cooldownVerdict({ name, version, publishedAt, now, policy }) {
   if (publishedAt === undefined) {
     return { state: "unknown", reason: "the registry gives no publication date for it" };
   }
+  if (Number.isNaN(Date.parse(publishedAt))) {
+    // Neither available nor held: a date that does not parse is the registry
+    // answering with something this cannot reason about, and folding it into
+    // either side would let an unaged version through or name a date that is not
+    // a date. The printer would then call `toISOString` on it and take the whole
+    // report down.
+    return {
+      state: "unknown",
+      reason: `the registry gave "${publishedAt}" as its publication date`,
+    };
+  }
   const eligibleAt = new Date(Date.parse(publishedAt) + policy.windowMs);
   if (eligibleAt.getTime() <= now.getTime()) {
     return { state: "available", eligibleAt };
@@ -140,26 +151,127 @@ function pinned() {
   ].sort(([left], [right]) => left.localeCompare(right));
 }
 
+/** `1.2.3` and nothing else: a prerelease is not what an update moves to. */
+const RELEASE = /^(\d+)\.(\d+)\.(\d+)$/;
+
 /**
- * What the registry currently calls the latest version, and when it was published.
+ * Whether `candidate` is a later release than `current`, by version and not by date.
  *
- * `dist-tags.latest` and not the newest entry in `time`: a package may publish a
- * `next` or a patch to an old line, and neither is what an update would move to.
+ * By date would be wrong in the one case that matters: a patch to an old line
+ * published after a new major would then be recommended as an upgrade while being
+ * a downgrade.
+ *
+ * @param {string} candidate
+ * @param {string} current
+ */
+function isLater(candidate, current) {
+  const left = RELEASE.exec(candidate);
+  const right = RELEASE.exec(current);
+  if (left === null || right === null) {
+    return false;
+  }
+  for (let part = 1; part <= 3; part += 1) {
+    const a = Number(left[part]);
+    const b = Number(right[part]);
+    if (a !== b) {
+      return a > b;
+    }
+  }
+  return false;
+}
+
+/**
+ * One value out of a record whose keys somebody else chose.
+ *
+ * The registry picks these — they are version strings and tag names — so a plain
+ * lookup answers for `constructor` and every check downstream reasons about a
+ * function. ADR-0024.
+ *
+ * @param {Record<string, unknown>} record
+ * @param {string} key
+ */
+function tabled(record, key) {
+  return Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
+/**
+ * What the registry calls latest, when it was published, and what is installable now.
+ *
+ * The third field answers the question the middle state raises, and it was
+ * missing. Reporting `dist-tags.latest` alone gave worse advice than
+ * `pnpm outdated` in exactly the case this tool exists for: on 19 August 2026 it
+ * printed "@biomejs/biome 2.5.7 -> 2.5.9 held until 2026-08-24" and never
+ * mentioned 2.5.8, published eight days earlier and installable that morning. A
+ * reader took "the cooldown is holding it" and deferred an update that was
+ * available — the reverse of what this is for.
+ *
+ * `dist-tags.latest` stays the headline: a package may publish a `next` or a
+ * patch to an old line, and neither is what an update moves to. `installable` is
+ * the newest plain release past the window that is later than what is pinned.
+ *
+ * The full document is fetched, and the obvious economy does not apply. npm's
+ * abbreviated metadata — `application/vnd.npm.install-v1+json`, half the size —
+ * carries no `time` field at all, and `time` is the one thing this tool is about.
+ * Measured on 19 August 2026: abbreviated 0.17 MB with no dates, full 0.35 MB
+ * with them. Written down because the header looks like free savings and costs
+ * every verdict.
  *
  * @param {string} name
- * @returns {Promise<{ version?: string | undefined, publishedAt?: string | undefined }>}
+ * @param {string} pinnedVersion
+ * @param {CooldownPolicy} policy
+ * @param {Date} now
+ * @returns {Promise<{ version?: string | undefined, publishedAt?: string | undefined, installable?: string | undefined }>}
  */
-async function latestOf(name) {
+async function latestOf(name, pinnedVersion, policy, now) {
   const response = await fetch(`${REGISTRY}/${name.split("/").map(encodeURIComponent).join("/")}`);
   if (!response.ok) {
     return {};
   }
-  const meta =
-    /** @type {{ "dist-tags"?: Record<string, string>, time?: Record<string, string> }} */ (
-      await response.json()
-    );
-  const version = meta["dist-tags"]?.latest;
-  return version === undefined ? {} : { version, publishedAt: meta.time?.[version] };
+  let meta;
+  try {
+    meta = await response.json();
+  } catch {
+    // A proxy answering 200 with an error page. One unreadable package must not
+    // take the whole report down with it.
+    return {};
+  }
+  if (meta === null || typeof meta !== "object") {
+    return {};
+  }
+  const tags = /** @type {Record<string, unknown>} */ (
+    Object.hasOwn(meta, "dist-tags") ? Reflect.get(meta, "dist-tags") : {}
+  );
+  const times = /** @type {Record<string, unknown>} */ (
+    Object.hasOwn(meta, "time") ? Reflect.get(meta, "time") : {}
+  );
+  const publishedOf = (/** @type {string} */ version) => {
+    const at = tabled(times, version);
+    return typeof at === "string" ? at : undefined;
+  };
+
+  const tag = tabled(tags, "latest");
+  if (typeof tag !== "string") {
+    return {};
+  }
+
+  let installable;
+  for (const candidate of Object.keys(times)) {
+    if (!RELEASE.test(candidate) || !isLater(candidate, pinnedVersion)) {
+      continue;
+    }
+    const at = publishedOf(candidate);
+    if (at === undefined || Number.isNaN(Date.parse(at))) {
+      continue;
+    }
+    if (Date.parse(at) + policy.windowMs > now.getTime()) {
+      continue;
+    }
+    if (installable === undefined || isLater(candidate, installable)) {
+      installable = candidate;
+    }
+  }
+
+  return { version: tag, publishedAt: publishedOf(tag), installable };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -178,7 +290,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const lines = [];
 
   for (const [name, version] of pinned()) {
-    const latest = await latestOf(name);
+    const latest = await latestOf(name, version, policy, now);
     if (latest.version === undefined) {
       lines.push([name, version, "?", "unknown: the registry did not answer for it"]);
       continue;
@@ -193,9 +305,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       now,
       policy,
     });
+    // The held state names what can be installed today as well as what cannot.
+    // Saying only "held" there is the reverse of this tool's purpose: the reader
+    // defers an update that is available.
+    const alsoInstallable =
+      latest.installable === undefined || latest.installable === latest.version
+        ? ""
+        : `; installable now: ${latest.installable}`;
     const said =
       verdict.state === "held" && verdict.eligibleAt !== undefined
-        ? `held until ${verdict.eligibleAt.toISOString().slice(0, 10)}`
+        ? `held until ${verdict.eligibleAt.toISOString().slice(0, 10)}${alsoInstallable}`
         : verdict.state === "unknown"
           ? `unknown: ${verdict.reason}`
           : `available${verdict.reason === undefined ? "" : ` (${verdict.reason})`}`;

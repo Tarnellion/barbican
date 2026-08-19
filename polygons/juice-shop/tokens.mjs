@@ -109,23 +109,47 @@ function userIdFromToken(token) {
 }
 
 /**
- * What the run configuration declares, so that the two cannot drift apart.
+ * What the run configuration declares about each resource, by owner.
  *
- * Read out of the file rather than repeated here. The numbers in `USERS` above
- * are what the image assigns; these are what the policy addresses; and if the
- * image ever changes its seed the run must stop rather than probe whatever now
- * holds those ids. Same reasoning as the endpoint-reference check in the
- * configuration loader — a declaration that quietly matches nothing is the defect
- * this project is written against.
+ * The first version of this asked a weaker question — "is basket 6 declared
+ * somewhere in the file" — and `verify.mjs` asked the same one from the other
+ * side. Neither asked **whose** it was, and both read raw text, so a comment
+ * satisfied them. Adversarial review of 19 August 2026 built a configuration
+ * pointing all four resources at the administrator's objects, left 6, 7, 25 and
+ * 26 in a comment, and the polygon reported 69 cells, 28 findings and a full
+ * match without once addressing alice's or bob's basket. The four cells this
+ * polygon exists for were comparing the administrator's basket with itself.
+ *
+ * So the pairing is what gets checked: the resource owned by alice must carry
+ * alice's numbers. Parsed out of the `resources:` block rather than matched as a
+ * substring — a declaration is a structure, and checking it by `includes` is what
+ * let a comment stand in for one.
+ *
+ * @param {string} [configText]
+ * @returns {Map<string, { basketId?: string, userId?: string }>} owner → the ids
+ *   declared for the resources they own
  */
-function declaredResourceIds(configText = readFileSync(CONFIG, "utf8")) {
-  const declared = new Map();
-  for (const [, name, value] of configText.matchAll(
-    /params:\s*\{\s*(basketId|userId):\s*"(\d+)"\s*\}/g,
-  )) {
-    declared.set(`${name}:${value}`, true);
+export function declaredByOwner(configText = readFileSync(CONFIG, "utf8")) {
+  const section = /^resources:\n([\s\S]*?)(?=\n\S)/m.exec(configText);
+  if (section === null) {
+    throw new ProvisionError(`no resources block found in ${CONFIG}`);
   }
-  return declared;
+  /** @type {Map<string, { basketId?: string, userId?: string }>} */
+  const byOwner = new Map();
+  for (const entry of section[1].split(/^ {2}- /m).slice(1)) {
+    const owner = /^\s*owner:\s*(\S+)\s*$/m.exec(entry)?.[1];
+    if (owner === undefined) {
+      continue;
+    }
+    const held = byOwner.get(owner) ?? {};
+    for (const [, name, value] of entry.matchAll(/\b(basketId|userId):\s*"(\d+)"/g)) {
+      if (name !== undefined && value !== undefined) {
+        held[/** @type {"basketId" | "userId"} */ (name)] = value;
+      }
+    }
+    byOwner.set(owner, held);
+  }
+  return byOwner;
 }
 
 function assertMatchesConfiguration(user, userId, basketId) {
@@ -138,15 +162,24 @@ function assertMatchesConfiguration(user, userId, basketId) {
         `freshly recreated container and update both files.`,
     );
   }
-  const declared = declaredResourceIds();
-  for (const [name, value] of [
-    ["userId", userId],
-    ["basketId", basketId],
-  ]) {
-    if (!declared.has(`${name}:${value}`)) {
+
+  const declared = declaredByOwner().get(user.id);
+  if (declared === undefined) {
+    throw new ProvisionError(
+      `barbican.run.yaml declares no resource owned by ${user.id}, so nothing in the ` +
+        `run addresses anything of theirs and the cells this polygon exists for are ` +
+        `not walked.`,
+    );
+  }
+  for (const [name, expected] of /** @type {const} */ ([
+    ["basketId", String(basketId)],
+    ["userId", String(userId)],
+  ])) {
+    if (declared[name] !== expected) {
       throw new ProvisionError(
-        `${user.id} holds ${name} ${value}, which no resource in barbican.run.yaml ` +
-          `declares. The run would probe nothing that belongs to this account.`,
+        `${user.id} holds ${name} ${expected}, and the resource owned by ${user.id} in ` +
+          `barbican.run.yaml declares ${name} ${declared[name] ?? "(none)"}. The run ` +
+          `would probe an object that is not theirs and report agreement about it.`,
       );
     }
   }

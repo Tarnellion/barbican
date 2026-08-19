@@ -35,9 +35,9 @@ const ROOT = resolve(import.meta.dirname, "..", "..");
  * count there is a property of a file this tree does not hold, so a constant for
  * it would be a number nobody here can maintain or check.
  */
-const MAY_OMIT_EXPECTED_CELLS: Readonly<Record<string, string>> = {
-  "polygons/crapi": "endpoints come from an OpenAPI document outside this repository",
-};
+const MAY_OMIT_EXPECTED_CELLS: ReadonlyMap<string, string> = new Map([
+  ["polygons/crapi", "endpoints come from an OpenAPI document outside this repository"],
+]);
 
 function trackedGroundTruths(): readonly string[] {
   return execFileSync("git", ["ls-files", "-z", "*ground-truth.json"], {
@@ -66,7 +66,11 @@ describe("the oracles in this repository", () => {
 
       it("says how many cells each variant walks, or is excused by name", () => {
         const truth = loadGroundTruth(readFileSync(resolve(ROOT, file), "utf8"));
-        const excuse = MAY_OMIT_EXPECTED_CELLS[dirname(file)];
+        // A `Map` and not an object literal: the key comes from `git ls-files`,
+        // which is a name this project did not choose, and a plain lookup excuses
+        // `constructor` and `toString` (ADR-0024). Improbable here and still the
+        // rule — a guard that breaks the rule it guards is a poor guard.
+        const excuse = MAY_OMIT_EXPECTED_CELLS.get(dirname(file));
         for (const variant of truth.variants) {
           if (excuse === undefined) {
             // Defined first and positive second: `toBeGreaterThan` on `undefined`

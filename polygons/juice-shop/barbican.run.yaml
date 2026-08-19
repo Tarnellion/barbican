@@ -110,12 +110,31 @@ policy:
       endpoints: [deliveries]
       outcome: allowed
 
-    # Lists scoped to the caller: your cards, your addresses, your complaints, the
-    # contents of your basket, and who you are. Allowed to a customer, and to
-    # nobody else — an unauthenticated caller has no "own" for these to be scoped
-    # to.
+    # Lists scoped to the caller: your cards and your addresses. Measured, not
+    # assumed — `/api/Cards` and `/api/Addresss` really do answer with the
+    # caller's own and nothing else.
+    #
+    # `basket.items` and `complaints` were in this rule until 19 August 2026 and
+    # do not belong: adversarial review measured `/api/BasketItems` returning
+    # eight items out of baskets 1 to 5 to a customer who owns none of them, byte
+    # for byte the same response for both customers, and `/api/Complaints`
+    # returning another customer's complaint. They are global lists wearing the
+    # name of a scoped one. Declaring them allowed was a human error in this file
+    # that made four real cross-customer reads unfindable — the exact shape this
+    # polygon exists to catch, hidden by the declaration rather than by the tool.
     - roles: [customer]
-      endpoints: [whoami, basket.items, cards, addresses, complaints]
+      endpoints: [cards, addresses]
+      outcome: allowed
+
+    # `whoami` answers 200 to everybody and discloses nothing to anybody: the body
+    # is `{"user":{}}` for an anonymous caller and identical for an authenticated
+    # one, because it wants a cookie this tool does not send. Declared allowed to
+    # all rather than customer-only: an authenticated caller learns nothing an
+    # anonymous one does not, so calling the anonymous 200 a privilege escalation
+    # attributes a disclosure that does not happen. It is still the reason this
+    # cannot be the canary.
+    - roles: "*"
+      endpoints: [whoami]
       outcome: allowed
 
     # Your own basket, and only your own. This is the rule the polygon exists for.

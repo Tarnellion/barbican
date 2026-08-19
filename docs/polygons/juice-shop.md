@@ -35,9 +35,15 @@ is a secret in a stronger sense than usual.
 
 ## The denials are uniform, and one of them is a lie
 
-Across the whole GET surface there is exactly one denial code: **401**. No 403
-anywhere, for anybody. An anonymous request to a protected endpoint gets 401; an
-authenticated request that should have been refused gets 200.
+Across the endpoints this polygon walks there is one denial code: **401**. An
+anonymous request to a protected endpoint gets 401; an authenticated request that
+should have been refused gets 200.
+
+That was written as "no 403 anywhere, for anybody" and was too wide. Measured
+19 August 2026 by adversarial review and confirmed: `GET /rest/order-history/orders`
+and `GET /api/Quantitys/1` answer **403** to everyone, anonymous, customer and
+administrator alike. Neither is on this polygon's endpoint list, so the sentence
+is true of what is walked and was false of the application.
 
 `GET /api/SecurityAnswers` answers 401 to everyone, authenticated or not, which
 is the only endpoint on the list that is closed properly.
@@ -52,9 +58,16 @@ baskets it declares and take their ids from the login response.
 ## The admin role is indistinguishable, and is therefore not modelled
 
 `admin@juice-sh.op` works and its token carries `role: admin`. Measured across
-seventeen GET endpoints, including `/api/Users`, `/api/Quantitys`,
+the endpoints this polygon walks — twenty-one of them in twenty-five request
+forms, including `/api/Users`, `/api/Quantitys`,
 `/rest/admin/application-configuration` and `/api/Cards`: **not one status
 differs between the administrator and an ordinary customer.**
+
+Not true of the application as a whole, and the earlier wording claimed it was.
+`GET /rest/deluxe-membership` answers a customer 200 and the administrator 400
+("you are not eligible"), which is a status that distinguishes them — in the
+direction of the administrator having *less*. It changes nothing about the
+decision below, and the claim is now the size of its measurement.
 
 So an admin account would add a column of the matrix identical to the customer's
 and would create the appearance of a role being covered. It is left out, for the
@@ -80,6 +93,8 @@ Measured as anonymous, as customer alice, and as customer bob.
 | `GET /rest/memories` | **200** | 200 | refuse to the public |
 | `GET /api/Recycles` | **200** | 200 | refuse to the public |
 | `GET /api/Deliverys` | **200** | 200 | arguable — a shop may publish its delivery options |
+| `GET /api/BasketItems` | 401 | **200** | refuse: it returns the items of every basket, byte for byte the same to each customer |
+| `GET /api/Complaints` | 401 | **200** | refuse: it returns other customers' complaints |
 
 Two shapes, and both are what module 1 exists for: an object read by somebody who
 does not own it, and an endpoint open to somebody who has not authenticated.
@@ -94,11 +109,21 @@ is the comparison of the two.
 
 ## What must be declared as allowed, or the oracle proves nothing
 
-`GET /api/Cards`, `/api/Addresss`, `/api/Complaints`, `/api/BasketItems` answer
-401 to anonymous and 200 to a customer. That is correct behaviour for a list
-scoped to the caller, and it has to be declared allowed — a ground truth in which
-every cell is a finding cannot tell a tool that works from a tool that flags
-everything.
+`GET /api/Cards` and `/api/Addresss` answer 401 to anonymous and 200 to a
+customer, with the caller's own records and nothing else. That is correct
+behaviour for a scoped list and has to be declared allowed — a ground truth in
+which every cell is a finding cannot tell a tool that works from a tool that
+flags everything.
+
+**`/api/BasketItems` and `/api/Complaints` were on that list until 19 August 2026
+and did not belong.** They answer 401 to anonymous and 200 to a customer in the
+same shape, which is what put them there — and their bodies are global.
+Adversarial review measured eight basket items out of baskets 1 to 5 returned to
+a customer who owns none of them, identical for both customers, and a complaint
+belonging to user 3. Declaring them allowed made four genuine cross-customer
+reads unfindable: the defect was hidden by the declaration, not by the tool,
+which is the failure this format is most exposed to and the reason ADR-0006 puts
+the declaration in a human's hands and then asks somebody else to attack it.
 
 ## What the tool will not find here
 
