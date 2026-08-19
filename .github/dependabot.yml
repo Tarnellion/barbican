@@ -14,11 +14,9 @@ updates:
     commit-message:
       prefix: "chore(deps)"
     ignore:
-      # TypeScript 7 is kept aside deliberately: by its own README it is a preview
-      # with "API: not ready", while tsc --noEmit is a CI gate. See ADR-0001.
-      # Lift the block once 7.x leaves preview.
-      - dependency-name: "typescript"
-        versions: [">=7.0.0"]
+      # The TypeScript 7 block was lifted on 19 August 2026: the shipped package no
+      # longer calls itself a preview, and the API that is still unstable is one
+      # this project does not import. See ADR-0031.
       # The Node 22 line of types is pinned to engines: >=22.12.0. Types from
       # Node 26 would smuggle in APIs that do not exist on 22, and the typecheck
       # would stop reflecting reality.

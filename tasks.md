@@ -2823,7 +2823,7 @@ Lift these bans together with the corresponding ADR, not "along for the ride" wi
       `fast-redact` passed its 28-month mark too, at 29, though it is a candidate that
       was never installed, so what that settles is where to go if redaction ever needs a
       library. swagger-parser is the one still ahead, and April 2027 is right for it.
-- [ ] Revisit TypeScript 7 once it leaves preview and stabilizes its public API.
+- [x] Revisit TypeScript 7 once it leaves preview and stabilizes its public API.
       Revisited 18 August 2026, and the condition is met — the decision is what is left.
       The second half does not apply here: nothing in this repository imports the
       TypeScript API, `tsc` is called from the command line in two scripts and nowhere
@@ -2831,5 +2831,15 @@ Lift these bans together with the corresponding ADR, not "along for the ride" wi
       clean, `tsconfig.build.json` emitting the same 26 files, byte-identical but for
       `core/types.d.ts`, where 7.0.2 keeps the per-element doc comments on
       `RESOURCE_RELATIONS` that 6.0.3 dropped. Type checking 0.2–0.3 s against 2.3–2.4 s.
-      Left open deliberately: the stack in CLAUDE.md names TypeScript 6, and a compiler
-      major is an ADR, not a bump somebody makes while passing.
+      Done 19 August as ADR-0031, and the ADR is where the awkward part is written
+      down: only **half** the condition is met. The shipped package no longer calls
+      itself a preview — read off the artifact, not off `dist-tags`, which proves
+      nothing here because ADR-0001 shows 7.0.2 was already on `latest` while still
+      carrying the warning. The public API is still exported under `unstable/`, which
+      is Microsoft saying it is not stable. Set aside because this project never
+      imports it, and the ADR says what would make that reasoning expire.
+      The block in `.github/dependabot.yml` said "lift once 7.x leaves preview" and is
+      lifted; the threshold row in plan.md is replaced rather than deleted — a row with
+      no condition is a pin nobody removes. The twenty platform binaries are vetted and
+      recorded in `docs/dependencies.md`: same publishers, zero dependencies, **no
+      lifecycle scripts**, one installed per machine.

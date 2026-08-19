@@ -225,7 +225,7 @@ the configuration format — [ADR-0008](docs/adr/0008-run-configuration-format.m
 | What | Condition | Where we go |
 |---|---|---|
 | `@apidevtools/swagger-parser` | 18 months without a release. The latest is 12.1.0 of 14.10.2025, so the threshold arrives around **April 2027** | `@readme/openapi-parser` (7.0.1 of 07.08.2026, active) |
-| TypeScript 6 | TS 7 leaves preview and stabilizes its public API | migrate to 7.x — **the condition has been met, see the review below** |
+| TypeScript 7 | this project starts importing the compiler as a library while its API is still exported under `unstable/`, or a platform in use stops getting a binary | back to 6.x, or to whatever ships a stable API |
 | The build through `tsc` | CJS or a bundle is needed | `tsup`, then `tsdown` |
 | Biome | rules are missing | ESLint 9 flat + `oxlint` in CI |
 | `fast-redact` (a candidate, not installed) | 28 months without a release; it mutates the source object | `@pinojs/redact` |
@@ -245,7 +245,7 @@ dependency invites somebody to go looking for it in the lockfile.
 | Row | Measured | Fired? |
 |---|---|---|
 | `@apidevtools/swagger-parser` | latest 12.1.0 of 14.10.2025, 10 months ago | no — April 2027 stands |
-| TypeScript 6 | 7.0.2 of 08.07.2026 is on `dist-tags.latest`, 40 days old | **yes** |
+| TypeScript 6 | 7.0.2 of 08.07.2026, 40 days old; the shipped README calls it the latest stable | **yes**, and acted on — ADR-0031 |
 | `fast-redact` | latest 3.5.0 of 19.03.2024, 29 months ago | **yes**, against a threshold of 28 — but it is not installed, so what this settles is where to go if redaction ever needs a library: `@pinojs/redact`, 0.4.0 of 14.10.2025 |
 | `pdfkit` | 0.19.1 of 10.06.2026, active | not yet applicable |
 | The build through `tsc`, Biome | conditions are internal, nothing to measure | no |
@@ -261,8 +261,12 @@ JavaScript files. Byte-for-byte the same, with one exception —
 `RESOURCE_RELATIONS` that 6.0.3 dropped, which is a gain for a consumer reading
 the declarations. Type checking takes 0.2–0.3 s against 2.3–2.4 s.
 
-That is the measurement, not the decision. Bumping the compiler's major version
-changes the stack CLAUDE.md declares and wants an ADR of its own.
+That was the measurement. The decision followed on 19 August in ADR-0031, which
+also records the half of the condition being set aside: the programmatic API is
+still exported under `unstable/`, and this project never imports it. `dist-tags`
+was not the evidence for "left preview" and could not have been — ADR-0001 shows
+7.0.2 was already on `latest` while its README still carried the warning. The
+shipped package's README is.
 
 ---
 

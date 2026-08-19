@@ -9,7 +9,7 @@
 
 ## Stack
 
-Node >=22.12 · TypeScript 6 (`nodenext`, strict) · commander 15 · vitest 4 · Biome 2 · pnpm 11 · lefthook + gitleaks.
+Node >=22.12 · TypeScript 7 (`nodenext`, strict) · commander 15 · vitest 4 · Biome 2 · pnpm 11 · lefthook + gitleaks.
 
 The build is `tsc`, no bundler. Exact versions, no ranges.
 

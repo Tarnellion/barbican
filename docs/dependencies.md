@@ -26,7 +26,8 @@ true when the decision was taken, and re-take it if it no longer is.
 
 | Package | Version | Last release | Maintainers | Direct deps | Why it is here |
 |---|---|---|---|---|---|
-| `typescript` | 6.0.3 | — | — | 20 | The compiler. `tsc --noEmit` is a CI gate. 7.x is pinned out in dependabot: by its own README it is a preview with "API: not ready". |
+| `typescript` | 7.0.2 | 2026-07-08 | 7 | 0 + 20 optional | The compiler. `tsc --noEmit` is a CI gate. Moved off 6.0.3 on 19 August 2026 — ADR-0031. The 20 are platform binaries, resolved by `os`/`cpu`, so one installs. |
+| `@typescript/typescript-<os>-<arch>` | 7.0.2 | 2026-07-08 | 7 | 0 | The native compiler itself, prebuilt. Same publishers as the wrapper and published the same day. **No lifecycle scripts**, so nothing runs at install and `strictDepBuilds` has nothing to refuse. Exactly one is installed per machine: `darwin-arm64` locally, `linux-x64` in CI. |
 | `vitest` | 4.1.10 | — | — | 20 | Tests. The heaviest development tree, and the source of the one transitive advisory this project has had (nanoid, through vite → postcss). |
 | `@vitest/coverage-v8` | 4.1.10 | — | — | 10 | Coverage thresholds, which are a gate rather than a report. |
 | `@biomejs/biome` | 2.5.7 | — | — | 0 | Lint and format in one binary, which is why it replaced two tools. |
