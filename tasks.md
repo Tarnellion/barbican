@@ -2105,6 +2105,28 @@ Open, from the same review, in the order they were ranked:
       the interface that stopped short of them; they are 45 lines further down.
       Both interfaces carry the pair. The claim was wrong, not the code.
 
+- [x] **The TypeScript 7 migration was claimed a commit before it happened.** The
+      commit carrying ADR-0031 moved `package.json` to 7.0.2; the next commit — a
+      documentation change staged with `git add -A` — moved it and the lockfile back
+      to 6.0.3, and nothing said so. Six documents claimed the migration while
+      `tsc --version` reported 6.0.3, so every measurement in the ADR had been taken
+      against whatever was in `node_modules` rather than against a pinned toolchain.
+      Mine, and found the next morning only because I went looking for stale copies of
+      a version number — the same sweep I had been running on other people's claims all
+      week.
+      The mechanism was **not** established: `pnpm run check`, the polygon verification
+      and `pnpm install --frozen-lockfile` were each tried afterwards and none reverts
+      anything. Which is the argument for a check rather than for resolving to be
+      careful — this revert survived a full gate, a pre-commit hook and my own reading
+      of the diff.
+      Closed 19 August: `tests/tools/pinned-versions.test.ts` compares what
+      `package.json` pins, what the lockfile importer resolved and what is installed,
+      for every direct dependency — the defect had nothing to do with TypeScript, and a
+      guard written for one package does not fire for the next. The compiler also has
+      to report its own version when asked. Verified by the mutation that is the
+      original defect: `package.json` back to 6.0.3 with nothing reinstalled fails
+      three of the four.
+
 ## Adversarial review of 18 August 2026 (the gate itself)
 
 Two more attackers, on what the reviews of 17 August did not touch: the polygon

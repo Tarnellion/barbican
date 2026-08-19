@@ -95,3 +95,30 @@ binary. A row with no condition is a pin nobody removes.
 **`@types/node` stays on the 22 line.** It is a separate pin with a separate
 reason — `engines` says `>=22.12.0`, and types from Node 26 would describe APIs
 that do not exist there. The dependabot block on `>=23.0.0` stays.
+
+## Addendum of 19 August 2026: the migration was claimed a commit before it happened
+
+The commit that carries this ADR moved `package.json` to 7.0.2. The **next**
+commit — a documentation change, staged with `git add -A` — moved it back to
+6.0.3 along with the lockfile, and nothing said so. Six documents went on
+claiming the migration while the installed compiler was 6.0.3, which means every
+figure above had been measured against whatever happened to be in `node_modules`
+at the time rather than against a pinned toolchain.
+
+The mechanism was not established. `pnpm run check`, the reference polygon's
+verification and `pnpm install --frozen-lockfile` were each tried afterwards and
+none of them reverts anything. That is precisely why the answer is a check and
+not a resolution to be more careful: a revert that leaves the tree
+self-consistent and only the documents wrong survives a full gate, a pre-commit
+hook and a reading of the diff — all three of which it did survive.
+
+`tests/tools/pinned-versions.test.ts` now compares what `package.json` pins, what
+the lockfile importer resolved, and what is installed, for **every** direct
+dependency rather than for the compiler alone: the defect had nothing to do with
+TypeScript, and a guard written for one package does not fire for the next. The
+compiler additionally has to report its own version when asked, because a stale
+binary and a `package.json` can agree while `tsc` runs something else.
+
+The figures above were re-measured under a toolchain the check now holds in
+place: `tsc --version` reports 7.0.2, 934 tests pass, the reference polygon
+reports 29 combinations and 0 mismatches.
