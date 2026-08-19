@@ -868,6 +868,50 @@ That is the reason to leave the flag off unless you have one.
 - **Does not read the body to decide whether access was granted.** The status
   code is the whole of it, and on some platforms that is not enough — see below.
 
+### What the model does not express
+
+The list above is what the tool declines to **do**. This one is what the
+declaration cannot **say**, which is the harder kind of limit: it does not
+announce itself, and a run against a platform whose access rules need one of
+these comes back clean and means less than it looks.
+
+Found by walking a real multi-tenant platform through this format in August 2026,
+and written here rather than left in a working note, because the operator who
+needs to know is the one modelling their own platform for the first time.
+
+**A contour has no address of its own.** A base address can be declared on a
+tenant — brands do get their own subdomains — and never on an authentication
+scheme. So a platform whose administrative contour lives on `admin.example.com`
+beside `api.example.com` needs two runs, and two runs cannot ask the question the
+contours were introduced for: whether the operator's cookie opens a customer
+endpoint, and whether the customer's token reaches an administrative one. That
+matrix is exactly what one run gives and two do not.
+
+Do not reach for the obvious workaround. Declaring a contour as a tenant to
+borrow its `baseUrl` would make `own`, `same-tenant` and `foreign-tenant` mean
+something other than what they mean everywhere else, and the findings would come
+out as noise rather than as errors — harder to discount than a gap.
+
+**Granted access is not a relation.** The five relations describe belonging:
+whose the resource is, and how the two tenants are related. None of them can say
+"Anna shared this document with Boris". On a platform with sharing, an ACL or
+guest links, a legitimate share and a leak are the same `same-tenant` cell, and
+the tool has no way to tell them apart. If that is how access is granted where
+you work, this module answers a smaller question than it appears to.
+
+**Permissions that depend on the resource's state** — a draft may be edited, a
+published one may not — are expressible, and the way is not obvious enough to
+find by accident. Declare two resources with different identifiers, one in each
+state, and write a rule for each. It costs a line per state and it is honest: the
+report then names the draft and the published document separately, which is what
+a reader needs anyway.
+
+**Permissions that depend on the request body** are not expressible. Request
+conditions carry headers and query parameters, and nothing else — a deliberate
+boundary, and the one a platform reaches the moment an endpoint decides by a
+field in the payload. There is no workaround here; a rule that needs the body is
+outside what this declaration can state.
+
 ### With `--unsafe-methods`, the order of the walk starts to matter
 
 A run without the flag is a read: whatever order the cells are probed in, each

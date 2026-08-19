@@ -420,20 +420,35 @@ thing and nowhere says so.
       would be noise rather than wrong. Likely shape: an optional `baseUrl` on an
       entry in `authSchemes`, with the host still required to be in
       `allowedHosts`.
+      Written into `docs/guide.md` on 19 August under "What the model does not
+      express", with the workaround named as forbidden and the reason. The gap itself
+      stays open — the likely shape below is a guess, not a decision, and it is not
+      promised anywhere.
 - [ ] **Granted access is not a relation.** The five relations describe **belonging**
       — whose the resource is and how the tenants are related. They cannot say
       "Anna shared this document with Boris". On any platform with sharing, an ACL
       or a guest link, the whole class is out of reach: a legitimate share and a
       leak are the same `same-tenant` cell. Needs thought before it is promised
       anywhere.
-- [ ] **Permissions that depend on the resource's state** — a draft may be edited, a
+      Written into `docs/guide.md` on 19 August, in the words "if that is how access
+      is granted where you work, this module answers a smaller question than it
+      appears to". The gap stays open and still needs thought before anything is
+      promised.
+- [x] **Permissions that depend on the resource's state** — a draft may be edited, a
       published one may not. Works around to declaring two resources with different
       identifiers and separate rules, which is honest and costs a line. Worth a
       paragraph so nobody concludes it is impossible.
+      Closed 19 August: the paragraph is in `docs/guide.md`, and it says the way is
+      "not obvious enough to find by accident", which is the whole reason the item
+      existed. This one is expressible, so writing it down closes it — unlike the
+      three around it.
 - [ ] **Permissions that depend on the request body.** Conditions carry headers and
       query parameters only. A deliberate boundary today, and it is the boundary a
       platform reaches the moment an endpoint decides by a field in the payload.
 
+      Written into `docs/guide.md` on 19 August, and said plainly there: no
+      workaround, a rule that needs the body is outside what this declaration can
+      state. The boundary stays where ADR-0019 put it.
 - [x] **A role a rule names and no account carries fails in silence.** Found while
       checking the two items below against the code: the guide said "read a role
       selector twice; nothing else will", and that was accurate. Measured on the
