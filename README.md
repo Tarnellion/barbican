@@ -10,7 +10,8 @@ BOLA/IDOR, and cross-tenant leaks.
 ## Status
 
 Early development, but end-to-end: `barbican run` walks a live API and writes a report.
-Validated against three targets — [crAPI](docs/polygons/crapi.md), VAmPI, and a
+Validated against four targets — [crAPI](docs/polygons/crapi.md),
+[VAmPI](docs/polygons/vampi.md), [Juice Shop](docs/polygons/juice-shop.md), and a
 [reference platform](https://github.com/Tarnellion/barbican/tree/main/polygon) with switchable defects and a hand-written oracle.
 
 - **Works today** — OpenAPI/Postman/manual endpoint sources, throttled probing across
@@ -196,6 +197,70 @@ naming every declared endpoint.
 **Two accounts presenting the same token are refused even if one has trailing
 whitespace**, `Retry-After` can no longer shorten the backoff below the tool's own
 formula, and `--dry-run` no longer refuses configurations that run.
+
+### Unreleased
+
+On `main`, not on npm. `0.4.0` is still what `npm install barbican` gives you, and
+none of the following is in it. This section is written as the changes land and is
+renamed to name the version when that version is tagged.
+
+**A canary is required per account, not per run.** A run where one account has a
+canary and another with a `tokenEnv` does not now exits `2` and names the accounts.
+It used to be enough for the run to have one canary anywhere: an account carrying a
+dead token, denied everywhere by the policy, produced `match: true` on every cell
+and exit `0` — "tested and clean" about credentials nothing had ever shown to work.
+`findUnauthenticated` cannot reach that case by construction, because a policy that
+declares nothing accessible to an account gives it nothing to be refused. The text
+of the `noCanary` warning in `report.warnings[]` changed with it.
+
+**A backslash or a control character in an endpoint path is refused**, and the
+grammar now also sits where the address is built rather than only at the three
+adapters that read a document. `/v1/reports\..\..\danger` was one segment to a
+guard that splits on `/` and three to the URL parser, which reads `\` as a
+separator for http and https: the request arrived at `/danger` — an endpoint the
+configuration had excluded — and the verdict for `reports` was computed from its
+answer. Tab, newline and carriage return go the same way: the parser removes them
+before reading, so `.` newline `.` becomes `..` after approval. Percent-encoded
+`%5c` too.
+
+**The same refusals now apply to the library.** `collectObservations` takes
+`Endpoint[]` from whoever calls it, and `Endpoint.path` is a plain string: every
+refusal written for the adapters was open through that door, including
+`?_method=DELETE` performing a write with `allowUnsafeMethods: false`.
+
+**Navigation is refused in the spellings the receiver collapses**, not only the
+one written out. `%2e%2e`, `.%2e` and `%2e.` are double-dot segments to `new URL`
+itself — the tool's own parser, before any platform sees them — and `..;` is `..`
+to a servlet container, which strips `;params` from a segment before normalising
+the path.
+
+**An absolute or scheme-relative URL is refused as an endpoint path.** The
+endpoint list and the Postman parser each refused one in their own way; an
+OpenAPI `paths` key did not, and `https://user:secret@host/x` there kept the
+origin check happy — origin does not carry userinfo — and printed the credentials
+into `observations[].url`.
+
+**`runVerdict` and `exitCodeFor` accept a report saved by an older version.**
+They read the canary outcomes now, and a 0.4.0 report has no `canaries` field: it
+answers 2, where it had started throwing a `TypeError`.
+
+**The registered methods that write are refused in request conditions and
+resource queries.** The check by value knew the methods this tool can issue; a
+platform honouring an override is not limited to them, and `MOVE` deletes the
+source. The WebDAV, versioning, binding, calendar, redirect-reference and ACL
+methods are in the set now, with `PURGE`.
+
+**Three configurations that used to start now stop at `--dry-run`**: a policy rule
+naming a role no account carries, a resource that fits no endpoint, and a canary
+the policy denies to the account's own role. Each was a rule or a check that
+silently did nothing.
+
+**The preview names the accounts owed a canary** instead of saying "not one
+account declares a canary", which was false whenever one did, and prints it in the
+colour the finished run uses for the same warning.
+
+**The build is TypeScript 7.0.2** ([ADR-0031](docs/adr/0031-typescript-7.md)). No
+API change; the emitted declarations keep doc comments 6.x dropped.
 
 ## Example
 
@@ -409,10 +474,19 @@ Publishing goes through CI, never from a laptop. `publishConfig.provenance` is o
 and provenance needs an OIDC witness that a local machine cannot provide — a manual
 `npm publish` fails by design, which is the point.
 
+A release is three edits and a tag, in one commit:
+
+1. Rename the `### Unreleased` section of this README to
+   `### What changed in <version>`. It has been written as the changes landed —
+   that is [ADR-0034](docs/adr/0034-what-main-carries-beyond-the-release.md), and
+   the reason is that reconstructing it from the log at tag time failed twice.
+2. Set that version in `package.json`. Between releases it names the last version
+   this tree shipped, so this is where it moves.
+3. Read the renamed section as a consumer of the previous version would.
+
 ```bash
-# 1. version in package.json is already the one being released
-# 2. tag it — the tag must match that version, the workflow verifies it
-git tag v0.3.0 && git push origin v0.3.0
+# the tag must match package.json's version — the workflow verifies it
+git tag v0.5.0 && git push origin v0.5.0
 ```
 
 The tag triggers [`release.yml`](https://github.com/Tarnellion/barbican/blob/main/.github/workflows/release.yml): it runs the same

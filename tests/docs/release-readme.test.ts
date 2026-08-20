@@ -13,6 +13,7 @@
  * something you cannot have.
  */
 
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,5 +61,100 @@ describe("the README describes the version being released", () => {
     // A guard that matched no sentence would agree with any README.
     expect(claims).toHaveLength(1);
     expect(claims[0]).toContain(VERSION);
+  });
+});
+
+/**
+ * What is on main, and what a reader of the package can have.
+ *
+ * The three questions above are asked of the README of a version being tagged.
+ * They had nothing to say about the state this repository was actually in on
+ * 19 August 2026: `package.json` said `0.4.0`, the tag `v0.4.0` had been cut
+ * twenty-one commits earlier, and those commits carried three new refusals a run
+ * can end on, a changed string in `report.warnings[]`, and the fixes for a path
+ * that reached an endpoint the configuration had excluded. All of it was fixed
+ * for whoever reads the repository and open for everyone who runs
+ * `npm install barbican` — and nothing anywhere said so.
+ *
+ * That is the third time this shape has cost something: `v0.2.0` shipped a README
+ * arguing against its own package, `0.3.0` shipped three report changes described
+ * only in ADRs, and this is the same omission with the release not yet made.
+ *
+ * The rule these two cases enforce: **the difference between main and the newest
+ * tag is written down where a consumer reads, as it lands.** Not at release time,
+ * when it has to be reconstructed from the log — the reconstruction is what
+ * failed twice. `### Unreleased` is that place; the release renames it.
+ *
+ * The version in `package.json` deliberately stays where it is between releases.
+ * Bumping it early was the other candidate and it contradicts the guard above:
+ * the Install section would then name a version npm does not have as "the current
+ * release, and the one to install", which is the v0.2.0 defect in its original
+ * direction. See ADR-0034.
+ */
+describe("what main carries beyond the newest release", () => {
+  const git = (...args: readonly string[]): string | undefined => {
+    const result = spawnSync("git", [...args], { cwd: ROOT, encoding: "utf8" });
+    return result.status === 0 ? result.stdout.trim() : undefined;
+  };
+
+  /** The newest `v*` tag by version order, which is the last release. */
+  const newestTag = (git("tag", "--list", "v*", "--sort=-v:refname") ?? "").split("\n")[0] ?? "";
+
+  /** The section, and everything under it up to the next heading of any level. */
+  const sectionOf = (heading: string): string | undefined => {
+    const start = README.indexOf(`${heading}\n`);
+    if (start < 0) {
+      return undefined;
+    }
+    const rest = README.slice(start + heading.length);
+    const next = rest.search(/\n#{2,3} /);
+    return next < 0 ? rest : rest.slice(0, next);
+  };
+
+  it("is asked of a checkout that has the tags and the history", () => {
+    // A shallow checkout has neither, and then every assertion below passes by
+    // knowing nothing — the shape of guard this repository keeps finding in its
+    // own CI. `fetch-depth: 0` is set in ci.yml for exactly these three lines.
+    expect(newestTag).toMatch(/^v\d+\.\d+\.\d+$/);
+    expect(git("rev-list", "-n", "1", newestTag)).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  /**
+   * `docs/` and `polygon/` are not in the list on purpose: they change without
+   * changing what a consumer runs, and a guard that fires on a typo fix is one
+   * people learn to satisfy with an empty line.
+   */
+  const consumerVisible = (
+    git("diff", "--name-only", `${newestTag}..HEAD`, "--", "src", "schema") ?? ""
+  )
+    .split("\n")
+    .filter((name) => name !== "");
+
+  it("is described in an Unreleased section while it is not released", () => {
+    const tagged = git("rev-list", "-n", "1", `v${VERSION}`);
+    const head = git("rev-parse", "HEAD");
+    // On the release commit itself there is nothing unreleased: the section has
+    // just been renamed to name the version. Everywhere else, a change under
+    // `src/` or `schema/` since the last tag owes a description.
+    if (tagged === head || consumerVisible.length === 0) {
+      expect(sectionOf("### Unreleased")).toBeUndefined();
+      return;
+    }
+    const section = sectionOf("### Unreleased");
+
+    expect(section, `changed since ${newestTag}: ${consumerVisible.join(", ")}`).toBeDefined();
+    // A heading with nothing under it satisfies the letter and none of the point.
+    expect((section ?? "").trim().length).toBeGreaterThan(80);
+  });
+
+  it("is named after the version once that version is tagged", () => {
+    const tagged = git("rev-list", "-n", "1", `v${VERSION}`);
+    if (tagged !== git("rev-parse", "HEAD")) {
+      // Not a release commit. The assertion that applies here is the one above.
+      expect(README).toContain("## Install");
+      return;
+    }
+
+    expect(README).toContain(`### What changed in ${VERSION}`);
   });
 });

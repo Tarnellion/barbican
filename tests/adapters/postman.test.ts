@@ -453,7 +453,11 @@ describe("the host in the collection does not decide the addressee", () => {
       item: [{ name: "a", request: { method: "GET", url: { path: ["", "evil.test", "x"] } } }],
     });
 
-    await expect(parser.parse(collection)).rejects.toThrow(/addresses another host/);
+    // The wording moved on 19 August 2026: the grammar refuses a scheme-relative
+    // form for every source at once, so it now answers before this parser's own
+    // host check does. Both are refusals; what this test is about is that the
+    // collection cannot widen the scope through a notation.
+    await expect(parser.parse(collection)).rejects.toThrow(/an address rather than a path/);
   });
 
   // Such a path starts with a slash and slips past a naive check, but

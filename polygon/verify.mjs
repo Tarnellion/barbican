@@ -302,8 +302,37 @@ async function assertDryRunTellsTheTruth(baseUrl, reportDir) {
   const noCanary = join(reportDir, "no-canary.yaml");
   await writeFile(noCanary, config.replace(/^\s*canary:.*$/gm, ""), "utf8");
   const g2 = await runCli(undefined, environment, false, ["-c", noCanary, "--dry-run"]);
-  if (!g2.stderr.includes("Not one account declares a canary")) {
+  if (!g2.stderr.includes("No canary is declared for: alice-a")) {
     fail(`the dry run stayed silent about there being no canary:\n${g2.stderr}`);
+  }
+
+  // And the half the old assertion could not ask, because the sentence it looked
+  // for was about the run rather than about an account: one canary left standing
+  // must not clear the other seven. The rule became per account on 19 August 2026
+  // (ADR-0033), and this file asserted the wording that was true when it was not.
+  const oneCanary = join(reportDir, "one-canary.yaml");
+  let kept = false;
+  await writeFile(
+    oneCanary,
+    config
+      .split("\n")
+      .filter((line) => {
+        if (!/^\s*canary:/.test(line)) {
+          return true;
+        }
+        const first = !kept;
+        kept = true;
+        return first;
+      })
+      .join("\n"),
+    "utf8",
+  );
+  const g2b = await runCli(undefined, environment, false, ["-c", oneCanary, "--dry-run"]);
+  if (!g2b.stderr.includes("No canary is declared for: bob-a")) {
+    fail(`one canary cleared the accounts that have none:\n${g2b.stderr}`);
+  }
+  if (g2b.stderr.includes("alice-a")) {
+    fail(`the account that does have a canary was named as owing one:\n${g2b.stderr}`);
   }
 
   process.stdout.write("--dry-run: canaries validated, budget, missing canary and --report said\n");

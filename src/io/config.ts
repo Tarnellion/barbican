@@ -1840,6 +1840,21 @@ const FORBIDDEN_HEADER_PREFIXES: readonly (readonly [string, string])[] = [
  * honouring an override does not care what this tool's type says. One source
  * because two places read it — the conditions an operator declares and the query
  * a resource declares — and a set written twice is the shape B-10 was about.
+ *
+ * The seven original words were the methods this tool knows. That is not the set
+ * a platform will execute: adversarial review of 19 August 2026 got `MOVE`
+ * through as a resource query and as an attribute value, and `MOVE` deletes the
+ * source. The WebDAV and versioning methods are here now, with `PURGE` for the
+ * caches that honour it.
+ *
+ * An enumeration, and this one is allowed to be an enumeration — unlike the
+ * denylist of header names ADR-0005's addendum threw out. The difference is what
+ * the set has to be complete against: header names that will ever carry a secret
+ * are unbounded and belong to whoever wrote the platform, while a method a
+ * platform can be talked into performing is a registered token — IANA's method
+ * registry plus the handful of vendor verbs below. Where a name outside it does
+ * turn out to perform a write, the entry to add is here, in the one set both
+ * readers share.
  */
 const WRITE_METHOD_WORDS: ReadonlySet<string> = new Set([
   "POST",
@@ -1849,6 +1864,43 @@ const WRITE_METHOD_WORDS: ReadonlySet<string> = new Set([
   "OPTIONS",
   "TRACE",
   "CONNECT",
+  // RFC 4918 (WebDAV): every one of these changes something on the target.
+  "COPY",
+  "LOCK",
+  "MKCOL",
+  "MOVE",
+  "PROPPATCH",
+  "UNLOCK",
+  // RFC 3253 and RFC 5842: versioning and binding.
+  "BASELINE-CONTROL",
+  "BIND",
+  "CHECKIN",
+  "CHECKOUT",
+  "LABEL",
+  "MERGE",
+  "MKACTIVITY",
+  "MKWORKSPACE",
+  "REBIND",
+  "UNBIND",
+  "UNCHECKOUT",
+  "UPDATE",
+  "VERSION-CONTROL",
+  // The rest of the registry that writes, and the reason this list is written
+  // out rather than described: the second adversarial review of 19 August took
+  // the paragraph above at its word — "IANA's method registry" — and found six
+  // registered methods missing from it. A claim about a registry has to be the
+  // registry.
+  "LINK",
+  "MKCALENDAR",
+  "MKREDIRECTREF",
+  "ORDERPATCH",
+  "UNLINK",
+  "UPDATEREDIRECTREF",
+  // RFC 3744: access control. A method that rewrites permissions on a run
+  // checking permissions is the worst of the lot.
+  "ACL",
+  // Vendor, and common enough to matter: cache invalidation.
+  "PURGE",
 ]);
 
 const FORBIDDEN_QUERY_KEYS: ReadonlySet<string> = new Set([

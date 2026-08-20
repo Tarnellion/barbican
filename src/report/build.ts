@@ -1560,10 +1560,12 @@ export const WARNINGS = {
   // and the reader of the artifact is the one who needs to know why the run came
   // back 2 without a single finding to explain it.
   noCanary:
-    "Authentication is unverified: no account has a canary, so nothing confirms " +
-    "the accounts were authenticated at all. If the tokens do not work, the run " +
-    "reports 'no escalations found' having tested nothing, which is why a run " +
-    "without a canary ends with exit code 2.",
+    "Authentication is unverified for at least one account that has credentials: " +
+    "no canary of its own passed, so nothing confirms the run ever authenticated " +
+    "as it. If its token does not work, every cell walked under that account " +
+    "answers the way an unauthenticated request would and is read here as a lawful " +
+    "denial — which is why such a run ends with exit code 2. The verdict names " +
+    "the accounts.",
   findingsCapped:
     "Some evidence rows were left out of this file: a defect was observed more " +
     `times than the ${MAX_ROWS_PER_DEFECT} rows kept per defect. Nothing about ` +
@@ -1572,6 +1574,46 @@ export const WARNINGS = {
     "says how many rows are missing. Each defect keeps its own examples, so none " +
     "of them is left with no evidence at all.",
 } as const;
+
+/**
+ * The accounts whose credentials this run confirmed nothing about.
+ *
+ * One function because two readers need the same answer — the warning and the
+ * verdict — and the pair that was written twice drifted within four days:
+ * `canariesChecked === 0` asked whether the run had **a** canary, while the
+ * sentence beside it promised something about "the accounts".
+ *
+ * A row under request conditions is not a separate principal: it is the same
+ * account with the same token making a differently shaped request, so it is the
+ * base account's canary that clears it. Without this the rule would demand a
+ * canary for a row no operator can declare one on — `baseAccountId` is the
+ * carrier, `contextId` only says the row exists.
+ *
+ * Anonymous accounts are not in the answer: there is nothing to confirm.
+ */
+function unconfirmedCredentials(report: VerdictInputs): readonly string[] {
+  // `?? []` although the type says the field is there: `runVerdict` and
+  // `exitCodeFor` are exported, and a consumer recomputing a verdict from a
+  // report saved by 0.4.0 hands over an object that predates the field. It used
+  // to read `canariesChecked` only, so such an object worked; a TypeError where
+  // an exit code was expected is a worse answer than "nothing confirmed".
+  const confirmed = new Set(
+    (report.canaries ?? [])
+      .filter((canary) => canary.authenticated)
+      .map((canary) => canary.accountId),
+  );
+  const unconfirmed = new Set<string>();
+  for (const account of report.accounts) {
+    if (account.anonymous === true) {
+      continue;
+    }
+    const principal = account.baseAccountId ?? account.id;
+    if (!confirmed.has(principal)) {
+      unconfirmed.add(principal);
+    }
+  }
+  return [...unconfirmed].sort();
+}
 
 /**
  * What the console said that the numbers do not.
@@ -1592,7 +1634,7 @@ function warningsFor(report: VerdictInputs, config: RunConfig): readonly string[
   if (report.findingsOmitted > 0) {
     warnings.push(WARNINGS.findingsCapped);
   }
-  if (report.canariesChecked === 0 && report.accounts.some((account) => !account.anonymous)) {
+  if (unconfirmedCredentials(report).length > 0) {
     warnings.push(WARNINGS.noCanary);
   }
   return warnings;
@@ -2052,23 +2094,38 @@ export function runVerdict(report: VerdictInputs): RunVerdict {
       reason: `accounts granted access nowhere: ${report.unauthenticated.join(", ")} — most likely the tokens, not the policy`,
     };
   }
-  // Not a single canary means authentication is confirmed by nothing. The
-  // `findUnauthenticated` safeguard does not help here by construction: it is
-  // built as 'declared accessible, but granted nowhere', and a policy made of
-  // denials alone declares nothing accessible, so it stays silent.
+  // Authentication is confirmed per account, and it used to be asked per run:
+  // `canariesChecked === 0`. One canary on one account cleared every other
+  // account of the same run.
   //
-  // Found by adversarial review: the deployment answered 401 to everything, the
-  // tokens were stale, and the report came out clean with exit code 0 — and with
-  // `match: true` on each of the twelve cells at that. This is exactly the case
-  // the 2 exists for: what was not tested is never clean.
+  // The `findUnauthenticated` safeguard does not close the gap and cannot by
+  // construction: it is built as 'declared accessible, but granted nowhere', and
+  // for an account the policy denies everywhere nothing is declared accessible,
+  // so it stays silent on exactly the account whose token nothing else proves.
   //
-  // Accounts without credentials are excluded from the rule: an anonymous run —
-  // 'check that nobody at all can get in here' — has nothing to authenticate, and
-  // demanding a canary of it would forbid a legitimate scenario.
-  if (report.canariesChecked === 0 && report.accounts.some((account) => !account.anonymous)) {
+  // Found twice. Adversarial review of 17 August: the deployment answered 401 to
+  // everything, the tokens were stale, and the report came out clean with exit
+  // code 0 — with `match: true` on each of the twelve cells at that. Adversarial
+  // review of 19 August, against the rule written after it: a second account
+  // carrying a dead token and no canary of its own, beside one healthy account
+  // that had one. Exit 0, no warning, `match: true` on every denied cell — and
+  // the claim being made about that account, 'a guest reaches nothing', is the
+  // most valuable one such a run produces.
+  //
+  // Accounts without credentials are excluded: an anonymous run — 'check that
+  // nobody at all can get in here' — has nothing to authenticate, and demanding a
+  // canary of it would forbid a legitimate scenario.
+  const unconfirmed = unconfirmedCredentials(report);
+  if (unconfirmed.length > 0) {
     return {
       code: 2,
-      reason: "no canary was checked: nothing confirms the accounts were authenticated at all",
+      reason:
+        `credentials nothing confirmed: ${unconfirmed.join(", ")} — each of them has a token ` +
+        `and no canary that passed, so every cell walked under it says what an ` +
+        `unauthenticated request says and nothing about access. Declare a canary on an ` +
+        `endpoint the policy allows that account; where the policy allows it nothing at ` +
+        `all, nothing here can tell a dead token from a lawful denial, and an account ` +
+        `whose token is not the point belongs in the run without one`,
     };
   }
   // A threshold, not 'every single one'. The previous condition required **all**

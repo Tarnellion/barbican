@@ -138,6 +138,15 @@ in that release still spoke Russian around English documentation. All three are 
 stated exit criterion. `barbican@0.3.0` is on npm as `latest`, published through
 the pipeline with provenance.
 
+`0.4.0` followed on 18 August and is what `latest` points at today: the raw zod
+schema is no longer in the published types, the signal extractor is exported at
+last, and `basis` travels on observations rather than only on findings. Recording
+it here is not bookkeeping — the version this file forgot to mention is the
+version main then drifted twenty-one commits past, in silence, until the audit of
+19 August. The rule that came out of that is
+[ADR-0034](docs/adr/0034-what-main-carries-beyond-the-release.md), and the place
+the drift is written down from now on is README's `### Unreleased` section.
+
 The blocker this section named is gone: `release.yml` ran one CI gate of four —
 `pnpm run check` — and skipped the secret scan over the history, the oracle
 verification and the vulnerability scan, so a tag could publish a commit that

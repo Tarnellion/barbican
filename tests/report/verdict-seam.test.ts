@@ -105,6 +105,15 @@ function verdictOf(
     failures: [],
     unauthenticated: [],
     canariesChecked: ACCOUNTS.length,
+    // One per account, because the rule is per account: a fixture carrying a
+    // count and an empty list is a report `buildReport` never produces, and it
+    // is what hid the gap this file's last case now covers.
+    canaries: ACCOUNTS.map((account) => ({
+      accountId: account.id,
+      endpointId: "orders.list",
+      status: 200,
+      authenticated: true,
+    })),
     truncated: false,
     findings: diffAccess(matrix, policy),
     policy,
@@ -192,10 +201,66 @@ describe("no canary was checked", () => {
    * the run may be an unauthenticated request being refused for that reason.
    */
   it("is 2 while any account claims to present a credential", () => {
-    const { verdict, code } = verdictOf(AS_DECLARED, { canariesChecked: 0 });
+    const { verdict, code } = verdictOf(AS_DECLARED, { canariesChecked: 0, canaries: [] });
 
     expect(code).toBe(2);
     expect(verdict.reason).toContain("canary");
+  });
+
+  /**
+   * The rule is per account, and it was per run until 19 August 2026.
+   *
+   * Adversarial review: alice has a working token and a canary, mallory carries a
+   * dead one and no canary of its own. Every cell of mallory's answers 401, every
+   * one of them is declared denied, so the matrix agrees with the policy — and
+   * the run exited 0 stating "tested and clean" about the half of the matrix
+   * whose credentials were never shown to work at all. `findUnauthenticated`
+   * cannot reach it: a policy that declares nothing accessible to mallory gives
+   * it `expectedAllowed: 0`.
+   */
+  it("is 2 when one account has a canary and another with credentials has none", () => {
+    const { verdict, code } = verdictOf(AS_DECLARED, {
+      canariesChecked: 1,
+      canaries: [
+        { accountId: "alice", endpointId: "orders.list", status: 200, authenticated: true },
+      ],
+    });
+
+    expect(code).toBe(2);
+    expect(verdict.reason).toContain("carol");
+    expect(verdict.reason).not.toContain("alice");
+  });
+
+  /**
+   * A report saved by 0.4.0 and handed back to `runVerdict`, which is exported.
+   *
+   * The rule used to read `canariesChecked`, so an object without `canaries`
+   * answered; reading the outcomes made it a `TypeError` where an exit code was
+   * expected. "Nothing confirmed" is the worse-case answer, and it is an answer.
+   */
+  it("answers 2 rather than throwing when the report has no canaries field", () => {
+    const { report } = verdictOf(AS_DECLARED);
+    const { canaries: _dropped, ...older } = report;
+
+    expect(() => exitCodeFor(older as typeof report)).not.toThrow();
+    expect(exitCodeFor(older as typeof report)).toBe(2);
+  });
+
+  /** A canary that answered with a refusal confirms nothing either. */
+  it("is 2 when the only canary failed", () => {
+    const { verdict, code } = verdictOf(AS_DECLARED, {
+      canariesChecked: 2,
+      canaries: ACCOUNTS.map((account) => ({
+        accountId: account.id,
+        endpointId: "orders.list",
+        status: 401,
+        authenticated: false,
+      })),
+    });
+
+    expect(code).toBe(2);
+    expect(verdict.reason).toContain("alice");
+    expect(verdict.reason).toContain("carol");
   });
 });
 

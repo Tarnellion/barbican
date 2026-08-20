@@ -117,3 +117,38 @@ describe("the public surface", () => {
     expect(extractor).toHaveProperty("extract");
   });
 });
+
+/**
+ * The two numbers `docs/library.md` states about this surface.
+ *
+ * They were 156 and 75 against an actual 160 and 79, and they had been wrong
+ * since before 0.4.0 — a count written by hand once and then left beside a file
+ * that grows. A number in prose is a claim like any other; this is the cheapest
+ * place to hold it, because the count is one line away from the import.
+ *
+ * If a change makes them move, move them: the point is that the file says what
+ * the package is, not that the package stops growing.
+ */
+describe("the counts in docs/library.md", () => {
+  const LIBRARY = readFileSync(join(ROOT, "docs/library.md"), "utf8");
+  const names = Object.keys(api);
+
+  const stated = (pattern: RegExp): number => {
+    const found = LIBRARY.match(pattern)?.[1];
+    // A guard that read no number would agree with every number.
+    expect(found, `not found in docs/library.md: ${pattern}`).toBeDefined();
+    return Number(found);
+  };
+
+  it("say how many values the package exports", () => {
+    expect(stated(/The package exports (\d+) values/)).toBe(names.length);
+  });
+
+  it("say how many of them are error classes", () => {
+    const errors = names.filter(
+      (name) => /Error$/.test(name) && typeof (api as Record<string, unknown>)[name] === "function",
+    );
+
+    expect(stated(/\*\*(\d+) error classes\.\*\*/)).toBe(errors.length);
+  });
+});

@@ -746,11 +746,18 @@ describe("a path from the specification does not control the address", () => {
     expect(result.skipped).toEqual([{ endpointId: "e", reason: "escapes-target" }]);
   });
 
-  it("does not let a backslash lead to another host", async () => {
-    const { seen } = await probe("/\\evil.test/x");
+  it("refuses a backslash instead of normalising it away", async () => {
+    const { seen, result } = await probe("/\\evil.test/x");
 
-    // The backslash route stays inside the target.
-    expect(seen[0]?.url).toBe("https://api.example.test/v1/evil.test/x");
+    // This used to assert that the route "stays inside the target": the leading
+    // backslash was trimmed and the address came out `/v1/evil.test/x`. Trimming
+    // the leading one was the whole of it, and a backslash in the middle is a
+    // path separator to the URL parser — `/v1/reports\..\..\danger` arrived at
+    // `/danger`, past an exclusion list that works on ids. The character is
+    // refused now, at the seam where the address is built. See
+    // `isAddressablePath` and ADR-0032.
+    expect(seen).toEqual([]);
+    expect(result.skipped).toEqual([{ endpointId: "e", reason: "escapes-target" }]);
   });
 
   it("an ordinary path is assembled as before", async () => {

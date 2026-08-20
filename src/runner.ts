@@ -25,7 +25,7 @@ import {
   resourceApplies,
   SAFE_METHODS,
 } from "./core/index.js";
-import { pathSegment } from "./io/untrusted.js";
+import { isAddressablePath, pathSegment, UnusablePathTemplateError } from "./io/untrusted.js";
 
 /**
  * What is computed over the body of a marked endpoint.
@@ -216,11 +216,32 @@ export class PathEscapesTargetError extends Error {
  * led to an arbitrary port. The allowlist check did not catch this: it compared
  * only the host name.
  *
- * A backslash and `..` are cut off as well: comparing origins makes the form of
- * the notation irrelevant.
+ * That paragraph used to end "a backslash and `..` are cut off as well:
+ * comparing origins makes the form of the notation irrelevant", and it was
+ * wrong in the half that mattered. Only a **leading** backslash was cut off, and
+ * comparing origins says nothing about which path inside the origin was reached:
+ * a template of `reports`, two navigating segments and `danger` joined by
+ * backslashes kept the origin, kept the base prefix and arrived at `/danger` —
+ * an endpoint the configuration had excluded, with the verdict for `reports`
+ * computed from its answer. Adversarial review, 19 August 2026.
+ *
+ * Hence the grammar here, and not only in the adapters that read a document.
+ * This is the one place an address is built, so it is the one place where every
+ * door — a specification, an endpoint list, a Postman collection, and a consumer
+ * of the library building `Endpoint[]` by hand — passes through the same check.
+ * `isAddressablePath` is that grammar's literal half; see it for why the seam
+ * does not decode percent-escapes the way the door does.
  */
 function joinUrl(baseUrl: string, path: string): string {
   const base = new URL(baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
+  if (!isAddressablePath(path)) {
+    throw new UnusablePathTemplateError(
+      path,
+      "is not a path this tool can address: a query string, a fragment, a " +
+        "backslash, a control character or a navigating segment makes the " +
+        "address something other than what the endpoint names",
+    );
+  }
   const resolved = new URL(path.replace(/^[/\\]+/, ""), base);
   // Both the origin and the path prefix are compared. The origin alone is not
   // enough: a `..` in a resource's value led the request above the declared base

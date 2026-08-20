@@ -265,19 +265,24 @@ function escalationLine(
 }
 
 /**
- * Whether a canary is owed at all.
+ * The accounts a canary is owed for, by name.
  *
- * An anonymous run — "check that nobody at all can get in here" — has nothing to
- * authenticate, and `runVerdict` excludes it from the rule that makes a run
- * without canaries exit 2. The same predicate the report calls `!anonymous`,
- * which is `tokenEnv` being set. Asked here so that the screen's warning fires on
- * exactly the runs the file's does: a warning printed under a wider condition
- * than the one it describes is the same disagreement in a subtler form, and the
- * sentence it prints ends "which is why a run without a canary ends with exit
- * code 2" — untrue of a run with nothing to authenticate.
+ * An anonymous account — "check that nobody at all can get in here" — has nothing
+ * to authenticate, and `runVerdict` excludes it from the rule that ends such a
+ * run with exit 2. The same predicate the report calls `!anonymous`, which is
+ * `tokenEnv` being set. Asked here so that the screen's warning fires on exactly
+ * the runs the file's does: a warning printed under a wider condition than the
+ * one it describes is the same disagreement in a subtler form.
+ *
+ * Names and not a count, because the rule became per account on 19 August: a run
+ * where one account of four has a canary is not a run with canaries, and "not one
+ * account declares a canary" was false about it while the exit code was still 2.
+ * The preview's job is to say which line of the configuration to add.
  */
-function needsCanary(config: RunConfig): boolean {
-  return config.accounts.some((account) => account.tokenEnv !== undefined);
+function accountsOwedACanary(config: RunConfig): readonly string[] {
+  return config.accounts
+    .filter((account) => account.tokenEnv !== undefined && account.canary === undefined)
+    .map((account) => account.id);
 }
 
 /**
@@ -470,7 +475,7 @@ function describePlan(
   }, 0);
 
   const withCanary = config.accounts.filter((account) => account.canary !== undefined).length;
-  const needCanary = needsCanary(config);
+  const withoutCanary = accountsOwedACanary(config);
   const budget = limits?.maxRequests;
   const wanted = cells + withCanary;
 
@@ -498,13 +503,18 @@ function describePlan(
       // not mention. Without a canary the run cannot confirm it authenticated at
       // all and ends with exit 2 whatever the platform answered — after the whole
       // matrix has been walked.
-      withCanary === 0 && needCanary
+      withoutCanary.length > 0
         ? paint(
-            `Not one account declares a canary. The run will walk the whole matrix ` +
-              `and then exit 2: nothing would confirm the accounts were ` +
-              `authenticated. Declare "canary: <endpointId>" on each account that ` +
-              `has credentials.`,
-            "red",
+            `No canary is declared for: ${withoutCanary.join(", ")}. The run will walk ` +
+              `the whole matrix and then exit 2: nothing would confirm those accounts ` +
+              `were authenticated, and every cell walked under one of them would say ` +
+              `what an unauthenticated request says. Declare ` +
+              `"canary: <endpointId>" on each account that has credentials.`,
+            // The same colour the finished run's warning gets. They said the same
+            // thing in two colours until 19 August, and a reader who sees red on
+            // the preview and yellow on the run reads them as two different
+            // conditions.
+            WARNING_STYLE.noCanary,
           )
         : undefined,
       // A pipeline that publishes the report after a dry run publishes
@@ -685,11 +695,14 @@ async function run(flags: RunFlags): Promise<number> {
   // The report's own type rather than a structural copy: a copy drifts, and a
   // field it has not heard of is dropped in silence.
   let canaryOutcomes: readonly CanaryOutcome[] = [];
-  if (canaries.length === 0) {
-    if (needsCanary(config)) {
-      sayEarly("noCanary");
-    }
-  } else {
+  // Said before the walk when **any** credentialed account lacks a canary, not
+  // only when the run has none at all: the condition here is the one the verdict
+  // will apply, and a warning that fires on less than the verdict does is a
+  // warning that lets a run end with an exit code nothing on screen predicted.
+  if (accountsOwedACanary(config).length > 0) {
+    sayEarly("noCanary");
+  }
+  if (canaries.length > 0) {
     const results = await probeCanaries({
       baseUrl: config.target.baseUrl,
       endpoints,

@@ -52,6 +52,8 @@ function report(overrides: {
   }[];
 }): VerdictInputs {
   const observations = overrides.observations ?? 4;
+  const accounts = overrides.accounts ?? [{ id: "u", role: "r", anonymous: false }];
+  const canariesChecked = overrides.canariesChecked ?? 1;
   // The rows, not only the counters. This helper used to set `byKind` and leave
   // `findings` empty — a report `buildReport` cannot produce, and the reason
   // `runVerdict` reading counters instead of rows went unnoticed. Whatever the
@@ -98,14 +100,27 @@ function report(overrides: {
     startedAt: "2026-08-12T00:00:00.000Z",
     finishedAt: "2026-08-12T00:00:01.000Z",
     target: { baseUrl: "https://api.test", allowedHosts: ["api.test"] },
-    accounts: overrides.accounts ?? [{ id: "u", role: "r", anonymous: false }],
+    accounts,
     endpoints: [],
     resources: [],
     skipped: [],
     failures: [],
     unauthenticated: overrides.unauthenticated ?? [],
-    canariesChecked: overrides.canariesChecked ?? 1,
-    canaries: [],
+    canariesChecked,
+    // The outcomes the count stands for, rather than an empty array beside a
+    // count of one — a report `buildReport` cannot produce. The same lesson as
+    // `byKind` below: a verdict that read the count instead of the outcomes let
+    // one canary on one account clear every other account of the run, and no
+    // fixture here could show it. Found 19 August 2026.
+    canaries: accounts
+      .filter((account) => account.anonymous !== true)
+      .slice(0, canariesChecked)
+      .map((account) => ({
+        accountId: account.id,
+        endpointId: "canary",
+        status: 200,
+        authenticated: true,
+      })),
     staleCredentials: overrides.staleCredentials ?? [],
     inputs: {
       policy: { fallback: "denied", rules: [] },

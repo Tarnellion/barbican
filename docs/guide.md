@@ -708,10 +708,15 @@ is made against a platform that is not up, where a single request would fail.
 it did not:
 
 - a canary pointing at an excluded endpoint, or at one with path parameters, or
-  at no endpoint at all — refused here rather than after the accounts have
-  authenticated;
-- **no canary on any account with credentials** — the run would walk the whole
-  matrix and then exit 2, because nothing would confirm it authenticated;
+  at no endpoint at all, or at an endpoint the policy denies to that account's
+  own role — refused here rather than after the accounts have authenticated;
+- **any account with credentials and no canary of its own** — named one by one.
+  The run would walk the whole matrix and then exit 2, because nothing would
+  confirm it authenticated as that account. It used to be enough for one account
+  somewhere in the run to have a canary; see
+  [ADR-0033](adr/0033-a-canary-is-per-account.md);
+- a policy rule naming a role no account carries, and a resource that fits no
+  endpoint — each is a declaration that would silently do nothing;
 - `--max-requests` below the number of cells on the same command line — the run
   would stop part-way and report `truncated`;
 - `--report` — a dry run does not write it, so anything reading the file
