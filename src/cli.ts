@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import { constants, createWriteStream } from "node:fs";
 import { access, chmod, readFile, rename, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { constants as signalNumbers } from "node:os";
 import { dirname, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -52,7 +53,16 @@ import {
 import { findUnauthenticated } from "./report/authenticity.js";
 import type { CanaryOutcome, RunReport } from "./report/build.js";
 import { buildReport, runVerdict, WARNINGS } from "./report/build.js";
-import { reportChunks } from "./report/write.js";
+import type { ObservationStream } from "./report/write.js";
+import {
+  declarationDigest,
+  OBSERVATION_STREAM_FORMAT,
+  observationStreamPath,
+  openObservationStream,
+  readObservationStream,
+  reportChunks,
+} from "./report/write.js";
+import type { CellRecord } from "./runner.js";
 import {
   assertCanariesUsable,
   collectObservations,
@@ -491,6 +501,8 @@ interface RunFlags {
   readonly concurrency?: number;
   readonly rps?: number;
   readonly maxRequests?: number;
+  /** Continue the walk the stream beside `--report` was left in the middle of. */
+  readonly resume?: boolean;
 }
 
 /**
@@ -515,6 +527,8 @@ function describePlan(
   limits: ThrottleLimits | undefined,
   contextValues: Parameters<typeof toAccounts>[1],
   identity: RunIdentity | undefined,
+  /** Cells a stream beside `--report` already holds, and which `--resume` will not probe. */
+  alreadyWalked: number,
 ): number {
   const tenantBaseUrls = new Map(
     (config.tenants ?? [])
@@ -587,7 +601,12 @@ function describePlan(
   // whose authentication is never confirmed a second time reads as clean. The
   // rule this line stands on is three lines below: a number about traffic that
   // ignores the ceiling on traffic is worse than no number.
-  const wanted = cells + withCanary * 3;
+  //
+  // The cells a resumed run will not probe again come off it for the same
+  // reason. A preview that counted them would overstate the traffic by exactly
+  // the amount the feature exists to save.
+  const remaining = Math.max(cells - alreadyWalked, 0);
+  const wanted = remaining + withCanary * 3;
 
   process.stderr.write(
     `${[
@@ -596,9 +615,15 @@ function describePlan(
       `Endpoints (${endpoints.length}):`,
       ...rows,
       `Matrix rows: ${accounts.length} (declared accounts ${config.accounts.length})`,
-      `Cells a run would probe: ${cells}, plus ${withCanary * 3} canary requests ` +
+      `Cells a run would probe: ${remaining}, plus ${withCanary * 3} canary requests ` +
         `(${withCanary} accounts, probed before the walk and again after it, plus ` +
         `one request each with no credentials to show the canary tells them apart)`,
+      // What --resume takes off the bill, named rather than left to be worked
+      // out from a number that shrank.
+      alreadyWalked === 0
+        ? undefined
+        : `Of the ${cells} cells in this matrix, ${alreadyWalked} are already in the ` +
+          `stream and would not be probed again.`,
       // The budget is on the same command line and used to be left out of the
       // arithmetic: the preview promised 144 cells where the run made one
       // request and stopped. A number about traffic that ignores the ceiling on
@@ -720,24 +745,8 @@ async function writeReportFile(path: string, report: object): Promise<void> {
 }
 
 async function run(flags: RunFlags): Promise<number> {
-  const config = parseRunConfig(await readNamedFile("--config", flags.config));
-
-  /**
-   * The run's identifier, minted here rather than by the report.
-   *
-   * `buildReport` mints one too, and it runs after the last response has come
-   * back — the wrong end of a run for a value that has to be on the **first**
-   * request. So the CLI decides it before anything is sent and the report
-   * carries the CLI's; `buildReport` keeps its own for a consumer of the library
-   * assembling a report without having gone through this command. Where a run
-   * happened, the identifier the platform saw is the one the artifact is filed
-   * under, because a second identifier would let the owner of the target filter
-   * the traffic out of their graphs and still not know which report it produced.
-   *
-   * See ADR-0045.
-   */
-  const runId = randomUUID();
-  const identity = flags.identify === false ? undefined : runIdentity({ version, runId, homepage });
+  const configText = await readNamedFile("--config", flags.config);
+  const config = parseRunConfig(configText);
 
   /**
    * The warnings already said before the walk, so the summary does not repeat them.
@@ -790,7 +799,24 @@ async function run(flags: RunFlags): Promise<number> {
         `account and resource identifier, and a map of where this platform's ` +
         `authorization does not hold, kept as long as the build is and readable by ` +
         `everyone who can see it. The same document under --report is written 0600. ` +
-        `Redirect it or name a path.\n`,
+        `Redirect it or name a path.\n` +
+        // The second half of the same sentence, and the one that costs traffic
+        // rather than confidentiality. The stream lives beside the report, so
+        // without a path there is nowhere to put it: nothing this walk observes
+        // reaches disk until the last response is in, and anything that ends the
+        // process before then — Ctrl-C, the OOM killer, a cancelled job — takes
+        // every request with it. See ADR-0047.
+        `${paint("Nothing is written to disk until the walk is over:", "yellow")} the ` +
+        `observation stream lives beside --report, so there is none. A run ` +
+        `interrupted or killed leaves no partial report and cannot be resumed — ` +
+        `every request it made is spent again.\n`,
+    );
+  }
+  if (flags.resume === true && flags.report === undefined) {
+    throw new Error(
+      "--resume needs --report: the stream a run is resumed from lives beside the " +
+        "report, and without a path there is no stream to continue. Name the same " +
+        "--report the interrupted run was given.",
     );
   }
 
@@ -813,7 +839,8 @@ async function run(flags: RunFlags): Promise<number> {
         "--endpoints (a hand-written list) or --postman (a Postman collection).",
     );
   }
-  const parsed = await source.create().parse(await readNamedFile(source.flag, source.path));
+  const sourceText = await readNamedFile(source.flag, source.path);
+  const parsed = await source.create().parse(sourceText);
   // References are checked after the spec is parsed: before that there are no
   // endpoints yet.
   assertReferencesResolve(config, parsed);
@@ -841,6 +868,100 @@ async function run(flags: RunFlags): Promise<number> {
   if (flags.report !== undefined) {
     await assertReportPathIsWritable(flags.report);
   }
+
+  /**
+   * The gate on resuming, and everything that has to be true before a request.
+   *
+   * A resumed run presents itself as one walk: one `runId`, one `configDigest`,
+   * one verdict over cells gathered by two processes. That is only honest while
+   * the declaration is the same one, so the digest is compared here — before the
+   * canaries, before the walk, before anything is sent. Resuming into a changed
+   * declaration and calling the result one run is the worst thing this feature
+   * could do, and it is the one thing it refuses outright.
+   */
+  const streamPath = flags.report === undefined ? undefined : observationStreamPath(flags.report);
+  const declaration = declarationDigest({
+    version,
+    config: configText,
+    sourceFlag: source.flag,
+    source: sourceText,
+    unsafeMethods: flags.unsafeMethods === true,
+    identify: flags.identify !== false,
+    contextValues,
+  });
+  let carried: readonly CellRecord[] = [];
+  let carriedFrom: { readonly runId: string; readonly startedAt: string } | undefined;
+  if (flags.resume === true && streamPath !== undefined) {
+    const existing = await stat(streamPath).catch(() => undefined);
+    if (existing === undefined) {
+      throw new Error(
+        `--resume was given and there is no stream at "${streamPath}". A completed run ` +
+          `removes it, so either this walk already finished — read the report — or the ` +
+          `path is not the one the interrupted run was given. Resuming from nothing ` +
+          `would silently spend the whole matrix again, which is the cost this flag ` +
+          `exists to avoid.`,
+      );
+    }
+    const stream = await readObservationStream(streamPath);
+    if (stream.header.declaration !== declaration) {
+      throw new Error(
+        `--resume refuses: the declaration has changed since "${streamPath}" was ` +
+          `written (${stream.header.declaration} then, ${declaration} now). The ` +
+          `configuration, the endpoint document, a value a condition takes from the ` +
+          `environment, or --unsafe-methods or --no-identify — one of them is not what ` +
+          `it was. Cells walked under one declaration and cells walked under another ` +
+          `are not one run, and a report that presented them as one would carry a ` +
+          `single digest and a single verdict over both. Start a fresh run, or restore ` +
+          `what changed.`,
+      );
+    }
+    if (stream.header.version !== version) {
+      throw new Error(
+        `--resume refuses: "${streamPath}" was written by barbican ` +
+          `${String(stream.header.version)} and this is ${version}. What a status means, ` +
+          `which cells exist and how a verdict is reached are all this build's to ` +
+          `decide, and half a matrix decided by another build is not a run this one can ` +
+          `answer for. Start a fresh run.`,
+      );
+    }
+    carried = stream.records;
+    carriedFrom = { runId: stream.header.runId, startedAt: stream.header.startedAt };
+    if (Number.isNaN(Date.parse(carriedFrom.startedAt))) {
+      throw new Error(
+        `The observation stream "${streamPath}" carries no readable start time, and a ` +
+          `resumed run reports the start of the walk it continues. Start a fresh run.`,
+      );
+    }
+    process.stderr.write(
+      `${paint("Resuming:", "green")} ${carried.length} cells are already in ` +
+        `${streamPath} and will not be probed again${
+          stream.incomplete ? ", and its last line was half-written — that run was killed" : ""
+        }. The report will carry the interrupted run's identifier and start time.\n`,
+    );
+  }
+
+  /**
+   * The run's identifier, minted here rather than by the report.
+   *
+   * `buildReport` mints one too, and it runs after the last response has come
+   * back — the wrong end of a run for a value that has to be on the **first**
+   * request. So the CLI decides it before anything is sent and the report
+   * carries the CLI's; `buildReport` keeps its own for a consumer of the library
+   * assembling a report without having gone through this command. Where a run
+   * happened, the identifier the platform saw is the one the artifact is filed
+   * under, because a second identifier would let the owner of the target filter
+   * the traffic out of their graphs and still not know which report it produced.
+   *
+   * A resumed run adopts the interrupted one's rather than minting a second.
+   * Both halves of the walk then carry one identifier on the wire, and the one
+   * report they produce is filed under it — which is the whole of what ADR-0045
+   * bought. Two identifiers would leave the owner of the platform with two
+   * populations of traffic and one document, and no way to join them.
+   *
+   * See ADR-0045.
+   */
+  const runId = carriedFrom?.runId ?? randomUUID();
+  const identity = flags.identify === false ? undefined : runIdentity({ version, runId, homepage });
 
   // The registry is created explicitly and locally: there is no global state in
   // the core (ADR-0003). Assembled here, before the first request, and not next
@@ -896,6 +1017,7 @@ async function run(flags: RunFlags): Promise<number> {
       throttle.limits,
       contextValues,
       identity,
+      carried.length,
     );
   }
 
@@ -1023,7 +1145,90 @@ async function run(flags: RunFlags): Promise<number> {
     }
   }
 
-  const startedAt = new Date();
+  // The start of the walk this report is about — the interrupted run's where
+  // there is one. A resumed report whose `startedAt` named the second process
+  // would put a duration next to observations timed hours before it.
+  const startedAt =
+    carriedFrom === undefined ? new Date() : new Date(Date.parse(carriedFrom.startedAt));
+
+  /**
+   * The walk on disk, opened before the first cell of it.
+   *
+   * Not before the canaries: a run stopped there has nothing to resume, and a
+   * stream holding a header alone is a file the operator did not ask for. After
+   * them, and from here on every finished cell is on disk within milliseconds of
+   * the response.
+   */
+  let stream: ObservationStream | undefined;
+  if (streamPath !== undefined) {
+    const replaced = flags.resume !== true && (await stat(streamPath).catch(() => undefined));
+    stream = await openObservationStream(
+      streamPath,
+      {
+        format: OBSERVATION_STREAM_FORMAT,
+        tool: "barbican",
+        version,
+        declaration,
+        runId,
+        startedAt: startedAt.toISOString(),
+      },
+      carriedFrom === undefined
+        ? []
+        : [
+            ...carried.map((record) => ({ kind: "cell", ...record })),
+            // A note that this file spans more than one process, for whoever
+            // reads it afterwards. Ignored on the way back in — only `cell`
+            // lines are.
+            { kind: "resumed", at: new Date().toISOString(), cells: carried.length },
+          ],
+    );
+    if (replaced !== undefined && replaced !== false) {
+      process.stderr.write(
+        `${paint("A stream from an earlier run was replaced:", "yellow")} ${streamPath} ` +
+          `held ${replaced.size} bytes and --resume was not given, so that run can no ` +
+          `longer be continued.\n`,
+      );
+    }
+    process.stderr.write(
+      `Streaming the walk to ${streamPath}: a run interrupted or killed leaves a ` +
+        `partial report and can be continued with --resume. The file is removed when ` +
+        `the walk completes.\n`,
+    );
+  }
+
+  /**
+   * The stop an operator or a scheduler asks for, and what is left on disk after.
+   *
+   * SIGINT is Ctrl-C — often because the owner of the platform asked for it —
+   * and SIGTERM is how CI kills a job that ran past its timeout. Both used to
+   * end the process where it stood, and everything the walk had observed went
+   * with them: node's default is the right exit status and the wrong amount of
+   * work saved.
+   *
+   * The handler does not change the status. It stops the walk, lets the report
+   * be assembled from what was observed, and then re-raises the signal with the
+   * default disposition restored — so a shell and a pipeline still see 130 and
+   * 143, which is the contract `tests/invariants/cli-surface.test.ts` holds. A
+   * second signal is taken as impatience and goes straight through.
+   */
+  const walking = new AbortController();
+  let interruptedBy: NodeJS.Signals | undefined;
+  const onSignal = (signal: NodeJS.Signals): void => {
+    if (interruptedBy !== undefined) {
+      void endBySignal(signal, onSignal);
+      return;
+    }
+    interruptedBy = signal;
+    process.stderr.write(
+      `\n${paint(`Interrupted by ${signal}:`, "red")} the walk stops here. What was ` +
+        `observed is being written out, and the report will say the tail was never ` +
+        `probed — the absence of findings in it means nothing.\n`,
+    );
+    walking.abort();
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+
   const { observations, skipped, failures, probed, truncated } = await collectObservations({
     baseUrl: config.target.baseUrl,
     endpoints,
@@ -1035,6 +1240,15 @@ async function run(flags: RunFlags): Promise<number> {
     resources: config.resources,
     tenantBaseUrls,
     contextAttributes,
+    abort: walking.signal,
+    ...(carried.length === 0 ? {} : { resumed: carried }),
+    ...(stream === undefined
+      ? {}
+      : {
+          // The stream swallows its own failures: a disk that fills must cost
+          // the safety net and not the walk, whose traffic is already spent.
+          record: (record: CellRecord) => stream?.append({ kind: "cell", ...record }),
+        }),
     // From the throttle's own merge of defaults and flags, so the walk and the
     // limiter cannot end up with two different numbers for the same limit. A
     // port implementation that declares no limits gets a walk of one: the walk
@@ -1042,6 +1256,15 @@ async function run(flags: RunFlags): Promise<number> {
     ...(throttle.limits === undefined ? {} : { concurrency: throttle.limits.concurrency }),
   });
   const finishedAt = new Date();
+  await stream?.close();
+  if (stream?.failure !== undefined) {
+    process.stderr.write(
+      `${paint("The walk could not be streamed to disk:", "yellow")} ${stream.failure}. ` +
+        `The run itself was not affected and the report below is complete for what was ` +
+        `walked — but ${streamPath ?? "the stream"} is not, so this run cannot be ` +
+        `resumed from it.\n`,
+    );
+  }
 
   /**
    * The canaries again, now that the walk is over.
@@ -1237,11 +1460,13 @@ async function run(flags: RunFlags): Promise<number> {
    */
   const report: RunReport = { ...built, runId };
 
+  let reportWritten = false;
   if (flags.report === undefined) {
     await writeChunks(process.stdout, reportChunks(report));
   } else {
     try {
       await writeReportFile(flags.report, report);
+      reportWritten = true;
     } catch (cause) {
       // The path was checked before the first request, so getting here means the
       // directory went away underneath us or the disk filled. The run is already
@@ -1260,14 +1485,40 @@ async function run(flags: RunFlags): Promise<number> {
     }
   }
 
+  /**
+   * The stream outlives only a walk that did not finish.
+   *
+   * A complete walk has the report, which is the artifact; leaving the stream
+   * beside it would be a second copy of the same data, at the same sensitivity,
+   * that nobody asked for and nothing would ever delete. An incomplete one keeps
+   * it, because it is the only thing that makes the traffic already spent worth
+   * anything.
+   *
+   * The failed-write branch above keeps it too: the report went to stdout, and a
+   * pipeline that loses stdout still has this.
+   */
+  if (streamPath !== undefined && !truncated && reportWritten) {
+    await rm(streamPath, { force: true }).catch(() => undefined);
+  }
+
   const { summary } = report;
   const verdict = runVerdict(report);
   const escalations = summary.byKind["privilege-escalation"] ?? 0;
   if (truncated) {
     process.stderr.write(
-      `${paint("The run was cut short:", "red")} the request budget ran out or the ` +
-        `circuit breaker tripped. The tail of the matrix was never tested — the absence ` +
-        `of findings there means nothing.\n`,
+      `${paint("The run was cut short:", "red")} ${
+        interruptedBy === undefined
+          ? "the request budget ran out or the circuit breaker tripped"
+          : `${interruptedBy} stopped the walk`
+      }. The tail of the matrix was never tested — the absence ` +
+        `of findings there means nothing.\n${
+          streamPath === undefined
+            ? `Nothing was streamed to disk, so the cells that were walked cannot be ` +
+              `carried into another run: give --report next time.\n`
+            : `The ${observations.length} cells that were walked are in ${streamPath}. ` +
+              `Continue where this stopped, without spending them again:\n  barbican run ` +
+              `--config ${flags.config} --report ${flags.report ?? ""} --resume …\n`
+        }`,
     );
   }
   if (unauthenticated.length > 0) {
@@ -1368,7 +1619,51 @@ async function run(flags: RunFlags): Promise<number> {
   ].filter((line): line is string => line !== undefined);
 
   process.stderr.write(`${lines.join("\n")}\n`);
+
+  // A run stopped by a signal ends the way a signal ends a process, and the
+  // report it now leaves behind does not change that: 130 and 143 are what a
+  // shell and a pipeline read, and the verdict's own code would be a different
+  // statement in the same field.
+  if (interruptedBy !== undefined) {
+    return await endBySignal(interruptedBy, onSignal);
+  }
+  process.off("SIGINT", onSignal);
+  process.off("SIGTERM", onSignal);
   return verdict.code;
+}
+
+/**
+ * Ends the process the way the signal would have, now that the work is saved.
+ *
+ * The handler is removed first, which restores the default disposition, and the
+ * signal is then sent again — so `child_process` reports `signal: "SIGINT"` and
+ * a shell turns that into 130, exactly as it did when nothing here handled the
+ * signal at all. `process.exit(130)` would be a different fact in the same
+ * field: an exit code says the program decided, a signal says it was stopped.
+ *
+ * stderr is drained before the raise. It is a pipe under CI and a pipe is
+ * written asynchronously, so the summary this run just produced would otherwise
+ * be cut off by its own exit.
+ *
+ * The wait afterwards never returns on any platform this runs on — the kernel
+ * delivers a signal a process sends itself before the call comes back. The
+ * number below it is the answer if some platform disagrees, and it is the same
+ * number a shell would have printed.
+ */
+async function endBySignal(
+  signal: NodeJS.Signals,
+  handler: NodeJS.SignalsListener,
+): Promise<number> {
+  process.off("SIGINT", handler);
+  process.off("SIGTERM", handler);
+  await new Promise<void>((settle) => {
+    process.stderr.write("", () => settle());
+  });
+  process.kill(process.pid, signal);
+  await new Promise<void>((settle) => {
+    setTimeout(settle, 1_000);
+  });
+  return 128 + (signalNumbers.signals[signal] ?? 0);
 }
 
 /**
@@ -1423,6 +1718,10 @@ program
   // on a mandatory scope. See ADR-0045.
   .option("--no-identify", "do not name the run on the wire (a marked run may be met differently)")
   .option("--dry-run", "print what would be probed and stop, sending nothing")
+  // Beside --report rather than taking a path of its own: the stream lives next
+  // to the report and is named after it, so a second path here could only ever
+  // be a way to point the two at different runs.
+  .option("--resume", "continue the walk left in the stream beside --report")
   .option("--concurrency <n>", "concurrent requests", positiveInteger)
   .option("--rps <n>", "requests per second", positiveInteger)
   .option("--max-requests <n>", "per-run request budget", positiveInteger)

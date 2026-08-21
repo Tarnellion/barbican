@@ -492,6 +492,27 @@ refuses with `302 Location: /login`, and every denied cell of it is discarded
 today. Fixing it needs a declaration of what a refusal looks like on that
 platform, and that is deliberately not half-built.
 
+**A walk now survives the run that made it**
+([ADR-0047](docs/adr/0047-a-walk-that-survives-its-run.md)). Nothing reached disk
+until the last response was in, and nothing in `src/` mentioned SIGINT — so
+Ctrl-C, the OOM killer, a CI job cancelled on its timeout and a dropped network
+each took the whole run with them: every request already spent against somebody
+else's deployment, inside a window that may not open again this week. And an
+operator whose run met `--max-requests` on the 1900th cell of 9000 had one
+answer, which was to spend those 1900 again. A run with `--report` now streams
+each finished cell to `<report>.stream.ndjson` beside it, `0600` like the report.
+**A signal stops the walk, writes the report it has and then ends the process the
+way the signal would have** — `130` for SIGINT and `143` for SIGTERM are
+unchanged, and the report says `truncated: true` with the exit code `2` that
+belongs to it. **`--resume` continues where the run stopped**, adopting its
+`runId` and start time so both halves of the traffic lead to one document, and
+refusing before the first request if the declaration is not the one the stream
+was written under — the configuration, the endpoint list, a value a condition
+takes from the environment, `--unsafe-methods` or `--no-identify`. A completed
+walk deletes its stream. The bytes of the report are unchanged, which is why it
+still cannot say *which* of the three ways a run was cut short; the terminal and
+the stream can. Without `--report` there is no stream, and the run says so.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.

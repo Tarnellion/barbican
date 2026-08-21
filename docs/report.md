@@ -261,7 +261,12 @@ flag exited 1, which is this table's "tested, there are discrepancies" — a typ
 reported as a privilege escalation, in the one place where the exit code is the
 whole interface. The line is drawn at the start of the run: what the argument
 parser rejects is 64, and anything failing after that is 2. **130** is the
-ordinary `128 + SIGINT`; a run that ends this way has written no report.
+ordinary `128 + SIGINT`, and **143** is `128 + SIGTERM`, which is how CI kills a
+job past its timeout. A run that ends either way stops the walk, writes the
+report it has, and then re-raises the signal — so the status a pipeline reads is
+still the signal's, and the report beside it says `truncated: true` and carries
+the verdict `2` that goes with it ([ADR-0047](adr/0047-a-walk-that-survives-its-run.md)).
+Until 21 August 2026 such a run wrote nothing at all.
 
 A 2 outranks a 1: what was not tested is never clean. It is returned when any of
 these holds:
@@ -269,7 +274,7 @@ these holds:
 | Reason | What it means |
 |---|---|
 | no observations at all | the source gave no endpoints, or every cell was skipped |
-| `truncated: true` | the request budget ran out or the circuit breaker tripped, and the tail of the matrix was never reached |
+| `truncated: true` | the walk did not reach the end of the matrix: the request budget ran out, the circuit breaker tripped, or a signal stopped the run |
 | an account got no access anywhere it was declared to have some | the credentials do not work, or the address is wrong |
 | **an account with credentials has no canary that passed** | authentication is confirmed by nothing for that account, and `verdict.reason` names it. A policy made only of denials leaves the safety net above with nothing to say: nothing is declared accessible to such an account, so "no access anywhere" never triggers. Asked per account since 19 August 2026 ([ADR-0033](adr/0033-a-canary-is-per-account.md)) — until then one canary anywhere in the run answered for every account, and an account carrying a dead token was reported as tested and clean |
 | **half or more of the requests failed** | the report describes the state of the network or the deployment, not the platform. Fewer failures are ordinary partial failures: they are visible in `failures` and in `byKind`, and they do not cancel the verdicts on the cells that survived |
@@ -305,9 +310,18 @@ observed. A non-zero value is a hole in coverage.
 but strong evidence: if the tokens had gone stale, cells expected to be allowed
 would have given unexpected denials, and a zero here would be impossible.
 
-**`truncated`.** The run was cut short: the ceiling on requests was used up, or
-the circuit breaker tripped. The tail of the matrix was not tested, and there are
-no findings there precisely because it was never reached.
+**`truncated`.** The run was cut short: the ceiling on requests was used up, the
+circuit breaker tripped, or a signal stopped the walk. The tail of the matrix was
+not tested, and there are no findings there precisely because it was never
+reached.
+
+The field does not say **which** of the three it was, and that is deliberate: the
+shape of this file is compared byte for byte by the polygon's oracle and by
+anyone diffing two runs, so a field was not added for it. The terminal that ran
+the walk says which, and so does the stream beside the report — see "A run that
+was interrupted" in the [guide](guide.md). What matters for reading the report is
+the same either way: nothing follows from the absence of findings in the part
+that was never walked.
 
 ## How to tell a broken platform from a misread one
 

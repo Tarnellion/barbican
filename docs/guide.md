@@ -765,6 +765,61 @@ barbican run -c barbican.run.yaml -e endpoints.yaml > run.json   # the same, min
 Any real run started without `--report` says this on stderr. A dry run does not:
 it produces no report to misplace.
 
+### A run that was interrupted
+
+The expensive part of a run is not the time it takes. It is the traffic against a
+deployment that is not yours, inside a window somebody agreed to in writing — and
+that window may not open again this week.
+
+So a run with `--report` streams what it observes to `<report>.stream.ndjson`
+beside it, one line per cell, as each cell finishes, created `0600` like the
+report and holding the same data. Two things come out of that
+([ADR-0047](adr/0047-a-walk-that-survives-its-run.md)):
+
+**A run stopped by a signal still leaves a report.** Ctrl-C — often because the
+owner of the platform asked you to stop — and SIGTERM, which is how CI kills a
+job past its timeout, both stop the walk, write out what was observed, and then
+end the process the way the signal would have: `130` and `143`, unchanged. The
+report says `truncated: true` and comes back with exit code `2`: the tail was
+never probed, and the absence of findings in it means nothing. A second Ctrl-C
+goes straight through.
+
+**A run can be continued where it stopped.**
+
+```bash
+barbican run -c barbican.run.yaml -e endpoints.yaml --report run.json --resume
+```
+
+The cells already in the stream are not probed again — the number is printed
+before the walk, and `--dry-run --resume` will tell you it in advance. The
+resumed run adopts the interrupted run's `runId` and start time, so both halves
+of the traffic carry one identifier in the platform's logs and lead to one
+report. When the walk completes, the stream is deleted; the report is the
+artifact.
+
+**`--resume` refuses to continue a different run.** Before the first request it
+compares a digest of the declaration — the configuration file, the endpoint
+document, the values your request conditions take from the environment,
+`--unsafe-methods` and `--no-identify` — with the one the stream was written
+under. Anything different and the run stops with exit `2`, having sent nothing.
+Half a matrix walked under one declaration and half under another is not one run,
+and a report presenting them as one would carry a single digest and a single
+verdict over both.
+
+Two things it cannot see, and they are yours to hold:
+
+- **the token behind an account.** The digest covers the names of the environment
+  variables, never their values — a value hashed into a file is still a secret in
+  a file. Resume as the same principals. The canary confirms the token in force
+  works, which is not the same as confirming it is the same token.
+- **the platform.** A digest of your declaration says nothing about what was
+  deployed on the other side in between. Resuming across a deploy gives one
+  report about two platforms, and only you know whether that happened.
+
+Without `--report` there is no stream: the report goes to stdout, and choosing
+where a document of that sensitivity lives is not a decision the tool makes for
+you. Such a run says so before the walk, and an interruption costs it everything.
+
 ### The run says who it is
 
 Every request carries a `user-agent` naming the tool, its version and the run:

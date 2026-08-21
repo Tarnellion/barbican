@@ -51,6 +51,13 @@ so an implementation of your own can be substituted:
   ([ADR-0024](adr/0024-strings-from-outside.md)). It was unreachable until
   21 August 2026, which made that whole promise false.
 
+Three of its options are about a walk that may not reach its end, and they are
+what the CLI builds `--resume` out of ([ADR-0047](adr/0047-a-walk-that-survives-its-run.md)):
+`record` is handed every cell the moment it is finished, `resumed` takes those
+records back and skips the cells they cover, and `abort` stops the walk where it
+stands and comes back `truncated: true`. A record that fits no cell of the matrix
+is refused with `ResumeDoesNotFitError` before the first request.
+
 The port interfaces are in `src/adapters/ports.ts` and exported by name.
 
 ## Standards a check can cite
@@ -79,13 +86,13 @@ the same terms as the bundled three. See
 
 ## What the rest of the surface is
 
-The package exports 205 values and a comparable number of types. They fall into
+The package exports 206 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,
    `Endpoint`, `Resource`, `RunConfig`, `AccessObservation`, `AccessDiff`,
    `RunReport` and their neighbours.
-2. **91 error classes.** These are public on purpose: catching an error and
+2. **92 error classes.** These are public on purpose: catching an error and
    naming it is the only way to tell a configuration mistake from a network
    failure, and `instanceof` needs the class. They are grouped by the module that
    throws them.
