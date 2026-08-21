@@ -26,7 +26,12 @@ import {
   SAFE_METHODS,
 } from "./core/index.js";
 import { assertAttributesKeepTheBasis } from "./io/config.js";
-import { isAddressablePath, pathSegment, UnusablePathTemplateError } from "./io/untrusted.js";
+import {
+  isAddressablePath,
+  pathSegment,
+  safeHeaders,
+  UnusablePathTemplateError,
+} from "./io/untrusted.js";
 
 /**
  * What is computed over the body of a marked endpoint.
@@ -368,6 +373,17 @@ export interface CanaryResult {
   readonly status: number;
   readonly authenticated: boolean;
   /**
+   * What the same endpoint answered with no credentials at all.
+   *
+   * Absent where the credentialed request did not succeed — there is nothing to
+   * control against — and absent where the unauthenticated request failed on the
+   * wire, which is a refusal loud enough to count as distinguishing.
+   *
+   * A canary that answers 2xx to nobody in particular confirms nothing: the
+   * account's token could be a random string. See ADR-0040.
+   */
+  readonly anonymousStatus?: number;
+  /**
    * Why the request never produced a status, when it did not: `ECONNREFUSED`,
    * `ENOTFOUND`, `UND_ERR_CONNECT_TIMEOUT` and their like.
    *
@@ -481,6 +497,41 @@ export class ExcludedCanaryError extends Error {
  * the same endpoint, gets the same 200, and files a `privilege-escalation`
  * against a platform that did nothing wrong.
  */
+/**
+ * A canary that answers the same to nobody as it does to the account.
+ *
+ * The fourth road to the state ADR-0033 was written to end, and the only one
+ * that leaves a canary in the configuration doing nothing. `/health`,
+ * `/version`, `/api/status` are what an operator reaches for when asked to name
+ * an endpoint the account can reach; every one of them answers 2xx without
+ * credentials, so the canary passes with a dead token, every cell of the account
+ * comes back 401, the policy declares it denied, and the report says
+ * `match: true` on all of them with exit 0.
+ *
+ * See ADR-0040 and the adversarial review of 21 August 2026 (V-2).
+ */
+export class UndiscerningCanaryError extends Error {
+  readonly accountId: string;
+  readonly endpointId: string;
+  readonly anonymousStatus: number;
+
+  constructor(accountId: string, endpointId: string, anonymousStatus: number) {
+    super(
+      `The canary of account "${accountId}" points at "${endpointId}", which ` +
+        `answered ${anonymousStatus} to a request carrying no credentials at all. ` +
+        `A canary exists to show that this account's credentials work; an endpoint ` +
+        `that answers everybody shows nothing, and the account's token could be a ` +
+        `random string for all this run would notice. Pick an endpoint that ` +
+        `refuses an anonymous request — the one the account needs its credentials ` +
+        `for is the one worth naming here.`,
+    );
+    this.name = "UndiscerningCanaryError";
+    this.accountId = accountId;
+    this.endpointId = endpointId;
+    this.anonymousStatus = anonymousStatus;
+  }
+}
+
 export class DeniedCanaryError extends Error {
   readonly accountId: string;
   readonly endpointId: string;
@@ -592,6 +643,16 @@ export async function probeCanaries(options: {
   /** The accounts — to know the tenant and pick its base address. */
   readonly accounts?: readonly Account[];
   readonly tenantBaseUrls?: ReadonlyMap<TenantId, string>;
+  /**
+   * Whether to send the control request that shows the canary distinguishes.
+   *
+   * True where it is not given. The caller sets it false for the pass that
+   * follows the walk: what the control establishes is a property of the
+   * endpoint, and that does not change while the walk runs — a second one would
+   * be a request spent on a platform that is not ours to spend requests on. See
+   * ADR-0040.
+   */
+  readonly controlRequests?: boolean;
 }): Promise<readonly CanaryResult[]> {
   const byId = new Map(options.endpoints.map((endpoint) => [endpoint.id, endpoint]));
   // A canary must knock on the host of its own brand: on a platform spread
@@ -647,11 +708,47 @@ export async function probeCanaries(options: {
       failure = terminalCause(error)?.name ?? failureCode(error) ?? "TRANSPORT";
     }
 
+    const authenticated = status >= 200 && status < 300;
+
+    // The control request: the same endpoint, with no credentials at all.
+    //
+    // A canary answers "these credentials work". A 2xx alone does not say that —
+    // it says the endpoint answered. `/health`, `/version`, `/api/status` answer
+    // 2xx to anybody, and they are the most natural thing an operator reaches for
+    // when asked to name an endpoint the account can reach. With one of those
+    // nominated, a dead token passed the canary, every cell of the account came
+    // back 401, the policy declared it denied, and the report said `match: true`
+    // on all of them with exit 0 — the state ADR-0033 was written to end, reached
+    // by a fourth road. Found by adversarial review, 21 August 2026 (V-2).
+    //
+    // Sent only where the credentialed request succeeded: where it did not, the
+    // run is stopping anyway and this would be a request spent on a platform that
+    // is not ours to spend requests on. One per account, not per pass — what it
+    // establishes is a property of the endpoint, and that does not change while
+    // the walk runs.
+    let anonymousStatus: number | undefined;
+    if (authenticated && options.controlRequests !== false) {
+      try {
+        const response = await options.client.send({
+          method: endpoint.method,
+          url: canaryUrl,
+          headers: safeHeaders([]),
+        });
+        anonymousStatus = response.status;
+      } catch {
+        // The endpoint refused an unauthenticated request loudly enough to fail
+        // the request itself. That is the canary distinguishing, which is what
+        // was being asked; a failure here says nothing about the credentials.
+        anonymousStatus = undefined;
+      }
+    }
+
     results.push({
       accountId: canary.accountId,
       endpointId: canary.endpointId,
       status,
-      authenticated: status >= 200 && status < 300,
+      authenticated,
+      ...(anonymousStatus === undefined ? {} : { anonymousStatus }),
       ...(failure === undefined ? {} : { failure }),
     });
   }

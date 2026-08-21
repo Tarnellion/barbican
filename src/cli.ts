@@ -56,6 +56,7 @@ import {
   collectObservations,
   planEndpoints,
   probeCanaries,
+  UndiscerningCanaryError,
 } from "./runner.js";
 
 // The version is read from package.json rather than duplicated in a constant:
@@ -565,7 +566,7 @@ function describePlan(
   // whose authentication is never confirmed a second time reads as clean. The
   // rule this line stands on is three lines below: a number about traffic that
   // ignores the ceiling on traffic is worse than no number.
-  const wanted = cells + withCanary * 2;
+  const wanted = cells + withCanary * 3;
 
   process.stderr.write(
     `${[
@@ -574,8 +575,9 @@ function describePlan(
       `Endpoints (${endpoints.length}):`,
       ...rows,
       `Matrix rows: ${accounts.length} (declared accounts ${config.accounts.length})`,
-      `Cells a run would probe: ${cells}, plus ${withCanary * 2} canary requests ` +
-        `(${withCanary} accounts, probed before the walk and again after it)`,
+      `Cells a run would probe: ${cells}, plus ${withCanary * 3} canary requests ` +
+        `(${withCanary} accounts, probed before the walk and again after it, plus ` +
+        `one request each with no credentials to show the canary tells them apart)`,
       // The budget is on the same command line and used to be left out of the
       // arithmetic: the preview promised 144 cells where the run made one
       // request and stopped. A number about traffic that ignores the ceiling on
@@ -892,6 +894,22 @@ async function run(flags: RunFlags): Promise<number> {
 
       throw new Error(`The canaries did not pass, the run stopped:\n${details}\n${why}`);
     }
+
+    // A canary that passed, on an endpoint that answers everybody, confirms
+    // nothing — and confirming is its whole job. Checked after the failures
+    // above, because a canary that did not pass has a more specific thing wrong
+    // with it, and before the walk, because the answer does not change once the
+    // walk starts and the traffic is somebody else's to pay for.
+    const undiscerning = results.find(
+      (result) => result.anonymousStatus !== undefined && result.anonymousStatus < 300,
+    );
+    if (undiscerning !== undefined) {
+      throw new UndiscerningCanaryError(
+        undiscerning.accountId,
+        undiscerning.endpointId,
+        undiscerning.anonymousStatus ?? 0,
+      );
+    }
   }
 
   const startedAt = new Date();
@@ -942,6 +960,11 @@ async function run(flags: RunFlags): Promise<number> {
       exclude: config.exclude,
       accounts: accounts.filter((account) => account.contextId === undefined),
       tenantBaseUrls,
+      // The control request belongs to the first pass: whether the endpoint
+      // distinguishes is a property of the endpoint, and the walk does not change
+      // it. Asking again spends a request on somebody else’s platform to learn
+      // what is already known.
+      controlRequests: false,
     });
     const passedBefore = new Set(
       canaryOutcomes.filter((one) => one.authenticated).map((one) => one.accountId),

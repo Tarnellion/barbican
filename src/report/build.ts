@@ -172,6 +172,15 @@ export interface CanaryOutcome {
   readonly status: number;
   readonly authenticated: boolean;
   /**
+   * What the same endpoint answered to a request with no credentials.
+   *
+   * The reader of the report gets to see what the run checked: a canary that
+   * distinguishes shows a refusal here, and one that does not is a canary the
+   * run refused to start on. Absent where the credentialed request did not
+   * succeed, and where the anonymous one failed on the wire. See ADR-0040.
+   */
+  readonly anonymousStatus?: number;
+  /**
    * The transport failure's code, when there was no status to report at all —
    * `ECONNREFUSED`, `ENOTFOUND` and their like.
    *

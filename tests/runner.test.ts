@@ -560,8 +560,16 @@ describe("safeguards against an untrustworthy run", () => {
   );
 
   it("reports the account as unauthenticated when the canary answers with a denial", async () => {
+    // The endpoint refuses an unauthenticated request, which is what makes it
+    // worth naming as a canary at all — and what the control request added by
+    // ADR-0040 asks it. A stand that answered everybody would be a stand whose
+    // canary proves nothing, and that case has its own test.
     const { client } = fakeClient((request) => ({
-      status: request.headers.authorization === "Bearer tok-a" ? 401 : 200,
+      status:
+        request.headers.authorization === undefined ||
+        request.headers.authorization === "Bearer tok-a"
+          ? 401
+          : 200,
       headers: {},
     }));
 
@@ -577,8 +585,12 @@ describe("safeguards against an untrustworthy run", () => {
     });
 
     expect(results).toEqual([
+      // No control request for a: the credentialed one did not succeed, so there
+      // is nothing to control against and the run is stopping anyway.
       { accountId: "a", endpointId: "me", status: 401, authenticated: false },
-      { accountId: "b", endpointId: "me", status: 200, authenticated: true },
+      // For b there is, and the 401 it came back with is the endpoint saying it
+      // tells the account apart from nobody — which is what a canary is for.
+      { accountId: "b", endpointId: "me", status: 200, authenticated: true, anonymousStatus: 401 },
     ]);
   });
 

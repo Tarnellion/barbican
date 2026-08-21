@@ -313,9 +313,23 @@ async function startCountingTarget(options: {
   readonly ok: number;
 }) {
   const paths: string[] = [];
+  let served = 0;
   const server = createServer((request, response) => {
+    // The control request every canary makes since ADR-0040: the same endpoint
+    // with no credentials at all. An endpoint worth naming as a canary refuses
+    // it, and this stub is standing in for one — so the refusal is what a
+    // healthy deployment does here, not an inconvenience of the fixture.
+    //
+    // It is not counted against `ok`, which counts how long the credential goes
+    // on working, and it is not recorded in `paths`, which is asserted against
+    // the size of the matrix.
+    if (request.headers.authorization === undefined) {
+      response.writeHead(401).end();
+      return;
+    }
     paths.push(request.url ?? "");
-    response.writeHead(paths.length > options.ok ? 401 : 200).end();
+    served += 1;
+    response.writeHead(served > options.ok ? 401 : 200).end();
   });
   await new Promise<void>((ready) => {
     server.listen(0, "127.0.0.1", ready);

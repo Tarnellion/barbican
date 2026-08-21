@@ -85,24 +85,31 @@ describe("the streamed report", () => {
    * test puts the weight. Found by adversarial review, 21 August 2026 (V-3).
    */
   it("yields a first chunk without serialising any value whole", () => {
-    const report = {
-      schemaVersion: "2",
-      // Comfortably past the 536 870 888-character limit, and cheap to build:
-      // 700 strings of a megabyte each, which is what the reviewer used.
-      observations: Array.from({ length: 700 }, () => "x".repeat(1_000_000)),
-    };
-
-    expect(() => JSON.stringify(report)).toThrow(RangeError);
+    // Counted rather than measured. The property is "nothing serialises a whole
+    // top-level value before the first chunk", and the honest way to show it
+    // with a real document is a document past the 536 870 888-character limit —
+    // which allocates 700 MB and does not survive alongside the rest of the
+    // suite. `toJSON` says the same thing for the price of nothing: the filter
+    // that used to sit above the loop called it on every element before the
+    // first `next()`, and the loop calls it on one element at a time.
+    let serialised = 0;
+    const row = () => ({
+      toJSON() {
+        serialised += 1;
+        return { accountId: "a" };
+      },
+    });
+    const report = { schemaVersion: "2", observations: Array.from({ length: 100 }, row) };
 
     const chunks = reportChunks(report);
-    expect(() => chunks.next()).not.toThrow();
+    chunks.next();
 
-    // And the whole document still goes through, one chunk at a time.
-    let bytes = 0;
-    for (const chunk of chunks) {
-      bytes += chunk.length;
+    expect(serialised).toBeLessThanOrEqual(1);
+
+    for (const _chunk of chunks) {
+      // drained
     }
-    expect(bytes).toBeGreaterThan(700_000_000);
+    expect(serialised).toBe(100);
   });
 
   it("never holds the whole document in one chunk", () => {
