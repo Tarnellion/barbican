@@ -73,12 +73,43 @@ describe("classifyStatus", () => {
     expect(classifyStatus(404)).toBe("not-found");
   });
 
+  /**
+   * 410 says what 404 says, and used to be an `error`.
+   *
+   * "Gone" is "the resource was not served, and it will not be" — a stronger
+   * statement than 404, not a different one. `toBinary` already folds
+   * `not-found` into a denial, and the reason it gives holds here word for word:
+   * telling "410 instead of 403, to hide existence" from "the object really is
+   * gone" needs to know that the object exists, and that belongs to the checks
+   * rather than to the base diff. As an `error` the cell was lost quietly — a
+   * low-severity `probe-error` outside the exit code, on a request the platform
+   * had in fact refused. See ADR-0044.
+   */
+  it("reads 410 the way it reads 404", () => {
+    expect(classifyStatus(410)).toBe("not-found");
+  });
+
   // Recording an ambiguous response as a denial means passing the absence of a
   // conclusion off as proof of protection.
   it("draws no conclusion about access from other statuses", () => {
     for (const status of [301, 302, 400, 405, 429, 500, 503]) {
       expect(classifyStatus(status)).toBe("error");
     }
+  });
+
+  /**
+   * The boundary, pinned rather than left to be found again.
+   *
+   * A 202 is "accepted, the answer comes later". A platform that queues the
+   * request and refuses it in a worker answers exactly this, and the tool reads
+   * it as access granted — so a cell the policy denies becomes a privilege
+   * escalation where there was only a refusal arriving later. Reading it as
+   * anything else would need to know whether this platform decides before it
+   * queues, and nothing declares that. Named in the three documents beside the
+   * other statuses this tool cannot read; see ADR-0044.
+   */
+  it("still reads 202 as access granted, which is the known limit", () => {
+    expect(classifyStatus(202)).toBe("allowed");
   });
 });
 

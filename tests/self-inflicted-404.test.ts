@@ -137,4 +137,46 @@ describe("a 404 that follows this run's own write", () => {
       expect(one.outcome).toBe("denied");
     }
   });
+
+  /**
+   * A platform that soft-deletes answers 410, not 404, and the trap is the same
+   * one.
+   *
+   * It arrived with ADR-0044: 410 used to be an `error`, so the guard had
+   * nothing to guard — an unreadable status is already no conclusion. Now that
+   * 410 folds into a denial the way 404 does, the second and third accounts
+   * would otherwise read as "tested and agreed" about a refusal this run
+   * manufactured with its own `DELETE`.
+   */
+  it("covers a 410 after this run's own write as well", async () => {
+    const gone = new Set<string>();
+    const { observations, failures } = await collectObservations({
+      baseUrl: "https://a.test",
+      endpoints: [DELETE_ORDER],
+      accounts: ACCOUNTS,
+      credentials: CREDENTIALS,
+      resources: ORDER,
+      client: {
+        send: (request) => {
+          const url = new URL(request.url);
+          if (gone.has(url.pathname)) {
+            return Promise.resolve({ status: 410, headers: {} });
+          }
+          gone.add(url.pathname);
+          return Promise.resolve({ status: 200, headers: {} });
+        },
+      },
+      allowUnsafeMethods: true,
+      concurrency: 1,
+    });
+
+    expect(observations[0]?.outcome).toBe("allowed");
+    for (const later of observations.slice(1)) {
+      expect(later.status).toBe(410);
+      expect(later.outcome).toBe("error");
+      expect(later.outcome).not.toBe("not-found");
+    }
+    expect(failures).toHaveLength(2);
+    expect(failures[0]?.reason).toContain("already changed the object");
+  });
 });

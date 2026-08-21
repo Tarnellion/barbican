@@ -66,3 +66,66 @@ describe("a platform that refuses with 200", () => {
     expect(doc).toMatch(/error envelope/i);
   });
 });
+
+/**
+ * The rest of the same boundary, written down the same way.
+ *
+ * "200 with the outcome in the body" is one member of a family, and it was the
+ * only member anybody had written down. The other four are not hypothetical:
+ * `docs/guide.md` offers `kind: cookie` as a first-class scheme and describes an
+ * operator console behind a session cookie, and such a console refuses with a
+ * redirect to its sign-in page. A run against one drops every refusal into
+ * low-severity `probe-error`, which is outside the exit code, and comes back
+ * green.
+ *
+ * None of these is fixed by this test and none is fixed in the code — each needs
+ * the operator to declare something the tool cannot derive, and ADR-0006 is why
+ * it may not be guessed at. What a test can hold is that they are named where
+ * somebody will meet them, instead of being found again in six months. That is
+ * the argument the block above makes, applied to the cases it left out; see
+ * ADR-0044.
+ */
+const UNREADABLE_STATUSES = [
+  {
+    what: "a refusal that redirects",
+    // The status, the mechanism, and the surface the reader recognises.
+    patterns: [/\b30[123478]\b/, /redirect/i, /sign-in|sign in|login/i],
+  },
+  {
+    what: "an outcome that is not final",
+    patterns: [/\b202\b/, /worker|queue|asynchronous|later/i],
+  },
+  {
+    what: "a delete that only hides the object",
+    patterns: [/soft[- ]delete/i, /\b410\b/],
+  },
+  {
+    what: "an answer about the endpoint rather than the account",
+    patterns: [/\b405\b/],
+  },
+] as const;
+
+describe("the statuses the tool cannot read", () => {
+  for (const { what, patterns } of UNREADABLE_STATUSES) {
+    it.each(DOCUMENTS)(`names ${what} in %s`, (path) => {
+      const text = read(path);
+
+      for (const pattern of patterns) {
+        expect(text).toMatch(pattern);
+      }
+    });
+  }
+
+  /**
+   * And a reader who arrives from a report rather than from the documents finds
+   * the same list at the function that made the choice.
+   */
+  it("names them at classifyStatus too", () => {
+    const source = read("src/runner.ts");
+    const doc = source.slice(0, source.indexOf("export function classifyStatus"));
+
+    expect(doc).toMatch(/\b202\b/);
+    expect(doc).toMatch(/\b405\b/);
+    expect(doc).toMatch(/redirect/i);
+  });
+});

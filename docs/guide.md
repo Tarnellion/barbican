@@ -1001,6 +1001,75 @@ Four is every cell the policy denies. The fifth is two refusals mistaken for one
 shared record. The exit code says "checked, and reality does not match what you
 declared", which is exactly what it would say about a real catastrophe.
 
+### The statuses this tool cannot read
+
+The section above is one member of a family, and the loudest. The rest are
+quieter and fail the other way round: instead of a report full of findings that
+are not there, they give a report with cells **missing** from it, and a run that
+ends in `0`.
+
+The conclusion about access is drawn from the status code, and only where it is
+unambiguous:
+
+| Answer | Read as |
+| --- | --- |
+| `2xx` | access granted |
+| `401`, `403`, `451` | refused |
+| `404`, `410` | not served — folded into a refusal by the diff |
+| anything else | no conclusion: `outcome: "error"`, a `probe-error` cell |
+
+A `probe-error` is low severity, it does not enter the exit code, and while
+fewer than half the cells are one, the run finishes with `0`. Four kinds of
+platform land there, and each of them can make a real refusal invisible.
+
+**A refusal that redirects.** An operator console on a session cookie —
+`kind: cookie` above, and the case that scheme exists for — does not answer a
+refused caller with `403`. It answers `302 Location: /login`. barbican does not
+follow redirects (deliberately: the target of one can be off the allowlist
+entirely), so what stands behind it was never fetched, and every denied cell of
+that surface becomes a `probe-error`. Nothing in the report says the refusals
+were dropped; the counters simply do not include them.
+
+The warning that looks like it should catch this does not. `nothingRefused`
+fires on `coverage.outcomes.denied == 0` — the whole run, not one surface — so a
+configuration covering an API that answers `401` beside a console that answers
+`302` never earns it, and the sentence it prints names the other cause anyway.
+
+What it takes to fix is a declaration: *on this platform, a refusal looks like
+this*. There is no such field today, and the tool will not guess from a
+`Location` header — that is somebody else's convention, and deriving the
+expectation from the system under test is the mistake
+[ADR-0006](adr/0006-expected-access-declaration.md) exists against. Until then,
+if your denied cells come back as `probe-error` with a 3xx status, read them as
+uncounted refusals rather than as a healthy run.
+
+**An outcome that is not final.** `202 Accepted` means the request was taken,
+not that it was allowed. A platform that queues the work and refuses it in a
+worker answers `202` to a caller who has no right to it, and this tool reads
+that as access granted: the cell becomes a `privilege-escalation` finding where
+the truth is a refusal arriving a second later. Nothing in the response says
+which of the two it is. If a write endpoint of yours is asynchronous, the
+verdict on it is about admission to the queue, not about the operation.
+
+**A delete that only hides the object.** Under soft delete, an object that is
+hidden answers `404` or `410` to everyone — the accounts that should reach it
+included. The diff folds both into a refusal, so a cell reads as protected when
+it is only empty, and an account that genuinely lost access is indistinguishable
+from one looking at a tombstone. `coverage.resourcesNotFound` is where to look:
+a resource missing for *every* account is usually this rather than authorization.
+
+**An answer about the endpoint rather than the account.** `405 Method Not
+Allowed` says this endpoint does not offer this method. It says nothing about
+who asked, and a matrix cell asks about who asked. It stays a `probe-error`; a
+wall of them usually means the endpoint list and the platform disagree about
+methods, which is worth fixing in the list.
+
+**What the run does say.** Every cell whose status is not read leaves a row in
+`failures` naming the status and why nothing follows from it, and the CLI prints
+`Requests that failed: N (reasons in the report)` in yellow. That is not a
+verdict — the run can still end in `0` — but it is the thread to pull, and it is
+the difference between a boundary you can see and one you cannot.
+
 ## Working example
 
 `polygon/` in the repository root is a multi-tenant test platform with twelve
