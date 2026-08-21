@@ -53,15 +53,39 @@ so an implementation of your own can be substituted:
 
 The port interfaces are in `src/adapters/ports.ts` and exported by name.
 
+## Standards a check can cite
+
+`createBundledCatalog()` returns the clauses this repository carries as data:
+part of OWASP ASVS 5.0 chapter V8, the three authorization entries of the OWASP
+API Top 10 2023, and the access-control weaknesses under CWE-284. Each entry is
+an identifier, one line of the project's own about what the clause is for, and
+the address of the published text — never the requirement's own wording.
+
+Two functions read it:
+
+- `findUnresolvedStandardRefs(catalog, checks)` returns the references your
+  checks declare that no catalogue entry answers to. A misspelt clause number
+  otherwise reaches the report as a coverage row for a requirement that does not
+  exist, and nothing downstream would ever notice.
+- `findUncoveredClauses(catalog, checks)` returns the catalogued clauses no check
+  answers for — the half an evidence pack cannot be complete without, since a
+  pack built from findings alone lists only what happened to be checked.
+
+A standard whose numbering may not be published goes in through
+`StandardCatalog.register(definition)`, from a source outside this repository and
+beside the private checks that cite it. Both functions then hold it to exactly
+the same terms as the bundled three. See
+[ADR-0041](adr/0041-a-catalogue-of-clauses.md).
+
 ## What the rest of the surface is
 
-The package exports 177 values and a comparable number of types. They fall into
+The package exports 187 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,
    `Endpoint`, `Resource`, `RunConfig`, `AccessObservation`, `AccessDiff`,
    `RunReport` and their neighbours.
-2. **84 error classes.** These are public on purpose: catching an error and
+2. **87 error classes.** These are public on purpose: catching an error and
    naming it is the only way to tell a configuration mistake from a network
    failure, and `instanceof` needs the class. They are grouped by the module that
    throws them.
