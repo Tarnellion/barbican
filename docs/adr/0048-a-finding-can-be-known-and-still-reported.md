@@ -162,8 +162,16 @@ The report grows a top-level `accepted[]`, a `summary.accepted`, an optional
 All of it is additive, so `schemaVersion` stays `"2"` — a reader written against
 it parses the file unchanged.
 
-The console still says all of this in one place only: the reason beside the exit
-code, which `runVerdict` composes and the CLI prints as its last line. A sentence
+The console does not go quiet either, and that falls out rather than being
+arranged: its headline reads `summary.byKind["privilege-escalation"]`, which
+still counts the accepted row, so a run with an accepted escalation prints
+`Privilege escalation: 1` in red above an exit code of 0 explained on the last
+line. Loud about the finding, honest about the verdict, and no green sentence
+anywhere near it.
+
+What the console says about the acceptances themselves it says in one place
+only: the reason beside the exit code, which `runVerdict` composes and the CLI
+prints as its last line. A sentence
 of its own in `report.warnings[]` would be the natural second home for the
 "matched nothing" case, and it needs a colour declared beside it in
 `src/cli.ts` — `WARNING_STYLE` is a total map over `WARNINGS` on purpose, so that
