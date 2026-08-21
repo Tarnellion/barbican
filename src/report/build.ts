@@ -18,6 +18,7 @@ import type { ThrottleLimits } from "../adapters/throttle.js";
 // file's business is to carry it, not to decide what goes in. It was declared
 // here, and `description` was the field the mapping that built it left out.
 // See `describeChecks`.
+import { standardsForDiff } from "../core/checks/clauses.js";
 import type {
   CheckCoverage,
   CheckRun,
@@ -233,8 +234,24 @@ export interface ReportFinding {
   /**
    * The clauses of external standards this finding answers for.
    *
-   * From the check that produced it. Matrix discrepancies carry none: they come
-   * from the declared policy, not from a check mapped onto a standard.
+   * From the check that produced it, and — since 21 August 2026 — from
+   * `standardsForDiff` for a matrix discrepancy. The comment that stood here
+   * said matrix discrepancies carry none, "they come from the declared policy,
+   * not from a check mapped onto a standard". Formally true and a dead end: the
+   * matrix channel is privilege escalation and cross-tenant access, which is
+   * everything this tool is written for, so a traceability matrix built from a
+   * saved report covered one registered check and none of that. Found as M-11;
+   * see ADR-0041.
+   *
+   * Both directions of the citation are meant. On an escalation the clause is
+   * the control the platform broke; on an unobserved cell or a failed probe it
+   * is the control this run left unproved, which is a statement an evidence pack
+   * needs to attach to the same clause rather than to nothing. `kind` and
+   * `severity` on the same row say which of the two it is.
+   *
+   * Still optional, and the reason is narrower than it looks: every finding this
+   * file produces has clauses today, and a check registered by a consumer of the
+   * library may declare an empty `standards`.
    */
   readonly standards?: readonly StandardRef[];
   /** The second account of a paired finding. See `Finding.relatedAccountId`. */
@@ -1078,6 +1095,11 @@ function mergeFindings(
       severity,
       accountId,
       endpointId,
+      // The clauses this discrepancy answers for, from the same declarations the
+      // registered checks cite. Never empty, so no conditional spread: the
+      // mapping answers for every kind, and a row with no clause on it is the
+      // state M-11 was written from. See `standardsForDiff` and ADR-0041.
+      standards: standardsForDiff(kind, relation),
       expected,
       ...(actual === undefined ? {} : { actual }),
       ...(contextId === undefined ? {} : { contextId }),

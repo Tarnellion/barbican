@@ -73,6 +73,17 @@ protection. For the same reason 3xx, 5xx and 400 land in `error`, not in `denied
 | `matrix` | comparison against the declared policy | `expected`, `actual`, `relation` |
 | `check` | a check from the registry | `title`, `evidence` |
 
+Both carry `standards`: the clauses of external standards the row answers for.
+A check declares its own; a matrix discrepancy gets them from `kind` and
+`relation` — the cell says which control the row is evidence about, the kind says
+what kind of evidence it is. Only `privilege-escalation` cites an OWASP API Top
+10 entry and a CWE, because only it demonstrates broken authorization; an
+unexpected denial, an unobserved cell and a failed probe cite the control they
+contradict or leave unproved. Until 21 August 2026 the matrix rows carried
+nothing here, so a traceability matrix built from a saved report covered one
+registered check and none of privilege escalation or cross-tenant access. See
+[ADR-0041](adr/0041-a-matrix-discrepancy-answers-for-a-clause.md).
+
 ### The array may be abridged; the counts are not
 
 `findings` carries at most **50 rows per defect**, and `findingsOmitted` says how
@@ -422,6 +433,14 @@ that found nothing, which is the whole difference between an evidence pack and a
 list of findings. Until 15 August 2026 `Check.standards` was declared, filled and
 read by no line of code: the word did not occur in a report, so neither direction
 could be built from a saved artifact.
+
+**Of the matrix channel only the first direction exists.** Its findings cite
+clauses, and there is no `checksRun` entry for it — so a clause the matrix
+exercised on nine hundred cells that all agreed with the policy appears here only
+if one of them did not. Reading a clause's coverage off this file therefore
+understates what the run actually touched, and the fix is to make the matrix
+channel a registered check; ADR-0041 says why that has not happened yet and what
+has to move with it.
 
 **And each entry says what the check asserts, in words.** `description` was in
 exactly the same state until 17 August 2026, and was answered the same way. An
