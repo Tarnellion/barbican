@@ -85,6 +85,34 @@ describe("a platform that refuses with 200", () => {
  * the argument the block above makes, applied to the cases it left out; see
  * ADR-0044.
  */
+const BOUNDARY_HEADING = "The statuses this tool cannot read";
+
+/**
+ * The named section of a document, and nothing else.
+ *
+ * Matching the whole file was the first version and it was false-green within
+ * the hour: the README's `### Unreleased` entry describing this very change
+ * repeats every keyword the patterns look for, so deleting the section itself
+ * left the test passing off the changelog — and a changelog entry is renamed at
+ * release and then kept forever, so it would have gone on passing. The section
+ * has to be found by its heading, which also pins the name the three documents
+ * cross-reference each other by.
+ *
+ * Ends at the next heading of the same level or higher: `##` in `docs/report.md`,
+ * `###` in the other two, where the section sits inside "Status" and inside the
+ * guide's list of what the tool does not do.
+ */
+function section(text: string, heading: string): string {
+  const start = new RegExp(`^(#{2,3}) ${heading}\\s*$`, "m").exec(text);
+  if (start === null) {
+    return "";
+  }
+  const level = (start[1] ?? "###").length;
+  const body = text.slice(start.index + start[0].length);
+  const end = new RegExp(`^#{1,${level}} `, "m").exec(body);
+  return end === null ? body : body.slice(0, end.index);
+}
+
 const UNREADABLE_STATUSES = [
   {
     what: "a refusal that redirects",
@@ -106,9 +134,14 @@ const UNREADABLE_STATUSES = [
 ] as const;
 
 describe("the statuses the tool cannot read", () => {
+  /** The heading itself, so an empty slice fails as a missing section rather than four times over. */
+  it.each(DOCUMENTS)("have a section of their own in %s", (path) => {
+    expect(section(read(path), BOUNDARY_HEADING).trim().length).toBeGreaterThan(200);
+  });
+
   for (const { what, patterns } of UNREADABLE_STATUSES) {
     it.each(DOCUMENTS)(`names ${what} in %s`, (path) => {
-      const text = read(path);
+      const text = section(read(path), BOUNDARY_HEADING);
 
       for (const pattern of patterns) {
         expect(text).toMatch(pattern);

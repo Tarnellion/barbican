@@ -73,9 +73,9 @@ answer for such a platform is that this tool cannot check it yet.
 
 See [docs/guide.md](docs/guide.md), "A platform that refuses with 200".
 
-### And four statuses it cannot read either
+### The statuses this tool cannot read
 
-The section above is the loud way to be wrong. These are the quiet ones: cells
+The section above is the loud way to be wrong. Four more are quiet ones: cells
 dropped out of the verdict instead of added to it, and a run that ends in `0`.
 
 Access is concluded from `2xx`, from `401`, `403` and `451`, and from `404` and
