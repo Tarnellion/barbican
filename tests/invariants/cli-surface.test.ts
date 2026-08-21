@@ -30,7 +30,7 @@
  */
 
 import { execFile, spawn } from "node:child_process";
-import { mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { constants, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -87,6 +87,8 @@ function statusOf(code: number | null, signal: NodeJS.Signals | null): number {
 interface RunningCli {
   readonly done: Promise<CliOutcome>;
   interrupt(): void;
+  /** How CI kills a job that ran past its timeout. */
+  terminate(): void;
 }
 
 function startCli(args: readonly string[], env: Readonly<Record<string, string>> = {}): RunningCli {
@@ -116,6 +118,9 @@ function startCli(args: readonly string[], env: Readonly<Record<string, string>>
     interrupt: () => {
       child.kill("SIGINT");
     },
+    terminate: () => {
+      child.kill("SIGTERM");
+    },
   };
 }
 
@@ -132,6 +137,8 @@ interface Stub {
   readonly seen: readonly string[];
   /** Settles as soon as the run is genuinely in flight. */
   readonly firstRequest: Promise<void>;
+  /** Settles once this many requests have arrived. */
+  until(count: number): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -141,22 +148,44 @@ interface Stub {
  * `answer: false` accepts the connection and never replies, which is what a run
  * has to be doing for an interruption to mean anything: the process is inside
  * the walk, with a request outstanding, rather than between two of them.
+ *
+ * `answerFirst` is the same thing one step later: the first few cells are
+ * answered and the rest hang, so an interruption lands on a walk that has
+ * something to lose rather than on one that has produced nothing yet. That is
+ * the case the report has to be right about.
  */
-async function startStub({ answer }: { readonly answer: boolean }): Promise<Stub> {
+async function startStub({
+  answer,
+  answerFirst,
+  port,
+}: {
+  readonly answer: boolean;
+  readonly answerFirst?: number;
+  /** The port to bind, when a second deployment has to stand where the first one did. */
+  readonly port?: number;
+}): Promise<Stub> {
   const seen: string[] = [];
   let announce: () => void = () => {};
   const firstRequest = new Promise<void>((settle) => {
     announce = settle;
   });
+  const waiting: { count: number; settle: () => void }[] = [];
   const server: Server = createServer((request, response) => {
     seen.push(request.url ?? "");
     announce();
-    if (answer) {
+    for (const one of waiting.splice(0)) {
+      if (seen.length >= one.count) {
+        one.settle();
+      } else {
+        waiting.push(one);
+      }
+    }
+    if (answer || (answerFirst !== undefined && seen.length <= answerFirst)) {
       response.writeHead(403).end();
     }
   });
   await new Promise<void>((settle) => {
-    server.listen(0, "127.0.0.1", settle);
+    server.listen(port ?? 0, "127.0.0.1", settle);
   });
   const address = server.address();
   if (address === null || typeof address === "string") {
@@ -166,6 +195,12 @@ async function startStub({ answer }: { readonly answer: boolean }): Promise<Stub
     port: address.port,
     seen,
     firstRequest,
+    until: (count) =>
+      seen.length >= count
+        ? Promise.resolve()
+        : new Promise<void>((settle) => {
+            waiting.push({ count, settle });
+          }),
     close: () =>
       new Promise<void>((settle, fail) => {
         server.closeAllConnections();
@@ -182,6 +217,18 @@ const ENDPOINTS = `endpoints:
     method: GET
     path: /v1/me
 `;
+
+/**
+ * A matrix wide enough to be stopped in the middle of.
+ *
+ * Two endpoints is a walk that is either finished or not started; six is one an
+ * interruption can leave half done, which is the state everything below is
+ * about.
+ */
+const SIX_ENDPOINTS = `endpoints:
+${["orders", "invoices", "reports", "users", "sessions", "payouts"]
+  .map((name) => `  - id: ${name}.list\n    method: GET\n    path: /v1/${name}\n`)
+  .join("")}`;
 
 function anonymousConfig(port: number): string {
   return `target:
@@ -204,12 +251,12 @@ interface Fixture {
   readonly dir: string;
 }
 
-async function writeFixture(port: number): Promise<Fixture> {
+async function writeFixture(port: number, list: string = ENDPOINTS): Promise<Fixture> {
   const dir = await mkdtemp(join(tmpdir(), "barbican-cli-surface-"));
   const config = join(dir, "config.yaml");
   const endpoints = join(dir, "endpoints.yaml");
   await writeFile(config, anonymousConfig(port), "utf8");
-  await writeFile(endpoints, ENDPOINTS, "utf8");
+  await writeFile(endpoints, list, "utf8");
   return { config, endpoints, dir };
 }
 
@@ -294,20 +341,36 @@ describe("a mistake on the command line", () => {
 });
 
 /**
- * Ctrl-C ends the run at 130 and leaves no half-written report behind.
+ * A signal ends the run at 130 or 143, and leaves behind what the run had.
  *
- * Nothing in `src/` mentions SIGINT: 130 is node's default behaviour, which is
- * the correct behaviour and also the kind that disappears the first time someone
- * adds a handler to "shut down gracefully". The file half matters because the
- * report is now written through `<path>.partial` and a rename — a write spread
- * over time is a write that can be interrupted, and the staging file is exactly
- * what an interruption could leave lying next to the real one.
+ * Nothing in `src/` mentioned SIGINT until 21 August 2026: 130 was node's
+ * default behaviour, which is the correct **status** and also the kind that
+ * disappears the first time someone adds a handler to "shut down gracefully".
+ * That half is unchanged and still checked here, from out here, because a
+ * process killed by a signal has no exit code to read from inside itself.
+ *
+ * What changed is the other half. This test used to assert that an interrupted
+ * run leaves an empty directory, and that was the right assertion while nothing
+ * reached disk before the last response: a half-written report is worse than
+ * none. It is the wrong assertion now. The traffic a run spends against somebody
+ * else's deployment is the expensive part of it and may not be spendable twice
+ * inside an agreed window, so an interrupted run leaves a report that says the
+ * tail was never probed, and a stream another run can continue from. See
+ * ADR-0047. What must still never be there is `.partial` — a report caught
+ * mid-write, which the rename exists to make impossible.
  */
 describe("an interrupted run", () => {
-  it("ends at 130 and leaves neither a report nor a .partial beside it", async () => {
-    const stub = await startStub({ answer: false });
+  /** The files a run leaves in the directory it was given, minus the report itself. */
+  const besides = (files: readonly string[]): readonly string[] =>
+    files.filter((one) => one !== "run.json").sort();
+
+  it("ends at 130 and leaves a report that says the tail was never probed", async () => {
+    // Two cells answered, the rest held open: the interruption lands on a walk
+    // that has something to lose, which is the case the report has to be right
+    // about.
+    const stub = await startStub({ answer: false, answerFirst: 2 });
     try {
-      const fixture = await writeFixture(stub.port);
+      const fixture = await writeFixture(stub.port, SIX_ENDPOINTS);
       const reportDir = await mkdtemp(join(tmpdir(), "barbican-cli-report-"));
       const report = join(reportDir, "run.json");
 
@@ -319,24 +382,270 @@ describe("an interrupted run", () => {
         fixture.endpoints,
         "-r",
         report,
+        "--rps",
+        "50",
       ]);
-      // Interrupted mid-walk, not before it: the stub holds the connection open,
-      // so the first request having arrived means the process is inside the part
-      // of the run that has something to lose.
-      await stub.firstRequest;
+      // Interrupted with two cells answered and two hanging.
+      await stub.until(3);
       running.interrupt();
       const outcome = await running.done;
 
-      // 128 + SIGINT, which is what the shell and CI see.
+      // 128 + SIGINT, which is what the shell and CI see. A handler that
+      // returned an exit code instead would read as a decision the tool made.
       expect(outcome.status).toBe(130);
-      // An interrupted run is not a run. Neither the report nor the staging file
-      // the rename would have consumed may be left where a pipeline could
-      // publish it as this run's result.
-      expect(await readdir(reportDir)).toEqual([]);
+
+      const written = JSON.parse(await readFile(report, "utf8")) as {
+        truncated: boolean;
+        runId: string;
+        verdict: { code: number; reason: string };
+        observations: readonly unknown[];
+        summary: { observations: number };
+      };
+      // The verdict, and not merely a file: a report of a stopped walk that came
+      // back 0 would be the worst of both, an artifact saying "clean" about a
+      // matrix nobody finished.
+      expect(written.truncated).toBe(true);
+      expect(written.verdict.code).toBe(2);
+      expect(written.verdict.reason).toContain("cut short");
+      // What it did observe is in it, and the cells it never reached are not
+      // invented.
+      expect(written.summary.observations).toBe(2);
+      expect(written.observations).toHaveLength(2);
+
+      // The stream is beside it, and nothing caught mid-write is.
+      expect(besides(await readdir(reportDir))).toEqual(["run.json.stream.ndjson"]);
+      const stream = await readFile(`${report}.stream.ndjson`, "utf8");
+      const lines = stream.split("\n").filter((one) => one !== "");
+      expect(lines).toHaveLength(3);
+      expect(JSON.parse(lines[0] ?? "{}")).toMatchObject({
+        kind: "header",
+        runId: written.runId,
+      });
+      // Only the cells that were answered. A cell the interruption caught in
+      // flight recorded here would be skipped by --resume — a request the
+      // platform never answered, filed as an answer.
+      expect(lines.slice(1).map((one) => JSON.parse(one).kind)).toEqual(["cell", "cell"]);
     } finally {
       await stub.close();
     }
   }, 60_000);
+
+  /**
+   * SIGTERM is how CI kills a job that ran past its timeout, and it was written
+   * down nowhere. It ends the same way for the same reason.
+   */
+  it("ends at 143 on SIGTERM and leaves the same pair", async () => {
+    const stub = await startStub({ answer: false, answerFirst: 1 });
+    try {
+      const fixture = await writeFixture(stub.port, SIX_ENDPOINTS);
+      const reportDir = await mkdtemp(join(tmpdir(), "barbican-cli-report-"));
+      const report = join(reportDir, "run.json");
+
+      const running = startCli([
+        "run",
+        "-c",
+        fixture.config,
+        "-e",
+        fixture.endpoints,
+        "-r",
+        report,
+        "--rps",
+        "50",
+      ]);
+      await stub.until(2);
+      running.terminate();
+      const outcome = await running.done;
+
+      expect(outcome.status).toBe(143);
+      expect(outcome.stderr).toContain("Interrupted by SIGTERM");
+      const written = JSON.parse(await readFile(report, "utf8")) as { truncated: boolean };
+      expect(written.truncated).toBe(true);
+      expect(besides(await readdir(reportDir))).toEqual(["run.json.stream.ndjson"]);
+    } finally {
+      await stub.close();
+    }
+  }, 60_000);
+});
+
+/**
+ * `--resume` continues the walk, and refuses to continue a different one.
+ *
+ * The first half is the point of the exercise: an operator whose run hit the
+ * budget on the 1900th cell of 9000 had one answer, which was to spend those
+ * 1900 requests again. The second is the condition on it. A resumed run presents
+ * itself as one walk — one `runId`, one `configDigest`, one verdict over cells
+ * gathered by two processes — and that is honest only while the declaration is
+ * the same one. Resuming into a changed declaration and calling the result one
+ * run is the worst thing this tool could do with the feature.
+ */
+describe("a resumed run", () => {
+  it("probes only what is left, and files it under the interrupted run's identifier", async () => {
+    const reportDir = await mkdtemp(join(tmpdir(), "barbican-cli-resume-"));
+    const report = join(reportDir, "run.json");
+    const held = await startStub({ answer: false, answerFirst: 2 });
+    let fixture: Fixture;
+    let first: { runId: string };
+    try {
+      fixture = await writeFixture(held.port, SIX_ENDPOINTS);
+      const running = startCli([
+        "run",
+        "-c",
+        fixture.config,
+        "-e",
+        fixture.endpoints,
+        "-r",
+        report,
+        "--rps",
+        "50",
+      ]);
+      await held.until(3);
+      running.interrupt();
+      expect((await running.done).status).toBe(130);
+      first = JSON.parse(await readFile(report, "utf8")) as { runId: string };
+    } finally {
+      await held.close();
+    }
+
+    // A deployment standing where the first one did. The address is in the
+    // configuration and the configuration is in the digest, so a resumed run has
+    // to knock at the same door — which is the gate working, not a limitation of
+    // the test.
+    const answering = await startStub({ answer: true, port: held.port });
+    try {
+      const resumed = await cli([
+        "run",
+        "-c",
+        fixture.config,
+        "-e",
+        fixture.endpoints,
+        "-r",
+        report,
+        "--rps",
+        "50",
+        "--resume",
+      ]);
+
+      expect(resumed.stderr).toContain("Resuming: 2 cells are already in");
+      // Four requests, not six: the two the interrupted run paid for are not
+      // paid for again.
+      expect(answering.seen).toHaveLength(4);
+
+      const written = JSON.parse(await readFile(report, "utf8")) as {
+        truncated: boolean;
+        runId: string;
+        summary: { observations: number };
+        verdict: { code: number };
+      };
+      expect(written.truncated).toBe(false);
+      expect(written.summary.observations).toBe(6);
+      // One walk, one identifier. Two would leave the owner of the platform
+      // with two populations of traffic and one document to join them by.
+      expect(written.runId).toBe(first.runId);
+      expect(written.verdict.code).toBe(0);
+      // A finished walk takes its stream with it: the report is the artifact,
+      // and a second copy of the same data that nothing ever deletes is not.
+      expect(await readdir(reportDir)).toEqual(["run.json"]);
+    } finally {
+      await answering.close();
+    }
+  }, 90_000);
+
+  it("refuses when the declaration has changed, before sending anything", async () => {
+    const stub = await startStub({ answer: false, answerFirst: 2 });
+    const reportDir = await mkdtemp(join(tmpdir(), "barbican-cli-resume-no-"));
+    const report = join(reportDir, "run.json");
+    try {
+      const fixture = await writeFixture(stub.port, SIX_ENDPOINTS);
+      const running = startCli([
+        "run",
+        "-c",
+        fixture.config,
+        "-e",
+        fixture.endpoints,
+        "-r",
+        report,
+        "--rps",
+        "50",
+      ]);
+      await stub.until(3);
+      running.interrupt();
+      expect((await running.done).status).toBe(130);
+
+      // One endpoint added: the same six cells are still there, and the matrix
+      // is not the one that was walked.
+      await writeFile(
+        fixture.endpoints,
+        `${SIX_ENDPOINTS}  - id: settings.get\n    method: GET\n    path: /v1/settings\n`,
+        "utf8",
+      );
+      const before = stub.seen.length;
+
+      const outcome = await cli([
+        "run",
+        "-c",
+        fixture.config,
+        "-e",
+        fixture.endpoints,
+        "-r",
+        report,
+        "--rps",
+        "50",
+        "--resume",
+      ]);
+
+      // 2 is "this run cannot be trusted", which is what a refusal to start is.
+      expect(outcome.status).toBe(2);
+      expect(outcome.stderr).toContain("--resume refuses: the declaration has changed");
+      // And nothing was spent finding out: the gate is ahead of the canaries and
+      // of the walk.
+      expect(stub.seen.length).toBe(before);
+      // The stream is untouched, so the interrupted run can still be resumed
+      // once the declaration is put back.
+      expect(await readdir(reportDir)).toContain("run.json.stream.ndjson");
+    } finally {
+      await stub.close();
+    }
+  }, 90_000);
+
+  it("refuses when there is no stream to continue", async () => {
+    const stub = await startStub({ answer: true });
+    try {
+      const fixture = await writeFixture(stub.port);
+      const reportDir = await mkdtemp(join(tmpdir(), "barbican-cli-resume-none-"));
+      const before = stub.seen.length;
+
+      const outcome = await cli([
+        "run",
+        "-c",
+        fixture.config,
+        "-e",
+        fixture.endpoints,
+        "-r",
+        join(reportDir, "run.json"),
+        "--resume",
+      ]);
+
+      expect(outcome.status).toBe(2);
+      expect(outcome.stderr).toContain("there is no stream at");
+      expect(stub.seen.length).toBe(before);
+    } finally {
+      await stub.close();
+    }
+  }, 30_000);
+
+  it("refuses --resume without --report", async () => {
+    const stub = await startStub({ answer: true });
+    try {
+      const fixture = await writeFixture(stub.port);
+
+      const outcome = await cli(["run", "-c", fixture.config, "-e", fixture.endpoints, "--resume"]);
+
+      expect(outcome.status).toBe(2);
+      expect(outcome.stderr).toContain("--resume needs --report");
+    } finally {
+      await stub.close();
+    }
+  }, 30_000);
 });
 
 /**

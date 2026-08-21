@@ -71,6 +71,67 @@ export interface ProbeFailure {
   readonly reason: string;
 }
 
+/**
+ * One finished cell, as it leaves the walk and as it comes back into one.
+ *
+ * The coordinate is written out beside the observation although the observation
+ * carries the same three fields. A reader of the stream keys on the cell, and
+ * making it reconstruct the key out of a record whose shape may grow is the kind
+ * of duplicate that drifts in the direction nobody watches — here, towards
+ * skipping a cell that is not the one that was walked.
+ *
+ * The failure travels with it. `summary.failures` is built from `failures[]`,
+ * and a resumed run that kept the observations only would come back with a
+ * smaller number over the same matrix — one walk, two documents.
+ */
+export interface CellRecord {
+  readonly accountId: string;
+  readonly endpointId: string;
+  readonly resourceId?: string;
+  readonly observation: AccessObservation;
+  readonly failure?: ProbeFailure;
+}
+
+/** The cell a record belongs to: account × endpoint × resource, and nothing else. */
+function cellKey(cell: {
+  readonly accountId: string;
+  readonly endpointId: string;
+  readonly resourceId?: string;
+}): string {
+  return `${cell.accountId}\u0000${cell.endpointId}\u0000${cell.resourceId ?? ""}`;
+}
+
+/**
+ * A resumed record that fits no cell of the matrix being walked.
+ *
+ * The gate on resuming is a digest over the declaration, and it lives where the
+ * declaration is read. This is the second lock, on the one thing a digest cannot
+ * check — that the cells really are the same cells — and it fires before a
+ * single cell of the walk is probed.
+ *
+ * Left to itself the mismatch is silent and its result is the worst artifact
+ * this tool can produce: half a matrix walked under one declaration, half under
+ * another, presented as one run with one `configDigest` and one verdict. See
+ * ADR-0047.
+ */
+export class ResumeDoesNotFitError extends Error {
+  readonly cells: readonly string[];
+
+  constructor(cells: readonly string[]) {
+    super(
+      `The walk being resumed does not contain ${cells.length} of the cells the ` +
+        `stream already holds, among them ${cells.slice(0, 3).join(", ")}. A resumed ` +
+        `run has to be the same run: cells that have gone missing mean the accounts, ` +
+        `the endpoints or the resources are not the ones that were walked, and a ` +
+        `report assembled out of two declarations would carry one digest and one ` +
+        `verdict over both. Start a fresh run, or restore the declaration this ` +
+        `stream was made under.`,
+    );
+    this.name = "ResumeDoesNotFitError";
+    this.cells = cells;
+  }
+}
+
 export interface CollectOptions {
   readonly baseUrl: string;
   readonly endpoints: readonly Endpoint[];
@@ -111,6 +172,58 @@ export interface CollectOptions {
    * See ADR-0019.
    */
   readonly contextAttributes?: ReadonlyMap<string, ContextAttributes>;
+  /**
+   * Every cell, handed over the moment it is finished.
+   *
+   * The walk holds its observations in an array and returns them at the end,
+   * and everything that ends a process short of that returns nothing: Ctrl-C
+   * because the owner of the platform asked to stop, the OOM killer, a CI job
+   * cancelled on its timeout, the network going away. What is lost is the
+   * traffic already spent against somebody else's deployment — the most
+   * expensive and the most politically awkward resource this tool consumes, and
+   * one that may not be spendable a second time inside the agreed window.
+   *
+   * A callback and not a path: the runner sits above the ports and has no file
+   * system in it. Where the CLI puts the lines, and in what format, is
+   * `src/report/write.ts` and ADR-0047.
+   *
+   * The record arrives **after** the cell is complete and never for a cell the
+   * walk did not finish — a cell recorded here is a cell `--resume` will not
+   * probe again, so recording an interrupted one would file a request the
+   * platform never answered as an answer.
+   *
+   * Awaited, so a sink with backpressure can apply it. A sink that throws stops
+   * the walk: the caller that cannot afford that is the caller who must catch
+   * inside it. The CLI does, and says so — a stream that cannot be written is a
+   * reason to lose the safety net, not the run.
+   */
+  readonly record?: (record: CellRecord) => void | Promise<void>;
+  /**
+   * The cells a previous run already walked.
+   *
+   * They are not probed again, and they take their place in the result at the
+   * index the walk would have put them at — not appended after the cells probed
+   * now. The report drains its observations in cell order precisely so that two
+   * runs over one matrix produce one document; a resumed walk that reordered
+   * them would make `configDigest` promise more than it delivers.
+   *
+   * A record that fits no cell of this matrix is refused rather than ignored.
+   * See `ResumeDoesNotFitError`.
+   */
+  readonly resumed?: readonly CellRecord[];
+  /**
+   * A stop asked for from outside, mid-walk.
+   *
+   * Two things follow from it, and they are not the same thing: no worker takes
+   * another cell, and the signal is handed to `client.send`, so a request
+   * already on the wire is dropped rather than waited out. An operator who was
+   * asked to stop touching a platform has stopped touching it.
+   *
+   * The cells not reached are simply not observed, and the walk comes back
+   * `truncated: true` — the same word an exhausted budget earns, and it means
+   * the same thing: there are no findings in the tail because nothing looked.
+   */
+  readonly abort?: AbortSignal;
   /**
    * How many cells may be in flight at once.
    *
@@ -1028,6 +1141,10 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     readonly credentialAccountId: string;
     readonly attributes?: ContextAttributes;
   }> = [];
+  // The cells a previous run already walked, keyed by the cell they belong to.
+  // Consumed as the task list is built, so that what is left over at the end is
+  // exactly the records this matrix has no place for.
+  const alreadyWalked = new Map((options.resumed ?? []).map((one) => [cellKey(one), one]));
   for (const account of options.accounts) {
     const attributes = options.contextAttributes?.get(account.id);
     // Conditions do not change the account: it presents itself, and what changes
@@ -1052,6 +1169,31 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         ...(attributes === undefined ? {} : { attributes }),
       });
     }
+  }
+
+  /**
+   * Which task each record of the stream belongs to, and what is left over.
+   *
+   * Consumed rather than merely looked up: a record that fits no cell of this
+   * matrix means the walk being resumed is not the walk that was interrupted,
+   * and that is refused here — after the task list exists, so the answer is
+   * exact, and before the first request of the walk, so it costs nothing.
+   */
+  const takenFromStream = new Map<number, CellRecord>();
+  for (const [index, task] of tasks.entries()) {
+    const key = cellKey({
+      accountId: task.account.id,
+      endpointId: task.endpoint.id,
+      ...(task.resource === undefined ? {} : { resourceId: task.resource.id }),
+    });
+    const record = alreadyWalked.get(key);
+    if (record !== undefined) {
+      takenFromStream.set(index, record);
+      alreadyWalked.delete(key);
+    }
+  }
+  if (alreadyWalked.size > 0) {
+    throw new ResumeDoesNotFitError([...alreadyWalked.keys()]);
   }
 
   /**
@@ -1192,7 +1334,10 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     let stopped: true | undefined;
     let selfInflicted = false;
     try {
-      const response = await options.client.send(request);
+      // The stop travels to the client as well as to the loop: a request
+      // already on the wire is dropped rather than waited out, so an operator
+      // who was asked to stop touching a platform has stopped touching it.
+      const response = await options.client.send(request, options.abort);
       status = response.status;
       headers = response.headers;
       signals = response.signals;
@@ -1295,6 +1440,16 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
   // "this many with no success in between", and up to `concurrency - 1`
   // requests are already in flight when it trips.
   const results = new Array<CellResult>(tasks.length);
+  // The cells a previous run walked, put where this walk would have put them
+  // rather than appended after the ones probed now. The report drains its
+  // observations in cell order so that two runs over one matrix give one
+  // document; a resumed walk that reordered them would break exactly that.
+  for (const [index, record] of takenFromStream) {
+    results[index] = {
+      observation: record.observation,
+      ...(record.failure === undefined ? {} : { failure: record.failure }),
+    };
+  }
   let next = 0;
   /**
    * Set by the first terminal error, and after it no worker takes another cell.
@@ -1315,13 +1470,15 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
    * they finish. That is bounded by the limit the operator agreed to.
    */
   let stop = false;
+  /** Whether the stop was asked for from outside, rather than earned by the run. */
+  const aborted = (): boolean => options.abort?.aborted === true;
   const workers = Array.from(
     // `next++` needs no lock — nothing awaits between the read and the
     // increment, and there is one thread.
     { length: Math.max(1, Math.min(options.concurrency ?? 1, tasks.length)) },
     async () => {
       for (;;) {
-        if (stop) {
+        if (stop || aborted()) {
           return;
         }
         const index = next;
@@ -1329,26 +1486,62 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
         if (index >= tasks.length) {
           return;
         }
+        // A cell taken from the stream: already answered by the run that was
+        // interrupted, and not a request this one gets to spend.
+        if (results[index] !== undefined) {
+          continue;
+        }
         const task = tasks[index];
         if (task === undefined) {
           return;
         }
         const result = await probe(task);
+        // A cell the stop caught mid-flight is not a cell that was walked. It
+        // is neither kept nor recorded: recorded, `--resume` would skip it, and
+        // a request the platform never answered would be filed as an answer.
+        if (aborted()) {
+          return;
+        }
         results[index] = result;
         if (result.truncated === true) {
+          // A terminal condition — an exhausted budget, a tripped breaker — is
+          // not an answer either, and it is deliberately not recorded: the cell
+          // has to be probed again by whoever resumes.
           stop = true;
+          return;
+        }
+        if (options.record !== undefined && result.observation !== undefined) {
+          await options.record({
+            accountId: task.account.id,
+            endpointId: task.endpoint.id,
+            ...(task.resource === undefined ? {} : { resourceId: task.resource.id }),
+            observation: result.observation,
+            ...(result.failure === undefined ? {} : { failure: result.failure }),
+          });
         }
       }
     },
   );
-  await Promise.all(workers);
+  const walk = Promise.all(workers);
+  if (options.abort === undefined) {
+    await walk;
+  } else {
+    // Raced rather than awaited: a request outstanding against a platform that
+    // has stopped answering would otherwise hold the whole run for the client's
+    // timeout, and the operator pressing Ctrl-C is asking for the opposite of
+    // waiting. Whatever those workers do afterwards is discarded by the guard
+    // above them.
+    await Promise.race([walk, stopped(options.abort)]);
+  }
 
   // Drained in the order the cells were laid out, not the order they came back
   // in. Two runs of the same matrix have to produce the same file, or a diff
   // between two reports is unreadable and `configDigest` promises more than it
   // delivers.
+  let unreached = false;
   for (const result of results) {
     if (result === undefined) {
+      unreached = true;
       continue;
     }
     if (result.failure !== undefined) {
@@ -1361,6 +1554,30 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       truncated = true;
     }
   }
+  // A stop from outside that left a cell unwalked is truncation in the sense the
+  // word already has here: the tail was never probed, and there are no findings
+  // in it because nothing looked. Asked together with `unreached` rather than on
+  // its own — a signal arriving after the last cell came back interrupts
+  // nothing, and a report calling that walk incomplete would be lying in the
+  // direction that costs a rerun.
+  if (unreached && aborted()) {
+    truncated = true;
+  }
 
   return { observations, skipped, failures, probed: probeable, truncated };
+}
+
+/**
+ * A promise that settles when the stop is asked for.
+ *
+ * Resolves rather than rejects: an interruption is a decision, not a failure,
+ * and the caller of `collectObservations` has a report to finish writing.
+ */
+function stopped(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((settle) => {
+    signal.addEventListener("abort", () => settle(), { once: true });
+  });
 }
