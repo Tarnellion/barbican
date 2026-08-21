@@ -306,10 +306,11 @@ describe("the records these counters live in", () => {
    * a rule nothing measures is one the next edit deletes for free.
    */
   it("carry a kind named __proto__ instead of swallowing it", () => {
+    const PROTO = "__proto__";
     const config = configWith(`
 accepted:
   - endpoint: orders.get
-    kind: __proto__
+    kind: ${PROTO}
     reason: a check id nobody would pick, and the reason the record has no prototype
     until: 2026-11-30
 `);
@@ -330,7 +331,7 @@ accepted:
       findings: [],
       checks: [
         {
-          checkId: "__proto__",
+          checkId: PROTO,
           severity: "high",
           title: "a check whose id is the one name a record cannot hold",
           accountId: "carol",
@@ -343,12 +344,15 @@ accepted:
       finishedAt: new Date(BEFORE),
     });
 
+    // Read through a variable key, which is the only way to ask a record about
+    // this name without writing the deprecated accessor the linter refuses.
+    const countOf = (counts: Readonly<Record<string, number>>, kind: string): number | undefined =>
+      Object.hasOwn(counts, kind) ? counts[kind] : undefined;
+
     expect(report.summary.findings).toBe(1);
-    expect(Object.hasOwn(report.summary.byKind, "__proto__")).toBe(true);
-    expect(report.summary.byKind["__proto__"]).toBe(1);
+    expect(countOf(report.summary.byKind, PROTO)).toBe(1);
     expect(report.summary.accepted.findings).toBe(1);
-    expect(Object.hasOwn(report.summary.accepted.byKind, "__proto__")).toBe(true);
-    expect(report.summary.accepted.byKind["__proto__"]).toBe(1);
+    expect(countOf(report.summary.accepted.byKind, PROTO)).toBe(1);
   });
 });
 
