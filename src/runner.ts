@@ -772,9 +772,13 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     // needed by the relation to the resource and by the report, and three
     // different "take the original account" would drift apart silently.
     const credentialAccountId = principalOf(account);
+    // Built once per account, for the same reason as in `describeMatrix`: asked
+    // with `includes` inside the loop below, this list is walked once per cell,
+    // and it is as long as the endpoints the conditions were declared on.
+    const declaredOn = account.endpointIds === undefined ? undefined : new Set(account.endpointIds);
     for (const { endpoint, resource } of cells) {
       // An account under conditions exists only on the declared endpoints.
-      if (account.endpointIds !== undefined && !account.endpointIds.includes(endpoint.id)) {
+      if (declaredOn !== undefined && !declaredOn.has(endpoint.id)) {
         continue;
       }
       tasks.push({

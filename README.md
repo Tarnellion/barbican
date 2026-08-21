@@ -273,6 +273,15 @@ beside them are on the surface now, `UnusablePathTemplateError` among them: the
 class a run's refusal of a hostile path arrives as, which could previously be
 recognised only by comparing `err.name` to a string.
 
+**Three quadratic walks are gone**, with no change to what any of them answers.
+The untrustworthy-run check read every observation of the run once per account
+and discarded the ones belonging to somebody else: 37.51 ms at 640 accounts,
+0.82 ms now, and the growth is linear in the accounts instead of squared. The
+matrix walk and the run's own asked an account's list of declared endpoints with
+`includes` once per endpoint, which only bites where request conditions are
+declared — and that is exactly where the matrix is largest: `describeMatrix` at
+1600 endpoints went from 18.96 ms to 7.58 ms.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.
