@@ -1,3 +1,4 @@
+export * from "./checks/clauses.js";
 export * from "./checks/registry.js";
 export * from "./checks/tenant-isolation.js";
 export * from "./checks/types.js";

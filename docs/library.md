@@ -55,7 +55,7 @@ The port interfaces are in `src/adapters/ports.ts` and exported by name.
 
 ## What the rest of the surface is
 
-The package exports 177 values and a comparable number of types. They fall into
+The package exports 188 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,

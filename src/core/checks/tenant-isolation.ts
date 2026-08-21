@@ -11,6 +11,11 @@ import type { TenantHierarchy } from "../tenancy.js";
 import { createTenantHierarchy, FLAT_HIERARCHY } from "../tenancy.js";
 import type { AccessObservation, Account, TenantId } from "../types.js";
 import { tenantIdsOf } from "../types.js";
+import {
+  API_OBJECT_LEVEL_AUTHORIZATION,
+  ASVS_TENANT_ISOLATION,
+  CWE_IMPROPER_AUTHORIZATION,
+} from "./clauses.js";
 import type { Check, CheckContext, CheckCoverage, Finding } from "./types.js";
 
 export const IDENTICAL_RESPONSE_CHECK_ID = "identical-response-across-tenants";
@@ -170,12 +175,13 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
      * CWE-285, not 862 or 863: from the outside "there is no check" and "there
      * is a check but it is wrong" give an indistinguishable answer, so only the
      * parent class is honest.
+     *
+     * The three were literals here until 21 August 2026, when the matrix channel
+     * gained a mapping of its own and the same clause had to be named twice
+     * (ADR-0041). Named constants, so that there are two places assigning a
+     * clause and one place spelling it.
      */
-    standards: [
-      { standard: "OWASP-API-2023", clause: "API1" },
-      { standard: "OWASP-ASVS-5.0", clause: "8.4.1" },
-      { standard: "CWE", clause: "285" },
-    ],
+    standards: [API_OBJECT_LEVEL_AUTHORIZATION, ASVS_TENANT_ISOLATION, CWE_IMPROPER_AUTHORIZATION],
 
     coverage(context: CheckContext): readonly CheckCoverage[] {
       return describeBodyComparison(context, options);
