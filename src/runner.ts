@@ -183,6 +183,40 @@ const TEMPLATE_PARAMETER = /\{[^}]+\}/;
  * There is no way to declare "a refusal looks like this" today. The limitation is
  * written down in the README, in `docs/guide.md` and in `docs/report.md` rather
  * than left for the reader of a bad report to work out. See L-3.
+ *
+ * **410 joins 404**, and that is the one line of this list that moved since. It
+ * says what 404 says and says it harder — the resource was not served, and it
+ * will not be. The reason `toBinary` gives for folding `not-found` into a denial
+ * holds here word for word: telling "410 instead of 403, to hide existence" from
+ * "the object really is gone" needs to know that the object exists, and that
+ * belongs to the checks rather than to the base diff. As an `error` such a cell
+ * was lost quietly, as a low-severity `probe-error` outside the exit code, on a
+ * request the platform had in fact refused. See ADR-0046.
+ *
+ * **The rest of the list stays unreadable, and the classes are named rather than
+ * left to be rediscovered.** None of them can be fixed here: each needs the
+ * operator to declare something this tool must not derive from the system under
+ * test (ADR-0006).
+ *
+ * - **A refusal that redirects.** A console on a session cookie answers a
+ *   refused caller with `302 Location: /login`, not with 403 — and redirects are
+ *   not followed, so what is behind it was never fetched. Every denied cell of
+ *   such a surface is an `error` here. Reading a 3xx as a denial would be a
+ *   guess at somebody else's convention; what it needs is a declaration of what
+ *   this platform refuses with.
+ * - **An outcome that is not final.** `202` is "accepted, the answer comes
+ *   later". A platform that queues the request and refuses it in a worker is
+ *   read here as having granted access, and a cell the policy denies becomes a
+ *   privilege escalation where there was a refusal arriving late.
+ * - **A delete that only hides the object.** Soft delete makes 404 and 410
+ *   indistinguishable from a refusal for everyone, including the accounts that
+ *   should have been served.
+ * - **An answer about the endpoint rather than the account.** `405` says this
+ *   method is not offered here. Nothing about who asked.
+ *
+ * What the run does do for all of them: a cell whose status this function cannot
+ * read leaves a row in `failures` saying so. The conclusion is still not drawn —
+ * the run merely stops being silent about what it discarded.
  */
 export function classifyStatus(status: number): AccessOutcome {
   if (status >= 200 && status < 300) {
@@ -191,10 +225,42 @@ export function classifyStatus(status: number): AccessOutcome {
   if (status === 401 || status === 403 || status === 451) {
     return "denied";
   }
-  if (status === 404) {
+  if (status === 404 || status === 410) {
     return "not-found";
   }
   return "error";
+}
+
+/**
+ * Why nothing follows from this cell, in words for the report.
+ *
+ * `ProbeFailure` requires a reason because "an `error` with no explanation makes
+ * it impossible to tell a deployment that is down from a wrong configuration".
+ * That held for a thrown request and for the self-inflicted 404, and not for the
+ * commonest way of earning an `error`: a status this tool does not read. Such a
+ * cell used to leave an `error` outcome and no row at all, so `summary.failures`
+ * stayed 0 and the CLI printed no line about it either.
+ *
+ * The 3xx sentence is separate because it is the only one that names something
+ * the report cannot show on its own. The status is already in the row; that a
+ * redirect was not followed, and that a sign-in redirect is how a whole class of
+ * surface refuses, is not.
+ */
+function unreadableStatusReason(status: number): string {
+  if (status >= 300 && status < 400) {
+    return (
+      `Status ${status} is a redirect, and a redirect is not an outcome: they are ` +
+      `not followed, so whatever stands behind it was never fetched. A console on ` +
+      `a session cookie refuses by sending the caller to its sign-in page and ` +
+      `answers exactly this — if that is this surface, the run counted no denial ` +
+      `here. See "The statuses this tool cannot read" in docs/guide.md.`
+    );
+  }
+  return (
+    `Status ${status} is not one this tool reads as an outcome: access is concluded ` +
+    `from 2xx, from 401, 403 and 451, and from 404 and 410. Nothing follows about ` +
+    `this cell. See "The statuses this tool cannot read" in docs/guide.md.`
+  );
 }
 
 export class PathEscapesTargetError extends Error {
@@ -1133,18 +1199,38 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       if (!SAFE.has(endpoint.method)) {
         if (status >= 200 && status < 300) {
           changed.add(objectKey);
-        } else if (status === 404 && changed.has(objectKey)) {
+          // 410 beside 404 since ADR-0046, and it had to move with it. A
+          // platform that soft-deletes answers "gone" rather than "not found",
+          // and while 410 was an `error` the guard had nothing to guard — an
+          // unreadable status is already no conclusion. Now that it folds into a
+          // denial the way 404 does, a 410 this run caused itself would read as
+          // protection observed.
+        } else if ((status === 404 || status === 410) && changed.has(objectKey)) {
           selfInflicted = true;
           failure = {
             accountId: account.id,
             endpointId: endpoint.id,
             ...(resource === undefined ? {} : { resourceId: resource.id }),
             reason:
-              `404 after this run already changed the object with ${endpoint.method} ` +
-              `${endpoint.id}. Nothing follows about access: the object is missing ` +
-              `because we removed it, not because this account was refused.`,
+              `${status} after this run already changed the object with ` +
+              `${endpoint.method} ${endpoint.id}. Nothing follows about access: the ` +
+              `object is missing because we removed it, not because this account was ` +
+              `refused.`,
           };
         }
+      }
+      // A status the tool does not read leaves a row saying so. Without it the
+      // commonest `error` in a run was the one with no explanation — the exact
+      // case `ProbeFailure` above exists against. Not where a failure is already
+      // set: the self-inflicted branch has a more specific thing to say about
+      // the same cell.
+      if (failure === undefined && classifyStatus(status) === "error") {
+        failure = {
+          accountId: account.id,
+          endpointId: endpoint.id,
+          ...(resource === undefined ? {} : { resourceId: resource.id }),
+          reason: unreadableStatusReason(status),
+        };
       }
     } catch (cause) {
       const terminal = terminalCause(cause);

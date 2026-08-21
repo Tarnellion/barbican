@@ -350,6 +350,49 @@ four privilege escalations — every cell the policy denies — and one
 
 See `docs/guide.md`, "A platform that refuses with 200".
 
+## The statuses this tool cannot read
+
+The section above is the loud failure: every cell wrong, findings everywhere,
+exit code 1. This is the quiet one — cells missing from the verdict, and a run
+that ends in `0`.
+
+A conclusion about access is drawn from `2xx`, from `401`, `403` and `451`, and
+from `404` and `410`. Everything else is `outcome: "error"` and a `probe-error`
+finding: low severity, outside the exit code, and while fewer than half the
+cells are one, the verdict stays `0`.
+
+**Where to look.** `coverage.outcomes.error` against `summary.observations`, and
+then `failures[]`, which carries a row for every cell whose status was not read —
+the status, and why nothing follows from it. A run with a healthy
+`denied` count and a large `error` count is the shape to be suspicious of: some
+part of the surface is answering in a way the tool discarded.
+
+Four classes end up there, and each can hide a real refusal:
+
+- **A refusal that redirects.** An operator console on a session cookie refuses
+  with `302 Location: /login`, not with `403`. Redirects are not followed, so
+  every denied cell of that surface is a `probe-error`. `nothingRefused` will not
+  catch it in a mixed run: that warning needs `coverage.outcomes.denied` to be
+  `0` across the *whole* run, and an API answering `401` alongside satisfies it.
+  Read such rows as refusals the run did not count.
+- **An outcome that is not final.** `202 Accepted` is read as access granted.
+  Where the platform queues the request and refuses it in a worker, the cell
+  becomes a `privilege-escalation` finding over a refusal that arrives later.
+  A `privilege-escalation` on an asynchronous write endpoint is worth opening by
+  hand before it goes into a ticket.
+- **A delete that only hides the object.** Soft delete makes `404` and `410`
+  answer everyone alike, and the diff folds both into a refusal — so the cell
+  reads as protected when it is merely empty. `coverage.resourcesNotFound` is the
+  field: a resource missing for every account is usually a tombstone rather than
+  authorization.
+- **An answer about the endpoint rather than the account.** `405` says the
+  endpoint does not offer that method. A wall of them means the endpoint list and
+  the platform disagree, not that anyone was refused.
+
+None of the four has a flag. Each needs the operator to declare something the
+tool may not derive from the system under test, and there is no such declaration
+yet — see `docs/guide.md`, "The statuses this tool cannot read".
+
 ## What was tested and what was not
 
 The `coverage` section answers the question without which the numbers above mean
@@ -862,7 +905,7 @@ If the run was made with `--no-identify`, none of that is available and the
 traffic is indistinguishable from an attack. Nothing in the file says which of
 the two happened — the operator's terminal does, on a line reading either
 `Named on the wire as: …` or `This run did not name itself on the wire`. See
-[ADR-0044](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0045-a-consented-run-says-who-it-is.md).
+[ADR-0045](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0045-a-consented-run-says-who-it-is.md).
 
 ## Where this file came from, and who can read it
 

@@ -73,6 +73,36 @@ answer for such a platform is that this tool cannot check it yet.
 
 See [docs/guide.md](docs/guide.md), "A platform that refuses with 200".
 
+### The statuses this tool cannot read
+
+The section above is the loud way to be wrong. Four more are quiet ones: cells
+dropped out of the verdict instead of added to it, and a run that ends in `0`.
+
+Access is concluded from `2xx`, from `401`, `403` and `451`, and from `404` and
+`410`. Anything else is `outcome: "error"` — a low-severity `probe-error` that
+does not enter the exit code.
+
+- **A refusal that redirects.** An operator console on a session cookie answers a
+  refused caller `302 Location: /login`, not `403`. Redirects are not followed,
+  so every denied cell of that surface is discarded. The `nothingRefused` warning
+  does not catch it in a mixed run — it needs *no* denials anywhere in the run.
+- **An outcome that is not final.** `202 Accepted` reads as access granted, so a
+  platform that queues the request and refuses it in a worker produces a
+  privilege escalation that is really a refusal arriving later.
+- **A delete that only hides the object.** Under soft delete, `404` and `410`
+  answer everybody alike and both fold into a refusal, so an empty cell reads as
+  a protected one.
+- **An answer about the endpoint rather than the account.** `405` is about the
+  method, not about who asked.
+
+Fixing any of them takes a declaration from the operator — *a refusal on this
+platform looks like this* — and there is no such field yet; guessing it from the
+platform's own answers is the mistake
+[ADR-0006](docs/adr/0006-expected-access-declaration.md) exists against. What the
+run does do is leave a row in `failures` for every cell whose status it could not
+read, so the boundary is visible instead of silent. See
+[docs/guide.md](docs/guide.md), "The statuses this tool cannot read".
+
 ## Documentation
 
 The repository is English throughout: this README, both guides, every polygon
@@ -442,6 +472,25 @@ a path is created `0600` on purpose, because it names every request address,
 every account and resource, and the places the platform's authorization does not
 hold. The weaker of the two paths was the default and no document said so;
 `docs/report.md` and the guide now do.
+**`410 Gone` is read as a refusal, and the statuses that stay unreadable are
+named** ([ADR-0046](docs/adr/0046-410-is-a-refusal-and-the-rest-is-named.md)).
+410 says what 404 says and says it harder — the resource was not served, and it
+will not be — and it used to be an `error`, so a refusal the platform had
+actually issued left a low-severity `probe-error` outside the exit code and
+vanished from the verdict. It now folds into a denial the way 404 does, which
+changes verdicts in both directions, and the guard against a 404 this run caused
+with its own `DELETE` covers 410 with it, since a platform that soft-deletes
+answers "gone". Beside it, a cell whose status the tool does **not** read leaves
+a row in `failures` giving the status and why nothing follows from it, so
+`summary.failures` and the CLI's yellow "Requests that failed" line stop staying
+silent about discarded cells. The four classes that stay unreadable — a refusal
+that redirects, an outcome that is not final behind `202`, a soft delete, and
+`405` answering about the endpoint rather than the account — are written into the
+README, the guide and the report document, held by a test in all three. The
+redirect case is the one that costs most: an operator console on a session cookie
+refuses with `302 Location: /login`, and every denied cell of it is discarded
+today. Fixing it needs a declaration of what a refusal looks like on that
+platform, and that is deliberately not half-built.
 
 ## Example
 
