@@ -31,19 +31,33 @@
 import type { DiffKind, ResourceRelation } from "../types.js";
 import type { StandardRef } from "./types.js";
 
+/**
+ * The names of the standards these references point into.
+ *
+ * Named `*_ID` rather than after the standard itself, because the standard
+ * itself is an object in `src/core/standards/`: a definition with a scope and a
+ * list of clauses, which is what "is this clause real" is answered against. Two
+ * modules landed on the same three names on the same day, one holding the name
+ * and one holding the thing — and `src/core/index.ts` re-exports both, so the
+ * shorter one silently shadowed the richer one at the package boundary.
+ *
+ * These are the identifiers, and the catalogue is where they resolve to
+ * something. `tests/core/standards.test.ts` checks that every reference made
+ * here resolves there, which is the property that keeps the pair honest.
+ */
 /** OWASP API Security Top 10, 2023 edition. */
-export const OWASP_API_2023 = "OWASP-API-2023";
+export const OWASP_API_2023_ID = "OWASP-API-2023";
 /** OWASP Application Security Verification Standard, version 5.0. */
-export const OWASP_ASVS_5_0 = "OWASP-ASVS-5.0";
+export const OWASP_ASVS_5_0_ID = "OWASP-ASVS-5.0";
 /** Common Weakness Enumeration. A class of defect, not a control to verify. */
-export const CWE = "CWE";
+export const CWE_ID = "CWE";
 
 /**
  * Access to a particular object is granted to whoever holds no permission over
  * it. What the tool finds as BOLA/IDOR and as a cross-tenant read of a resource.
  */
 export const API_OBJECT_LEVEL_AUTHORIZATION: StandardRef = {
-  standard: OWASP_API_2023,
+  standard: OWASP_API_2023_ID,
   clause: "API1",
 };
 
@@ -53,7 +67,7 @@ export const API_OBJECT_LEVEL_AUTHORIZATION: StandardRef = {
  * cell with no resource in it can show.
  */
 export const API_FUNCTION_LEVEL_AUTHORIZATION: StandardRef = {
-  standard: OWASP_API_2023,
+  standard: OWASP_API_2023_ID,
   clause: "API5",
 };
 
@@ -67,19 +81,19 @@ export const API_FUNCTION_LEVEL_AUTHORIZATION: StandardRef = {
  * and the platform disagreeing — whatever else it is evidence about.
  */
 export const ASVS_DOCUMENTED_RULES: StandardRef = {
-  standard: OWASP_ASVS_5_0,
+  standard: OWASP_ASVS_5_0_ID,
   clause: "8.1.1",
 };
 
 /** An operation is reachable only by a consumer with the permission for it. */
 export const ASVS_FUNCTION_LEVEL_ACCESS: StandardRef = {
-  standard: OWASP_ASVS_5_0,
+  standard: OWASP_ASVS_5_0_ID,
   clause: "8.2.1",
 };
 
 /** A specific data item is reachable only by a consumer with permission over it. */
 export const ASVS_OBJECT_LEVEL_ACCESS: StandardRef = {
-  standard: OWASP_ASVS_5_0,
+  standard: OWASP_ASVS_5_0_ID,
   clause: "8.2.2",
 };
 
@@ -90,7 +104,7 @@ export const ASVS_OBJECT_LEVEL_ACCESS: StandardRef = {
  * and the matrix channel reaches the same declaration rather than a copy of it.
  */
 export const ASVS_TENANT_ISOLATION: StandardRef = {
-  standard: OWASP_ASVS_5_0,
+  standard: OWASP_ASVS_5_0_ID,
   clause: "8.4.1",
 };
 
@@ -103,7 +117,7 @@ export const ASVS_TENANT_ISOLATION: StandardRef = {
  * is in exactly the same position.
  */
 export const CWE_IMPROPER_AUTHORIZATION: StandardRef = {
-  standard: CWE,
+  standard: CWE_ID,
   clause: "285",
 };
 
