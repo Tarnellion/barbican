@@ -55,13 +55,13 @@ The port interfaces are in `src/adapters/ports.ts` and exported by name.
 
 ## What the rest of the surface is
 
-The package exports 177 values and a comparable number of types. They fall into
+The package exports 178 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,
    `Endpoint`, `Resource`, `RunConfig`, `AccessObservation`, `AccessDiff`,
    `RunReport` and their neighbours.
-2. **84 error classes.** These are public on purpose: catching an error and
+2. **85 error classes.** These are public on purpose: catching an error and
    naming it is the only way to tell a configuration mistake from a network
    failure, and `instanceof` needs the class. They are grouped by the module that
    throws them.

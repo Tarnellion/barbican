@@ -788,7 +788,14 @@ async function run(flags: RunFlags): Promise<number> {
         : [{ accountId: account.id, endpointId: account.canary, roleId: account.role }],
     ),
     ...(config.exclude === undefined ? {} : { exclude: config.exclude }),
-    // The fourth check needs the expanded policy: a canary the policy denies is a
+    // The method check needs the flag, and the flag lives on the command line
+    // rather than in the configuration: a canary on `POST /login` is a mistake
+    // only while this run refuses write methods. Without it the preview printed
+    // the endpoint as skipped for its method and counted three canary requests
+    // against it in the same summary, and the run reached the platform's silence
+    // for a reason that was never the platform's.
+    allowUnsafeMethods: flags.unsafeMethods === true,
+    // The last check needs the expanded policy: a canary the policy denies is a
     // contradiction the run would otherwise report as a platform defect.
     policy,
   });
@@ -854,6 +861,7 @@ async function run(flags: RunFlags): Promise<number> {
       credentials,
       client,
       exclude: config.exclude,
+      allowUnsafeMethods: flags.unsafeMethods === true,
       // Canaries check authentication, not conditions: an account under conditions
       // presents the same credentials, so a second pass over it would confirm
       // nothing new while doubling the requests.
@@ -967,6 +975,7 @@ async function run(flags: RunFlags): Promise<number> {
       credentials,
       client,
       exclude: config.exclude,
+      allowUnsafeMethods: flags.unsafeMethods === true,
       accounts: accounts.filter((account) => account.contextId === undefined),
       tenantBaseUrls,
       // The control request belongs to the first pass: whether the endpoint
