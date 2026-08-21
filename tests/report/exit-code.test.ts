@@ -134,6 +134,7 @@ function report(overrides: {
     truncated: overrides.truncated ?? false,
     observations: [],
     findings,
+    accepted: [],
     defects: [],
     summary: {
       endpoints: 0,
@@ -187,6 +188,18 @@ function report(overrides: {
       bySeverity: { info: 0, low: 0, medium: 0, high: 0, critical: 0 },
       defectGroups: 0,
       defectsBySeverity: { info: 0, low: 0, medium: 0, high: 0, critical: 0 },
+      // Nothing accepted: these tests ask what a verdict is made of, and the
+      // acceptances have a file of their own (`accepted-findings.test.ts`).
+      // Counted from the rows all the same, so that a report this helper builds
+      // is one `buildReport` could produce — the discipline the two comments
+      // above were written for.
+      accepted: {
+        declared: 0,
+        findings: findings.filter((finding) => finding.accepted?.expired === false).length,
+        expired: findings.filter((finding) => finding.accepted?.expired === true).length,
+        unused: 0,
+        byKind: {},
+      },
     },
   };
 }

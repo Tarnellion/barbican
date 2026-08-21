@@ -14,10 +14,12 @@ import { assertAuthSchemeIsSound, DEFAULT_AUTH_SCHEME } from "../adapters/creden
 import type { ContextAttributes } from "../adapters/ports.js";
 import { parseSignalPath } from "../adapters/signals.js";
 import type {
+  Acceptance,
   Account,
   Endpoint,
   ExpectedAccessPolicy,
   Resource,
+  ResourceRelation,
   SignalSpec,
   TenantNode,
 } from "../core/index.js";
@@ -26,9 +28,11 @@ import {
   assertIndependentMemberships,
   assertPolicyIsSound,
   BODY_OVER_LIMIT_SIGNAL,
+  citableDefectKey,
   createTenantHierarchy,
   DEFAULT_DIGEST_SIGNAL,
   DIGEST_SCOPE_MISSING_SIGNAL,
+  describeAcceptance,
   describePolicyRule,
   FLAT_HIERARCHY,
   HTTP_METHODS,
@@ -209,6 +213,29 @@ const authSchema = z.discriminatedUnion("kind", [
  * value lives only in the environment.
  */
 const contextValueSchema = z.union([z.string(), z.strictObject({ env: z.string().min(1) })]);
+
+/**
+ * Whether `YYYY-MM-DD` names a day that exists.
+ *
+ * The regular expression above admits `2026-11-31` and `2026-13-01`; `Date.UTC`
+ * rolls both over into a different day without complaint, which would leave the
+ * file saying one date and the run honouring another. Building the date and
+ * reading the three fields back is the check — a calendar written here would be
+ * a second implementation of one somebody else already ships.
+ */
+function isCalendarDate(value: string): boolean {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (parts === null) {
+    return false;
+  }
+  const [year, month, day] = [Number(parts[1]), Number(parts[2]), Number(parts[3])];
+  const built = new Date(Date.UTC(year, month - 1, day));
+  return (
+    built.getUTCFullYear() === year &&
+    built.getUTCMonth() === month - 1 &&
+    built.getUTCDate() === day
+  );
+}
 
 /**
  * The validator a run configuration is parsed with. Not exported.
@@ -445,6 +472,78 @@ const configSchema = z.strictObject({
         endpoints: z.array(z.string().min(1)).min(1),
         /** The accounts the conditions apply to. Absent means all of them. */
         accounts: z.array(z.string().min(1)).min(1).optional(),
+      }),
+    )
+    .min(1)
+    .optional(),
+  /**
+   * Findings that are known, accepted, and held out of the verdict until a date.
+   *
+   * The second channel for intent. `policy` says what access is *meant* to
+   * exist; this says what is not meant to exist, is known to exist, and is not
+   * being fixed this quarter. Before it there was one way to stop a finding
+   * failing a build — declare the cell allowed — and that erases the finding
+   * from the report altogether, which is the difference an evidence pack is for.
+   * See ADR-0048.
+   *
+   * A row here is addressed the way a defect is addressed: endpoint, relation to
+   * the resource, request conditions, and the way the defect showed itself.
+   * Neither the account nor the resource is part of it — a key carrying either
+   * would come apart the moment one more of them is declared.
+   */
+  accepted: z
+    .array(
+      z.strictObject({
+        endpoint: z.string().min(1),
+        /**
+         * The relation the finding was made under. Absent means the defect on
+         * cells with no resource at all — printed as `any-resource` in
+         * `defects[].key`, and a coordinate of its own rather than a wildcard.
+         */
+        relation: relationSchema.optional(),
+        /** The conditions. Absent means baseline, exactly as in a policy rule. */
+        context: z.string().min(1).optional(),
+        /**
+         * A kind of matrix discrepancy, or the id of the check that found it.
+         *
+         * Not an enum: check ids come from a registry this schema cannot see,
+         * and half of what an operator most wants to accept on a first run is
+         * found by a check. The two kinds nothing may accept are refused below,
+         * where the reason can be stated.
+         */
+        kind: z.string().min(1),
+        reason: z
+          .string()
+          .min(
+            1,
+            "an accepted finding needs a reason. A suppression nobody can read is a " +
+              "pin nobody notices — the same failure as an `overrides` entry with no " +
+              "condition for its own removal, and here what it hides is a finding",
+          ),
+        /**
+         * The last day the acceptance holds, `YYYY-MM-DD`, inclusive, UTC.
+         *
+         * The shape is checked here rather than left to the expiry arithmetic,
+         * which answers `NaN` for anything it cannot read — and `NaN` compares
+         * false, so an unreadable date would silently mean one of the two
+         * extremes instead of what the file says.
+         */
+        until: z
+          .string()
+          .regex(
+            /^\d{4}-\d{2}-\d{2}$/,
+            'the deadline is a date in the form YYYY-MM-DD, for example "2026-11-30". ' +
+              "It is the last day the acceptance holds, in UTC — not the machine's " +
+              "zone, so that the verdict does not depend on which runner picked the " +
+              "job up",
+          )
+          .refine(isCalendarDate, {
+            message:
+              "there is no such day. A deadline that does not exist would be read by " +
+              "the calendar as some other day, and the file would not say which",
+          }),
+        /** Where the fix is tracked. Optional: not every team has a tracker to cite. */
+        ticket: z.string().min(1).optional(),
       }),
     )
     .min(1)
@@ -791,6 +890,14 @@ export interface RunConfig {
   readonly tenants?: readonly TenantConfig[] | undefined;
   /** The request conditions. Empty when none are declared. */
   readonly contexts: readonly RequestContextConfig[];
+  /**
+   * Findings held out of the verdict until a date. Empty when none are declared.
+   *
+   * The core's shape rather than the declared one: `endpoint` and `context`
+   * become `endpointId` and `contextId` here, exactly as a resource's `tenant`
+   * becomes `tenantId`. See ADR-0048.
+   */
+  readonly accepted: readonly Acceptance[];
 }
 
 /**
@@ -847,6 +954,98 @@ interface DeclaredContext {
 type _DeclaredContextIsTiedToTheSchema = Tied<
   SameFields<DeclaredContext, NonNullable<ParsedConfig["contexts"]>[number]>
 >;
+
+/**
+ * One accepted finding as it was written, before the coordinates are renamed.
+ *
+ * The same arrangement as `DeclaredContext` and for the same reason: `Acceptance`
+ * in the core spells the coordinates `endpointId` and `contextId`, so it is not a
+ * mirror of this section and equal field names would be the wrong thing to
+ * demand of it. This shape is the mirror, and the tie below is what notices a
+ * field added to the schema and carried by nobody.
+ */
+interface DeclaredAcceptance {
+  readonly endpoint: string;
+  readonly relation?: ResourceRelation | undefined;
+  readonly context?: string | undefined;
+  readonly kind: string;
+  readonly reason: string;
+  readonly until: string;
+  readonly ticket?: string | undefined;
+}
+
+type _DeclaredAcceptanceIsTiedToTheSchema = Tied<
+  SameFields<DeclaredAcceptance, NonNullable<ParsedConfig["accepted"]>[number]>
+>;
+
+/**
+ * A kind of finding an acceptance may not be written for.
+ *
+ * `not-observed` and `probe-error` are the two kinds that say nothing about the
+ * platform: the first means no request covered the cell, the second that the
+ * request did not come back. Accepting either is accepting "we did not look",
+ * and for `probe-error` it is worse than that — half a matrix failing to answer
+ * is the exit code 2 that says the report describes the state of the network
+ * rather than of the platform, and that conclusion must not be purchasable from
+ * a configuration file.
+ *
+ * Neither is a thing an operator needs to accept, which is what makes the rule
+ * cheap: `not-observed` is `low` and fails no run, and `probe-error` fails one
+ * only at half the matrix, where the run is telling the truth.
+ */
+export class UnacceptableFindingKindError extends Error {
+  constructor(where: string, kind: string) {
+    super(
+      `${where} is written for kind "${kind}", which says nothing about the platform: ` +
+        `it says the run did not reach the cell, or that the cell did not answer. ` +
+        `Accepting it would accept "we did not look" — and for probe errors it would ` +
+        `buy the exit code 2 that reports a broken deployment. Fix the reach of the ` +
+        `run instead: coverage.notProbed and failures[] say what stopped it.`,
+    );
+    this.name = "UnacceptableFindingKindError";
+  }
+}
+
+/**
+ * Two acceptances naming one defect and one kind.
+ *
+ * They carry different reasons and different deadlines, so which of them applies
+ * decides when the finding comes back — and either resolution would be a silent
+ * choice made for the operator. The same objection as two `compareSubtree`
+ * scopes on one endpoint.
+ */
+export class DuplicateAcceptanceError extends Error {
+  constructor(where: string, defect: string, kind: string) {
+    super(
+      `${where} names the defect "${defect}" and kind "${kind}", which an earlier ` +
+        `entry already names. Two acceptances of one finding carry two deadlines, and ` +
+        `which one holds would decide when the finding comes back — the file has to ` +
+        `say, rather than the order of two lines in it.`,
+    );
+    this.name = "DuplicateAcceptanceError";
+  }
+}
+
+/**
+ * An acceptance written for conditions that are not declared.
+ *
+ * A defect under conditions and the same defect in the baseline are different
+ * findings — the whole reason `contextId` is part of the signature — so a typo
+ * here does not widen the acceptance, it empties it. The operator believes a
+ * finding is held and it is not; the run fails for a reason the file appears to
+ * have answered.
+ */
+export class UnknownAcceptanceContextError extends Error {
+  constructor(where: string, contextId: string, declared: readonly string[]) {
+    super(
+      `${where} names context "${contextId}", which is not declared. ` +
+        `Declared: ${declared.length === 0 ? "none" : declared.join(", ")}. ` +
+        `Conditions are part of a defect's identity, so this acceptance would match ` +
+        `no finding at all — leave the field out to accept the baseline defect.`,
+    );
+    this.name = "UnknownAcceptanceContextError";
+  }
+}
 
 export class ConfigParseError extends Error {
   constructor(message: string, options?: { cause: unknown }) {
@@ -1328,6 +1527,20 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
     }
   }
 
+  // An acceptance whose endpoint does not exist matches nothing, and the
+  // direction it fails in is the harmless one: the finding is reported, CI stays
+  // red, somebody looks. It is refused all the same, because that is what this
+  // project does with every reference resolving to nothing, and because the
+  // operator who wrote it believes the opposite has happened — that a finding is
+  // held, and that a deadline is running against it.
+  for (const [index, acceptance] of config.accepted.entries()) {
+    if (!known.has(acceptance.endpointId)) {
+      throw new UnknownEndpointReferenceError(describeAcceptance(index), acceptance.endpointId, [
+        ...known,
+      ]);
+    }
+  }
+
   for (const account of config.accounts) {
     if (account.canary !== undefined && !known.has(account.canary)) {
       throw new UnknownEndpointReferenceError(
@@ -1784,6 +1997,39 @@ export function parseRunConfig(source: string): RunConfig {
     });
   }
 
+  // The kinds a run may never buy its way out of, hardcoded here rather than
+  // read from anywhere: they are the two that describe the run's own reach, and
+  // the list is not an operator's to extend. `probe-error` in particular is what
+  // exit code 2 is computed from.
+  const UNACCEPTABLE_KINDS = new Set(["not-observed", "probe-error"]);
+  const accepted: Acceptance[] = [];
+  const acceptedKeys = new Set<string>();
+  for (const [index, declared] of (config.accepted ?? []).entries()) {
+    const where = describeAcceptance(index);
+    if (UNACCEPTABLE_KINDS.has(declared.kind)) {
+      throw new UnacceptableFindingKindError(where, declared.kind);
+    }
+    const acceptance: Acceptance = {
+      endpointId: declared.endpoint,
+      ...(declared.relation === undefined ? {} : { relation: declared.relation }),
+      ...(declared.context === undefined ? {} : { contextId: declared.context }),
+      kind: declared.kind,
+      reason: declared.reason,
+      until: declared.until,
+      ...(declared.ticket === undefined ? {} : { ticket: declared.ticket }),
+    };
+    // The citable key and the kind, which is exactly what the report matches a
+    // finding on. Composed from the same function `defects[].key` is, so "two
+    // entries for one defect" here means the same thing it means there.
+    const defect = citableDefectKey(acceptance);
+    const key = `${defect} ${acceptance.kind}`;
+    if (acceptedKeys.has(key)) {
+      throw new DuplicateAcceptanceError(where, defect, acceptance.kind);
+    }
+    acceptedKeys.add(key);
+    accepted.push(acceptance);
+  }
+
   const contexts = normalizeContexts(config.contexts ?? [], {
     accountIds: seen,
     policy,
@@ -1793,6 +2039,20 @@ export function parseRunConfig(source: string): RunConfig {
     // such a key would silently rewrite the resource's address — see below.
     resourceQueryKeys: new Set(resources.flatMap((r) => Object.keys(r.query ?? {}))),
   });
+
+  // After `normalizeContexts`, which is where the declared conditions are
+  // verified and where a typo in a **rule's** reference is reported. An
+  // acceptance naming conditions that do not exist matches no finding at all —
+  // the operator believes something is held, and the run fails for a reason the
+  // file appears to have answered.
+  const contextIds = new Set(contexts.map((context) => context.id));
+  for (const [index, acceptance] of accepted.entries()) {
+    if (acceptance.contextId !== undefined && !contextIds.has(acceptance.contextId)) {
+      throw new UnknownAcceptanceContextError(describeAcceptance(index), acceptance.contextId, [
+        ...contextIds,
+      ]);
+    }
+  }
 
   return {
     auth: config.auth ?? DEFAULT_AUTH_SCHEME,
@@ -1805,6 +2065,7 @@ export function parseRunConfig(source: string): RunConfig {
     ...(tenantNodes === undefined ? {} : { tenants: tenantNodes }),
     resources,
     contexts,
+    accepted,
   };
 }
 

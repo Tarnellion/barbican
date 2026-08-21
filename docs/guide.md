@@ -531,6 +531,72 @@ For an account with a set of tenants the relation is computed for every
 membership, and the nearest one lands in the table — top to bottom down this
 same list.
 
+### Findings you already know about
+
+A first run against a platform that has never been checked finds things. Some of
+them are being fixed next quarter, and until then the run fails — which is a
+problem, because the usual response to a CI step that fails every day is to
+delete the step.
+
+The wrong way to quiet one is to declare the cell allowed. That does not say "we
+know"; it says "this is meant to work", and the finding leaves the report
+altogether — no row, no defect group, no trace that anyone ever looked. Use
+`accepted:` instead:
+
+```yaml
+accepted:
+  - endpoint: orders.get
+    relation: same-tenant
+    kind: privilege-escalation
+    reason: the order service has no tenant filter; PLAT-1234 replaces it
+    until: 2026-11-30
+    ticket: PLAT-1234
+```
+
+The finding stays in the report, at its own severity, with its request and its
+clauses, marked `accepted`. What it leaves is the **verdict**: the run stops
+failing over it until 30 November 2026, and on 1 December it fails again.
+
+**Copy the coordinates out of the report.** `defects[].key` prints them in this
+order:
+
+```jsonc
+"key": "orders.get same-tenant baseline",
+"kinds": ["privilege-escalation"]
+```
+
+— that is `endpoint`, then `relation`, then `context`. The words `any-resource`
+and `baseline` mean the field is absent: `any-resource` is a defect on cells with
+no resource at all, `baseline` is a request with no declared conditions. Leave
+the corresponding key out rather than writing the word.
+
+`kind` is one of the entries in `kinds` beside it: a kind of matrix discrepancy,
+or the identifier of the check that found it. It is part of the address on
+purpose. One endpoint can be broken two ways at once — no authorization *and*
+the same body for every tenant — and accepting the one you have read must not
+silence the one you have not.
+
+Four things to know before writing one.
+
+- **`reason` and `until` are required, and `until` is a real date**,
+  `YYYY-MM-DD`, inclusive of its last day, in UTC. There is no "forever". An
+  entry that carries no condition for its own removal is a pin nobody notices,
+  which is the same rule this project applies to a dependency override.
+- **The account and the resource are not part of the address.** One entry covers
+  every account and every resource of that defect, so declaring one more resource
+  next month does not silently take the acceptance apart.
+- **An entry that covered nothing is reported**, as `accepted[].matched: 0` and
+  in `summary.accepted.unused`. Usually that means the platform was fixed and the
+  line should go; sometimes it means the run never reached those cells, and
+  `coverage.notProbed` says why. It does not fail the run either way.
+- **`not-observed` and `probe-error` cannot be accepted.** They say the run did
+  not reach the cell or the cell did not answer — nothing about the platform — and
+  a run cannot buy its way out of saying so.
+
+The full shape in the report, and the identity the counters keep, are in
+[docs/report.md](report.md); the reasoning is
+[ADR-0048](adr/0048-a-finding-can-be-known-and-still-reported.md).
+
 ### Signals over the body
 
 ```yaml

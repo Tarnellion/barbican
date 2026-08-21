@@ -492,6 +492,22 @@ refuses with `302 Location: /login`, and every denied cell of it is discarded
 today. Fixing it needs a declaration of what a refusal looks like on that
 platform, and that is deliberately not half-built.
 
+**A finding can be known and accepted without leaving the report**
+([ADR-0048](docs/adr/0048-a-finding-can-be-known-and-still-reported.md)). There
+was one channel for intent and it carried two statements: the only way to stop a
+finding failing a build was to declare the cell allowed, after which the finding
+is gone from the artifact entirely — no row, no defect group, `match: true`, exit
+`0`, and nothing recording that anybody knew. That is also what a team with forty
+findings on the first run has to do to forty cells before the tool can go into
+CI, and the usual answer to that is to take the step out of CI instead. The new
+`accepted:` section names a defect the way `defects[].key` prints it — endpoint,
+relation, conditions — plus the kind it showed itself by, and requires a reason
+and a real `until` date: the row keeps its severity, its request and its place in
+every counter, and only `summary.verdictInputs` loses it. Past the date it counts
+again and says so; a declaration that covered nothing is reported as
+`matched: 0`; and `not-observed` and `probe-error` cannot be accepted at all,
+because a run may not buy its way out of saying it reached nothing.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.

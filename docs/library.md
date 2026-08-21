@@ -79,13 +79,13 @@ the same terms as the bundled three. See
 
 ## What the rest of the surface is
 
-The package exports 205 values and a comparable number of types. They fall into
+The package exports 215 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,
    `Endpoint`, `Resource`, `RunConfig`, `AccessObservation`, `AccessDiff`,
    `RunReport` and their neighbours.
-2. **91 error classes.** These are public on purpose: catching an error and
+2. **94 error classes.** These are public on purpose: catching an error and
    naming it is the only way to tell a configuration mistake from a network
    failure, and `instanceof` needs the class. They are grouped by the module that
    throws them.

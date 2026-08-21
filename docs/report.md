@@ -142,6 +142,7 @@ guess identifiers — logging in is enough.
 | `defectGroups` | distinct defect signatures — a lower bound, **with one exception**: two groups differing only by `contextId` are usually one breakage. See below |
 | `defectsBySeverity` | the same by severity, but counting **defects**, not rows |
 | `defects[].violations` | how many rows this defect produced — **not** "probes performed". For findings by body a row is a **pair of accounts**, not a cell |
+| `accepted` | how many findings an `accepted:` declaration is holding out of the verdict, how many of those declarations have lapsed, and how many covered nothing. See below |
 | `skipped` / `failures` | what was not probed and what failed, with reasons |
 
 ### Why "at least N defects"
@@ -227,6 +228,122 @@ the sets contain.
 `own` is lowered deliberately: an account's access to its own resource, declared
 forbidden, is almost always a mistake in the policy, not a hole in the platform.
 The reasoning — [ADR-0014](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0014-severity-and-exit-codes.md).
+
+## Findings that are known and accepted
+
+A finding can be declared known: it stays in the report, with everything a ticket
+is filed from, and leaves the **verdict** until a date the operator named. That
+is `accepted:` in the run configuration, and
+[ADR-0048](adr/0048-a-finding-can-be-known-and-still-reported.md) is why it is
+not a policy rule.
+
+The short version: declaring the cell allowed removes the finding from the
+artifact altogether — no row, no defect group, `match: true`, exit `0`, and
+nothing anywhere recording that anybody knew. "Not found" and "found and
+accepted" are the same file, and the second is exactly what an evidence pack has
+to be able to show.
+
+### What an accepted finding looks like in the file
+
+The row is where it always was, at its own severity, with its request and its
+clauses. It carries one field more:
+
+```jsonc
+{
+  "kind": "privilege-escalation",
+  "source": "matrix",
+  "severity": "critical",
+  "accountId": "carol-b",
+  "endpointId": "orders.get",
+  "resourceId": "order-a-1001",
+  "relation": "foreign-tenant",
+  "accepted": {
+    "reason": "the order service has no tenant filter; PLAT-1234 replaces it",
+    "until": "2026-11-30",
+    "ticket": "PLAT-1234",
+    "expired": false
+  }
+}
+```
+
+`expired: true` means the day has passed and **the row counts again** — it is
+back in `summary.verdictInputs`, and it fails the run exactly as it did before.
+The mark is kept rather than dropped, because a run that has just started failing
+over something that was accepted until last week is explained by this field and
+by nothing else in the file.
+
+The defect group keeps its place in `defects` too, at its own severity, and
+carries `acceptedKinds`: which of its `kinds` are currently held. A group where
+that list covers `kinds` is a breakage the operator has signed for; a group where
+it covers some of them is the same endpoint failing a second way, which nobody
+has looked at yet.
+
+### The declarations, and what each one did
+
+Top-level `accepted[]` carries them in the order written:
+
+```jsonc
+{
+  "defect": "orders.get foreign-tenant baseline",
+  "kind": "privilege-escalation",
+  "reason": "the order service has no tenant filter; PLAT-1234 replaces it",
+  "until": "2026-11-30",
+  "ticket": "PLAT-1234",
+  "expired": false,
+  "matched": 1
+}
+```
+
+`defect` is the same string as `defects[].key`, built by the same function, so the
+two line up by eye and a ticket quoting one quotes the other.
+
+**`matched: 0` is the entry worth reading.** It means the declaration covered
+nothing on this run, and there are two reasons for that: what it names is fixed —
+in which case the line should be deleted — or the run never reached those cells,
+in which case `coverage.notProbed` says why. The report cannot tell the two apart
+and does not guess. It does not fail the run over it either: failing a build on a
+fix is how a CI step gets deleted instead of a configuration line.
+
+### The counters still add up
+
+Nothing is subtracted from what was found. `summary.findings`, `byKind`,
+`bySeverity`, `defectGroups`, `defectsBySeverity` and every `defects` entry count
+accepted rows like any others, and the cell keeps `match: false` with its
+`findingKinds`. One number changes, and it is the one the verdict reads:
+
+```
+summary.byKind[k] − summary.accepted.byKind[k] === summary.verdictInputs.matrixByKind[k]
+```
+
+for every matrix kind. `summary.accepted` holds four numbers beside that
+breakdown:
+
+| Field | What it means |
+|---|---|
+| `declared` | entries in the `accepted:` section |
+| `findings` | rows currently held out of the verdict |
+| `expired` | rows whose acceptance has lapsed — these are back in the verdict |
+| `unused` | declarations that covered no finding on this run |
+
+And the sentence beside the exit code says so out loud, because an exit code of
+`0` over a critical row cannot explain itself:
+
+```
+Exit code 0: no discrepancy that fails a run — the rows above are notes, or
+findings an acceptance holds out of the verdict; 3 findings are held out of this
+verdict by an acceptance and are still in the report
+```
+
+### What cannot be accepted
+
+`not-observed` and `probe-error`. Neither says anything about the platform — one
+means no request covered the cell, the other that the request did not answer — so
+accepting either would be accepting "we did not look". For probe errors it is
+worse: half a matrix failing to answer is the exit code `2` that says the report
+describes the state of the network, and that conclusion is not for sale from a
+configuration file. Neither needs accepting anyway: `not-observed` is `low` and
+fails no run, and `probe-error` fails one only at the threshold where the run is
+telling the truth.
 
 ## The verdict and the warnings are in the file
 
