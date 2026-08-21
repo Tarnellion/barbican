@@ -250,6 +250,12 @@ function explain(drift: Drift): string {
  * string and without an owner, conditions with headers and conditions with a
  * query parameter, and an attribute that names an environment variable instead
  * of carrying a value.
+ *
+ * And one accepted finding, which is what puts `accepted[]`,
+ * `findings[].accepted` and `defects[].acceptedKinds` in the skeleton. It names
+ * one of the two kinds the `orders.read same-tenant baseline` group carries, so
+ * that group comes out **partly** accepted — the shape ADR-0030 predicted, and
+ * the one a reader has to be able to tell from a group accepted whole.
  */
 const CONFIG = parseRunConfig(`
 target:
@@ -292,6 +298,13 @@ policy:
     - { roles: [admin], endpoints: [orders.read], scope: same-tenant, outcome: allowed }
     - { roles: "*", endpoints: [orders.list], context: geo-blocked, outcome: denied }
     - { roles: [user], endpoints: [orders.list], context: wide-scope, outcome: allowed }
+accepted:
+  - endpoint: orders.read
+    relation: same-tenant
+    kind: unexpected-denial
+    reason: the admin console lost its cross-account read in release 42; PLAT-1234
+    until: 2027-06-30
+    ticket: PLAT-1234
 contexts:
   - id: geo-blocked
     description: a request from a prohibited jurisdiction
