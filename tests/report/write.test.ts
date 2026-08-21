@@ -46,7 +46,7 @@ describe("the streamed report", () => {
       { rows: [1, undefined, 3] },
     ],
     ["strings that need escaping", { reason: 'a "quoted" \\ path\nwith a newline\tand a tab' }],
-    ["unicode outside ASCII", { label: "тенант-а · Ünïcode · 🎲" }],
+    ["unicode outside ASCII", { label: "Ünïcode · ñeighbour · 🎲" }],
     ["numbers that are not integers", { rate: 0.30000000000000004, big: 1e21, negative: -0 }],
     ["null", { tenant: null }],
     ["an array of arrays", { pairs: [["a", "b"], [], ["c"]] }],
