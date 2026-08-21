@@ -686,6 +686,60 @@ Referring to an endpoint that is not among the parsed ones stops the run — the
 alternative is a rule that silently never applies. The error names the parsed
 identifiers, nearest first, so a typo answers itself.
 
+### Where the report goes
+
+`--report run.json` writes the report to that path, and creates it `0600` — owner
+only. **Without `--report` the report goes to stdout.** In a pipeline that is the
+build log: readable by everyone who can see the build, kept as long as the build
+is kept, and copied into whatever collects logs.
+
+The file is worth that much care. It holds no response bodies and no credentials
+— those are kept out by construction — but it does hold every request address,
+the identifiers of every account, tenant and resource, and a list of the places
+where the platform's authorization does not hold. On somebody else's platform
+that is a map of their unlocked doors, and it is yours to keep until they have
+it.
+
+So redirect it or name a path:
+
+```bash
+barbican run -c barbican.run.yaml -e endpoints.yaml --report run.json
+barbican run -c barbican.run.yaml -e endpoints.yaml > run.json   # the same, minus the 0600
+```
+
+Any real run started without `--report` says this on stderr. A dry run does not:
+it produces no report to misplace.
+
+### The run says who it is
+
+Every request carries a `user-agent` naming the tool, its version and the run:
+
+```
+barbican/0.4.0 (+https://github.com/Tarnellion/barbican#readme; run=3f2a…)
+```
+
+`run=` is the `runId` of the report the run produces, and that is the whole
+point. The owner who agreed to this can find the run in an access log or a SIEM,
+filter it out of an availability graph, show an anti-fraud rule what it was — and
+tie all of it to the specific JSON document you hand them. Without it the only
+thing connecting your report to their records is the clock.
+
+`user-agent` rather than a header of this tool's own, because it is the field
+their logging already keeps: a custom header would need a change on their side
+first, and asking for that is asking the wrong person to do the work.
+
+**`--no-identify` turns it off**, and there is one honest reason to reach for it:
+you are deliberately measuring what an unannounced sweep looks like, WAF reaction
+included. A marked run may be answered differently from an unmarked one, and then
+what is being tested is partly the WAF's opinion of a known tool. That is a
+decision to make on purpose and to write down in the agreement — say there how
+the traffic is to be recognised instead. The run's summary prints which of the
+two happened.
+
+If a set of request conditions declares a `user-agent` attribute of its own, the
+run stops at the first request rather than sending both values folded together.
+Rename the attribute, or use `--no-identify`.
+
 ### Seeing the plan before running it
 
 ```bash
@@ -845,6 +899,18 @@ another's data is indistinguishable from the thing this tool is used to find.
 
 `--unsafe-methods` deserves its own sentence in that agreement: it changes
 state, and the change outlives the report.
+
+So does the way they will recognise the traffic. By default every request names
+the tool, its version and the run in `user-agent`, and the `run=` part is the
+`runId` of the report you will hand over — that pair is what lets them separate a
+run they agreed to from an intrusion in their own logs, and match their records
+against your findings. Put the identifier in the agreement, or in the message
+that says the run has started. If you intend to use `--no-identify`, say that
+instead, and agree on what will stand in for it.
+
+And agree where the report is going to live before it exists. It names the places
+their authorization does not hold; until they have it, it is a document about an
+unfixed vulnerability in somebody else's system.
 
 ## Choosing which checks run
 

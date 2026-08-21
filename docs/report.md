@@ -750,12 +750,53 @@ startup.
 | Field | What for |
 |---|---|
 | `schemaVersion` | the shape of the report has changed and will change again; without a version a parser breaks silently. **`2` since 15 August 2026** — `checksRun` holds objects where it held bare ids, `bodyComparison` became `byCheck`, `checksWithUnusableFindings` is gone, and `findings[].accountId` and `.endpointId` are optional. A reader written against `1` breaks on all four |
-| `runId` | otherwise two reports cannot be told apart |
+| `runId` | otherwise two reports cannot be told apart — and, since 21 August 2026, the value the run went out under on the wire |
 | `configDigest` | to tell "the platform changed" from "we changed the declaration" |
 
 The fingerprint is computed over the **parsed** configuration, not over the text
 of the file: comments and indentation do not affect the result of a run, while
 they would affect a hash of the text.
+
+### `runId` is also what the platform's own logs recorded
+
+Unless the run was made with `--no-identify`, every request it sent carried this
+`user-agent`:
+
+```
+barbican/0.4.0 (+https://github.com/Tarnellion/barbican#readme; run=<runId>)
+```
+
+That is there for the party who agreed to the run and then has to live with it in
+their own systems. With `runId` from this file they can find exactly this run's
+traffic in an access log or a SIEM, filter it out of an availability graph, and
+show an anti-fraud rule what it was. It is the other direction of the
+correlation this report already offers: `x-request-id`, `x-correlation-id`,
+`x-trace-id` and `traceparent` are kept off the **responses** so that a finding
+can be matched against a record on the platform's side.
+
+If the run was made with `--no-identify`, none of that is available and the
+traffic is indistinguishable from an attack. Nothing in the file says which of
+the two happened — the operator's terminal does, on a line reading either
+`Named on the wire as: …` or `This run did not name itself on the wire`. See
+[ADR-0044](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0044-a-consented-run-says-who-it-is.md).
+
+## Where this file came from, and who can read it
+
+`barbican run --report run.json` writes the report to that path, creating it with
+mode `0600` — owner only. **Without `--report` the report goes to stdout**, which
+in a pipeline means the build log: readable by everyone who can see the build,
+kept for as long as the build is kept, and copied wherever build logs are
+collected.
+
+That matters because of what this document is. It has no response bodies and no
+credentials — those are kept out by construction — but it holds every request
+address, every response header the value allowlist preserved, the identifiers of
+every account, tenant and resource, and a list of the places where a platform's
+authorization does not hold. It is a map of somebody's unlocked doors.
+
+So: redirect it (`barbican run … > run.json`) or name a path with `--report`, and
+treat the result as you would treat any other finding about an unfixed
+vulnerability. The CLI warns on any real run started without `--report`.
 
 ## Inputs: what the conclusions rest on
 

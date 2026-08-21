@@ -19,11 +19,16 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { createCredentialProvider, DEFAULT_AUTH_SCHEME } from "../../src/adapters/credentials.js";
-import { createHttpClient } from "../../src/adapters/http.js";
+import {
+  createHttpClient,
+  RUN_IDENTITY_HEADER,
+  RunIdentityConflictError,
+  runIdentity,
+} from "../../src/adapters/http.js";
 import type { HttpClient, HttpRequest } from "../../src/adapters/ports.js";
 import { createThrottle } from "../../src/adapters/throttle.js";
 import type { Account } from "../../src/core/index.js";
-import { isAddressablePath } from "../../src/io/untrusted.js";
+import { isAddressablePath, safeHeaders } from "../../src/io/untrusted.js";
 import { collectObservations, staysWithinTarget } from "../../src/runner.js";
 import { createTestClock } from "../fixtures/clock.js";
 
@@ -446,5 +451,124 @@ describe("A-8 · the origin and the path prefix in joinUrl", () => {
       { endpointId: "port", reason: "escapes-target" },
       { endpointId: "above", reason: "escapes-target" },
     ]);
+  });
+});
+
+/**
+ * M-6 · the run says who it is on the wire.
+ *
+ * Mutation: the merge in `attemptOnce` (`src/adapters/http.ts`) put back to the
+ * plain `headers: { ...request.headers }` it was before — not a hypothetical
+ * edit but the state the finding was written from. `grep -ri "user-agent" src/`
+ * answered nothing, so every request this tool had ever made went out as
+ * `user-agent: node`, and the `runId` the report is filed under existed only
+ * inside the report.
+ *
+ * Why nothing caught it. The suite asserts what the tool *refuses* to send —
+ * credentials in a query key, a method override, an address outside the scope —
+ * and never what it must send. Nothing in the repository read a request header
+ * off a real server: `tests/adapters/http.test.ts` drives a stubbed `fetch`, and
+ * a stub is handed whatever the client passes without anyone asking what an
+ * access log would have recorded.
+ *
+ * The consequence is not on this side. An owner who gave written permission had
+ * no way to tell a consented audit from the intrusion it is shaped like — not in
+ * a SIEM, not in an availability graph, not in an anti-fraud rule. The report
+ * keeps `x-request-id` off the *response* for exactly this purpose, so
+ * correlation was already agreed to be worth having; it was provided in one
+ * direction only.
+ *
+ * The server here is real and the assertions are on what it received. A test
+ * reading the client's own `HttpRequest` back would agree with a merge that
+ * never happened.
+ */
+describe("M-6 · the run names itself on the wire", () => {
+  const RUN = "11111111-2222-3333-4444-555555555555";
+  const IDENTITY = runIdentity({
+    version: "9.9.9",
+    runId: RUN,
+    homepage: "https://github.com/Tarnellion/barbican",
+  });
+
+  /** A deployment that keeps what it was told, the only witness that counts here. */
+  async function startListener() {
+    const heard: (string | undefined)[] = [];
+    const server = await startServer((request, response) => {
+      heard.push(request.headers["user-agent"]);
+      response.writeHead(204).end();
+    });
+    return { ...server, heard };
+  }
+
+  it("carries the version and the run identifier the report is filed under", async () => {
+    const server = await startListener();
+    try {
+      await clientFor({ identity: IDENTITY }).send(GET(server.port, "/v1/orders"));
+
+      const [agent] = server.heard;
+      expect(agent).toBeDefined();
+      // The three things the owner of the target needs off one log line: what
+      // this is, which release of it, and which run — the last being the handle
+      // that ties their records to the JSON they were handed.
+      expect(agent).toContain("barbican/9.9.9");
+      expect(agent).toContain(`run=${RUN}`);
+      expect(agent).toContain("https://github.com/Tarnellion/barbican");
+      // And node's own default is replaced rather than appended to.
+      expect(agent).not.toContain("node");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("says nothing at all when the caller declares no identity", async () => {
+    const server = await startListener();
+    try {
+      await clientFor().send(GET(server.port, "/v1/orders"));
+
+      // The other half of the gate. A client that always signed would pass the
+      // test above and take `--no-identify` away from the operator who is
+      // deliberately measuring what an unannounced sweep looks like.
+      expect(server.heard).toEqual(["node"]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  /**
+   * And it does not overwrite the caller's own header in silence.
+   *
+   * `user-agent` is a header a set of request conditions may legitimately
+   * declare — a device condition is exactly that shape — and two values under
+   * one name is a request neither side asked for: `Headers` folds them into
+   * `"mobile-app/3, barbican/9.9.9 …"`. Refused at the seam, before the wire,
+   * because the client is the one place every request of a run passes through —
+   * the CLI, `probeCanaries` and a consumer of the library alike.
+   */
+  it("refuses a request that already carries the header, and sends nothing", async () => {
+    const server = await startListener();
+    try {
+      const client = clientFor({ identity: IDENTITY });
+
+      await expect(
+        client.send({
+          ...GET(server.port, "/v1/orders"),
+          // Spelled in another case, because header names are case-insensitive
+          // and a comparison that is not would let this one through to be folded
+          // together on the wire.
+          headers: safeHeaders([["User-Agent", "mobile-app/3"]]),
+        }),
+      ).rejects.toBeInstanceOf(RunIdentityConflictError);
+
+      expect(server.heard).toEqual([]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("names one header, and it is the one an access log already keeps", () => {
+    // A custom `x-barbican-run` is invisible in nginx's `combined` format and in
+    // most SIEM pipelines without a change on the target's side — a change the
+    // party this whole feature exists for would have to make first.
+    expect(RUN_IDENTITY_HEADER).toBe("user-agent");
   });
 });
