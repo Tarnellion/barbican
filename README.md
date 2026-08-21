@@ -204,6 +204,60 @@ On `main`, not on npm. `0.4.0` is still what `npm install barbican` gives you, a
 none of the following is in it. This section is written as the changes land and is
 renamed to name the version when that version is tagged.
 
+**An unknown key in the configuration is refused.** `z.object` accepted what it
+did not know and said nothing, in eight sections out of ten — only `policy.rules[]`
+and `contexts[]` were strict. A single letter turned a run into a false zero:
+`tokenENV` made the account anonymous, which also excused it from the canary rule;
+`bodySignal` removed the body channel; `resouces` cut a matrix of six cells to two;
+`excludes` disarmed the exclusion list and the run went on to knock at the address
+declared untouchable. The guards inside each section are good, and none of them can
+fire when the section itself is gone. **A configuration carrying a stray key stops
+now where it used to run**, and the published JSON Schema carries
+`additionalProperties: false`, so an editor bound to `$schema` marks the typo too.
+
+**A canary that could not be probed after the walk is named.** The canaries are
+probed twice — before the walk and after it — and `--dry-run` counted them once, so
+a ceiling the preview itself called sufficient was exhausted by the second pass.
+Every result of that pass carried a terminal failure, the loop reading them skipped
+exactly those, `truncated` stayed false because the matrix *was* walked, and a run
+whose token died halfway came back `0` carrying the first pass with
+`authenticated: true`. `report.unverifiedAfterWalk[]` is the new field and its own
+reason for exit `2`, kept apart from `staleCredentials`: our own ceiling and a dead
+token send the reader to different places. The preview counts the canary requests
+twice and says so.
+
+**A resource value carrying `/` or `\` is refused**
+([ADR-0035](docs/adr/0035-a-separator-in-a-value-is-refused.md)).
+`encodeURIComponent` turns the separator into `%2F`, which is one ordinary segment
+here and `../../admin` to Spring with `urlDecode` at its default or Tomcat with
+`ALLOW_ENCODED_SLASH` — both decode before they route. The template grammar had
+already decided this question the strict way; the value grammar had not, so the two
+halves of one rule disagreed. The price is in the ADR: a hierarchical identifier
+is no longer declarable as one value.
+
+**Condition attributes are checked where the request is assembled**
+([ADR-0037](docs/adr/0037-the-rest-of-the-request-sits-at-the-seam.md)). The
+address grammar moved to the seam; the three checks over attributes did not, and
+`collectObservations` called none of them — so through the library door, with
+`allowUnsafeMethods: false`, a run put `?_method=DELETE`, an
+`x-http-method-override` header and a credential in a query parameter on the wire.
+The merge order is reversed with it: attributes went in *after* the credentials
+under a comment calling that the second line of the same defence, and a later
+spread wins — `authorization` declared as an attribute replaced the account's own
+header while the report named the original account.
+
+**The report is written in chunks, through a file beside it**
+([ADR-0038](docs/adr/0038-the-report-is-written-in-chunks.md)). `JSON.stringify`
+builds the document in memory first, and a string in node stops at 536 870 888
+characters: 57 826 cells against a platform answering with 196 headers spent every
+request and then lost the lot to `Invalid string length`. Where that wall stands is
+the target's to decide, not the operator's — 692 000 cells at six response headers,
+74 000 at 126. The bytes are unchanged. The file goes to `<path>.partial` and is
+renamed, so an interrupted write no longer replaces a good report with half of one,
+and the mode is set again after the rename: `mode` on an open applies to a file
+being *created*, so a report written twice into the same path used to keep the
+permissions it already had.
+
 **A run that did not reach every endpoint says so**, in the file and on the
 screen. Eleven endpoints with nine of them templated and no `resources` declared
 gave `endpointsProbed: 2`, `warnings: []`, no findings, exit `0` and a green "No
