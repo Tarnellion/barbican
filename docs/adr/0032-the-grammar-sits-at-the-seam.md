@@ -131,3 +131,27 @@ string this tool already holds.
 Revisit if a legitimate platform is found whose paths require a backslash. Then
 the answer is an explicit declaration in the configuration, not a hole in the
 grammar.
+
+## Note of 2026-08-21: the class a consumer was told to catch was not exported
+
+The Consequences above say a consumer of the library "sees a
+`UnusablePathTemplateError` from `collectObservations` where it previously got a
+request on the wire", and calls that behaviour change the point of the ADR. The
+behaviour changed. The name did not arrive: `src/io/untrusted.ts` was re-exported
+by no index, so the class existed in the build and had no name in the package.
+What was left to a consumer was `err.name === "UnusablePathTemplateError"` — the
+class name copied into somebody else's codebase, checked by no compiler on either
+side, against a `docs/library.md` that calls the error classes public on purpose
+because `instanceof` needs the class.
+
+Two details of that sentence are worth stating precisely while it is being
+corrected. The refusal reaches a consumer as a **skip** from
+`collectObservations` — `planEndpoints` marks such an endpoint `escapes-target`,
+so one hostile path does not break off the walk — and as a **throw** from
+`probeCanaries`, which runs first and stops the run before any traffic. The class
+is what a `catch` needs in the second case, and it is what names the first in
+`failures[].reason`.
+
+Fixed on 21 August 2026. `tests/public-surface.test.ts` now provokes the throw
+through the public surface and asserts `instanceof`, so the class is checked to
+be catchable rather than merely present.

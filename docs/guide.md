@@ -155,6 +155,7 @@ for.
 
 ```ts
 import { createHmac } from "node:crypto";
+import { safeHeaders } from "barbican";
 import type { CredentialProvider } from "barbican";
 
 const signing: CredentialProvider = {
@@ -163,10 +164,16 @@ const signing: CredentialProvider = {
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const { pathname, search } = new URL(request.url);
     const canonical = `${request.method}\n${pathname}${search}\n${timestamp}`;
-    return {
-      "x-timestamp": timestamp,
-      "x-signature": createHmac("sha256", secret).update(canonical).digest("hex"),
-    };
+    // `safeHeaders` is how a header becomes one: it checks the name against
+    // RFC 9110 and the value against what `fetch` will carry, and it is the only
+    // constructor of the `HeaderValue` this port returns. An object literal does
+    // not type-check here, and that is the point — the grammar for a string from
+    // outside is written once and applies to the library door as well as to the
+    // CLI (ADR-0024). The same call is in `tests/runner.test.ts`.
+    return safeHeaders([
+      ["x-timestamp", timestamp],
+      ["x-signature", createHmac("sha256", secret).update(canonical).digest("hex")],
+    ]);
   },
 };
 ```

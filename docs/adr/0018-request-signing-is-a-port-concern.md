@@ -95,3 +95,27 @@ receive exactly what is needed for signing and nothing beyond that.
 - The built-in schemes ignore the argument, and that is written in their
   documentation: otherwise the next reader will decide there is a dependency on
   the address somewhere.
+
+## Note of 2026-08-21: the condition was stated and was false for the library door
+
+The first consequence above says a scheme with signing "is implementable on top
+of the exported port", and adds that it has to be checked against the built
+package rather than against the code. It was not checked against the built
+package, and it was false there.
+
+`headersFor` returns `Readonly<Record<string, HeaderValue>>` — the return type
+was branded with the rest of the strings from outside on 15 August
+([ADR-0024](0024-strings-from-outside.md)) — and `HeaderValue` has exactly two
+constructors, `headerValue` and `safeHeaders`. Both live in `src/io/untrusted.ts`,
+which no index re-exported: not `src/index.ts`, not `src/core/index.ts`. A
+consumer writing the provider this ADR promises got TS2305 on the import and
+TS2322 on the return, and the only spelling that compiled was a cast to `never`
+— that is, the grammar bypassed entire, which is the opposite of what branding it
+was for. The HMAC example in `docs/guide.md` had the same defect for the same
+reason, while `tests/runner.test.ts` built the same provider correctly through
+`safeHeaders`, from inside the repository where the module is reachable by path.
+
+Fixed on 21 August 2026: `src/index.ts` re-exports `./io/untrusted.js` whole.
+`tests/public-surface.test.ts` reads `src/io` beside `src/adapters` now, and the
+provider in its new case is written against the public surface alone, so this
+claim is checked the way the consequence says it has to be.

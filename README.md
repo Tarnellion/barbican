@@ -262,6 +262,17 @@ colour the finished run uses for the same warning.
 **The build is TypeScript 7.0.2** ([ADR-0031](docs/adr/0031-typescript-7.md)). No
 API change; the emitted declarations keep doc comments 6.x dropped.
 
+**The grammar for a string from outside is exported.** `src/io/untrusted.ts` was
+re-exported by no index, so from outside the package `HeaderValue` was a branded
+type with no reachable constructor: the signing provider
+[ADR-0018](docs/adr/0018-request-signing-is-a-port-concern.md) describes did not
+compile, and the only spelling that did was a cast — the grammar skipped rather
+than applied. `safeHeaders`, `headerValue`, `headerName`, `pathSegment`,
+`pathTemplate`, the predicates, `openRecord`, `lookup` and the four error classes
+beside them are on the surface now, `UnusablePathTemplateError` among them: the
+class a run's refusal of a hostile path arrives as, which could previously be
+recognised only by comparing `err.name` to a string.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.
