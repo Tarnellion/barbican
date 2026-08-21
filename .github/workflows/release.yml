@@ -45,6 +45,12 @@ jobs:
       # Actions are pinned by SHA: a tag can be moved to another commit.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The branches, not just the tagged commit. The gate below asks whether
+          # `main` carries this commit, and the default depth of one answers "I
+          # cannot see" — which, taken as agreement, is the shape of guard this
+          # repository keeps finding in its own CI.
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -62,6 +68,27 @@ jobs:
           npm install -g npm@11.19.0
           npm --version
 
+      # Everything about this tag that CI cannot be asked, because on a pull
+      # request there is no tag: whether it names the version the package
+      # declares, whether `main` carries the commit under it, which dist-tag the
+      # publish takes, whether the registry already has that version, and whether
+      # the README describes what is being released.
+      #
+      # Before the install and the build on purpose: a tag that is going to be
+      # refused is refused before anything is built, and the script needs nothing
+      # but node and git to say so. The reasoning for each of the five is in
+      # tools/release-gate.mjs and in ADR-0049; the answers are held by
+      # tests/tools/release-gate.test.ts and this step by
+      # tests/workflows/release-gate.test.ts.
+      - name: Ask what only a release can be asked
+        id: gate
+        run: |
+          set -euo pipefail
+          # `fetch-depth: 0` brings the branches, and this makes sure of the one
+          # the ancestry question needs even if that ever stops being true.
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          node tools/release-gate.mjs
+
       - name: Enable pnpm via corepack
         run: corepack enable
 
@@ -74,21 +101,19 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      # The package version must match the tag. Otherwise the registry receives
-      # something other than what history marks, and there is no way left to tie
-      # a release to a commit.
-      - name: Verify tag matches package version
-        run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME#v}"
-          pkg="$(node -p "require('./package.json').version")"
-          if [ "$tag" != "$pkg" ]; then
-            echo "Tag v$tag does not match the package version $pkg" >&2
-            exit 1
-          fi
-
       # Neither NODE_AUTH_TOKEN nor NPM_TOKEN: OIDC issues the credentials and
       # they live for minutes. Provenance is signed automatically — it is enabled
       # in publishConfig and is not duplicated by a flag here.
+      #
+      # `--tag` is not: with no flag npm writes `latest`, and `v0.5.0-rc.1`
+      # matches the trigger of this workflow, so a release candidate would become
+      # what `npm install barbican` hands out. The channel is computed from the
+      # version by the gate step — `latest` for a release, `rc` for `0.5.0-rc.1`.
+      # `:?` rather than a bare expansion: an empty output must fail here rather
+      # than fall back to npm's default, which is the very value being avoided.
       - name: Publish
-        run: npm publish
+        env:
+          DIST_TAG: ${{ steps.gate.outputs.dist-tag }}
+        run: |
+          set -euo pipefail
+          npm publish --tag "${DIST_TAG:?the release gate computed no dist-tag}"

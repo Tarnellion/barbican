@@ -18,6 +18,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { NOTES_MINIMUM, sectionOf, whyNotDescribed } from "../../tools/release-gate.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -100,16 +101,16 @@ describe("what main carries beyond the newest release", () => {
   /** The newest `v*` tag by version order, which is the last release. */
   const newestTag = (git("tag", "--list", "v*", "--sort=-v:refname") ?? "").split("\n")[0] ?? "";
 
-  /** The section, and everything under it up to the next heading of any level. */
-  const sectionOf = (heading: string): string | undefined => {
-    const start = README.indexOf(`${heading}\n`);
-    if (start < 0) {
-      return undefined;
-    }
-    const rest = README.slice(start + heading.length);
-    const next = rest.search(/\n#{2,3} /);
-    return next < 0 ? rest : rest.slice(0, next);
-  };
+  /**
+   * The section, and everything under it up to the next heading of any level.
+   *
+   * Taken from `tools/release-gate.mjs` rather than written here, and so is the
+   * length a section has to reach. The release workflow asks the same question
+   * of the same README through the same functions — see the last assertion in
+   * this file. Two spellings of one rule drift, and the half that drifts is the
+   * half nobody looks at until a release.
+   */
+  const section = (heading: string): string | undefined => sectionOf(README, heading);
 
   it("is asked of a checkout that has the tags and the history", () => {
     // A shallow checkout has neither, and then every assertion below passes by
@@ -137,17 +138,34 @@ describe("what main carries beyond the newest release", () => {
     // just been renamed to name the version. Everywhere else, a change under
     // `src/` or `schema/` since the last tag owes a description.
     if (tagged === head || consumerVisible.length === 0) {
-      expect(sectionOf("### Unreleased")).toBeUndefined();
+      expect(section("### Unreleased")).toBeUndefined();
       return;
     }
-    const section = sectionOf("### Unreleased");
+    const unreleased = section("### Unreleased");
 
-    expect(section, `changed since ${newestTag}: ${consumerVisible.join(", ")}`).toBeDefined();
+    expect(unreleased, `changed since ${newestTag}: ${consumerVisible.join(", ")}`).toBeDefined();
     // A heading with nothing under it satisfies the letter and none of the point.
-    expect((section ?? "").trim().length).toBeGreaterThan(80);
+    expect((unreleased ?? "").trim().length).toBeGreaterThan(NOTES_MINIMUM);
   });
 
-  it("is named after the version once that version is tagged", () => {
+  /**
+   * And once it is tagged, the renamed section still says something.
+   *
+   * This assertion used to be `README` contains `### What changed in <version>`,
+   * and that is a heading rather than a description: rename `### Unreleased`,
+   * delete the paragraphs under it, tag — and `0.3.0` happens again, which is
+   * three report changes shipped with nothing said about them anywhere a
+   * consumer reads. The length a section has to reach while it is unreleased is
+   * the length it has to reach once it is named. Found by the audit of
+   * 20 August 2026.
+   *
+   * The judgement is `whyNotDescribed`, and the release workflow calls that same
+   * function on the same file before it publishes (ADR-0049). So this is not the
+   * only thing standing between an undescribed release and npm — which is the
+   * point, because a test in the suite is deleted by whoever finds it
+   * inconvenient, and a step in the gate is not.
+   */
+  it("is named after the version, with what changed under it, once it is tagged", () => {
     const tagged = git("rev-list", "-n", "1", `v${VERSION}`);
     if (tagged !== git("rev-parse", "HEAD")) {
       // Not a release commit. The assertion that applies here is the one above.
@@ -155,6 +173,6 @@ describe("what main carries beyond the newest release", () => {
       return;
     }
 
-    expect(README).toContain(`### What changed in ${VERSION}`);
+    expect(whyNotDescribed(README, VERSION)).toBeUndefined();
   });
 });
