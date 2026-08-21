@@ -43,18 +43,25 @@ so an implementation of your own can be substituted:
 - `createOpenApiParser`, `createEndpointListParser`, `createPostmanCollectionParser`
 - `createSignalExtractor` — response-body scalars, and nothing else reads a body
 - `createTenantHierarchy`, `createIdenticalResponseCheck`, `CheckRegistry`
+- `safeHeaders` — the checked constructor of the `HeaderValue` that
+  `CredentialProvider.headersFor` returns. A provider that signs a request needs
+  it ([ADR-0018](adr/0018-request-signing-is-a-port-concern.md)); an object
+  literal does not type-check in its place, because the grammar for a string from
+  outside applies to this door as well as to the CLI
+  ([ADR-0024](adr/0024-strings-from-outside.md)). It was unreachable until
+  21 August 2026, which made that whole promise false.
 
 The port interfaces are in `src/adapters/ports.ts` and exported by name.
 
 ## What the rest of the surface is
 
-The package exports 160 values and a comparable number of types. They fall into
+The package exports 175 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,
    `Endpoint`, `Resource`, `RunConfig`, `AccessObservation`, `AccessDiff`,
    `RunReport` and their neighbours.
-2. **79 error classes.** These are public on purpose: catching an error and
+2. **83 error classes.** These are public on purpose: catching an error and
    naming it is the only way to tell a configuration mistake from a network
    failure, and `instanceof` needs the class. They are grouped by the module that
    throws them.
