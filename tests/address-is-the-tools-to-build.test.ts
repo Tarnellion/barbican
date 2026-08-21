@@ -556,3 +556,69 @@ describe("condition attributes reaching the runner directly", () => {
     expect(seen[0]?.headers["x-tenant"]).toBe("other");
   });
 });
+
+/**
+ * The twin channel, left at the door when the conditions moved to the seam.
+ *
+ * ADR-0037 moved `contexts[].headers` and `contexts[].query` into
+ * `collectObservations`. `resources[].query` is the same kind of declaration and
+ * reaches the same address through `withQuery`, and it stayed at the
+ * configuration door — so through the library door it put `?_method=DELETE` on
+ * the wire with `allowUnsafeMethods: false` and printed a credential into
+ * `observations[].url`. Found by adversarial review one day later (V-1).
+ */
+describe("a resource's query string reaching the runner directly", () => {
+  const one: readonly Account[] = [{ id: "a", roleId: "r", tenantId: "t" }];
+  const creds = createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "tok"]]));
+
+  async function walkWith(query: Record<string, string>) {
+    const seen: HttpRequest[] = [];
+    const client: HttpClient = {
+      send(request) {
+        seen.push(request);
+        return Promise.resolve({ status: 200, headers: {} });
+      },
+    };
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: [{ id: "e", method: "GET", path: "/v1/orders" }],
+      accounts: one,
+      credentials: creds,
+      client,
+      allowUnsafeMethods: false,
+      resources: [{ id: "r1", tenantId: "t", params: {}, query, endpointIds: ["e"] }],
+    });
+    return { seen, result };
+  }
+
+  it("refuses a write smuggled through a resource query parameter", async () => {
+    const { seen, result } = await walkWith({ _method: "DELETE" });
+
+    expect(seen).toEqual([]);
+    expect(result.failures).toHaveLength(1);
+  });
+
+  it("refuses a credential presented through a resource query parameter", async () => {
+    const { seen, result } = await walkWith({ api_key: "SECRET" });
+
+    expect(seen).toEqual([]);
+    expect(result.failures).toHaveLength(1);
+  });
+
+  /**
+   * And the message names the section of the file to go and edit. A resource and
+   * a set of conditions are different sections, and the seam checks both.
+   */
+  it("names the resource rather than calling it a context", async () => {
+    const { result } = await walkWith({ _method: "DELETE" });
+
+    expect(result.failures[0]?.reason).toContain('Resource "r1"');
+    expect(result.failures[0]?.reason).not.toContain("Context");
+  });
+
+  it("lets an ordinary query parameter through", async () => {
+    const { seen } = await walkWith({ include: "items" });
+
+    expect(seen[0]?.url).toBe("https://api.test/v1/orders?include=items");
+  });
+});

@@ -830,6 +830,23 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     // because the template was checked before substitution.
     let url: string;
     try {
+      // Both query channels, before either of them reaches the address.
+      // `resources[].query` is the twin of `contexts[].query` and was left at the
+      // configuration door when the conditions moved to the seam: through the
+      // library door it put `?_method=DELETE` on the wire with
+      // `allowUnsafeMethods: false` and printed a credential into
+      // `observations[].url`. Found by adversarial review on 21 August 2026 (V-1),
+      // one day after ADR-0037 moved the other half.
+      //
+      // The resource's id stands where a context's id stands in the message: it
+      // is what the operator has to go and edit.
+      if (resource?.query !== undefined) {
+        assertAttributesKeepTheBasis(
+          { kind: "resource", id: resource.id },
+          { headers: {}, query: resource.query },
+          { allowUnsafeMethods: options.allowUnsafeMethods === true },
+        );
+      }
       const path = resource === undefined ? endpoint.path : substitute(endpoint.path, resource);
       url = withQuery(joinUrl(baseUrl, path), resource, attributes?.query);
     } catch (cause) {
@@ -888,7 +905,7 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     // of the loop would silently sign every cell with the first request. See
     // ADR-0018.
     if (attributes !== undefined) {
-      assertAttributesKeepTheBasis(attributes.contextId, attributes, {
+      assertAttributesKeepTheBasis({ kind: "context", id: attributes.contextId }, attributes, {
         allowUnsafeMethods: options.allowUnsafeMethods === true,
       });
     }

@@ -1637,9 +1637,15 @@ export function parseRunConfig(source: string): RunConfig {
 }
 
 export class MethodOverrideInContextError extends Error {
-  constructor(contextId: string, where: string, value: string) {
+  /**
+   * @param subject where the value was declared — `Context` or `Resource`. The
+   * message names the section of the file the operator has to go and edit, and
+   * the two are different sections; the seam checks both, so it cannot call
+   * either one by the other's name.
+   */
+  constructor(contextId: string, where: string, value: string, subject = "Context") {
     super(
-      `Context "${contextId}" sets ${where} to "${value}" — that is the name of an ` +
+      `${subject} "${contextId}" sets ${where} to "${value}" — that is the name of an ` +
         `HTTP method. Platforms that honour method override (Rails, Laravel, Symfony, ` +
         `Spring, most API gateways) will perform a write for such a request even ` +
         `while a GET goes over the wire: the safe-method gate looks at the request ` +
@@ -1718,13 +1724,20 @@ export function assertContextsCannotWrite(
  * @throws {ForbiddenContextQueryError} a key presents credentials
  */
 export function assertAttributesKeepTheBasis(
-  contextId: string,
+  /**
+   * Where these values were declared, so the message names the line to go and
+   * edit. A resource and a set of conditions are different sections of the file,
+   * and calling a resource a context sends the reader to the wrong one — the
+   * class of defect this project keeps finding in its own diagnostics.
+   */
+  subject: { readonly kind: "context" | "resource"; readonly id: string },
   attributes: {
     readonly headers: Readonly<Record<string, string>>;
     readonly query: Readonly<Record<string, string>>;
   },
   options: { readonly allowUnsafeMethods: boolean },
 ): void {
+  const { kind, id: contextId } = subject;
   for (const [name, value] of Object.entries(attributes.headers)) {
     const lower = name.toLowerCase();
     const forbidden =
@@ -1734,20 +1747,30 @@ export function assertAttributesKeepTheBasis(
       throw new ForbiddenContextHeaderError(contextId, name, forbidden);
     }
     if (!options.allowUnsafeMethods && WRITE_METHOD_WORDS.has(value.trim().toUpperCase())) {
-      throw new MethodOverrideInContextError(contextId, `header "${name}"`, value);
+      throw new MethodOverrideInContextError(
+        contextId,
+        `header "${name}"`,
+        value,
+        kind === "resource" ? "Resource" : "Context",
+      );
     }
   }
   for (const [key, value] of Object.entries(attributes.query)) {
     if (FORBIDDEN_QUERY_KEYS.has(key.toLowerCase())) {
-      throw new ForbiddenContextQueryError(
-        contextId,
-        key,
+      const why =
         "credentials are presented through this: the platform would serve the " +
-          "request as a different account while the report names the original one",
-      );
+        "request as a different account while the report names the original one";
+      throw kind === "resource"
+        ? new ForbiddenResourceQueryError(contextId, key, why)
+        : new ForbiddenContextQueryError(contextId, key, why);
     }
     if (!options.allowUnsafeMethods && WRITE_METHOD_WORDS.has(value.trim().toUpperCase())) {
-      throw new MethodOverrideInContextError(contextId, `query parameter "${key}"`, value);
+      throw new MethodOverrideInContextError(
+        contextId,
+        `query parameter "${key}"`,
+        value,
+        kind === "resource" ? "Resource" : "Context",
+      );
     }
   }
 }

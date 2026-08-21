@@ -40,9 +40,18 @@ function reindent(value: string, depth: number): string {
  */
 export function* reportChunks(report: object): Generator<string> {
   const entries = Object.entries(report).filter(
-    // `JSON.stringify` drops a key whose value is `undefined`, and so must this:
-    // the two outputs have to agree on which keys exist at all.
-    ([, value]) => JSON.stringify(value) !== undefined,
+    // `JSON.stringify` drops a key whose value is `undefined`, a function or a
+    // symbol, and so must this: the two outputs have to agree on which keys exist
+    // at all.
+    //
+    // Asked of the value itself rather than by serialising it. The first version
+    // wrote `JSON.stringify(value) !== undefined` here, which serialises every
+    // top-level value in full **before the first chunk is yielded** — so the
+    // ceiling this whole function exists to remove was still there, one line
+    // above the loop that avoids it. Found by adversarial review on 21 August
+    // 2026 (V-3), with 700 megabyte-long strings in `observations`: the throw
+    // came from the filter, not from the loop.
+    ([, value]) => value !== undefined && typeof value !== "function" && typeof value !== "symbol",
   );
 
   // `JSON.stringify({}, null, 2)` is `{}` and not `{\n}`: an object with no keys

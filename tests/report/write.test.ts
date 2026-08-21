@@ -74,6 +74,37 @@ describe("the streamed report", () => {
    * hand-written serialiser that quietly joined everything before yielding would
    * pass every assertion above and none of this one.
    */
+  /**
+   * The ceiling this function exists to remove is not removed by yielding in
+   * chunks alone: anything that serialises a whole top-level value before the
+   * first chunk puts it back. The first version filtered the keys with
+   * `JSON.stringify(value) !== undefined`, which does exactly that — the throw
+   * came from the filter, one line above the loop written to avoid it.
+   *
+   * `observations` is the array that grows with the matrix, so that is where the
+   * test puts the weight. Found by adversarial review, 21 August 2026 (V-3).
+   */
+  it("yields a first chunk without serialising any value whole", () => {
+    const report = {
+      schemaVersion: "2",
+      // Comfortably past the 536 870 888-character limit, and cheap to build:
+      // 700 strings of a megabyte each, which is what the reviewer used.
+      observations: Array.from({ length: 700 }, () => "x".repeat(1_000_000)),
+    };
+
+    expect(() => JSON.stringify(report)).toThrow(RangeError);
+
+    const chunks = reportChunks(report);
+    expect(() => chunks.next()).not.toThrow();
+
+    // And the whole document still goes through, one chunk at a time.
+    let bytes = 0;
+    for (const chunk of chunks) {
+      bytes += chunk.length;
+    }
+    expect(bytes).toBeGreaterThan(700_000_000);
+  });
+
   it("never holds the whole document in one chunk", () => {
     const report = {
       observations: Array.from({ length: 500 }, (_, index) => ({
