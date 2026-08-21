@@ -11,11 +11,31 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
-import { BODY_OVER_LIMIT_SIGNAL } from "../core/checks/tenant-isolation.js";
+import {
+  BODY_OVER_LIMIT_SIGNAL,
+  DIGEST_SCOPE_MISSING_SIGNAL,
+} from "../core/checks/tenant-isolation.js";
+import { byCodeUnits } from "../core/order.js";
 import { openRecord } from "../io/untrusted.js";
 import type { SignalSpec, SignalValue } from "./ports.js";
 
 export const DEFAULT_MAX_BODY_BYTES = 256 * 1024;
+
+/**
+ * How deep the canonical form of a declared subtree is walked.
+ *
+ * A bound of the tool's own rather than the engine's stack. A body that yielded
+ * a digest on one machine and none on another would make a report
+ * irreproducible, which is the thing ADR-0036 exists to prevent; `JSON.parse`
+ * and `JSON.stringify` both give out at a depth nobody can name in advance and
+ * that moves with the runtime. Past this depth the subtree has no digest and the
+ * observation says so, which is the same treatment a body over the size ceiling
+ * gets.
+ *
+ * A hundred is far past any response an API returns on purpose and far short of
+ * any stack.
+ */
+const MAX_SUBTREE_DEPTH = 100;
 
 /**
  * How many bytes of the digest we keep.
@@ -128,6 +148,46 @@ async function readCapped(
   return joined;
 }
 
+/**
+ * A deterministic text for a subtree, so that a digest over it is a digest over
+ * the data and not over one serialization of it.
+ *
+ * There is no byte range to hash: the subtree is reached by parsing, and the
+ * bytes it came from are not addressable once `JSON.parse` has run. So the value
+ * is written out again, by one rule on every machine.
+ *
+ * **Object keys are sorted; array order is kept.** The two halves are decided
+ * separately and both matter. A platform that serialises one record's fields in
+ * another order between two requests is not a platform whose tenants leak into
+ * each other, and hashing the raw order would report a difference there was
+ * none of — the same blindness this whole scoped digest exists to remove, one
+ * level down. The order of elements in a list, on the other hand, is data: two
+ * tenants shown the same records in a different order is a leak, and sorting it
+ * away would be the tool answering a question nobody asked. See ADR-0044.
+ *
+ * `Object.keys` and not a walk of the prototype chain: the value comes from
+ * someone else's deployment. `JSON.parse` gives own properties only, a key named
+ * `__proto__` among them, and this reads exactly those.
+ */
+function canonicalText(value: unknown, depth: number): string {
+  if (depth > MAX_SUBTREE_DEPTH) {
+    throw new RangeError("The declared subtree is nested deeper than the tool will walk");
+  }
+  if (value === null || typeof value !== "object") {
+    // `JSON.parse` produces no undefined, no NaN and no function, so every leaf
+    // that reaches here has a JSON text of its own.
+    return JSON.stringify(value) ?? "null";
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((element) => canonicalText(element, depth + 1)).join(",")}]`;
+  }
+  const record = value as Record<string, unknown>;
+  const fields = Object.keys(record)
+    .sort(byCodeUnits)
+    .map((key) => `${JSON.stringify(key)}:${canonicalText(record[key], depth + 1)}`);
+  return `{${fields.join(",")}}`;
+}
+
 export interface SignalExtractor {
   /**
    * Computes the declared signals, reading the body.
@@ -163,8 +223,15 @@ export function createSignalExtractor(options: SignalExtractorOptions = {}): Sig
 
   // Paths are parsed up front: a mistake in the configuration must fail at
   // startup, not in the middle of a run against someone else's deployment.
+  //
+  // A digest without a declared scope has no path — the empty list is the root,
+  // and it is never consulted, because that digest is over the raw bytes rather
+  // than over anything parsed.
   function segmentsFor(spec: SignalSpec): readonly string[] {
-    return spec.kind === "digest" ? [] : parseSignalPath(spec.path);
+    if (spec.kind === "digest") {
+      return spec.path === undefined ? [] : parseSignalPath(spec.path);
+    }
+    return parseSignalPath(spec.path);
   }
 
   return {
@@ -195,7 +262,10 @@ export function createSignalExtractor(options: SignalExtractorOptions = {}): Sig
         return signals;
       }
 
-      const needsJson = specs.some((spec) => spec.kind !== "digest");
+      // A digest scoped to a subtree needs the body parsed as much as a count
+      // does: the subtree is reached by walking the parsed value, not by finding
+      // a byte range.
+      const needsJson = specs.some((spec) => spec.kind !== "digest" || spec.path !== undefined);
       let parsed: unknown;
       let parsedOk = false;
       if (needsJson) {
@@ -241,17 +311,69 @@ export function createSignalExtractor(options: SignalExtractorOptions = {}): Sig
        * visible in the report, while losing the digest disables the
        * tenant-isolation check in silence and leaves `checksRun` claiming it
        * ran. Between two ways to lose, take the one that shows.
+       *
+       * Resolved by name **before** anything is hashed, and the later
+       * declaration of a name wins. That is not tidiness: the runner prepends
+       * the whole-body digest implied by `responseMustDifferByTenant` and
+       * appends whatever the endpoint declared, so a scoped digest arrives
+       * beside the unscoped one under the same name. Assigning them in turn
+       * would leave the outcome to the order of two writes, and — worse — a
+       * scoped digest that cannot be computed would leave the unscoped value
+       * standing, so the check would compare whole bodies while the
+       * configuration said to compare a subtree. One spec per name, one
+       * outcome, and where that outcome is "no digest" the name is absent
+       * rather than holding somebody else's number. See ADR-0044.
        */
+      const digestSpecs = new Map<string, SignalSpec>();
       for (const spec of specs) {
-        if (spec.kind !== "digest") {
-          continue;
+        if (spec.kind === "digest") {
+          digestSpecs.set(spec.name, spec);
         }
-        const hash = createHash("sha256").update(salt).update(bytes).digest();
+      }
+
+      for (const [name, spec] of digestSpecs) {
+        const scope = spec.kind === "digest" ? spec.path : undefined;
+        const hash = createHash("sha256").update(salt);
+
+        if (scope === undefined) {
+          hash.update(bytes);
+        } else {
+          // A subtree needs the body parsed, and the two ways that fails —
+          // not JSON, and the declared path is not there — are one outcome
+          // for the reader: the comparison the configuration asked for could
+          // not be made. Falling back to the whole body would be answering a
+          // different question under the same field name.
+          const target = parsedOk ? resolvePath(parsed, segmentsFor(spec)) : undefined;
+          let text: string | undefined;
+          if (target !== undefined) {
+            try {
+              text = canonicalText(target, 0);
+            } catch {
+              // Deeper than `MAX_SUBTREE_DEPTH`, or deeper than the engine will
+              // walk. Either way there is no canonical form and so no digest.
+              text = undefined;
+            }
+          }
+          if (text === undefined) {
+            signals[DIGEST_SCOPE_MISSING_SIGNAL] = true;
+            continue;
+          }
+          // The declared path is hashed with the value. Two endpoints scoped
+          // differently then cannot produce one number by accident, and a
+          // scoped digest is never the whole-body digest of the same text.
+          hash
+            .update(" scope ")
+            .update(spec.path ?? "")
+            .update(" ")
+            .update(text);
+        }
+
+        const digest = hash.digest();
         let value = 0;
         for (let index = 0; index < DIGEST_BYTES; index += 1) {
-          value = value * 256 + (hash[index] ?? 0);
+          value = value * 256 + (digest[index] ?? 0);
         }
-        signals[spec.name] = value;
+        signals[name] = value;
       }
 
       return signals;

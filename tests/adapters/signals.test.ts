@@ -167,6 +167,139 @@ describe("the digest", () => {
   });
 });
 
+/**
+ * A digest over the part of the body a human named.
+ *
+ * The digest over raw bytes is switched off by the envelope real list endpoints
+ * come wrapped in. Two responses carrying the records of **both** tenants — a
+ * complete leak — differ by one `requestId` and the digests differ with them:
+ * zero findings, and `comparedPairs` counted the pair as compared and honestly
+ * different. `requestId`, `serverTime`, `generatedAt`, a pagination cursor, an
+ * echoed ETag: every one of them disables the single check the "bodies are not
+ * read" invariant was relaxed for.
+ *
+ * The path is declared, never derived — the same rule as everything else in this
+ * model (ADR-0006). See ADR-0044.
+ */
+describe("a digest over a declared subtree", () => {
+  const scoped: readonly SignalSpec[] = [{ name: "digest", kind: "digest", path: "data" }];
+
+  async function scopedDigestOf(
+    text: string,
+    specs: readonly SignalSpec[] = scoped,
+  ): Promise<Readonly<Record<string, number | boolean>>> {
+    return createSignalExtractor({ salt: SALT }).extract(streamOf(text), specs);
+  }
+
+  /** M-2, the blindness this exists to remove. */
+  it("ignores an envelope field that changes on every request", async () => {
+    const left = await scopedDigestOf('{"requestId":"r-1","data":{"orders":[1,2]}}');
+    const right = await scopedDigestOf('{"requestId":"r-2","data":{"orders":[1,2]}}');
+
+    expect(typeof left["digest"]).toBe("number");
+    expect(left["digest"]).toBe(right["digest"]);
+  });
+
+  /** And still answers the question it was asked: the subtree itself decides. */
+  it("differs when the declared subtree differs", async () => {
+    const left = await scopedDigestOf('{"requestId":"r-1","data":{"orders":[1,2]}}');
+    const right = await scopedDigestOf('{"requestId":"r-1","data":{"orders":[3,4]}}');
+
+    expect(left["digest"]).not.toBe(right["digest"]);
+  });
+
+  /**
+   * Key order is not a difference. A digest over raw bytes says two responses
+   * differ when a platform serialises the same record's fields in another order,
+   * which is the same blindness in a subtler form. Array order is kept: the order
+   * of records is data, and a tool that sorted it would answer a question nobody
+   * asked. See ADR-0044.
+   */
+  it("does not depend on the order of object keys", async () => {
+    const left = await scopedDigestOf('{"data":{"a":1,"b":2}}');
+    const right = await scopedDigestOf('{"data":{"b":2,"a":1}}');
+
+    expect(left["digest"]).toBe(right["digest"]);
+  });
+
+  it("does depend on the order of array elements", async () => {
+    const left = await scopedDigestOf('{"data":[1,2]}');
+    const right = await scopedDigestOf('{"data":[2,1]}');
+
+    expect(left["digest"]).not.toBe(right["digest"]);
+  });
+
+  /**
+   * The half that keeps a declaration from failing open.
+   *
+   * The runner prepends the whole-body digest implied by
+   * `responseMustDifferByTenant` and appends what the endpoint declared, so both
+   * arrive under the name `digest`. If the scoped one cannot be computed and the
+   * unscoped value were left standing, the check would go on comparing whole
+   * bodies while the configuration said otherwise — a wrong comparison, in
+   * silence, which is the failure this repository keeps finding. There is no
+   * digest instead, and a flag saying which silence it is.
+   */
+  it("yields no digest at all when the declared path is absent", async () => {
+    const signals = await scopedDigestOf('{"requestId":"r-1","payload":{"orders":[1]}}');
+
+    expect(signals).not.toHaveProperty("digest");
+    expect(signals["digestScopeMissing"]).toBe(true);
+  });
+
+  it("yields no digest when the body is not JSON", async () => {
+    const signals = await scopedDigestOf("not json at all");
+
+    expect(signals).not.toHaveProperty("digest");
+    expect(signals["digestScopeMissing"]).toBe(true);
+  });
+
+  /**
+   * The bound is on the tool's own recursion and not on the engine's stack: a
+   * body that gave a digest on one machine and none on another would make a
+   * report unreproducible, which ADR-0036 exists to prevent.
+   */
+  it("yields no digest for a subtree nested deeper than the tool will walk", async () => {
+    const deep = `{"data":${"[".repeat(200)}1${"]".repeat(200)}}`;
+
+    const signals = await scopedDigestOf(deep);
+
+    expect(signals).not.toHaveProperty("digest");
+    expect(signals["digestScopeMissing"]).toBe(true);
+  });
+
+  /** And says nothing when there was nothing to say. */
+  it("does not flag a subtree it found", async () => {
+    const signals = await scopedDigestOf('{"data":{"orders":[1]}}');
+
+    expect(signals).not.toHaveProperty("digestScopeMissing");
+  });
+
+  /**
+   * The contract `applyBodySignals` relies on: the runner's implied whole-body
+   * digest arrives first, the endpoint's declared one after it, and the declared
+   * scope must replace the default rather than sit beside it under one name.
+   */
+  it("replaces the implied whole-body digest the runner puts first", async () => {
+    const both: readonly SignalSpec[] = [{ name: "digest", kind: "digest" }, ...scoped];
+
+    const left = await scopedDigestOf('{"requestId":"r-1","data":{"orders":[1,2]}}', both);
+    const right = await scopedDigestOf('{"requestId":"r-2","data":{"orders":[1,2]}}', both);
+
+    expect(typeof left["digest"]).toBe("number");
+    expect(left["digest"]).toBe(right["digest"]);
+  });
+
+  /** A scoped digest is not the same number as the whole-body one over the same text. */
+  it("is not the whole-body digest under another name", async () => {
+    const body = '{"data":{"orders":[1,2]}}';
+
+    const value = (await scopedDigestOf(body))["digest"];
+
+    expect(value).not.toBe(await digestOf(body));
+  });
+});
+
 describe("count and present", () => {
   const specs: readonly SignalSpec[] = [
     { name: "orders", kind: "count", path: "data.orders" },

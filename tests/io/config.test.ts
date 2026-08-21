@@ -18,12 +18,14 @@ import {
   AuthSchemeWithoutTokenError,
   applyBodySignals,
   assertReferencesResolve,
+  CompareSubtreeWithoutComparisonError,
   ConfigParseError,
   ConfigTooDeepError,
   ConfigTooLargeError,
   ConfigValidationError,
   CredentialsInUrlError,
   DuplicateAccountIdError,
+  DuplicateCompareSubtreeError,
   DuplicateResourceIdError,
   DuplicateSignalNameError,
   HostOutsideScopeError,
@@ -929,6 +931,22 @@ policy:
       expect(() => parseRunConfig(declaration)).toThrow(ReservedSignalNameError);
     });
 
+    /**
+     * The third reserved name. The extractor sets it when a declared subtree
+     * could not be reached, and the digest is withheld rather than falling back
+     * to the whole body; a declared scalar of this name would take the flag's
+     * place and the report would stop saying which silence it is. See ADR-0044.
+     */
+    it("rejects the reserved name for the missing-scope flag", () => {
+      const declaration = `${base}bodySignals:
+  responseMustDifferByTenant: [orders.read]
+  signals:
+    - { name: digestScopeMissing, kind: present, path: orders, endpoints: [orders.read] }
+`;
+
+      expect(() => parseRunConfig(declaration)).toThrow(ReservedSignalNameError);
+    });
+
     // The refusal does not depend on the digest being computed on that same
     // endpoint: the name is reserved outright, not "reserved where the collision
     // would happen to occur today".
@@ -965,6 +983,100 @@ policy:
 
       expect(marked).toBe(endpoints);
       expect(marked.some((endpoint) => endpoint.responseMustDifferByTenant === true)).toBe(false);
+    });
+  });
+
+  /**
+   * The part of the body to compare, declared by a human.
+   *
+   * A digest over raw bytes is switched off by the envelope a real list endpoint
+   * comes wrapped in: two responses carrying both tenants' records differ by one
+   * `requestId`, so the digests differ and the leak is invisible. The path is
+   * declared and never derived, like everything else in this model. See
+   * ADR-0044.
+   */
+  describe("compareSubtree", () => {
+    const declared = `${base}bodySignals:
+  responseMustDifferByTenant: [orders.read]
+  compareSubtree:
+    - { endpoints: [orders.read], path: data.orders }
+`;
+
+    it("reaches the endpoint as a digest spec carrying the path", () => {
+      const marked = applyBodySignals(endpoints, parseRunConfig(declared));
+      const endpoint = marked.find((one) => one.id === "orders.read");
+
+      expect(endpoint?.signals).toContainEqual({
+        name: "digest",
+        kind: "digest",
+        path: "data.orders",
+      });
+    });
+
+    it("touches an endpoint it does not name", () => {
+      const marked = applyBodySignals(endpoints, parseRunConfig(declared));
+
+      expect(marked.find((one) => one.id === "me")?.signals).toBeUndefined();
+    });
+
+    /**
+     * A declaration that does nothing is worse than none: the operator believes
+     * the envelope is being skipped, and the whole-body digest goes on being
+     * compared. No digest is computed at all where the endpoint is not under
+     * `responseMustDifferByTenant`, so the scope would have nothing to scope.
+     */
+    it("refuses a scope on an endpoint whose bodies are never compared", () => {
+      const orphaned = `${base}bodySignals:
+  responseMustDifferByTenant: [me]
+  compareSubtree:
+    - { endpoints: [orders.read], path: data.orders }
+`;
+
+      expect(() => parseRunConfig(orphaned)).toThrow(CompareSubtreeWithoutComparisonError);
+    });
+
+    /** Two scopes for one endpoint is two answers to one question. */
+    it("refuses two scopes for the same endpoint", () => {
+      const twice = `${base}bodySignals:
+  responseMustDifferByTenant: [orders.read]
+  compareSubtree:
+    - { endpoints: [orders.read], path: data.orders }
+    - { endpoints: [orders.read], path: data.items }
+`;
+
+      expect(() => parseRunConfig(twice)).toThrow(DuplicateCompareSubtreeError);
+    });
+
+    /** The grammar is the one `parseSignalPath` already states, called and not copied. */
+    it("refuses a path with an empty segment", () => {
+      const broken = declared.replace("path: data.orders", 'path: "data..orders"');
+
+      expect(() => parseRunConfig(broken)).toThrow(ConfigValidationError);
+    });
+
+    /** The root is what the default already is; declaring it says nothing. */
+    it("refuses an empty path", () => {
+      const empty = declared.replace("path: data.orders", 'path: ""');
+
+      expect(() => parseRunConfig(empty)).toThrow(ConfigValidationError);
+    });
+
+    /**
+     * The typo, which fails the way the dangerous ones do: the scope lands on
+     * nothing, whole bodies go on being compared, and nothing says so. Checked
+     * against the endpoint list, so it is `assertReferencesResolve` and not the
+     * parse gate — as with every other reference in the file.
+     */
+    it("refuses an endpoint nothing declares", () => {
+      const typo = `${base}bodySignals:
+  responseMustDifferByTenant: [orders.read, orders.raed]
+  compareSubtree:
+    - { endpoints: [orders.raed], path: data.orders }
+`;
+
+      expect(() => assertReferencesResolve(parseRunConfig(typo), endpoints)).toThrow(
+        UnknownEndpointReferenceError,
+      );
     });
   });
 

@@ -561,6 +561,61 @@ are there when you dig in. "The responses matched for alice and carol" is the
 alarm, and digging in starts with the question of how many records each account
 saw.
 
+**Declare a `count` over the collection the endpoint returns.** It is not only
+for digging in. Two tenants with no records return the same bytes, so their
+digests match and the endpoint reports a `high` leak that is not there — on a
+fresh deployment, where half the tenants have nothing yet, that is a wall of
+findings and exit 1 on your first run. The count is what tells an empty response
+from a full one: where every declared count is zero on both sides, the pair is
+not compared and the report says `skippedBothEmptyPairs`. Without a count on the
+endpoint the tool has nothing that means "empty" and says so —
+`emptinessSignalsDeclared: 0` in that endpoint's coverage.
+
+#### The envelope, and `compareSubtree`
+
+```yaml
+bodySignals:
+  responseMustDifferByTenant: [orders.list]
+  compareSubtree:
+    - { endpoints: [orders.list], path: data.orders }
+```
+
+By default the digest is over the whole response, and on a real list endpoint
+that is usually the wrong thing. If your API answers
+
+```json
+{ "requestId": "01J8...", "generatedAt": "2026-08-21T09:12:44Z", "data": { "orders": [] } }
+```
+
+then **every response differs from every other one**, the digests never match,
+and this check finds nothing — including the case where `data.orders` holds both
+tenants' orders. A `serverTime`, a pagination cursor, an echoed ETag do the same.
+Nothing in the report looks wrong when this happens: `differedPairs` counts the
+pairs and the endpoint reads as compared.
+
+`compareSubtree` names the part of the body to compare instead. The path is
+dotted, the same syntax the signals above use, and you declare it — the tool will
+not work it out from responses, because "compare the fields that happen to agree"
+is the tool picking its own answer.
+
+Three things to know:
+
+- The endpoint must also be under `responseMustDifferByTenant`. A scope anywhere
+  else is refused rather than ignored: no digest is computed there, so the
+  declaration would sit in your file doing nothing.
+- One scope per endpoint.
+- If the path is not in a response — or that response is not JSON — there is **no
+  digest for that cell**, and the observation carries `digestScopeMissing: true`.
+  It does not quietly fall back to comparing whole bodies. The pair shows up as
+  `pairsWithoutDigest`.
+
+**And the boundary, which no declaration removes: a difference in digests is not
+proof of isolation.** It proves only that the bytes were different. A scope that
+excludes the field the leak is in, or two tenants shown the same records in a
+different order, both come back as `differedPairs`. This channel finds leaks; it
+never clears an endpoint of them. `docs/report.md` has the long version under "A
+difference in digests is not proof of isolation".
+
 ### Scope
 
 ```yaml

@@ -194,9 +194,20 @@ export interface Endpoint {
  */
 export type SignalValue = number | boolean;
 
-/** What to compute over the body. Declared by a human, not derived. */
+/**
+ * What to compute over the body. Declared by a human, not derived.
+ *
+ * `digest` carries an optional `path`: the part of the body to compare, instead
+ * of the whole of it. Without it the digest is over the raw bytes, which is what
+ * ADR-0011 introduced and what real list endpoints defeat — a response wrapped
+ * in an envelope with a `requestId` or a `generatedAt` differs on every request,
+ * so two bodies carrying **both** tenants' records got different digests and the
+ * check found nothing. The path is a human's declaration like every other one in
+ * this model, never read off a response: deriving it would mean picking the
+ * fields that happen to agree, which is choosing the answer. See ADR-0044.
+ */
 export type SignalSpec =
-  | { readonly name: string; readonly kind: "digest" }
+  | { readonly name: string; readonly kind: "digest"; readonly path?: string }
   | { readonly name: string; readonly kind: "count"; readonly path: string }
   | { readonly name: string; readonly kind: "present"; readonly path: string };
 
