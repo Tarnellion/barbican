@@ -543,10 +543,10 @@ policy:
 
   // A value that merely contains dots is an identifier like any other: the slash
   // is encoded, and nothing navigates.
-  it("keeps accepting a value that only looks like navigation", () => {
-    const config = parseRunConfig(WITH_RESOURCES.replace('playerId: "1001"', 'playerId: "../.."'));
-
-    expect(config.resources[0]?.params).toEqual({ playerId: "../.." });
+  it("refuses a value carrying a separator, whatever it looks like", () => {
+    expect(() =>
+      parseRunConfig(WITH_RESOURCES.replace('playerId: "1001"', 'playerId: "../.."')),
+    ).toThrow();
   });
 
   it("with no resources the list is empty, not absent", () => {

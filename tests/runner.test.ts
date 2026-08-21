@@ -803,11 +803,31 @@ describe("requests to resources", () => {
       accounts: one,
       credentials,
       client,
-      // Otherwise a value with a slash would shift the path to another resource.
+      resources: [{ id: "r", tenantId: "t", params: { playerId: "a b" } }],
+    });
+
+    expect(seen[0]?.url).toBe("https://api.test/v1/players/a%20b");
+  });
+
+  /**
+   * A separator no longer relies on being escaped. `..%2Fadmin` is one segment
+   * here and `../admin` to a router that decodes before it matches — the cell
+   * then fails instead of quietly addressing a neighbour. See ADR-0035.
+   */
+  it("fails the cell rather than encoding a separator", async () => {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: [profile],
+      accounts: one,
+      credentials,
+      client,
       resources: [{ id: "r", tenantId: "t", params: { playerId: "../admin" } }],
     });
 
-    expect(seen[0]?.url).toBe("https://api.test/v1/players/..%2Fadmin");
+    expect(seen).toHaveLength(0);
+    expect(result.failures[0]?.reason).toContain("../admin");
   });
 
   it("adds query string parameters", async () => {
@@ -936,10 +956,11 @@ describe("a resource's value does not divert the request", () => {
     expect(result.failures[0]?.reason).toContain("path navigation rather than an identifier");
   });
 
-  it("a slash in the value gets encoded and gives no bypass", async () => {
-    const { seen } = await probeWith({ playerId: "../.." });
+  it("a slash in the value stops the cell instead of being escaped", async () => {
+    const { seen, result } = await probeWith({ playerId: "../.." });
 
-    expect(seen[0]?.url).toBe("https://api.test/api/v1/players/..%2F..");
+    expect(seen).toHaveLength(0);
+    expect(result.failures).toHaveLength(1);
   });
 
   it("encodes an ordinary value and stays inside the base path", async () => {

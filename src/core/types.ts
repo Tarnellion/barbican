@@ -224,6 +224,19 @@ export type SignalSpec =
  * an address from one for whoever assembles resources through the library.
  */
 export function isUsablePathSegment(value: string): boolean {
+  // A separator in the value is refused rather than escaped. `encodeURIComponent`
+  // turns `/` into `%2F` and `\` into `%5C`, which this side then treats as one
+  // ordinary segment — and Spring with `urlDecode` on, or Tomcat with
+  // `ALLOW_ENCODED_SLASH`, decodes it back before routing. So `../../admin` in a
+  // resource value arrived as `..%2F..%2Fadmin`, passed the seam and reached a
+  // different endpoint, past an exclusion list that works on ids.
+  //
+  // The template grammar in `io/untrusted.ts` already reads the percent-encoded
+  // spellings for exactly this reason; the value grammar did not, and the two
+  // halves of one rule disagreed. Found by the audit of 20 August 2026 (A-2).
+  if (value.includes("/") || value.includes("\\")) {
+    return false;
+  }
   return value !== "" && value !== "." && value !== "..";
 }
 
