@@ -8,10 +8,12 @@
  * redirects live in the HTTP client and hold whatever the CLI passes in.
  */
 
-import { constants } from "node:fs";
-import { access, readFile, stat, writeFile } from "node:fs/promises";
+import { constants, createWriteStream } from "node:fs";
+import { access, chmod, readFile, rename, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { styleText } from "node:util";
 import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { createCredentialProvider } from "./adapters/credentials.js";
@@ -48,6 +50,7 @@ import {
 import { findUnauthenticated } from "./report/authenticity.js";
 import type { CanaryOutcome } from "./report/build.js";
 import { buildReport, runVerdict, WARNINGS } from "./report/build.js";
+import { reportChunks } from "./report/write.js";
 import {
   assertCanariesUsable,
   collectObservations,
@@ -588,6 +591,45 @@ function describePlan(
   return 0;
 }
 
+/**
+ * Writes chunks to a stream, respecting backpressure.
+ *
+ * `Readable.from` plus `pipeline` rather than a loop of `write()`: the loop has
+ * to wait for `drain` itself, and getting that wrong on a 60 MB report means
+ * either an unbounded buffer or a truncated file.
+ */
+async function writeChunks(destination: NodeJS.WritableStream, chunks: Iterable<string>) {
+  await pipeline(Readable.from(chunks), destination, { end: destination !== process.stdout });
+}
+
+/**
+ * The report on disk, written through a temporary file beside it.
+ *
+ * Two properties, and the second is new because the first made it matter. The
+ * file is written in chunks (see `src/report/write.ts`), so it is no longer
+ * bounded by the largest string node can hold — and a write spread over time is
+ * a write that can be interrupted halfway, which would have left a truncated
+ * document where a good report used to be. The rename is atomic, so the path
+ * either holds the previous run or this one.
+ *
+ * 0o600 twice over: on the temporary file, and again on the destination after
+ * the rename. `mode` on an open applies to a file being **created**, so a report
+ * written a second time into the same path used to keep whatever permissions it
+ * had — the audit of 20 August 2026 (L-10). The file carries every request
+ * address, every response header and the identifiers of accounts, resources and
+ * tenants; the project keeps tokens and bodies out of it by construction and
+ * then wrote it world-readable on a shared build agent.
+ */
+async function writeReportFile(path: string, report: object): Promise<void> {
+  const staging = `${path}.partial`;
+  await writeChunks(
+    createWriteStream(staging, { encoding: "utf8", mode: 0o600 }),
+    reportChunks(report),
+  );
+  await rename(staging, path);
+  await chmod(path, 0o600);
+}
+
 async function run(flags: RunFlags): Promise<number> {
   const config = parseRunConfig(await readNamedFile("--config", flags.config));
 
@@ -983,22 +1025,20 @@ async function run(flags: RunFlags): Promise<number> {
     finishedAt,
   });
 
-  const json = `${JSON.stringify(report, null, 2)}\n`;
   if (flags.report === undefined) {
-    process.stdout.write(json);
+    await writeChunks(process.stdout, reportChunks(report));
   } else {
     try {
-      // 0o600, not the umask's answer. The file carries every request address,
-      // every response header and the identifiers of accounts, resources and
-      // tenants. The project keeps tokens and bodies out of it by construction
-      // and then wrote it world-readable on a shared build agent.
-      await writeFile(flags.report, json, { encoding: "utf8", mode: 0o600 });
+      await writeReportFile(flags.report, report);
     } catch (cause) {
       // The path was checked before the first request, so getting here means the
       // directory went away underneath us or the disk filled. The run is already
       // paid for in traffic against someone else's deployment: losing the result
       // now would mean spending it twice.
-      process.stdout.write(json);
+      //
+      // A second generator: the first one was consumed by the attempt above, and
+      // a generator does not rewind.
+      await writeChunks(process.stdout, reportChunks(report));
       process.stderr.write(
         `${paint("The report could not be written:", "red")} ${
           cause instanceof Error ? cause.message : String(cause)
