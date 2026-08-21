@@ -146,12 +146,16 @@ describe("an aborted walk", () => {
     // The tail was never walked, and the flag is what says so: without it the
     // absence of findings there reads as the platform being clean.
     expect(result.truncated).toBe(true);
-    expect(result.observations.length).toBeLessThan(6);
-    // Nothing was recorded that the walk did not finish. A cell recorded here
-    // would be skipped by --resume — that is, a request the platform never
-    // answered would be filed as an answer.
-    expect(recorded.length).toBe(result.observations.length);
-    expect(seen.length).toBeLessThan(6);
+    // Exact numbers, not "fewer than six". Two requests went out and one cell
+    // came back before the stop; the second is discarded although its answer
+    // arrived, because nothing here can tell an answer that landed from a fetch
+    // the abort rejected — and a cell kept on that guess is a cell `--resume`
+    // will not probe, that is, a request the platform never answered filed as
+    // an answer. One cell's worth of traffic is the price, bounded by the
+    // concurrency the operator agreed to.
+    expect(seen).toHaveLength(2);
+    expect(result.observations).toHaveLength(1);
+    expect(recorded).toHaveLength(1);
   });
 
   it("passes the signal to the client, so an outstanding request is dropped", async () => {

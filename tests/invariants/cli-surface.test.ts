@@ -63,6 +63,19 @@ beforeAll(async () => {
 interface CliOutcome {
   /** What a shell would report, so that a signal and an exit code are comparable. */
   readonly status: number;
+  /**
+   * Which signal ended it, where one did.
+   *
+   * Kept apart from `status` because the two are not the same statement and the
+   * number cannot tell them apart: a process that calls `process.exit(130)`
+   * reports `code: 130, signal: null`, and everything asking `WIFSIGNALED` — a
+   * shell deciding whether to abandon a loop, a supervisor deciding whether the
+   * exit was the program's own decision — reads that as the program having
+   * chosen to fail. Since 21 August 2026 `src/cli.ts` has a handler that could
+   * make exactly that substitution while leaving every number on this screen
+   * unchanged.
+   */
+  readonly signal: NodeJS.Signals | null;
   readonly stdout: string;
   readonly stderr: string;
 }
@@ -110,7 +123,7 @@ function startCli(args: readonly string[], env: Readonly<Record<string, string>>
   const done = new Promise<CliOutcome>((settle, fail) => {
     child.on("error", fail);
     child.on("close", (code, signal) => {
-      settle({ status: statusOf(code, signal), stdout, stderr });
+      settle({ status: statusOf(code, signal), signal, stdout, stderr });
     });
   });
   return {
@@ -390,9 +403,12 @@ describe("an interrupted run", () => {
       running.interrupt();
       const outcome = await running.done;
 
-      // 128 + SIGINT, which is what the shell and CI see. A handler that
-      // returned an exit code instead would read as a decision the tool made.
+      // 128 + SIGINT, which is what the shell and CI see — and the signal
+      // itself, because `process.exit(130)` produces the same number and a
+      // different fact. The handler that now stands between the two must end
+      // the process the way the signal would have.
       expect(outcome.status).toBe(130);
+      expect(outcome.signal).toBe("SIGINT");
 
       const written = JSON.parse(await readFile(report, "utf8")) as {
         truncated: boolean;
@@ -457,6 +473,7 @@ describe("an interrupted run", () => {
       const outcome = await running.done;
 
       expect(outcome.status).toBe(143);
+      expect(outcome.signal).toBe("SIGTERM");
       expect(outcome.stderr).toContain("Interrupted by SIGTERM");
       const written = JSON.parse(await readFile(report, "utf8")) as { truncated: boolean };
       expect(written.truncated).toBe(true);
