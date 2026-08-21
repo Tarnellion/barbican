@@ -212,6 +212,41 @@ estimated, and choosing which standard to map first (GLI-19, the AGCO
 requirements, OWASP ASVS 5.0, which the existing check already cites) decides
 what the rest of the phase looks like.
 
+### The entry ticket, paid on 21 August 2026
+
+That choice is made and three things it needed are in: **OWASP ASVS 5.0 first**.
+It is public and under CC BY-SA, so clause identifiers can live in a public
+repository; its numbering is stable; and the one registered check already cites
+it. GLI-19 and the AGCO requirements are distributed under registration — their
+numbers and texts cannot go into this repository at all — so the catalogue is
+built to take a second standard by **registration from a source the repository
+never sees**, and the invariant is about a run rather than about the tree: every
+reference resolves against the catalogue assembled for that run
+([ADR-0043](docs/adr/0043-a-catalogue-of-clauses.md)).
+
+Three gaps the audit of 20 August found in what this phase was about to be built
+on, all closed:
+
+- **Matrix findings carried no clause at all**, so a traceability matrix built
+  from a report would have covered the one registered check and not privilege
+  escalation or cross-tenant access — that is, not the reason the tool exists
+  ([ADR-0041](docs/adr/0041-a-matrix-discrepancy-answers-for-a-clause.md)).
+- **A finding could not name the resource it was about**, so a check judging an
+  object — the first kind Module 2 will write — produced a cell the report
+  printed as agreed ([ADR-0039](docs/adr/0039-a-finding-names-the-whole-cell.md)).
+- **One check throwing discarded the whole run**, at the step after the traffic
+  had been spent. At one registered check that was theoretical; at fifty, written
+  by more than one person, it is ordinary.
+
+What is still ahead and still unestimated: the clause-by-clause content itself,
+and the second direction of traceability. `coverage.checksRun` names the clauses
+a check answered for **even when it found nothing**; the matrix channel has no
+such list, so a clause exercised over nine hundred clean cells reaches an
+evidence pack only if one of them broke. The pack can say "here is what failed
+under 8.2.2" and cannot yet say "8.2.2 was exercised across the surface and
+holds" — and the second sentence is the one a certifying body asks for. ADR-0041
+records what that costs and why it was not paid on the day.
+
 ---
 
 ## Open questions that need an ADR
