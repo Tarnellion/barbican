@@ -32,7 +32,7 @@ import { describe, expect, it } from "vitest";
 import { createCredentialProvider, DEFAULT_AUTH_SCHEME } from "../src/adapters/credentials.js";
 import { createEndpointListParser } from "../src/adapters/endpoint-list.js";
 import { createOpenApiParser } from "../src/adapters/openapi.js";
-import type { HttpClient } from "../src/adapters/ports.js";
+import type { ContextAttributes, HttpClient, HttpRequest } from "../src/adapters/ports.js";
 import { createPostmanCollectionParser } from "../src/adapters/postman.js";
 import type { Account } from "../src/core/index.js";
 import { ForbiddenResourceQueryError, parseRunConfig } from "../src/io/config.js";
@@ -40,6 +40,7 @@ import {
   isAddressablePath,
   isUsablePathTemplate,
   pathTemplate,
+  safeHeaders,
   UnusablePathTemplateError,
 } from "../src/io/untrusted.js";
 import { collectObservations } from "../src/runner.js";
@@ -447,5 +448,111 @@ describe("the reporting half and the predicate half", () => {
 
     expect(usable.length).toBeGreaterThan(2);
     expect(usable.length).toBeLessThan(CORPUS.length - 2);
+  });
+});
+
+/**
+ * The fourth door carries more than a path, and only the path was moved.
+ *
+ * ADR-0032 put the address grammar in `joinUrl` and moved that rule alone. The
+ * three checks over condition attributes stayed at the configuration door, and
+ * `collectObservations` called none of them: every case below went out on the
+ * wire with `allowUnsafeMethods: false` until 21 August 2026. See ADR-0037.
+ */
+describe("condition attributes reaching the runner directly", () => {
+  const one: readonly Account[] = [{ id: "a", roleId: "r", tenantId: "t", contextId: "c" }];
+  const creds = createCredentialProvider(DEFAULT_AUTH_SCHEME, new Map([["a", "tok"]]));
+
+  async function walkWith(attributes: ContextAttributes) {
+    const seen: HttpRequest[] = [];
+    const client: HttpClient = {
+      send(request) {
+        seen.push(request);
+        return Promise.resolve({ status: 200, headers: {} });
+      },
+    };
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: [{ id: "e", method: "GET", path: "/v1/orders" }],
+      accounts: one,
+      credentials: creds,
+      client,
+      allowUnsafeMethods: false,
+      contextAttributes: new Map([["a", attributes]]),
+    });
+    return { seen, result };
+  }
+
+  const refused: ReadonlyArray<readonly [string, ContextAttributes]> = [
+    [
+      "a write smuggled through a query parameter",
+      { contextId: "c", headers: safeHeaders([]), query: { _method: "DELETE" } },
+    ],
+    [
+      "a write smuggled through a header",
+      { contextId: "c", headers: safeHeaders([["x-http-method-override", "DELETE"]]), query: {} },
+    ],
+    [
+      "a credential presented through a query parameter",
+      { contextId: "c", headers: safeHeaders([]), query: { api_key: "SECRET" } },
+    ],
+    [
+      "a header that decides the basis of the request",
+      { contextId: "c", headers: safeHeaders([["authorization", "Bearer ADMIN"]]), query: {} },
+    ],
+  ];
+
+  for (const [what, attributes] of refused) {
+    it(`refuses ${what}`, async () => {
+      await expect(walkWith(attributes)).rejects.toThrow();
+    });
+  }
+
+  /**
+   * The half no list of names can give. The attributes used to be spread after
+   * the credentials, under a comment calling that "the second line of the same
+   * defence" — and a later spread wins, so the order was the substitution.
+   */
+  it("keeps the tool's own header when an attribute carries the same name", async () => {
+    // A scheme whose header the forbidden list does not name, because the list
+    // cannot name it: `header` schemes are declared by the operator. What
+    // decides the outcome here is the merge order alone.
+    const seen: HttpRequest[] = [];
+    const client: HttpClient = {
+      send(request) {
+        seen.push(request);
+        return Promise.resolve({ status: 200, headers: {} });
+      },
+    };
+
+    await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: [{ id: "e", method: "GET", path: "/v1/orders" }],
+      accounts: one,
+      credentials: createCredentialProvider(
+        { kind: "header", header: "x-api-key" },
+        new Map([["a", "tok"]]),
+      ),
+      client,
+      allowUnsafeMethods: false,
+      contextAttributes: new Map([
+        [
+          "a",
+          {
+            contextId: "c",
+            headers: safeHeaders([
+              ["x-api-key", "somebody-elses-key"],
+              ["x-tenant", "other"],
+            ]),
+            query: {},
+          },
+        ],
+      ]),
+    });
+
+    expect(seen[0]?.headers["x-api-key"]).toBe("tok");
+    // What does not collide still arrives: the rule is about the basis of the
+    // request, not about refusing attributes.
+    expect(seen[0]?.headers["x-tenant"]).toBe("other");
   });
 });

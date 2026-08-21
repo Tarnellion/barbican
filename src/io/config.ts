@@ -1692,6 +1692,66 @@ export function assertContextsCannotWrite(
   }
 }
 
+/**
+ * The same three rules, asked at the seam where the request is assembled.
+ *
+ * `assertContextsCannotWrite` above and the checks in `normalizeContexts` read a
+ * parsed configuration, which is one door of four. `collectObservations` takes
+ * `contextAttributes` straight from a consumer of the library, and that door had
+ * nothing between it and the wire: the audit of 20 August 2026 (A-1, E-02, E-03)
+ * sent `?_method=DELETE` and `x-http-method-override: DELETE` through it with
+ * `allowUnsafeMethods: false`, and put a credential from `resources[].query`
+ * into the report.
+ *
+ * ADR-0032 moved the address grammar to the seam for this reason and moved only
+ * that; this is the rest of the same move. The door keeps its checks: it knows
+ * the context id, the declared auth schemes and the resource keys, so it says
+ * more about what is wrong and says it before a single request goes out. What
+ * cannot be said here is said there — but what is said here is said for every
+ * door there will ever be.
+ *
+ * Cheap on purpose: two sets and a prefix list against the attributes of one
+ * request, next to a network call.
+ *
+ * @throws {MethodOverrideInContextError} a value names a method that writes
+ * @throws {ForbiddenContextHeaderError} a name decides the basis of the request
+ * @throws {ForbiddenContextQueryError} a key presents credentials
+ */
+export function assertAttributesKeepTheBasis(
+  contextId: string,
+  attributes: {
+    readonly headers: Readonly<Record<string, string>>;
+    readonly query: Readonly<Record<string, string>>;
+  },
+  options: { readonly allowUnsafeMethods: boolean },
+): void {
+  for (const [name, value] of Object.entries(attributes.headers)) {
+    const lower = name.toLowerCase();
+    const forbidden =
+      FORBIDDEN_CONTEXT_HEADERS.get(lower) ??
+      FORBIDDEN_HEADER_PREFIXES.find(([prefix]) => lower.startsWith(prefix))?.[1];
+    if (forbidden !== undefined) {
+      throw new ForbiddenContextHeaderError(contextId, name, forbidden);
+    }
+    if (!options.allowUnsafeMethods && WRITE_METHOD_WORDS.has(value.trim().toUpperCase())) {
+      throw new MethodOverrideInContextError(contextId, `header "${name}"`, value);
+    }
+  }
+  for (const [key, value] of Object.entries(attributes.query)) {
+    if (FORBIDDEN_QUERY_KEYS.has(key.toLowerCase())) {
+      throw new ForbiddenContextQueryError(
+        contextId,
+        key,
+        "credentials are presented through this: the platform would serve the " +
+          "request as a different account while the report names the original one",
+      );
+    }
+    if (!options.allowUnsafeMethods && WRITE_METHOD_WORDS.has(value.trim().toUpperCase())) {
+      throw new MethodOverrideInContextError(contextId, `query parameter "${key}"`, value);
+    }
+  }
+}
+
 /** The resolved attribute values of one set of conditions. */
 export interface ContextValues {
   readonly headers: Readonly<Record<string, HeaderValue>>;

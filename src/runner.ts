@@ -25,6 +25,7 @@ import {
   resourceApplies,
   SAFE_METHODS,
 } from "./core/index.js";
+import { assertAttributesKeepTheBasis } from "./io/config.js";
 import { isAddressablePath, pathSegment, UnusablePathTemplateError } from "./io/untrusted.js";
 
 /**
@@ -872,24 +873,34 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       ...(endpoint.responseMustDifferByTenant === true ? DIGEST_SIGNALS : []),
       ...(endpoint.signals ?? []),
     ];
-    // The headers are taken for every request rather than once per account:
-    // the signature depends on the method and the address, and a value hoisted
-    // out of the loop would silently sign every cell with the first request.
-    // See ADR-0018.
+
+    // The condition attributes go in **first** and the credential ones over
+    // them. This used to be the other way round, with a comment calling the
+    // order "the second line of the same defence" — and it was the opening, not
+    // the defence: a later spread wins, so `authorization` declared as an
+    // attribute replaced the account's own header and the run went out as
+    // somebody else while the report named the original account. The first line
+    // it leaned on — "that is checked when the configuration is parsed" — holds
+    // for the configuration door and for no other.
     //
-    // The condition attributes are added **after** the credential ones: they
-    // cannot replace a credential header — that is checked when the
-    // configuration is parsed — and the order here is the second line of the
-    // same defence, not a matter of style.
+    // The headers are taken for every request rather than once per account: the
+    // signature depends on the method and the address, and a value hoisted out
+    // of the loop would silently sign every cell with the first request. See
+    // ADR-0018.
+    if (attributes !== undefined) {
+      assertAttributesKeepTheBasis(attributes.contextId, attributes, {
+        allowUnsafeMethods: options.allowUnsafeMethods === true,
+      });
+    }
     const request = {
       method: endpoint.method,
       url,
       headers: {
+        ...attributes?.headers,
         ...options.credentials.headersFor(credentialAccountId, {
           method: endpoint.method,
           url,
         }),
-        ...attributes?.headers,
       },
       ...(specs.length === 0 ? {} : { signals: specs }),
     };
