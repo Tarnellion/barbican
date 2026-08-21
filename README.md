@@ -420,6 +420,28 @@ compared when there was nothing to compare, so it splits into `matchedPairs` and
 `emptinessSignalsDeclared` beside them. `docs/report.md` states the boundary none
 of this removes, held by a test: **a difference in digests is not proof of
 isolation** — it proves only that the bytes were different.
+**A run now says who it is on the wire**
+([ADR-0044](docs/adr/0045-a-consented-run-says-who-it-is.md)). Every request
+carries `user-agent: barbican/<version> (+<homepage>; run=<runId>)`, where `run=`
+is the identifier of the report the run produces. It was `user-agent: node`
+before, and the `runId` never left the file. README has asked for the platform
+owner's written agreement since the beginning and says why — "someone has to know
+that the traffic in their logs is yours" — and nothing made that possible. Now
+they can pick the run out of an access log or a SIEM, keep it out of an
+availability graph, and tie their own records to the exact report they were
+handed: the other direction of the correlation `x-request-id` off the response
+already served. `--no-identify` sends the run unannounced, for the deliberate
+case of measuring what an unmarked sweep looks like; the summary and `--dry-run`
+both print which of the two a run was. A set of request conditions declaring a
+`user-agent` attribute of its own stops the run instead of sending both values
+folded into one.
+
+**A run without `--report` now says where the report is going.** It goes to
+stdout, which in a pipeline is the build log — while the same document written to
+a path is created `0600` on purpose, because it names every request address,
+every account and resource, and the places the platform's authorization does not
+hold. The weaker of the two paths was the default and no document said so;
+`docs/report.md` and the guide now do.
 
 ## Example
 
@@ -556,6 +578,14 @@ This is not legal advice, and the licence disclaims warranty — but the reason 
 ask is simpler than the law: someone has to know that the traffic in their logs
 is yours.
 
+And they have to be able to *find* it there. Every request names the tool, its
+version and the run in `user-agent` — `run=` being the `runId` of the report you
+will hand over — so an access log, a SIEM query and an availability graph can all
+separate the run they agreed to from the thing it is shaped like. Put that
+identifier in the agreement. `--no-identify` sends the run unannounced, which is
+worth having when what you are measuring is how an unmarked sweep is received,
+and worth saying out loud when it is not.
+
 ## Safety defaults
 
 barbican is meant to run against systems you do not own outright, so the defaults are
@@ -573,6 +603,11 @@ conservative and enforced by construction rather than by flags you have to remem
   (SSRF and path traversal).
 - Throttling is always on: concurrency and rate caps, exponential backoff, a circuit
   breaker, and `Retry-After` is respected.
+- The run names itself on the wire, so the owner of the platform can tell it from an
+  attack in their own logs and match those logs to the report. `--no-identify` for the
+  deliberate case where it must not.
+- The report is written `0600` when `--report` names a path. Without it the report goes
+  to stdout, and the run says so before it starts.
 
 ## Development
 

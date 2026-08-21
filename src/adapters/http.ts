@@ -28,7 +28,8 @@
 
 import type { HttpMethod } from "../core/types.js";
 import { SAFE_METHODS } from "../core/types.js";
-import { openRecord } from "../io/untrusted.js";
+import type { HeaderName, HeaderValue } from "../io/untrusted.js";
+import { headerName, headerValue, openRecord } from "../io/untrusted.js";
 import type { HttpClient, HttpRequest, HttpResponse, Throttle } from "./ports.js";
 import type { SignalExtractor } from "./signals.js";
 import { createSignalExtractor } from "./signals.js";
@@ -242,6 +243,101 @@ export class RequestFailedError extends Error {
   }
 }
 
+/**
+ * The header a run names itself in.
+ *
+ * `user-agent` and not a header of this tool's own invention, because the party
+ * this exists for is the owner of the target and the question is what *their*
+ * side records. `$http_user_agent` is in nginx's `combined` format, in Apache's
+ * `combined`, in an ALB access log and in every SIEM pipeline built on those; an
+ * `x-barbican-run` is in none of them until somebody on the platform's side
+ * changes a log format first — which is work asked of exactly the person the
+ * marking is a courtesy to.
+ *
+ * It is also not a header being *added*. Node's fetch sends `user-agent: node`,
+ * a value this project never chose and would not defend, and the whole of what
+ * changes here is that the field says something true.
+ *
+ * Hardcoded. It is compared against the names a run already carries, and a name
+ * taken from a configuration would make that comparison decide the basis of the
+ * request — see `runIdentity` below.
+ */
+export const RUN_IDENTITY_HEADER = "user-agent";
+
+/**
+ * What a run says about itself on every request it makes.
+ *
+ * Branded on both halves, which is the whole of the grammar this needs: the only
+ * constructors of `HeaderName` and `HeaderValue` are in `src/io/untrusted.ts`,
+ * so an identity cannot be assembled out of raw strings — not from the CLI and
+ * not by a consumer of the library (ADR-0024).
+ */
+export interface RunIdentity {
+  readonly name: HeaderName;
+  readonly value: HeaderValue;
+}
+
+/**
+ * The sentence the platform's access log ends up holding.
+ *
+ * Three things, because the owner of the target reads them off one line and has
+ * nothing else to go on: what this is and which release of it, where to read
+ * about it at three in the morning, and **which run** — the last being the
+ * handle that ties the traffic in their records to the JSON document they were
+ * handed. The report carries `x-request-id` off the response for the same
+ * purpose in the other direction, which is to say that correlation was already
+ * agreed to be worth having and was provided one way only.
+ *
+ * `run=` takes the identifier the report is filed under. It has to be the same
+ * value: two identifiers, one on the wire and one in the file, let the owner
+ * filter the traffic out of an availability graph and still not know which
+ * report it produced.
+ *
+ * The composition is the tool's, end to end, and that is a decision rather than
+ * an omission. An operator's own string here — a ticket number, say — would be a
+ * header value from outside going into every request of the run, which is the
+ * channel `assertAttributesKeepTheBasis` exists to guard: a value is checked
+ * there **by value**, because that is what catches a method override under a
+ * vendor name nobody has heard of. Nothing arrives from outside, so there is
+ * nothing for that check to catch, and the flag is therefore a boolean and not a
+ * string. If it ever takes one, it becomes a request condition by another name
+ * and has to live by ADR-0019's three layers.
+ *
+ * @throws {UnusableHeaderValueError} the version or the homepage carries
+ * something a header value cannot — the grammar is asked here rather than
+ * trusted, because this string is assembled out of `package.json`
+ */
+export function runIdentity(run: {
+  readonly version: string;
+  readonly runId: string;
+  readonly homepage: string;
+}): RunIdentity {
+  return {
+    name: headerName(RUN_IDENTITY_HEADER),
+    value: headerValue(
+      `barbican/${run.version} (+${run.homepage}; run=${run.runId})`,
+      RUN_IDENTITY_HEADER,
+    ),
+  };
+}
+
+export class RunIdentityConflictError extends Error {
+  readonly header: string;
+
+  constructor(header: string) {
+    super(
+      `The request already carries a "${header}" header and the run is set to name ` +
+        `itself in that same header. Both would go out under one name — HTTP folds ` +
+        `them into one comma-joined value — and neither the declared condition nor ` +
+        `the run's own identity would arrive as written. Rename the attribute, or ` +
+        `run with --no-identify and say in the agreement how the traffic is to be ` +
+        `recognised instead.`,
+    );
+    this.name = "RunIdentityConflictError";
+    this.header = header;
+  }
+}
+
 export interface HttpClientOptions {
   /** The hosts it is allowed to address. An empty list is rejected. */
   readonly allowedHosts: readonly string[];
@@ -257,6 +353,16 @@ export interface HttpClientOptions {
    * is cancelled unread, as it was before ADR-0011.
    */
   readonly signalExtractor?: SignalExtractor;
+  /**
+   * What the run tells the platform it is, on every request.
+   *
+   * Absent means the run goes out unannounced, which is what every run of this
+   * tool did until ADR-0045 and is still a legitimate thing to ask for — the
+   * whole point of a marked run is that a WAF may answer it differently, and an
+   * operator measuring what an unannounced sweep looks like needs the other
+   * case. The CLI decides; the client only carries what it is given.
+   */
+  readonly identity?: RunIdentity;
   /** The source of randomness for the jitter. Separate, so that tests are reproducible. */
   readonly random?: () => number;
 }
@@ -331,6 +437,7 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
   const random = options.random ?? Math.random;
   const allowUnsafeMethods = options.allowUnsafeMethods ?? false;
   const signalExtractor = options.signalExtractor ?? createSignalExtractor();
+  const identity = options.identity;
 
   let consecutiveFailures = 0;
   let circuitOpen = false;
@@ -338,6 +445,22 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
   function assertRequestAllowed(request: HttpRequest): void {
     if (!allowUnsafeMethods && !SAFE.has(request.method)) {
       throw new UnsafeMethodError(request.method);
+    }
+
+    // Before the wire, and by a comparison that ignores case, because header
+    // names are case-insensitive and `Headers` would fold the two into one
+    // comma-joined value rather than pick a winner. A set of request conditions
+    // may legitimately declare this name — a device condition is exactly that
+    // shape — and silently replacing an operator's declared attribute would
+    // change the cell being measured. Asked here rather than while the
+    // configuration is parsed, so that it holds for the library door too.
+    if (identity !== undefined) {
+      const clash = Object.keys(request.headers).find(
+        (name) => name.toLowerCase() === RUN_IDENTITY_HEADER,
+      );
+      if (clash !== undefined) {
+        throw new RunIdentityConflictError(clash);
+      }
     }
 
     const url = new URL(request.url);
@@ -368,7 +491,18 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
 
     const response = await fetch(request.url, {
       method: request.method,
-      headers: { ...request.headers },
+      // The one place every request of a run is assembled, which is why the
+      // identity is merged here and not by whoever built the `HttpRequest`: the
+      // CLI's walk, `probeCanaries` and a consumer of the library all arrive
+      // through `send`, and a marking applied at three of those doors is a
+      // marking absent from the fourth. The same reasoning ADR-0032 moved the
+      // address grammar on. `assertRequestAllowed` has already refused the case
+      // where the request carries this name itself, so nothing is overwritten
+      // here in silence.
+      headers:
+        identity === undefined
+          ? { ...request.headers }
+          : { ...request.headers, [identity.name]: identity.value },
       // The redirect is not followed: a 3xx to a foreign host would get around
       // the allowlist.
       redirect: "manual",

@@ -8,6 +8,7 @@
  * redirects live in the HTTP client and hold whatever the CLI passes in.
  */
 
+import { randomUUID } from "node:crypto";
 import { constants, createWriteStream } from "node:fs";
 import { access, chmod, readFile, rename, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -18,7 +19,8 @@ import { styleText } from "node:util";
 import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { createCredentialProvider } from "./adapters/credentials.js";
 import { createEndpointListParser } from "./adapters/endpoint-list.js";
-import { createHttpClient } from "./adapters/http.js";
+import type { RunIdentity } from "./adapters/http.js";
+import { createHttpClient, runIdentity } from "./adapters/http.js";
 import { createOpenApiParser } from "./adapters/openapi.js";
 import type { SpecParser } from "./adapters/ports.js";
 import { createPostmanCollectionParser } from "./adapters/postman.js";
@@ -48,7 +50,7 @@ import {
   toAccounts,
 } from "./io/config.js";
 import { findUnauthenticated } from "./report/authenticity.js";
-import type { CanaryOutcome } from "./report/build.js";
+import type { CanaryOutcome, RunReport } from "./report/build.js";
 import { buildReport, runVerdict, WARNINGS } from "./report/build.js";
 import { reportChunks } from "./report/write.js";
 import {
@@ -62,8 +64,16 @@ import {
 // The version is read from package.json rather than duplicated in a constant:
 // once they drift apart, the duplicate makes the CLI lie about its own version
 // in run reports.
+//
+// `homepage` for the same reason, since 21 August 2026: it goes into the header
+// the run names itself with, and the one thing an on-call engineer reading it at
+// three in the morning wants is somewhere to go. A URL written out a second time
+// here would be the project's address as of whenever this line was last touched.
 const requireFromHere = createRequire(import.meta.url);
-const { version } = requireFromHere("../package.json") as { readonly version: string };
+const { version, homepage } = requireFromHere("../package.json") as {
+  readonly version: string;
+  readonly homepage: string;
+};
 
 function paint(text: string, format: Parameters<typeof styleText>[0]): string {
   // Without a TTY, escape sequences only litter redirected output.
@@ -467,6 +477,16 @@ interface RunFlags {
   readonly report?: string;
   readonly unsafeMethods?: boolean;
   readonly dryRun?: boolean;
+  /**
+   * Whether the run names itself on the wire. On unless `--no-identify` is given.
+   *
+   * commander fills this in for every run, so the value is never really absent;
+   * it is optional here because `describePlan` and the tests build a `RunFlags`
+   * by hand, and a default that has to be repeated in three places is a default
+   * that will disagree with itself. `flags.identify !== false` is the reading
+   * everywhere.
+   */
+  readonly identify?: boolean;
   readonly checks?: string;
   readonly concurrency?: number;
   readonly rps?: number;
@@ -494,6 +514,7 @@ function describePlan(
   checks: readonly Check[],
   limits: ThrottleLimits | undefined,
   contextValues: Parameters<typeof toAccounts>[1],
+  identity: RunIdentity | undefined,
 ): number {
   const tenantBaseUrls = new Map(
     (config.tenants ?? [])
@@ -625,6 +646,19 @@ function describePlan(
       checks.length === 0
         ? paint("Checks: none will run — nothing will be compared by body.", "yellow")
         : `Checks: ${checks.map((check) => check.id).join(", ")}`,
+      // What the platform's access log will hold, before the first line of it
+      // exists. "What exactly are you going to touch" and "how will I recognise
+      // it in my own records" are the same question asked by the same person,
+      // and the second one is answerable here for free.
+      identity === undefined
+        ? paint(
+            `The run will not name itself on the wire: --no-identify was given, so ` +
+              `the requests are indistinguishable from an attack in the platform's ` +
+              `logs. Agree with the owner how they are to be recognised.`,
+            "yellow",
+          )
+        : `Named on the wire as: ${identity.value} (a fresh run= identifier each ` +
+          `run, and the report carries the same one)`,
       `The identifiers above are what policy, resources, contexts and canaries refer to.`,
       // The same filter the run's summary applies twenty lines below. Without it
       // every warning this preview decided not to print left a blank line in the
@@ -689,6 +723,23 @@ async function run(flags: RunFlags): Promise<number> {
   const config = parseRunConfig(await readNamedFile("--config", flags.config));
 
   /**
+   * The run's identifier, minted here rather than by the report.
+   *
+   * `buildReport` mints one too, and it runs after the last response has come
+   * back — the wrong end of a run for a value that has to be on the **first**
+   * request. So the CLI decides it before anything is sent and the report
+   * carries the CLI's; `buildReport` keeps its own for a consumer of the library
+   * assembling a report without having gone through this command. Where a run
+   * happened, the identifier the platform saw is the one the artifact is filed
+   * under, because a second identifier would let the owner of the target filter
+   * the traffic out of their graphs and still not know which report it produced.
+   *
+   * See ADR-0045.
+   */
+  const runId = randomUUID();
+  const identity = flags.identify === false ? undefined : runIdentity({ version, runId, homepage });
+
+  /**
    * The warnings already said before the walk, so the summary does not repeat them.
    *
    * Two of the four are worth more early than late: they are about the run being
@@ -709,6 +760,38 @@ async function run(flags: RunFlags): Promise<number> {
   // does not name the target.
   if (config.target.label === undefined) {
     sayEarly("unnamedTarget");
+  }
+
+  /**
+   * Where the report goes when the command line did not say.
+   *
+   * It goes to stdout, and in the invocation this tool is written for — a step
+   * in a pipeline — stdout is the build log: readable by everyone who can see
+   * the build, kept for as long as the build is kept, and copied into whatever
+   * collects logs. The same document written with `--report` is created `0600`
+   * through a staging file, deliberately, because it holds every request
+   * address, every account, tenant and resource identifier and a list of the
+   * places this platform's authorization does not hold. The stronger of the two
+   * paths was the one an operator had to ask for, and nothing anywhere said so.
+   *
+   * A warning and not a refusal: `barbican run … > report.json` is a legitimate
+   * and common way to run this, and so is piping it into `jq`. What is not
+   * legitimate is not knowing.
+   *
+   * Said before the walk for the same reason `assertReportPathIsWritable` is
+   * checked there — this is the point at which the answer can still be changed
+   * without spending somebody else's traffic twice. Not on `--dry-run`, which
+   * produces no report to misplace.
+   */
+  if (flags.report === undefined && flags.dryRun !== true) {
+    process.stderr.write(
+      `${paint("The report has nowhere to go but stdout:", "yellow")} no --report was ` +
+        `given. On a pipeline that is the build log — every request address, every ` +
+        `account and resource identifier, and a map of where this platform's ` +
+        `authorization does not hold, kept as long as the build is and readable by ` +
+        `everyone who can see it. The same document under --report is written 0600. ` +
+        `Redirect it or name a path.\n`,
+    );
   }
 
   // Exactly one endpoint source: two would silently diverge, and none would give
@@ -805,7 +888,15 @@ async function run(flags: RunFlags): Promise<number> {
   // would do — on someone else's deployment the question "what exactly will you
   // touch" deserves an answer before the first request, not after.
   if (flags.dryRun === true) {
-    return describePlan(config, endpoints, flags, selected, throttle.limits, contextValues);
+    return describePlan(
+      config,
+      endpoints,
+      flags,
+      selected,
+      throttle.limits,
+      contextValues,
+      identity,
+    );
   }
 
   const credentials = createCredentialProvider(
@@ -818,6 +909,9 @@ async function run(flags: RunFlags): Promise<number> {
     allowedHosts: config.target.allowedHosts,
     throttle,
     allowUnsafeMethods: flags.unsafeMethods === true,
+    // Into the client and not into each request the walk builds: the client is
+    // the one seam every request of a run passes through, canaries included.
+    ...(identity === undefined ? {} : { identity }),
     ...(config.bodySignals?.maxBodyBytes === undefined
       ? {}
       : {
@@ -1098,7 +1192,7 @@ async function run(flags: RunFlags): Promise<number> {
   );
   const unauthenticated = suspicions.map((s) => s.accountId);
 
-  const report = buildReport({
+  const built = buildReport({
     // The same rows the matrix has: a finding refers to an account under
     // conditions, and that account must be in the account list, or the reference
     // dangles.
@@ -1130,6 +1224,18 @@ async function run(flags: RunFlags): Promise<number> {
     startedAt,
     finishedAt,
   });
+
+  /**
+   * The identifier the platform saw, in the document the platform's owner gets.
+   *
+   * `buildReport` mints a `runId` of its own, and it has to: a report without
+   * one cannot be told from the next report. But it runs at the end of the walk,
+   * and the value has to exist before the first request or it cannot be on the
+   * wire at all. So the run's own identifier wins here — which is the whole of
+   * what makes marking the traffic useful, since a filter in a SIEM has to lead
+   * back to *this* file. See ADR-0045.
+   */
+  const report: RunReport = { ...built, runId };
 
   if (flags.report === undefined) {
     await writeChunks(process.stdout, reportChunks(report));
@@ -1242,7 +1348,19 @@ async function run(flags: RunFlags): Promise<number> {
       // the type system cannot see that, and an unstyled warning must still be
       // printed rather than swallowed.
       .map((text) => paint(text, WARNING_STYLE_BY_TEXT.get(text) ?? "yellow")),
-    flags.report === undefined ? undefined : `Report: ${flags.report}`,
+    // What the platform's own records will show this run as. The report has no
+    // field for it, so this line is the only account of whether the run
+    // announced itself — and the run identifier is worth repeating where the
+    // operator is looking, since the report it is also written in may have gone
+    // past on stdout.
+    identity === undefined
+      ? paint(
+          "This run did not name itself on the wire: --no-identify was given, and " +
+            "the platform's logs cannot tell it from an attack.",
+          "yellow",
+        )
+      : `Named on the wire as: ${identity.value}`,
+    flags.report === undefined ? "Report: printed to stdout" : `Report: ${flags.report}`,
     // The last line, and the one CI acts on. Without it the reader is left to
     // reconcile "Distinct defects: at least 1" with a zero exit code by himself,
     // and the honest conclusion from that pair is that the exit code is unreliable.
@@ -1297,6 +1415,13 @@ program
   .option("-r, --report <path>", "where to write the JSON report (stdout by default)")
   .option("--checks <ids>", "run only these checks, comma separated (all by default)")
   .option("--unsafe-methods", "allow methods that change state")
+  // A negated flag, because the answer is yes by default. The party the marking
+  // is for is the owner of the platform, who cannot otherwise tell this run from
+  // the intrusion it is shaped like; the party helped by silence is the operator
+  // measuring what an unannounced sweep looks like, and that is a deliberate
+  // exercise which can say so. The same side the tool takes on write methods and
+  // on a mandatory scope. See ADR-0045.
+  .option("--no-identify", "do not name the run on the wire (a marked run may be met differently)")
   .option("--dry-run", "print what would be probed and stop, sending nothing")
   .option("--concurrency <n>", "concurrent requests", positiveInteger)
   .option("--rps <n>", "requests per second", positiveInteger)
