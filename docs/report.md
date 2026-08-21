@@ -470,6 +470,17 @@ conditions".
 you gave the tool a list of six endpoints while the platform has a hundred, the
 report does not know that and cannot know it.
 
+**`endpointsProbed` below `endpointsTotal` puts a warning in `warnings`**, since
+21 August 2026. Until then this section held the fact and nothing read it: a run
+that probed two endpoints out of eleven — the other nine templated, with no
+`resources` declaring values for their parameters — came back with `warnings: []`,
+`findings: 0`, exit code `0` and a green headline on the terminal. The counters
+elsewhere in this file all answer "was anything found"; `coverage` is the only one
+that answers "was anything looked at", and the reader who does not open it is the
+reader the warning is for. The reason matters as well as the count: a path
+parameter with no resource declared drops the endpoints addressed by identifier,
+which is the half of the surface where broken object-level authorization lives.
+
 ## Resources nobody could reach
 
 `coverage.resourcesNotFound` names the resources every account was answered 404

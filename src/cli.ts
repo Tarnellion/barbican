@@ -166,6 +166,10 @@ const WARNING_STYLE: Readonly<Record<keyof typeof WARNINGS, "red" | "yellow">> =
   // or the verdict.
   unnamedTarget: "yellow",
   findingsCapped: "yellow",
+  // Yellow and not red: the findings on this screen stand, and what is unproved
+  // is everything about the endpoints no request reached. That is a reservation
+  // about the reach of the run, which is what yellow says here.
+  endpointsNotProbed: "yellow",
 };
 
 type WarningKey = keyof typeof WARNINGS;
@@ -225,14 +229,17 @@ function escalationLine(
   verdict: { readonly code: number },
   report: {
     readonly warnings: readonly string[];
-    readonly coverage: { readonly resourcesNotFound: readonly string[] };
+    readonly coverage: {
+      readonly resourcesNotFound: readonly string[];
+      readonly notProbed: Readonly<Record<string, number>>;
+    };
   },
 ): string {
   if (escalations > 0) {
     return paint(`Privilege escalation: ${escalations}`, "red");
   }
   const claim = "No privilege escalation found";
-  // Four conditions, and the first version had two. Adversarial review of
+  // Five conditions, and the first version had two. Adversarial review of
   // 19 August 2026 built a run where every declared resource answered 404 to
   // everybody: no findings, verdict 0, and the green line printed unqualified
   // over a matrix whose whole isolation half had never been tested — with
@@ -241,10 +248,26 @@ function escalationLine(
   //
   // So the counters are not enough: they say nothing was found, not that anything
   // was looked at. A run earns the bare sentence only when the report itself has
-  // no reservation left — no warning, and no resource that answered 404 to
-  // everyone, which is the shape "tested and agreed" takes when nothing was there
-  // to test.
-  const unreserved = report.warnings.length === 0 && report.coverage.resourcesNotFound.length === 0;
+  // no reservation left — no warning, no resource that answered 404 to everyone,
+  // and no endpoint the walk never reached.
+  //
+  // The last of those is the audit of 21 August 2026 (B-4), and the four
+  // conditions before it could not see the run it built: eleven endpoints, nine
+  // of them templated with no `resources` declared, so the walk covered two. No
+  // request went to the nine, so they left no finding to be counted and nothing
+  // in `resourcesNotFound` — which is about objects that were asked for and were
+  // not there — and the bare green sentence printed over the object half of the
+  // surface, where BOLA and IDOR live.
+  //
+  // `warnings` alone would carry it now that `endpointsNotProbed` exists. The
+  // fact is named here as well, in the same shape `resourcesNotFound` already
+  // sits in: this list is the screen's own account of what it has a reservation
+  // about, and a headline whose only qualification is the report remembering to
+  // warn is a headline `warningsFor` can clear by accident.
+  const unreserved =
+    report.warnings.length === 0 &&
+    report.coverage.resourcesNotFound.length === 0 &&
+    Object.keys(report.coverage.notProbed).length === 0;
   if (summary.findings === 0 && verdict.code === 0 && unreserved) {
     return paint(claim, "green");
   }
@@ -263,9 +286,15 @@ function escalationLine(
   // Nothing found, and the run still cannot support the conclusion. Exit code 0
   // is possible here — a clean walk over resources that were not there — so the
   // sentence names what is unresolved rather than the code alone.
+  const unproved =
+    Object.keys(report.coverage.notProbed).length > 0
+      ? "endpoints no request went to"
+      : report.coverage.resourcesNotFound.length > 0
+        ? "resources nothing answered for"
+        : "a reservation about this run";
   const because =
     verdict.code === 0
-      ? `the lines above carry ${report.coverage.resourcesNotFound.length > 0 ? "resources nothing answered for" : "a reservation about this run"}`
+      ? `the lines above carry ${unproved}`
       : `this run ends with exit code ${verdict.code}, and the last line says why`;
   return paint(`${claim}, and nothing else either — but nothing was proved: ${because}.`, "yellow");
 }

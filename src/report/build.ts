@@ -42,6 +42,7 @@ import type {
   TenantNode,
 } from "../core/index.js";
 import { defectSignature, groupDefects, principalOf, SEVERITY_ORDER } from "../core/index.js";
+import { byCodeUnits } from "../core/order.js";
 import type {
   AccountConfig,
   ContextAttributeValue,
@@ -1158,16 +1159,25 @@ function mergeFindings(
   // The tie-breakers are what makes it a **stable** order: two runs of the same
   // matrix have to produce the same file, and severity alone leaves eighty rows
   // free to shuffle.
+  //
+  // Stable across machines, which is what the sentence above always meant and
+  // what these four comparisons did not deliver: they were `localeCompare()`
+  // with no locale, so the order came from the `LC_ALL` of whoever ran the tool
+  // — `sv_SE` and `en_US` sorted the same rows differently. `MAX_ROWS_PER_DEFECT`
+  // cuts the evidence below this line, so the two machines did not merely print
+  // one file in two orders: they kept different rows. `byCodeUnits` is the one
+  // rule the project compares by; see `src/core/order.ts` for why it is code
+  // units and not a pinned locale. Found by the audit of 21 August 2026 (L-2).
   return [...fromMatrix, ...fromChecks].sort((left, right) => {
     const bySeverity = SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity];
     if (bySeverity !== 0) {
       return bySeverity;
     }
     return (
-      (left.endpointId ?? "").localeCompare(right.endpointId ?? "") ||
-      (left.accountId ?? "").localeCompare(right.accountId ?? "") ||
-      (left.resourceId ?? "").localeCompare(right.resourceId ?? "") ||
-      left.kind.localeCompare(right.kind)
+      byCodeUnits(left.endpointId ?? "", right.endpointId ?? "") ||
+      byCodeUnits(left.accountId ?? "", right.accountId ?? "") ||
+      byCodeUnits(left.resourceId ?? "", right.resourceId ?? "") ||
+      byCodeUnits(left.kind, right.kind)
     );
   });
 }
@@ -1468,7 +1478,7 @@ function withVerdicts(
       // finding leaves an unexplainable row behind: expectation `allowed`,
       // outcome `allowed`, `match: false`, and nothing on the line saying which
       // channel objected.
-      ...(kinds === undefined ? {} : { findingKinds: [...kinds].sort() }),
+      ...(kinds === undefined ? {} : { findingKinds: [...kinds].sort(byCodeUnits) }),
       ...(relation === undefined ? {} : { relation }),
       ...(ruleIndex === undefined ? {} : { ruleIndex }),
     };
@@ -1586,6 +1596,17 @@ export const WARNINGS = {
     "answers the way an unauthenticated request would and is read here as a lawful " +
     "denial — which is why such a run ends with exit code 2. The verdict names " +
     "the accounts.",
+  // What the other four cannot say. Every counter beside them answers "was
+  // anything found"; this one answers "was anything looked at", which is the
+  // question `coverage` exists for and which nothing consulted. See B-4.
+  endpointsNotProbed:
+    "Not every endpoint was probed: coverage.notProbed says how many were left " +
+    "out and for what reason. No finding against one of them means no request " +
+    "ever went to it, not that it is clean. The usual reason is a path " +
+    "parameter with no resource declaring a value for it, and that reason drops " +
+    "the object half of the surface — the endpoints addressed by identifier, " +
+    "which is where broken object-level authorization lives. Declare resources " +
+    "for them, or read this report as covering the rest of the list only.",
   findingsCapped:
     "Some evidence rows were left out of this file: a defect was observed more " +
     `times than the ${MAX_ROWS_PER_DEFECT} rows kept per defect. Nothing about ` +
@@ -1632,7 +1653,7 @@ function unconfirmedCredentials(report: VerdictInputs): readonly string[] {
       unconfirmed.add(principal);
     }
   }
-  return [...unconfirmed].sort();
+  return [...unconfirmed].sort(byCodeUnits);
 }
 
 /**
@@ -1650,6 +1671,20 @@ function warningsFor(report: VerdictInputs, config: RunConfig): readonly string[
   }
   if (report.summary.observations > 0 && report.coverage.outcomes.denied === 0) {
     warnings.push(WARNINGS.nothingRefused);
+  }
+  // The counters this function reads all answer "was anything found". None of
+  // them answers "was anything looked at", and `coverage` was not read here at
+  // all — so a run that probed two endpoints out of eleven, the other nine being
+  // templated with no resources declared, came back with `warnings: []`,
+  // `findings: 0` and exit 0, and the screen called it clean. The nine are the
+  // object half of the surface. Found by the audit of 21 August 2026 (B-4).
+  //
+  // The two counters and not `notProbed`, which is built from `skipped` alone:
+  // `endpointsProbed` may also come from `options.probed`, and a run that
+  // reached fewer endpoints than the source gave owes the reservation however it
+  // came to.
+  if (report.coverage.endpointsProbed < report.coverage.endpointsTotal) {
+    warnings.push(WARNINGS.endpointsNotProbed);
   }
   if (report.findingsOmitted > 0) {
     warnings.push(WARNINGS.findingsCapped);
@@ -1674,22 +1709,31 @@ function warningsFor(report: VerdictInputs, config: RunConfig): readonly string[
  * new way to do it would be a poor exchange. Arrays keep their order — in a
  * policy the order of rules decides the outcome, and sorting them would make two
  * different policies look alike.
+ *
+ * All three sorts go through `byCodeUnits`, and until 21 August 2026 they did
+ * not: the `Map` branch used `localeCompare()` while the `Set` branch and the
+ * object keys used the default `.sort()`. One function, two orders — and the
+ * `Map` half took its order from the machine's `LC_ALL`, so `configDigest` came
+ * out different on a Swedish machine than on an American one over the same
+ * declaration. That is precisely the question `docs/report.md` sells this digest
+ * as the answer to: "the platform changed" against "we changed the declaration".
+ * Found by the audit of 21 August 2026 (L-2); `src/core/order.ts` holds the rule.
  */
 function canonical(value: unknown): string {
   if (value instanceof Map) {
     const entries = [...value.entries()].sort(([left], [right]) =>
-      String(left).localeCompare(String(right)),
+      byCodeUnits(String(left), String(right)),
     );
     return `Map(${entries.map(([key, one]) => `${JSON.stringify(String(key))}:${canonical(one)}`).join(",")})`;
   }
   if (value instanceof Set) {
-    return `Set(${[...value].map(canonical).sort().join(",")})`;
+    return `Set(${[...value].map(canonical).sort(byCodeUnits).join(",")})`;
   }
   if (Array.isArray(value)) {
     return `[${value.map(canonical).join(",")}]`;
   }
   if (value !== null && typeof value === "object") {
-    const keys = Object.keys(value).sort();
+    const keys = Object.keys(value).sort(byCodeUnits);
     const pairs = keys.map(
       (key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`,
     );
@@ -1777,7 +1821,7 @@ function resourcesNeverFound(observations: readonly AccessObservation[]): readon
   return [...answered]
     .filter(([, seen]) => seen.total > 0 && seen.total === seen.missing)
     .map(([resourceId]) => resourceId)
-    .sort();
+    .sort(byCodeUnits);
 }
 
 /** How many cells were observed under each set of conditions, untested included. */

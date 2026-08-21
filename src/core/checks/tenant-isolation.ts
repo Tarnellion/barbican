@@ -6,6 +6,7 @@
  * way. The difference is entirely in the body — see ADR-0011.
  */
 
+import { byCodeUnits } from "../order.js";
 import type { TenantHierarchy } from "../tenancy.js";
 import { createTenantHierarchy, FLAT_HIERARCHY } from "../tenancy.js";
 import type { AccessObservation, Account, TenantId } from "../types.js";
@@ -206,7 +207,7 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
           : createTenantHierarchy(context.matrix.tenants);
       const findings: Finding[] = [];
 
-      for (const endpointId of [...mustDiffer].sort()) {
+      for (const endpointId of [...mustDiffer].sort(byCodeUnits)) {
         const relevant = observations
           .filter(
             (observation) =>
@@ -215,7 +216,12 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
               observation.outcome === "allowed" &&
               digestOf(observation, digestSignal) !== undefined,
           )
-          .sort((left, right) => left.accountId.localeCompare(right.accountId));
+          // The order decides which side of a matched pair is the finding's
+          // subject and which is its `relatedAccountId`, so it is printed. It
+          // was `localeCompare()` with no locale and moved with the machine's
+          // `LC_ALL`; the sort a line above was already by code units. See
+          // `../order.js`; found by the audit of 21 August 2026 (L-2).
+          .sort((left, right) => byCodeUnits(left.accountId, right.accountId));
 
         for (let i = 0; i < relevant.length; i += 1) {
           for (let j = i + 1; j < relevant.length; j += 1) {
