@@ -569,7 +569,7 @@ export class DeniedCanaryError extends Error {
  * same configuration, printed the endpoint as skipped for its method and in the
  * same summary counted three canary requests against it.
  *
- * Found by adversarial review, 21 August 2026 (V-5). See ADR-0041.
+ * Found by adversarial review, 21 August 2026 (V-5). See ADR-0042.
  */
 export class UnsafeCanaryError extends Error {
   readonly accountId: string;

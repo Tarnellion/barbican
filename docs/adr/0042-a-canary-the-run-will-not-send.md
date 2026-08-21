@@ -1,4 +1,4 @@
-# 0041. A canary the run will not send is a configuration error
+# 0042. A canary the run will not send is a configuration error
 
 - **Status:** accepted
 - **Date:** 2026-08-21

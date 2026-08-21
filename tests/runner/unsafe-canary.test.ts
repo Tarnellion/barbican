@@ -32,7 +32,7 @@
  * endpoint and the method, because a diagnosis that does not name what to change
  * is the defect this file is about.
  *
- * Found by adversarial review, 21 August 2026 (V-5). See ADR-0041.
+ * Found by adversarial review, 21 August 2026 (V-5). See ADR-0042.
  */
 
 import { mkdtemp, writeFile } from "node:fs/promises";
