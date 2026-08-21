@@ -1022,7 +1022,18 @@ async function run(flags: RunFlags): Promise<number> {
   // Each check reports its own reach. It used to be one function exported from
   // one check and called by name here, with its type imported into the report
   // layer — the arrangement ADR-0003 exists to prevent.
-  const byCheck = selected.flatMap((check) => check.coverage?.(context) ?? []);
+  // The same isolation `runChecks` gives `run`: a `coverage` that throws would
+  // otherwise discard a finished walk at the step that only counts what it
+  // looked at. Silence here rather than a finding: the finding for a broken
+  // check is already made by `runChecks` a few lines below, and saying it twice
+  // would print one breakage as two.
+  const byCheck = selected.flatMap((check) => {
+    try {
+      return check.coverage?.(context) ?? [];
+    } catch {
+      return [];
+    }
+  });
   // Through `runChecks`, which settles each finding's severity from the check
   // that made it. Calling `run` directly here is what let the severity be
   // declared twice — once on the check and once as a literal inside it.

@@ -1115,6 +1115,8 @@ function mergeFindings(
       endpointId,
       contextId,
       relatedAccountId,
+      resourceId,
+      relation,
       evidence,
       ...unnamed
     } = check;
@@ -1135,6 +1137,13 @@ function mergeFindings(
       // merged it with the baseline one, and `request` was printed without the
       // attributes. Found by a cold read.
       ...(contextId === undefined ? {} : { contextId }),
+      // The third coordinate of the cell, and the relation that goes with it.
+      // Absent on a check that judges a whole endpoint, which is every check in
+      // the registry today; present the moment one judges an object, and then
+      // `withVerdicts` and `withRequest` below find the observation instead of
+      // missing it and printing the cell as agreed. See ADR-0039.
+      ...(resourceId === undefined ? {} : { resourceId }),
+      ...(relation === undefined ? {} : { relation }),
       title,
       // Which clauses this finding answers for. Declared on the check since
       // ADR-0003 and read by nothing until now, so the traceability the plan
