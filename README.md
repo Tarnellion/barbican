@@ -204,6 +204,46 @@ On `main`, not on npm. `0.4.0` is still what `npm install barbican` gives you, a
 none of the following is in it. This section is written as the changes land and is
 renamed to name the version when that version is tagged.
 
+**A canary has to tell this account from nobody at all**
+([ADR-0040](docs/adr/0040-a-canary-has-to-tell-somebody-from-nobody.md)). A 2xx
+said the endpoint answered, not that it answered *this* account, and `/health`,
+`/version`, `/api/status` answer everybody — which is what an operator reaches
+for when asked to name an endpoint the account can reach. A dead token passed
+such a canary, every cell of the account came back 401, the policy declared it
+denied, and the run said `match: true` on all of them with exit `0`. Each canary
+now sends one request with no credentials at all; if that answers 2xx the run
+refuses to start and names the account, the endpoint and the status. Three
+requests per account with a canary instead of two, counted by `--dry-run`, and
+`canaries[].anonymousStatus` is in the report.
+
+**A check that throws takes only itself out of the run.** `runChecks` had no
+`try`, and it runs after the walk and before the report is built: one check
+meeting a shape it did not expect discarded an hour of traffic against somebody
+else's deployment with "Run aborted" and no file. The failure is a run-level
+finding now — the class of the error, never its message — because a check that
+crashed and a check that found nothing are otherwise the same report, and the
+second reads as good news.
+
+**A check finding can name the resource it is about.** A cell is
+account × endpoint × resource × conditions and `Finding` carried three of the
+four, so a finding about an object could not be matched to its observation: the
+cell came out `match: true` with the finding standing on it, counted in
+`cellsMatched`, with an empty `resourceIds` on the defect group and no request to
+reproduce it with. Latent while the registry holds one check that judges whole
+endpoints; the first check of Module 2 that judges an object is where it stops
+being latent.
+
+**`resources[].query` is checked where the request is assembled**, like
+`contexts[].query` beside it. It was left at the configuration door, so the
+library door still put `?_method=DELETE` on the wire with
+`allowUnsafeMethods: false` and printed a credential into `observations[].url`.
+
+**The report is written through a staging file that cannot be a symlink**, and a
+platform that stops answering after the walk is no longer reported as credentials
+going stale. The staging path is removed and created exclusively; a symlink there
+used to take the report — every address, every account identifier — wherever it
+pointed.
+
 **An unknown key in the configuration is refused.** `z.object` accepted what it
 did not know and said nothing, in eight sections out of ten — only `policy.rules[]`
 and `contexts[]` were strict. A single letter turned a run into a false zero:
