@@ -63,7 +63,13 @@ const { version } = requireFromHere("../package.json") as { readonly version: st
 
 function paint(text: string, format: Parameters<typeof styleText>[0]): string {
   // Without a TTY, escape sequences only litter redirected output.
-  return process.stderr.isTTY === true ? styleText(format, text) : text;
+  // The stream is named, and that is the whole fix: `styleText` without it
+  // validates `process.stdout`, while the decision above is made on
+  // `process.stderr`. In the ordinary invocation — `barbican run -c … > report.json`
+  // from a terminal — stderr is a TTY and stdout is not, so every colour this
+  // file argues about was dropped on the floor. Found by the audit of
+  // 20 August 2026 (H-3, L-4).
+  return process.stderr.isTTY === true ? styleText(format, text, { stream: process.stderr }) : text;
 }
 
 /**
@@ -477,7 +483,13 @@ function describePlan(
   const withCanary = config.accounts.filter((account) => account.canary !== undefined).length;
   const withoutCanary = accountsOwedACanary(config);
   const budget = limits?.maxRequests;
-  const wanted = cells + withCanary;
+  // Twice: the canaries are probed before the walk and again after it
+  // (`probeCanaries` is called at both ends). Counting them once made the
+  // preview call a ceiling sufficient that stops the second pass — and a run
+  // whose authentication is never confirmed a second time reads as clean. The
+  // rule this line stands on is three lines below: a number about traffic that
+  // ignores the ceiling on traffic is worse than no number.
+  const wanted = cells + withCanary * 2;
 
   process.stderr.write(
     `${[
@@ -486,7 +498,8 @@ function describePlan(
       `Endpoints (${endpoints.length}):`,
       ...rows,
       `Matrix rows: ${accounts.length} (declared accounts ${config.accounts.length})`,
-      `Cells a run would probe: ${cells}, plus ${withCanary} canary requests`,
+      `Cells a run would probe: ${cells}, plus ${withCanary * 2} canary requests ` +
+        `(${withCanary} accounts, probed before the walk and again after it)`,
       // The budget is on the same command line and used to be left out of the
       // arithmetic: the preview promised 144 cells where the run made one
       // request and stopped. A number about traffic that ignores the ceiling on
@@ -535,7 +548,12 @@ function describePlan(
         ? paint("Checks: none will run — nothing will be compared by body.", "yellow")
         : `Checks: ${checks.map((check) => check.id).join(", ")}`,
       `The identifiers above are what policy, resources, contexts and canaries refer to.`,
-    ].join("\n")}\n`,
+      // The same filter the run's summary applies twenty lines below. Without it
+      // every warning this preview decided not to print left a blank line in the
+      // middle of the plan — three of them on an ordinary configuration.
+    ]
+      .filter((line): line is string => line !== undefined)
+      .join("\n")}\n`,
   );
 
   return 0;
@@ -798,6 +816,7 @@ async function run(flags: RunFlags): Promise<number> {
    * and the budget that ended the walk would end these requests too.
    */
   const staleCredentials: string[] = [];
+  const unverifiedAfterWalk: string[] = [];
   if (canaries.length > 0 && !truncated) {
     const after = await probeCanaries({
       baseUrl: config.target.baseUrl,
@@ -815,10 +834,26 @@ async function run(flags: RunFlags): Promise<number> {
     for (const result of after) {
       // A terminal failure is our own ceiling, not a dead token: saying the
       // credentials went stale there would send the reader after the wrong thing.
+      // It is not nothing either, and silence here is what the audit of 20 August
+      // found: a ceiling of 14 requests, which the preview itself called enough,
+      // ate the whole second pass and the run came back 0 with a dead token.
       const stopped = TERMINAL_FAILURES.has(result.failure ?? "");
-      if (passedBefore.has(result.accountId) && !result.authenticated && !stopped) {
+      if (!passedBefore.has(result.accountId)) {
+        continue;
+      }
+      if (stopped) {
+        unverifiedAfterWalk.push(result.accountId);
+      } else if (!result.authenticated) {
         staleCredentials.push(result.accountId);
       }
+    }
+    if (unverifiedAfterWalk.length > 0) {
+      process.stderr.write(
+        `${paint("Authentication was not confirmed a second time:", "red")} ` +
+          `${unverifiedAfterWalk.join(", ")}. The run reached its own ceiling ` +
+          `before the canaries could be probed again, so nothing says the tokens ` +
+          `still worked at the end of the walk.\n`,
+      );
     }
     if (staleCredentials.length > 0) {
       process.stderr.write(
@@ -901,6 +936,7 @@ async function run(flags: RunFlags): Promise<number> {
     unauthenticated,
     canariesChecked,
     staleCredentials,
+    unverifiedAfterWalk,
     canaries: canaryOutcomes,
     truncated,
     unsafeMethods: flags.unsafeMethods === true,

@@ -45,6 +45,7 @@ function report(overrides: {
   denials?: number;
   canariesChecked?: number;
   staleCredentials?: readonly string[];
+  unverifiedAfterWalk?: readonly string[];
   accounts?: readonly {
     readonly id: string;
     readonly role: string;
@@ -122,6 +123,7 @@ function report(overrides: {
         authenticated: true,
       })),
     staleCredentials: overrides.staleCredentials ?? [],
+    unverifiedAfterWalk: overrides.unverifiedAfterWalk ?? [],
     inputs: {
       policy: { fallback: "denied", rules: [] },
       tenants: [],
@@ -1393,6 +1395,46 @@ describe("exitCodeFor", () => {
 
     expect(verdict.code).toBe(2);
     expect(verdict.reason).toContain("alice");
+  });
+
+  /**
+   * The third way past the rule of ADR-0033, and the one the tool led the
+   * operator into: `--dry-run` counted the canary requests once while a run makes
+   * them twice, so a ceiling the preview called sufficient stopped the second
+   * pass. Every result of that pass carried a terminal failure — our own doing,
+   * not a dead token — and the loop that reads them skipped exactly those. The
+   * walk had finished, so `truncated` stayed false, and the report came back 0
+   * carrying the **first** pass with `authenticated: true`.
+   *
+   * Found by the audit of 20 August 2026 (B-1).
+   */
+  it("2 — the run's own ceiling stopped the second confirmation", () => {
+    const verdict = runVerdict(report({ observations: 4, unverifiedAfterWalk: ["carol"] }));
+
+    expect(verdict.code).toBe(2);
+    expect(verdict.reason).toContain("carol");
+    // Named as our ceiling rather than as dead credentials: the two send the
+    // reader to different places, which is why they are separate fields.
+    expect(verdict.reason).toContain("--max-requests");
+    expect(verdict.reason).not.toContain("went stale");
+  });
+
+  /** Knowing the tail lied outranks knowing that nobody asked. */
+  it("2 — stale credentials outrank an unconfirmed second pass", () => {
+    const verdict = runVerdict(
+      report({ observations: 4, staleCredentials: ["alice"], unverifiedAfterWalk: ["carol"] }),
+    );
+
+    expect(verdict.code).toBe(2);
+    expect(verdict.reason).toContain("alice");
+    expect(verdict.reason).not.toContain("carol");
+  });
+
+  /** Outranks a finding: what was not confirmed is not clean. */
+  it("2 — an unconfirmed second pass outranks a finding", () => {
+    expect(
+      exitCodeFor(report({ observations: 4, escalations: 3, unverifiedAfterWalk: ["carol"] })),
+    ).toBe(2);
   });
 
   // Outranks a finding, exactly as truncation does: what was not tested is never

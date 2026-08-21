@@ -725,6 +725,24 @@ export interface RunReport {
    * and the verdict is 2 for the same reason.
    */
   readonly staleCredentials: readonly string[];
+  /**
+   * Accounts whose canary could not be probed after the walk, because the run
+   * had reached its own ceiling.
+   *
+   * The third way past the rule of ADR-0033, and the one the tool itself leads
+   * an operator into. `--dry-run` counted the canary requests once while the run
+   * makes them twice, so a ceiling it called sufficient stops the second pass;
+   * every result of that pass then carries a terminal failure, which is our own
+   * doing rather than a dead token. Saying "the credentials went stale" there
+   * would send the reader after the wrong thing — so this is a separate field,
+   * and `truncated` is not it either: the matrix **was** walked to the end, and
+   * that reason would be false.
+   *
+   * What is unproved is narrower and worth its own sentence: the tokens were
+   * confirmed before the walk and never confirmed after it. Found by the audit
+   * of 20 August 2026 (B-1).
+   */
+  readonly unverifiedAfterWalk: readonly string[];
   /** The run was cut short before it reached the end of the matrix. */
   readonly truncated: boolean;
   readonly observations: readonly ReportedObservation[];
@@ -820,6 +838,8 @@ export interface BuildReportOptions {
   readonly canaries?: readonly CanaryOutcome[];
   /** Accounts whose canary passed before the walk and failed after it. */
   readonly staleCredentials?: readonly string[];
+  /** Accounts whose canary the run's own ceiling stopped it from probing again. */
+  readonly unverifiedAfterWalk?: readonly string[];
   readonly truncated: boolean;
   /** Whether methods that change state were performed. */
   readonly unsafeMethods?: boolean;
@@ -1912,6 +1932,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
     canariesChecked: options.canariesChecked,
     canaries: options.canaries ?? [],
     staleCredentials: options.staleCredentials ?? [],
+    unverifiedAfterWalk: options.unverifiedAfterWalk ?? [],
     truncated: options.truncated,
     observations,
     // The rows, after the per-defect cap. Everything derived from findings —
@@ -2086,6 +2107,22 @@ export function runVerdict(report: VerdictInputs): RunVerdict {
         `credentials went stale during the run: ${report.staleCredentials.join(", ")} — ` +
         `every cell probed after that point recorded a refusal that says nothing ` +
         `about access`,
+    };
+  }
+  // The same class a third time, and the narrowest of the three: the walk
+  // finished, the tokens were confirmed before it, and the run's own ceiling
+  // stopped the confirmation after it. Below `staleCredentials` on purpose —
+  // there we know the tail lied, here we only know that nobody asked. Nothing
+  // here says the credentials are bad; it says the second half of the check
+  // never happened, and a run that cannot say its accounts were still
+  // authenticated at the end has not tested what it claims. See ADR-0035.
+  if ((report.unverifiedAfterWalk ?? []).length > 0) {
+    return {
+      code: 2,
+      reason:
+        `the run reached its own ceiling before it could confirm authentication a ` +
+        `second time: ${(report.unverifiedAfterWalk ?? []).join(", ")} — raise ` +
+        `--max-requests past the matrix plus two canary requests per account`,
     };
   }
   if (report.unauthenticated.length > 0) {
