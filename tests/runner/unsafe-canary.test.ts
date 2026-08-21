@@ -142,14 +142,18 @@ describe("probeCanaries behind the same check", () => {
  *
  * The control request behind every canary (ADR-0040) is anonymous, and the claim
  * under test is "nothing at all reached the application" — so the stand counts
- * that one too. It answers 200 to everybody: a stand that refused would make the
- * refusal ambiguous between "the tool did not ask" and "the platform said no".
+ * that one too, rather than answering it off to one side.
+ *
+ * It refuses an anonymous request and accepts a credentialed one, which is what
+ * an endpoint worth naming as a canary does. A stand that answered everybody
+ * would fail the run for a different reason — `UndiscerningCanaryError` — and the
+ * accepting case below would then be passing on the wrong refusal.
  */
 async function startRecordingTarget() {
   const seen: string[] = [];
   const server = createServer((request, response) => {
     seen.push(`${request.method ?? "?"} ${request.url ?? ""}`);
-    response.writeHead(200).end();
+    response.writeHead(request.headers.authorization === undefined ? 401 : 200).end();
   });
   await new Promise<void>((ready) => {
     server.listen(0, "127.0.0.1", ready);
@@ -329,6 +333,56 @@ describe("both halves of the tool, on a canary a run will not issue", () => {
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toContain("Dry run");
       expect(target.requests).toEqual([]);
+    } finally {
+      delete process.env.UNSAFE_CANARY_TOKEN_BOB;
+      await target.close();
+    }
+  });
+
+  /**
+   * The control that goes all the way to the wire.
+   *
+   * The preview stops before `probeCanaries`, and the flag has to reach that
+   * function too — it makes the same check, from the same source, for the
+   * library door. A mutation dropping `allowUnsafeMethods` from either
+   * `probeCanaries` call in `src/cli.ts` left every case above green: with the
+   * flag given they never got that far, and without it the run stopped one layer
+   * earlier for the right reason. The result would be a run refusing a
+   * configuration that is legal — the message's own advice, followed and then
+   * rejected.
+   *
+   * So this one runs for real, and the canary's `POST /login` on the wire is
+   * what says the flag arrived at every gate between the command line and the
+   * request.
+   */
+  it("sends the write canary once --unsafe-methods is given", async () => {
+    const target = await startRecordingTarget();
+    const paths = await writeRun(configFor(target.port), ENDPOINT_LIST);
+    process.env.UNSAFE_CANARY_TOKEN_BOB = "token-bob";
+
+    try {
+      const result = await runCli(
+        "run",
+        "--config",
+        paths.configPath,
+        "--endpoints",
+        paths.endpointsPath,
+        "--report",
+        paths.reportPath,
+        "--unsafe-methods",
+      );
+
+      expect(result.stderr).not.toContain("Run aborted");
+      expect(result.exitCode).toBe(0);
+      // The canary before the walk, its anonymous control, the two cells, and
+      // the canary again after the walk.
+      expect(target.requests).toEqual([
+        "POST /login",
+        "POST /login",
+        "POST /login",
+        "GET /v1/orders",
+        "POST /login",
+      ]);
     } finally {
       delete process.env.UNSAFE_CANARY_TOKEN_BOB;
       await target.close();
