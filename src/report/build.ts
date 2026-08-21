@@ -61,6 +61,7 @@ import type {
   RunConfig,
   RunTarget,
 } from "../io/config.js";
+import { lookup, openRecord } from "../io/untrusted.js";
 import type { ProbeFailure, SkippedEndpoint } from "../runner.js";
 
 /**
@@ -1381,7 +1382,9 @@ function applyAcceptances(
     declared.map((acceptance) => [acceptance, isAcceptanceInForce(acceptance, at)]),
   );
   const matched = new Map<Acceptance, number>();
-  const byKind: Record<string, number> = {};
+  // The same key space as `summary.byKind`, and guarded the same way — see
+  // `countByKind`. A check id is a name this tool did not choose.
+  const byKind = openRecord<number>();
   let held = 0;
   let expired = 0;
 
@@ -1410,7 +1413,7 @@ function applyAcceptances(
       expired += 1;
     } else {
       held += 1;
-      byKind[finding.kind] = (byKind[finding.kind] ?? 0) + 1;
+      byKind[finding.kind] = (lookup(byKind, finding.kind) ?? 0) + 1;
     }
     return {
       ...finding,
@@ -1452,10 +1455,25 @@ function countGroupsBySeverity(groups: readonly DefectGroup[]): Readonly<Record<
   return counts;
 }
 
+/**
+ * Findings by kind, over a key space the tool does not own.
+ *
+ * `kind` is a diff kind for a matrix row and a **check id** for the other
+ * channel, and a check id comes from whoever registered the check. So this is
+ * one of the records ADR-0024 is about: an object literal swallows a key named
+ * `__proto__` — the assignment is a no-op and the count silently disappears —
+ * and indexing one answers for `constructor`. `openRecord` and `lookup` are the
+ * grammar, written once in `src/io/untrusted.ts`.
+ *
+ * `summary.accepted.byKind` beside it is built the same way, over the same key
+ * space. Two records of one kind guarded differently is the shape that rule
+ * exists against.
+ */
 function countByKind(findings: readonly ReportFinding[]): Readonly<Record<string, number>> {
-  const counts: Record<string, number> = { ...EMPTY_BY_KIND };
+  const counts = openRecord<number>();
+  Object.assign(counts, EMPTY_BY_KIND);
   for (const finding of findings) {
-    counts[finding.kind] = (counts[finding.kind] ?? 0) + 1;
+    counts[finding.kind] = (lookup(counts, finding.kind) ?? 0) + 1;
   }
   return counts;
 }

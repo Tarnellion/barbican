@@ -290,6 +290,68 @@ describe("an acceptance whose day has passed", () => {
   });
 });
 
+describe("the records these counters live in", () => {
+  /**
+   * `byKind` is keyed by names this tool did not choose.
+   *
+   * A matrix row's `kind` is ours; a check finding's is the id whoever
+   * registered the check picked, and `buildReport` takes check findings straight
+   * from a caller. In a plain object literal the assignment `counts["__proto__"]
+   * = 1` is a no-op, so the count disappears without a trace — the finding is in
+   * `summary.findings` and in no bucket of `byKind`, which is a dashboard
+   * quietly one short. `summary.accepted.byKind` is the same key space and is
+   * built the same way; see `openRecord` and ADR-0024.
+   *
+   * Exotic on purpose. The rule exists because the name cannot be predicted, and
+   * a rule nothing measures is one the next edit deletes for free.
+   */
+  it("carry a kind named __proto__ instead of swallowing it", () => {
+    const config = configWith(`
+accepted:
+  - endpoint: orders.get
+    kind: __proto__
+    reason: a check id nobody would pick, and the reason the record has no prototype
+    until: 2026-11-30
+`);
+    const report = buildReport({
+      version: "test",
+      config,
+      endpoints: ENDPOINTS,
+      observations: WALKED,
+      skipped: [],
+      failures: [],
+      unauthenticated: [],
+      canariesChecked: 2,
+      canaries: [
+        { accountId: "alice", endpointId: "orders.get", status: 200, authenticated: true },
+        { accountId: "carol", endpointId: "orders.get", status: 200, authenticated: true },
+      ],
+      truncated: false,
+      findings: [],
+      checks: [
+        {
+          checkId: "__proto__",
+          severity: "high",
+          title: "a check whose id is the one name a record cannot hold",
+          accountId: "carol",
+          endpointId: "orders.get",
+          evidence: {},
+        },
+      ],
+      policy: expandPolicy(config.policy, ENDPOINTS),
+      startedAt: new Date(BEFORE),
+      finishedAt: new Date(BEFORE),
+    });
+
+    expect(report.summary.findings).toBe(1);
+    expect(Object.hasOwn(report.summary.byKind, "__proto__")).toBe(true);
+    expect(report.summary.byKind["__proto__"]).toBe(1);
+    expect(report.summary.accepted.findings).toBe(1);
+    expect(Object.hasOwn(report.summary.accepted.byKind, "__proto__")).toBe(true);
+    expect(report.summary.accepted.byKind["__proto__"]).toBe(1);
+  });
+});
+
 describe("an acceptance that covered nothing", () => {
   /**
    * The platform was fixed, or the run never reached the cell.
