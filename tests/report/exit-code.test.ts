@@ -1408,15 +1408,18 @@ describe("exitCodeFor", () => {
    *
    * Found by the audit of 20 August 2026 (B-1).
    */
-  it("2 — the run's own ceiling stopped the second confirmation", () => {
+  it("2 — the second confirmation never happened", () => {
     const verdict = runVerdict(report({ observations: 4, unverifiedAfterWalk: ["carol"] }));
 
     expect(verdict.code).toBe(2);
     expect(verdict.reason).toContain("carol");
-    // Named as our ceiling rather than as dead credentials: the two send the
-    // reader to different places, which is why they are separate fields.
-    expect(verdict.reason).toContain("--max-requests");
+    // Not named as dead credentials: the two send the reader to different
+    // places, which is why they are separate fields. And not named as the
+    // ceiling alone either — a platform that stopped answering after the walk
+    // lands here too, and telling the reader to raise a limit would send them
+    // after the wrong thing (V-6).
     expect(verdict.reason).not.toContain("went stale");
+    expect(verdict.reason).toContain("canaries[]");
   });
 
   /** Knowing the tail lied outranks knowing that nobody asked. */

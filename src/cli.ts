@@ -9,7 +9,7 @@
  */
 
 import { constants, createWriteStream } from "node:fs";
-import { access, chmod, readFile, rename, stat } from "node:fs/promises";
+import { access, chmod, readFile, rename, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { Readable } from "node:stream";
@@ -668,8 +668,17 @@ async function writeChunks(destination: NodeJS.WritableStream, chunks: Iterable<
  */
 async function writeReportFile(path: string, report: object): Promise<void> {
   const staging = `${path}.partial`;
+  // Removed first, then created exclusively. Without `wx` the open follows a
+  // symlink sitting at the staging path — the report, with every address and
+  // every account identifier in it, lands wherever the link points, and `mode`
+  // is ignored because nothing is being created. Unlinking a symlink removes
+  // the link and not its target, so the pair is safe where the second half
+  // alone is not. An interrupted run leaves a staging file behind, and this is
+  // also how the next run gets past it. Found by adversarial review, 21 August
+  // 2026 (V-7).
+  await rm(staging, { force: true });
   await writeChunks(
-    createWriteStream(staging, { encoding: "utf8", mode: 0o600 }),
+    createWriteStream(staging, { encoding: "utf8", flags: "wx", mode: 0o600 }),
     reportChunks(report),
   );
   await rename(staging, path);
@@ -981,6 +990,16 @@ async function run(flags: RunFlags): Promise<number> {
       }
       if (stopped) {
         unverifiedAfterWalk.push(result.accountId);
+      } else if (result.status === 0) {
+        // Nothing came back at all, so nothing here is about the credentials.
+        // The first pass tells these three apart — our own ceiling, a platform
+        // that did not answer, a refusal — and the second told only two: a
+        // deployment that died after the walk was reported as "the credentials
+        // went stale", sending the reader after a token while the stand was
+        // down. The walk itself is untouched in that case, which is why this is
+        // the same reservation as a ceiling and not a finding about access.
+        // Found by adversarial review, 21 August 2026 (V-6).
+        unverifiedAfterWalk.push(result.accountId);
       } else if (!result.authenticated) {
         staleCredentials.push(result.accountId);
       }
@@ -988,9 +1007,9 @@ async function run(flags: RunFlags): Promise<number> {
     if (unverifiedAfterWalk.length > 0) {
       process.stderr.write(
         `${paint("Authentication was not confirmed a second time:", "red")} ` +
-          `${unverifiedAfterWalk.join(", ")}. The run reached its own ceiling ` +
-          `before the canaries could be probed again, so nothing says the tokens ` +
-          `still worked at the end of the walk.\n`,
+          `${unverifiedAfterWalk.join(", ")}. The canaries could not be probed ` +
+          `again — the run hit its own ceiling, or the platform stopped answering ` +
+          `— so nothing says the tokens still worked at the end of the walk.\n`,
       );
     }
     if (staleCredentials.length > 0) {

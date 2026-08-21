@@ -2182,9 +2182,12 @@ export function runVerdict(report: VerdictInputs): RunVerdict {
     return {
       code: 2,
       reason:
-        `the run reached its own ceiling before it could confirm authentication a ` +
-        `second time: ${(report.unverifiedAfterWalk ?? []).join(", ")} — raise ` +
-        `--max-requests past the matrix plus two canary requests per account`,
+        `authentication was never confirmed a second time: ` +
+        `${(report.unverifiedAfterWalk ?? []).join(", ")} — the run stopped itself ` +
+        `(a request ceiling or the circuit breaker) or the platform stopped ` +
+        `answering, and either way the walk that came before it is unproved. ` +
+        `canaries[] says which: a failure code is ours, a status of 0 is the ` +
+        `platform's silence`,
     };
   }
   if (report.unauthenticated.length > 0) {
