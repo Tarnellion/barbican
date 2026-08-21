@@ -33,6 +33,7 @@ import {
   RESOURCE_RELATIONS,
   resourceApplies,
 } from "../core/index.js";
+import { byCodeUnits } from "../core/order.js";
 import type { HeaderValue } from "./untrusted.js";
 import { isHeaderName, isHeaderValue, lookup, safeHeaders } from "./untrusted.js";
 
@@ -1020,7 +1021,12 @@ function nearestFirst(target: string, known: readonly string[]): readonly string
     return length;
   };
 
-  return [...known].sort((a, b) => sharedPrefix(b) - sharedPrefix(a) || a.localeCompare(b));
+  // The tie-break under the prefix rule is by code units, not by the machine's
+  // locale: these lists go into CI output that gets diffed between runs, and
+  // `localeCompare()` with no argument put them in a different order on a
+  // different `LC_ALL`. See `../core/order.js`; found by the audit of
+  // 21 August 2026 (L-2).
+  return [...known].sort((a, b) => sharedPrefix(b) - sharedPrefix(a) || byCodeUnits(a, b));
 }
 
 /**

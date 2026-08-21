@@ -42,6 +42,7 @@ import type {
   TenantNode,
 } from "../core/index.js";
 import { defectSignature, groupDefects, principalOf, SEVERITY_ORDER } from "../core/index.js";
+import { byCodeUnits } from "../core/order.js";
 import type {
   AccountConfig,
   ContextAttributeValue,
@@ -1158,16 +1159,25 @@ function mergeFindings(
   // The tie-breakers are what makes it a **stable** order: two runs of the same
   // matrix have to produce the same file, and severity alone leaves eighty rows
   // free to shuffle.
+  //
+  // Stable across machines, which is what the sentence above always meant and
+  // what these four comparisons did not deliver: they were `localeCompare()`
+  // with no locale, so the order came from the `LC_ALL` of whoever ran the tool
+  // — `sv_SE` and `en_US` sorted the same rows differently. `MAX_ROWS_PER_DEFECT`
+  // cuts the evidence below this line, so the two machines did not merely print
+  // one file in two orders: they kept different rows. `byCodeUnits` is the one
+  // rule the project compares by; see `src/core/order.ts` for why it is code
+  // units and not a pinned locale. Found by the audit of 21 August 2026 (L-2).
   return [...fromMatrix, ...fromChecks].sort((left, right) => {
     const bySeverity = SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity];
     if (bySeverity !== 0) {
       return bySeverity;
     }
     return (
-      (left.endpointId ?? "").localeCompare(right.endpointId ?? "") ||
-      (left.accountId ?? "").localeCompare(right.accountId ?? "") ||
-      (left.resourceId ?? "").localeCompare(right.resourceId ?? "") ||
-      left.kind.localeCompare(right.kind)
+      byCodeUnits(left.endpointId ?? "", right.endpointId ?? "") ||
+      byCodeUnits(left.accountId ?? "", right.accountId ?? "") ||
+      byCodeUnits(left.resourceId ?? "", right.resourceId ?? "") ||
+      byCodeUnits(left.kind, right.kind)
     );
   });
 }
@@ -1468,7 +1478,7 @@ function withVerdicts(
       // finding leaves an unexplainable row behind: expectation `allowed`,
       // outcome `allowed`, `match: false`, and nothing on the line saying which
       // channel objected.
-      ...(kinds === undefined ? {} : { findingKinds: [...kinds].sort() }),
+      ...(kinds === undefined ? {} : { findingKinds: [...kinds].sort(byCodeUnits) }),
       ...(relation === undefined ? {} : { relation }),
       ...(ruleIndex === undefined ? {} : { ruleIndex }),
     };
@@ -1632,7 +1642,7 @@ function unconfirmedCredentials(report: VerdictInputs): readonly string[] {
       unconfirmed.add(principal);
     }
   }
-  return [...unconfirmed].sort();
+  return [...unconfirmed].sort(byCodeUnits);
 }
 
 /**
@@ -1674,22 +1684,31 @@ function warningsFor(report: VerdictInputs, config: RunConfig): readonly string[
  * new way to do it would be a poor exchange. Arrays keep their order — in a
  * policy the order of rules decides the outcome, and sorting them would make two
  * different policies look alike.
+ *
+ * All three sorts go through `byCodeUnits`, and until 21 August 2026 they did
+ * not: the `Map` branch used `localeCompare()` while the `Set` branch and the
+ * object keys used the default `.sort()`. One function, two orders — and the
+ * `Map` half took its order from the machine's `LC_ALL`, so `configDigest` came
+ * out different on a Swedish machine than on an American one over the same
+ * declaration. That is precisely the question `docs/report.md` sells this digest
+ * as the answer to: "the platform changed" against "we changed the declaration".
+ * Found by the audit of 21 August 2026 (L-2); `src/core/order.ts` holds the rule.
  */
 function canonical(value: unknown): string {
   if (value instanceof Map) {
     const entries = [...value.entries()].sort(([left], [right]) =>
-      String(left).localeCompare(String(right)),
+      byCodeUnits(String(left), String(right)),
     );
     return `Map(${entries.map(([key, one]) => `${JSON.stringify(String(key))}:${canonical(one)}`).join(",")})`;
   }
   if (value instanceof Set) {
-    return `Set(${[...value].map(canonical).sort().join(",")})`;
+    return `Set(${[...value].map(canonical).sort(byCodeUnits).join(",")})`;
   }
   if (Array.isArray(value)) {
     return `[${value.map(canonical).join(",")}]`;
   }
   if (value !== null && typeof value === "object") {
-    const keys = Object.keys(value).sort();
+    const keys = Object.keys(value).sort(byCodeUnits);
     const pairs = keys.map(
       (key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`,
     );
@@ -1777,7 +1796,7 @@ function resourcesNeverFound(observations: readonly AccessObservation[]): readon
   return [...answered]
     .filter(([, seen]) => seen.total > 0 && seen.total === seen.missing)
     .map(([resourceId]) => resourceId)
-    .sort();
+    .sort(byCodeUnits);
 }
 
 /** How many cells were observed under each set of conditions, untested included. */

@@ -204,6 +204,18 @@ On `main`, not on npm. `0.4.0` is still what `npm install barbican` gives you, a
 none of the following is in it. This section is written as the changes land and is
 renamed to name the version when that version is tagged.
 
+**The order in the report, and `configDigest`, no longer depend on the machine's
+locale** ([ADR-0036](docs/adr/0036-one-order-on-every-machine.md)). Eleven
+comparisons went through `localeCompare()` with no locale argument, which sorts
+by whatever `LC_ALL` says: `sv_SE` and `en_US` ordered the finding rows, the
+defect groups and a check's compared pairs differently, and hashed one
+declaration into two different digests. `configDigest` is offered in
+`docs/report.md` as the way to tell "the platform changed" from "we changed the
+declaration", and evidence rows are cut *after* the sort — so two machines
+walking one matrix did not merely print the same file in two orders, they kept
+different rows of the same defect. Everything compares by UTF-16 code units now,
+which is what the plain `.sort()` calls standing beside them already did.
+
 **A canary is required per account, not per run.** A run where one account has a
 canary and another with a `tokenEnv` does not now exits `2` and names the accounts.
 It used to be enough for the run to have one canary anywhere: an account carrying a

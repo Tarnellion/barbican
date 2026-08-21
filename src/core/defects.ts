@@ -8,6 +8,7 @@
  * numbers speak of the size of the matrix, not of the number of problems.
  */
 
+import { byCodeUnits } from "./order.js";
 import type { ResourceRelation, Severity } from "./types.js";
 
 /**
@@ -223,12 +224,12 @@ export function groupDefects(diffs: readonly GroupableFinding[]): readonly Defec
     .map((group) => ({
       key: group.key,
       endpointId: group.endpointId,
-      kinds: [...group.kinds].sort(),
+      kinds: [...group.kinds].sort(byCodeUnits),
       ...(group.relation === undefined ? {} : { relation: group.relation }),
       ...(group.contextId === undefined ? {} : { contextId: group.contextId }),
       severity: group.severity,
-      accountIds: [...group.accounts].sort(),
-      resourceIds: [...group.resources].sort(),
+      accountIds: [...group.accounts].sort(byCodeUnits),
+      resourceIds: [...group.resources].sort(byCodeUnits),
       violations: group.violations,
     }))
     .sort((left, right) => {
@@ -236,11 +237,16 @@ export function groupDefects(diffs: readonly GroupableFinding[]): readonly Defec
       if (bySeverity !== 0) {
         return bySeverity;
       }
+      // One comparison rule, and the same one the three `.sort()` calls above
+      // already used. These four were `localeCompare()` with no locale, so the
+      // group order — which the report prints and a reader diffs between runs —
+      // came out of the machine's `LC_ALL`. See `./order.js`; found by the audit
+      // of 21 August 2026 (L-2).
       return (
-        left.endpointId.localeCompare(right.endpointId) ||
-        left.kinds.join(",").localeCompare(right.kinds.join(",")) ||
-        (left.relation ?? "").localeCompare(right.relation ?? "") ||
-        (left.contextId ?? "").localeCompare(right.contextId ?? "")
+        byCodeUnits(left.endpointId, right.endpointId) ||
+        byCodeUnits(left.kinds.join(","), right.kinds.join(",")) ||
+        byCodeUnits(left.relation ?? "", right.relation ?? "") ||
+        byCodeUnits(left.contextId ?? "", right.contextId ?? "")
       );
     });
 }
