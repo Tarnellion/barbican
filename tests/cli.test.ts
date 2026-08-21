@@ -198,7 +198,12 @@ ${resources === 0 ? "" : `\nresources:\n${resourceLines.join("\n")}\n`}`;
 interface ReportFile {
   readonly warnings: readonly string[];
   readonly summary: { readonly findings: number };
-  readonly coverage: { readonly resourcesNotFound: readonly string[] };
+  readonly coverage: {
+    readonly resourcesNotFound: readonly string[];
+    readonly endpointsTotal: number;
+    readonly endpointsProbed: number;
+    readonly notProbed: Readonly<Record<string, number>>;
+  };
 }
 
 /**
@@ -382,8 +387,8 @@ describe("a path on the command line that cannot be read", () => {
 /**
  * A run that makes one warning fire, and why it does.
  *
- * Four fixtures rather than one, because the four warnings answer to four
- * different things and a run cannot be in all four states at once.
+ * Five fixtures rather than one, because the five warnings answer to five
+ * different things and a run cannot be in all five states at once.
  */
 interface WarningCase {
   /** What in this configuration produces the warning. */
@@ -418,6 +423,15 @@ const WARNING_CASES: Readonly<Record<keyof typeof WARNINGS, WarningCase>> = {
     why: "the stand answers 200 to everything, so no cell was ever refused",
     config: (port) => configFor(port),
     endpoints: ENDPOINTS,
+  },
+  endpointsNotProbed: {
+    why: "an endpoint takes a path parameter and no resource declares a value for it",
+    // The same endpoint list `findingsCapped` uses and none of its resources:
+    // `items.get` is then skipped, which is the ordinary shape of this defect —
+    // the operator declared the endpoints and not the objects, and the half of
+    // the surface addressed by identifier goes unasked.
+    config: (port) => configFor(port),
+    endpoints: ENDPOINTS_WITH_ITEMS,
   },
   findingsCapped: {
     why: "one defect over MAX_ROWS_PER_DEFECT + 1 resources, so a row is dropped",
@@ -721,6 +735,39 @@ describe("the headline of the screen", () => {
     expect(report.summary.findings).toBe(0);
     expect(exitCode).toBe(0);
     expect(report.coverage.resourcesNotFound.length).toBeGreaterThan(0);
+
+    expect(headlineOf(stderr)).not.toBe(NO_ESCALATION);
+  });
+
+  /**
+   * The state both earlier fixes still cleared: nothing found, verdict 0, and
+   * most of the surface never asked.
+   *
+   * The audit of 21 August 2026 (B-4). Eleven endpoints, nine of them templated
+   * with no `resources` declared, so the run probed two — and printed the bare
+   * green sentence, with `warnings: []` in the file beside it. Neither of the
+   * conditions this line already had could see it: no request went to those nine,
+   * so they left no finding to be counted and nothing in `resourcesNotFound`,
+   * which is about objects that were asked for and were not there.
+   *
+   * The half that goes missing is the object half — the endpoints addressed by
+   * identifier — which is where BOLA and IDOR live, and it goes missing on the
+   * most ordinary mistake there is: declaring the endpoints and forgetting the
+   * resources, or misspelling a `params` key.
+   */
+  it("does not stand alone on a run that did not reach every endpoint", async () => {
+    const { stderr, report, exitCode } = await runAgainstStand({
+      config: (port) => configFor(port),
+      endpoints: ENDPOINTS_WITH_ITEMS,
+    });
+
+    // The fixture really is the case: a clean verdict over a partial walk.
+    expect(report.summary.findings).toBe(0);
+    expect(exitCode).toBe(0);
+    expect(report.coverage.endpointsProbed).toBeLessThan(report.coverage.endpointsTotal);
+    // And not the reservation the previous fix added: every resource that was
+    // asked for answered, because none was declared to ask about.
+    expect(report.coverage.resourcesNotFound).toEqual([]);
 
     expect(headlineOf(stderr)).not.toBe(NO_ESCALATION);
   });

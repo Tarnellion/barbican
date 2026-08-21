@@ -1596,6 +1596,17 @@ export const WARNINGS = {
     "answers the way an unauthenticated request would and is read here as a lawful " +
     "denial — which is why such a run ends with exit code 2. The verdict names " +
     "the accounts.",
+  // What the other four cannot say. Every counter beside them answers "was
+  // anything found"; this one answers "was anything looked at", which is the
+  // question `coverage` exists for and which nothing consulted. See B-4.
+  endpointsNotProbed:
+    "Not every endpoint was probed: coverage.notProbed says how many were left " +
+    "out and for what reason. No finding against one of them means no request " +
+    "ever went to it, not that it is clean. The usual reason is a path " +
+    "parameter with no resource declaring a value for it, and that reason drops " +
+    "the object half of the surface — the endpoints addressed by identifier, " +
+    "which is where broken object-level authorization lives. Declare resources " +
+    "for them, or read this report as covering the rest of the list only.",
   findingsCapped:
     "Some evidence rows were left out of this file: a defect was observed more " +
     `times than the ${MAX_ROWS_PER_DEFECT} rows kept per defect. Nothing about ` +
@@ -1660,6 +1671,20 @@ function warningsFor(report: VerdictInputs, config: RunConfig): readonly string[
   }
   if (report.summary.observations > 0 && report.coverage.outcomes.denied === 0) {
     warnings.push(WARNINGS.nothingRefused);
+  }
+  // The counters this function reads all answer "was anything found". None of
+  // them answers "was anything looked at", and `coverage` was not read here at
+  // all — so a run that probed two endpoints out of eleven, the other nine being
+  // templated with no resources declared, came back with `warnings: []`,
+  // `findings: 0` and exit 0, and the screen called it clean. The nine are the
+  // object half of the surface. Found by the audit of 21 August 2026 (B-4).
+  //
+  // The two counters and not `notProbed`, which is built from `skipped` alone:
+  // `endpointsProbed` may also come from `options.probed`, and a run that
+  // reached fewer endpoints than the source gave owes the reservation however it
+  // came to.
+  if (report.coverage.endpointsProbed < report.coverage.endpointsTotal) {
+    warnings.push(WARNINGS.endpointsNotProbed);
   }
   if (report.findingsOmitted > 0) {
     warnings.push(WARNINGS.findingsCapped);

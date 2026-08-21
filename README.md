@@ -204,6 +204,16 @@ On `main`, not on npm. `0.4.0` is still what `npm install barbican` gives you, a
 none of the following is in it. This section is written as the changes land and is
 renamed to name the version when that version is tagged.
 
+**A run that did not reach every endpoint says so**, in the file and on the
+screen. Eleven endpoints with nine of them templated and no `resources` declared
+gave `endpointsProbed: 2`, `warnings: []`, no findings, exit `0` and a green "No
+privilege escalation found" — over the object half of the surface, the endpoints
+addressed by identifier, which is where BOLA and IDOR live and which drops out on
+the most ordinary mistake there is. Nothing read `coverage`: every other counter
+answers "was anything found", and none of them answers "was anything looked at".
+`report.warnings[]` has a fifth sentence for it, and the headline no longer stands
+alone on such a run.
+
 **The order in the report, and `configDigest`, no longer depend on the machine's
 locale** ([ADR-0036](docs/adr/0036-one-order-on-every-machine.md)). Eleven
 comparisons went through `localeCompare()` with no locale argument, which sorts
