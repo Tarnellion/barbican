@@ -551,6 +551,50 @@ export class DeniedCanaryError extends Error {
   }
 }
 
+/**
+ * A canary whose method a run without `--unsafe-methods` does not issue.
+ *
+ * The same class as `ExcludedCanaryError` — a canary pointing at something the
+ * run will not probe — and the third of the four reasons `planEndpoints` has for
+ * not probing to be mirrored here. The fourth, `escapes-target`, no endpoint
+ * source can produce; see `assertCanariesUsable`.
+ *
+ * The safety held: `UnsafeMethodError` fires inside the client and nothing
+ * reaches the wire. The diagnosis did not.
+ * `failureCode` looks for a transport code on an error this project threw
+ * itself, finds none, and the reason falls through to `TRANSPORT` — so a canary
+ * on `POST /login` produced "the platform did not answer at all: check the
+ * address, the port and that the deployment is up" about a deployment that was
+ * up, while the mistake was in the operator's own file. The preview, from the
+ * same configuration, printed the endpoint as skipped for its method and in the
+ * same summary counted three canary requests against it.
+ *
+ * Found by adversarial review, 21 August 2026 (V-5). See ADR-0041.
+ */
+export class UnsafeCanaryError extends Error {
+  readonly accountId: string;
+  readonly endpointId: string;
+  readonly method: string;
+
+  constructor(accountId: string, endpointId: string, method: string) {
+    super(
+      `The canary of account "${accountId}" points at "${endpointId}", whose ` +
+        `method is ${method}. Without --unsafe-methods a run issues ` +
+        `${SAFE_METHODS.join(" and ")} only, so this is a request the run would ` +
+        `never make — and an account whose canary is never made is one nothing ` +
+        `confirms the credentials of. Name a canary on a ` +
+        `${SAFE_METHODS.join(" or ")} endpoint: the one this account needs its ` +
+        `credentials to read is the one worth naming here. With --unsafe-methods ` +
+        `the run issues this one instead, up to three times — twice with ` +
+        `credentials and once without.`,
+    );
+    this.name = "UnsafeCanaryError";
+    this.accountId = accountId;
+    this.endpointId = endpointId;
+    this.method = method;
+  }
+}
+
 export class TemplatedCanaryError extends Error {
   constructor(accountId: string, endpointId: string) {
     super(
@@ -579,9 +623,23 @@ export class TemplatedCanaryError extends Error {
  * first against a deployment they do not own. Found by the audit of 14 August
  * 2026 (G-1).
  *
+ * Because it is called from both, every message raised here has to be true of
+ * both: the preview has sent nothing, so nothing here may say that a request was
+ * made or that a platform answered. That is what the message the fifth check
+ * replaces got wrong from the other direction — it was a sentence about the
+ * platform, printed about a file.
+ *
+ * The checks that read the endpoint list alone come first, and the one needing
+ * the policy last. Between them they now cover every reason `planEndpoints` has
+ * for not probing an endpoint, except `escapes-target` — which no endpoint
+ * source can produce, since `isUsablePathTemplate` refuses at the door every
+ * path that would reach it, and which `joinUrl` names truthfully before any
+ * request for the library door that can.
+ *
  * @throws {UnknownCanaryEndpointError}
  * @throws {TemplatedCanaryError}
  * @throws {ExcludedCanaryError}
+ * @throws {UnsafeCanaryError}
  * @throws {DeniedCanaryError}
  */
 export function assertCanariesUsable(options: {
@@ -594,12 +652,23 @@ export function assertCanariesUsable(options: {
   }[];
   readonly exclude?: readonly string[];
   /**
-   * The resolved policy, for the fourth check. Optional so that a caller with
-   * nothing to compare against still gets the first three.
+   * Whether the run may issue methods outside `SAFE_METHODS`.
+   *
+   * Absent means no, which is the tool's default everywhere else and the answer
+   * that has to be the default here: a caller who forgets the flag gets the
+   * strict reading, never a canary quietly cleared for a method the run will
+   * not send.
+   */
+  readonly allowUnsafeMethods?: boolean;
+  /**
+   * The resolved policy, for the last check. Optional so that a caller with
+   * nothing to compare against still gets the four that read the endpoint list
+   * alone.
    */
   readonly policy?: ResolvedAccessPolicy;
 }): void {
   const byId = new Map(options.endpoints.map((endpoint) => [endpoint.id, endpoint]));
+  const safe = new Set<string>(SAFE_METHODS);
   for (const canary of options.canaries) {
     const endpoint = byId.get(canary.endpointId);
     if (endpoint === undefined) {
@@ -610,6 +679,22 @@ export function assertCanariesUsable(options: {
     }
     if ((options.exclude ?? []).includes(canary.endpointId)) {
       throw new ExcludedCanaryError(canary.accountId, canary.endpointId);
+    }
+    // A canary on a method this run does not issue.
+    //
+    // The same shape as the exclusion above — a canary aimed at something the
+    // run will not probe — and it is checked here for the same reason: the
+    // client refuses the method, so the run learns about it as a request that
+    // produced no status, and a failure with no transport code reads as
+    // `TRANSPORT`. That is a sentence about the address, the port and the
+    // liveness of a deployment, printed about a configuration.
+    //
+    // Ahead of the policy check, because it is the more fundamental of the two:
+    // an operator who resolves a policy contradiction on this canary would meet
+    // this one next, while resolving this one leaves them with a canary that can
+    // actually be sent.
+    if (options.allowUnsafeMethods !== true && !safe.has(endpoint.method)) {
+      throw new UnsafeCanaryError(canary.accountId, canary.endpointId, endpoint.method);
     }
     // A canary the policy denies is a contradiction inside the declaration.
     //
@@ -640,6 +725,17 @@ export async function probeCanaries(options: {
   readonly credentials: CredentialProvider;
   readonly client: HttpClient;
   readonly exclude?: readonly string[];
+  /**
+   * Whether the run may issue methods outside `SAFE_METHODS`.
+   *
+   * Passed straight to `assertCanariesUsable`, and absent means no. A client
+   * built without the permission refuses the request itself, and what came back
+   * from that was a canary with no status and no transport code — which the
+   * summary read as a platform that never answered. Checked here so a consumer
+   * of the library reaching `probeCanaries` directly gets the same sentence the
+   * CLI does.
+   */
+  readonly allowUnsafeMethods?: boolean;
   /** The accounts — to know the tenant and pick its base address. */
   readonly accounts?: readonly Account[];
   readonly tenantBaseUrls?: ReadonlyMap<TenantId, string>;
@@ -669,10 +765,13 @@ export async function probeCanaries(options: {
   );
   const results: CanaryResult[] = [];
 
-  // The same three checks the dry run makes, from the same function. Before a
-  // request rather than during the loop: a canary that cannot be probed is a
-  // mistake in the configuration, and half a run's worth of requests is a poor
-  // way to learn about one.
+  // The same checks the dry run makes, from the same function. Before a request
+  // rather than during the loop: a canary that cannot be probed is a mistake in
+  // the configuration, and half a run's worth of requests is a poor way to learn
+  // about one.
+  //
+  // `options` is handed over whole, which is what carries `allowUnsafeMethods`
+  // and `exclude` through without a second list of field names to keep in step.
   assertCanariesUsable(options);
 
   for (const canary of options.canaries) {
