@@ -486,6 +486,29 @@
             "required": ["name", "kind", "path", "endpoints"],
             "additionalProperties": false
           }
+        },
+        "compareSubtree": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "endpoints": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": ["endpoints", "path"],
+            "additionalProperties": false
+          }
         }
       },
       "required": ["responseMustDifferByTenant"],

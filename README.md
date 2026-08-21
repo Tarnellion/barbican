@@ -398,6 +398,29 @@ matrix walk and the run's own asked an account's list of declared endpoints with
 declared — and that is exactly where the matrix is largest: `describeMatrix` at
 1600 endpoints went from 18.96 ms to 7.58 ms.
 
+**The body channel compares what a human named**
+([ADR-0044](docs/adr/0044-the-body-channel-compares-what-a-human-named.md)). The
+one check the "bodies are not read" invariant was relaxed for was wrong in both
+directions at once, and both were reproduced. Two tenants with no records answer
+`{"orders":[],"total":0}` byte for byte, so the digests matched and a `high`
+cross-tenant leak was reported — on a fresh deployment, where half the tenants
+have nothing yet, a wall of them and exit `1` against a healthy platform. And two
+responses carrying the records of *both* tenants, differing by one `requestId` in
+the envelope, produced no finding at all: a `serverTime`, a `generatedAt`, a
+pagination cursor or an echoed ETag switches the check off entirely, which is the
+ordinary shape of a list endpoint. **A pair where every declared `count` is zero
+on both sides is no longer compared**, and `bodySignals.compareSubtree` declares
+which part of the body to compare — `{ endpoints: [orders.list], path: data.orders }`
+— so the envelope may move. A scope that cannot be resolved yields no digest
+rather than falling back to the whole body; the observation says
+`digestScopeMissing`. Both readings were also invisible in the report:
+`comparedPairs` grew by one whether the digests matched, differed, or were
+compared when there was nothing to compare, so it splits into `matchedPairs` and
+`differedPairs`, with `skippedBothEmptyPairs`, `pairsWithoutDigest` and
+`emptinessSignalsDeclared` beside them. `docs/report.md` states the boundary none
+of this removes, held by a test: **a difference in digests is not proof of
+isolation** — it proves only that the bytes were different.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.

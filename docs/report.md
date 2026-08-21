@@ -386,7 +386,12 @@ differ in every one of them:
       "checkId": "identical-response-across-tenants",
       "endpointId": "orders.list",
       "counters": {
-        "comparedPairs": 24,
+        "comparedPairs": 24,                // and how those 24 came out:
+        "matchedPairs": 12,                 //   the digests matched — one finding each
+        "differedPairs": 12,                //   the digests differed (see the boundary below)
+        "skippedBothEmptyPairs": 0,         // every declared count zero on both sides
+        "pairsWithoutDigest": 0,            // body over the ceiling, or a scope that was absent
+        "emptinessSignalsDeclared": 1,      // 0 would mean empty and full are indistinguishable here
         "skippedRelatedPairs": 39,          // shared tenant or kinship in the tree
         "skippedDifferentContextPairs": 147 // different conditions — cannot compare
       }
@@ -478,6 +483,85 @@ same run. The old figures were not invented: 8 + 13 = 21 is every pair among the
 seven comparable rows this endpoint had before request conditions existed. With
 conditions there are twenty-one rows and 210 pairs, and most of them are pairs
 the check refuses to draw a conclusion from.
+
+**`comparedPairs` splits into `matchedPairs` and `differedPairs`**, and the sum
+is checkable on the spot:
+
+    matchedPairs + differedPairs === comparedPairs
+
+Until 21 August 2026 there was only the total, and it grew by one whether the
+digests matched, differed, or were compared when there was nothing to compare. A
+reader could not tell "we compared and they honestly differed" from "we compared,
+the difference sat in a request identifier, and the leak went past us". The
+boundary section below is what `differedPairs` has to be read against.
+
+**`skippedBothEmptyPairs` — pairs where the human's own counts were zero on both
+sides.** Two tenants with no records return the same bytes on a healthy platform
+and on a broken one, so the pair proves nothing either way. Counting it as
+compared is how a fresh deployment, where half the tenants have nothing yet,
+produced a wall of `high` findings and exit 1 against a platform with nothing
+wrong with it. Only pairs where **every** declared `count` is zero on **both**
+sides land here: one account seeing nothing while another sees four records under
+the same digest is still a finding.
+
+**`emptinessSignalsDeclared` — how many `count` signals the endpoint has.** Zero
+means the tool has no way to tell an empty response from a full one there, so the
+skip above could not have fired whatever the platform returned, and the false
+positive is still reachable. The cure is one line of `bodySignals.signals`
+declaring a count over the collection the endpoint returns.
+
+**`pairsWithoutDigest` — pairs the tool could not compare at all.** A body over
+`maxBodyBytes` yields no digest, and neither does a `compareSubtree` scope whose
+path was not in the response; the observation carries `bodyOverLimit` or
+`digestScopeMissing` saying which. Before this counter such a pair was filtered
+out ahead of pairing and vanished from every number in the report — the flag on
+the observation existed since 16 August 2026 and nothing read it.
+
+## A difference in digests is not proof of isolation
+
+The most important sentence in this section, and the one a reader supplies for
+themselves if the document does not.
+
+`differedPairs: 12` means twelve pairs of accounts from different tenants got
+responses whose digests were not equal. It means **only that the bytes were
+different**. It is not a statement that those tenants are isolated from each
+other, and no arrangement of these counters can be made into one.
+
+Three ways bytes differ while data leaks, all of them ordinary:
+
+- **The envelope moved.** A `requestId`, a `serverTime`, a `generatedAt`, a
+  pagination cursor, an echoed ETag — one field that changes between two requests
+  is enough. Two responses carrying the records of *both* tenants then have
+  different digests and produce no finding at all. This is the normal shape of a
+  list endpoint on a real platform, which is why `compareSubtree` exists: it
+  compares the part of the body you name and lets the envelope move. Without it,
+  on such an endpoint, `differedPairs` counts pairs the check never really
+  examined.
+- **The scope excludes the leak.** `compareSubtree: { path: data.orders }`
+  compares `data.orders` and nothing else. A tenant name leaking in
+  `data.meta.owner` is outside the comparison, and the pair still lands in
+  `differedPairs`.
+- **The same records came back in another order.** Digests are over an exact
+  value; two tenants shown identical rows in different orders differ by digest.
+  Array order is deliberately kept — the order of records is data, and two tenants
+  shown the same records is a leak worth seeing — but it means order alone can
+  hide one.
+
+What the check *does* establish is the other direction, and it is worth having:
+`matchedPairs` is a claim about a platform, not about a serialisation. Where two
+accounts from unrelated tenants received the same bytes on an endpoint an
+operator declared must differ between them, something is wrong, and
+`skippedBothEmptyPairs` is what keeps that claim from being made about two empty
+responses.
+
+So the body channel is one that finds leaks and never clears an endpoint of them.
+Read `differedPairs` as "the tool has nothing to report here", never as "these
+tenants are isolated". The same asymmetry runs through the whole report — see
+"How to tell 'clean' from 'nothing was tested'" above — but here it is sharper,
+because a digest looks like a measurement of the whole response and is a
+measurement of one particular text.
+
+See `docs/guide.md`, "Signals over the body", for the declaration side of this.
 
 **`contextsProbed` answers the question "did anything go out under these
 conditions at all".** Every declared set of conditions has a key, including with

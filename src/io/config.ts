@@ -12,11 +12,13 @@ import { z } from "zod";
 import type { AuthScheme } from "../adapters/credentials.js";
 import { assertAuthSchemeIsSound, DEFAULT_AUTH_SCHEME } from "../adapters/credentials.js";
 import type { ContextAttributes } from "../adapters/ports.js";
+import { parseSignalPath } from "../adapters/signals.js";
 import type {
   Account,
   Endpoint,
   ExpectedAccessPolicy,
   Resource,
+  SignalSpec,
   TenantNode,
 } from "../core/index.js";
 import {
@@ -26,6 +28,7 @@ import {
   BODY_OVER_LIMIT_SIGNAL,
   createTenantHierarchy,
   DEFAULT_DIGEST_SIGNAL,
+  DIGEST_SCOPE_MISSING_SIGNAL,
   describePolicyRule,
   FLAT_HIERARCHY,
   HTTP_METHODS,
@@ -483,6 +486,50 @@ const configSchema = z.strictObject({
         )
         .min(1)
         .optional(),
+      /**
+       * The part of the body to compare, instead of the whole of it.
+       *
+       * A digest over raw bytes is defeated by the envelope real list endpoints
+       * come wrapped in: two responses carrying **both** tenants' records differ
+       * by one `requestId`, the digests differ with them, and the check that the
+       * "bodies are not read" invariant was relaxed for finds nothing. A
+       * `serverTime`, a `generatedAt`, a pagination cursor, an echoed ETag do
+       * the same.
+       *
+       * The path is declared here and never read off a response. Deriving it —
+       * "compare the fields that happen to agree" — would be the tool choosing
+       * its own answer, which is the mistake ADR-0006 exists against. See
+       * ADR-0044.
+       */
+      compareSubtree: z
+        .array(
+          z.strictObject({
+            endpoints: z.array(z.string().min(1)).min(1),
+            /**
+             * The grammar is `parseSignalPath`, called rather than copied: a
+             * second spelling of one grammar is the drift ADR-0024 is about. The
+             * root is refused — comparing the whole body is what happens without
+             * this section, so declaring it would be a line that reads as a
+             * decision and is not one.
+             */
+            path: z
+              .string()
+              .min(1)
+              .refine(
+                (path) => {
+                  try {
+                    parseSignalPath(path);
+                    return true;
+                  } catch {
+                    return false;
+                  }
+                },
+                { message: "the path has an empty segment" },
+              ),
+          }),
+        )
+        .min(1)
+        .optional(),
     })
     .optional(),
 });
@@ -533,6 +580,19 @@ export interface DeclaredSignal {
   readonly endpoints: readonly string[];
 }
 
+/**
+ * The part of the body to compare on a set of endpoints.
+ *
+ * One entry per scope, and an endpoint may appear in only one of them: two
+ * scopes for one endpoint would be two answers to a question that has one.
+ */
+export interface CompareSubtree {
+  /** The endpoints this scope applies to. Each must be one whose bodies are compared. */
+  readonly endpoints: readonly string[];
+  /** A dotted path into the parsed body, in the syntax `parseSignalPath` states. */
+  readonly path: string;
+}
+
 export interface BodySignalsConfig {
   /**
    * The endpoints whose response must differ between tenants.
@@ -543,6 +603,13 @@ export interface BodySignalsConfig {
   readonly responseMustDifferByTenant: readonly string[];
   readonly maxBodyBytes?: number | undefined;
   readonly signals?: readonly DeclaredSignal[] | undefined;
+  /**
+   * Where to compare only part of the body. Absent means the whole of it.
+   *
+   * The envelope is what makes this necessary — see the schema above and
+   * ADR-0044.
+   */
+  readonly compareSubtree?: readonly CompareSubtree[] | undefined;
 }
 
 /** The fields one of two shapes declares and the other does not. */
@@ -612,6 +679,12 @@ type _DeclaredSignalIsTiedToTheSchema = Tied<
     NonNullable<NonNullable<ParsedConfig["bodySignals"]>["signals"]>[number]
   >
 >;
+type _CompareSubtreeIsTiedToTheSchema = Tied<
+  SameFields<
+    CompareSubtree,
+    NonNullable<NonNullable<ParsedConfig["bodySignals"]>["compareSubtree"]>[number]
+  >
+>;
 
 export class DuplicateSignalNameError extends Error {
   constructor(name: string) {
@@ -637,6 +710,51 @@ export class DuplicateSignalNameError extends Error {
  * than resolved: an operator who wanted a scalar of their own gets to rename it,
  * and nobody gets a report that lies in silence.
  */
+/**
+ * A scope declared for an endpoint whose bodies are never compared.
+ *
+ * The digest exists only where `responseMustDifferByTenant` says so — that
+ * declaration is what makes the body be read at all. A scope on any other
+ * endpoint therefore scopes nothing, and it fails in the worst way available: the
+ * operator believes the envelope is being skipped, the run goes on comparing
+ * whole bodies, and every `requestId` in the response keeps the check silent.
+ * Nothing in the report would contradict them.
+ *
+ * Refused rather than ignored, for the same reason `ReservedSignalNameError` is:
+ * a declaration that quietly does nothing is the failure this tool exists to
+ * find, arriving through its own configuration file. See ADR-0044.
+ */
+export class CompareSubtreeWithoutComparisonError extends Error {
+  constructor(endpointId: string) {
+    super(
+      `compareSubtree names endpoint "${endpointId}", which is not under ` +
+        `responseMustDifferByTenant. No digest is computed there, so the scope would ` +
+        `scope nothing and the declaration would be silently dead. Add the endpoint to ` +
+        `responseMustDifferByTenant, or drop it from compareSubtree.`,
+    );
+    this.name = "CompareSubtreeWithoutComparisonError";
+  }
+}
+
+/**
+ * Two scopes for one endpoint.
+ *
+ * One endpoint yields one digest, so the second declaration could only replace
+ * the first or be dropped, and both readings are defensible — which is exactly
+ * why the operator has to say which they meant. Left to a rule, this is a
+ * configuration whose meaning depends on the order of two lines in a file.
+ */
+export class DuplicateCompareSubtreeError extends Error {
+  constructor(endpointId: string) {
+    super(
+      `Endpoint "${endpointId}" is named by more than one compareSubtree entry. One ` +
+        `endpoint produces one digest, so a second scope for it would either replace the ` +
+        `first or be dropped, and the file would not say which.`,
+    );
+    this.name = "DuplicateCompareSubtreeError";
+  }
+}
+
 export class ReservedSignalNameError extends Error {
   constructor(name: string) {
     super(
@@ -1245,6 +1363,22 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
       }
     }
   }
+
+  // A typo here fails the same way as one in `responseMustDifferByTenant`: the
+  // scope lands on nothing, the whole body goes on being compared, and the
+  // report says neither. The other two things a scope can be wrong about — the
+  // endpoint's bodies not being compared at all, and two scopes for one
+  // endpoint — need no endpoint list and are refused at the parse gate, which a
+  // library consumer cannot walk past.
+  for (const subtree of config.bodySignals?.compareSubtree ?? []) {
+    for (const endpointId of subtree.endpoints) {
+      if (!known.has(endpointId)) {
+        throw new UnknownEndpointReferenceError("The compareSubtree declaration", endpointId, [
+          ...known,
+        ]);
+      }
+    }
+  }
 }
 
 /**
@@ -1261,13 +1395,28 @@ export function applyBodySignals(
 ): readonly Endpoint[] {
   const mustDiffer = new Set(config.bodySignals?.responseMustDifferByTenant ?? []);
   const declared = config.bodySignals?.signals ?? [];
+  const scopes = config.bodySignals?.compareSubtree ?? [];
   if (mustDiffer.size === 0 && declared.length === 0) {
     return endpoints;
   }
   return endpoints.map((endpoint) => {
-    const extra = declared
+    const extra: SignalSpec[] = declared
       .filter((signal) => signal.endpoints.includes(endpoint.id))
       .map(({ name, kind, path }) => ({ name, kind, path }) as const);
+
+    // The scoped digest travels as one of the endpoint's own signals, under the
+    // name the tool reserves for itself. The runner prepends the whole-body
+    // digest that `responseMustDifferByTenant` implies and appends these, and
+    // the extractor resolves a digest name to its **last** spec — so the
+    // declared scope replaces the default rather than sitting beside it. The
+    // validation above is what makes the pair well defined: at most one scope
+    // per endpoint, and only on endpoints whose bodies are compared at all.
+    // See ADR-0044.
+    const scope = scopes.find((one) => one.endpoints.includes(endpoint.id));
+    if (scope !== undefined) {
+      extra.push({ name: DEFAULT_DIGEST_SIGNAL, kind: "digest", path: scope.path });
+    }
+
     return {
       ...endpoint,
       ...(mustDiffer.has(endpoint.id) ? { responseMustDifferByTenant: true } : {}),
@@ -1470,6 +1619,29 @@ export function parseRunConfig(source: string): RunConfig {
     }
     if (signal.name === DEFAULT_DIGEST_SIGNAL) {
       throw new ReservedSignalNameError(signal.name);
+    }
+    if (signal.name === DIGEST_SCOPE_MISSING_SIGNAL) {
+      throw new ReservedSignalNameError(signal.name);
+    }
+  }
+
+  // A scope on an endpoint whose bodies nobody compares is a line that reads as
+  // a decision and does nothing, and a second scope on one endpoint is two
+  // answers to one question. Here rather than in the schema because both are
+  // statements about how two sections of the file relate, which zod sees one
+  // field at a time — and here rather than in `assertReferencesResolve` because
+  // neither needs to know what endpoints exist.
+  const compared = new Set(config.bodySignals?.responseMustDifferByTenant ?? []);
+  const scoped = new Set<string>();
+  for (const subtree of config.bodySignals?.compareSubtree ?? []) {
+    for (const endpointId of subtree.endpoints) {
+      if (!compared.has(endpointId)) {
+        throw new CompareSubtreeWithoutComparisonError(endpointId);
+      }
+      if (scoped.has(endpointId)) {
+        throw new DuplicateCompareSubtreeError(endpointId);
+      }
+      scoped.add(endpointId);
     }
   }
 
