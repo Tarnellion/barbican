@@ -132,7 +132,7 @@ const endpointSelectorSchema = z.union([
     .array(
       z.union([
         z.string().min(1),
-        z.object({
+        z.strictObject({
           // The set comes from the core, like `RESOURCE_RELATIONS` below and for
           // the same reason: a list written out here read the type nowhere, so a
           // method added to the domain would be refused by this schema as
@@ -219,8 +219,8 @@ const contextValueSchema = z.union([z.string(), z.strictObject({ env: z.string()
  * answers. A dependency in a public type is a version of that dependency the
  * package has promised to keep. Found by the audit of 14 August 2026 (E-6).
  */
-const configSchema = z.object({
-  target: z.object({
+const configSchema = z.strictObject({
+  target: z.strictObject({
     baseUrl: z.url({ protocol: /^https?$/ }),
     allowedHosts: z
       .array(z.string().min(1), {
@@ -247,7 +247,7 @@ const configSchema = z.object({
   accounts: z
     .array(
       z
-        .object({
+        .strictObject({
           id: z.string().min(1),
           role: z.string().min(1),
           /**
@@ -315,7 +315,7 @@ const configSchema = z.object({
         }),
     )
     .min(1),
-  policy: z.object({
+  policy: z.strictObject({
     fallback: outcomeSchema,
     rules: z.array(ruleSchema),
   }),
@@ -329,7 +329,7 @@ const configSchema = z.object({
   /** The resources requested and their owners — see ADR-0010. */
   resources: z
     .array(
-      z.object({
+      z.strictObject({
         id: z.string().min(1),
         tenant: z.string().min(1),
         owner: z.string().min(1).optional(),
@@ -358,7 +358,7 @@ const configSchema = z.object({
       z.array(z.string().min(1)).min(1),
       z
         .array(
-          z.object({
+          z.strictObject({
             id: z.string().min(1),
             /** The parent. Absent means the root. See ADR-0013. */
             parent: z.string().min(1).optional(),
@@ -456,7 +456,7 @@ const configSchema = z.object({
    * See ADR-0011.
    */
   bodySignals: z
-    .object({
+    .strictObject({
       responseMustDifferByTenant: z.array(z.string().min(1)).min(1),
       maxBodyBytes: z.number().int().positive().optional(),
       /**
@@ -473,7 +473,7 @@ const configSchema = z.object({
        */
       signals: z
         .array(
-          z.object({
+          z.strictObject({
             name: z.string().min(1),
             kind: z.enum(["count", "present"]),
             path: z.string(),
