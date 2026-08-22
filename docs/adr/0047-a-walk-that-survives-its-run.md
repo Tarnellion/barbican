@@ -188,3 +188,34 @@ What it costs:
   rather than growing a buffer. A stream that cannot be written disables itself
   and says so once: the run's traffic is already spent, and losing the safety net
   is not a reason to lose what it was there to catch.
+
+## Note of 2026-08-22: what Windows can and cannot answer for
+
+The release of 0.5.0 turned the Windows job red on three of this ADR's tests, and
+the failures were right: two of the promises above are POSIX promises, and the
+tests asserted them everywhere.
+
+**A signal cannot be delivered.** `subprocess.kill("SIGINT")` on Windows does not
+signal anything — POSIX signals do not exist there, and node maps the call onto
+`TerminateProcess`, which ends the target outright. The handler cannot run, so
+the graceful half of this decision — stop the walk, write what was observed,
+re-raise the signal — is unreachable from CI and from a test. A `SIGINT` typed
+into a console window still reaches a node process, so the behaviour is not
+absent on Windows; it is unreachable from anything that can be automated, which
+for the purpose of a gate is the same thing.
+
+What Windows does answer for is the half that needs no handler, and it is the
+half this ADR was written for: the stream is written as the walk goes, so a
+process killed outright still leaves the cells it had walked, and `--resume`
+still has something to continue from. That is what the Windows test asserts now.
+
+**`mode: 0o600` on the stream is POSIX only.** `chmod` there sets and clears one
+attribute — read-only — and ignores every other bit, so the file comes back
+`0o666` whatever was asked for. This is the same boundary ADR-0038 records for
+the report itself. The test checks the mode on POSIX and the file's existence on
+Windows, rather than asserting a promise the platform does not let the tool make.
+
+The third failure was not a boundary but a test that leaned on one: the
+`--resume` case reached its half-walked state by interrupting a run. It reaches
+it by exhausting `--max-requests` now — which is the case this ADR is written
+from, and which every platform can produce.

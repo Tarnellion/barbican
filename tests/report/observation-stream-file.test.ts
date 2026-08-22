@@ -75,7 +75,21 @@ describe("a stream on disk", () => {
     expect(stream.failure).toBeUndefined();
     // The same care the report is written with: this file carries every request
     // address and every account identifier.
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    //
+    // POSIX only, and the asymmetry is the platform's rather than this project's:
+    // `chmod` on Windows sets and clears one attribute — read-only — and ignores
+    // every other bit, so the mode there comes back 0o666 whatever was asked for.
+    // Asserting 0o600 everywhere made the Windows job red on a promise the
+    // platform cannot keep; asserting nothing there would leave the file
+    // unexamined on a platform where it is the *less* protected. What is checked
+    // instead is what Windows does answer for: the file exists and the process
+    // can read it back. The boundary is written down in ADR-0047 rather than
+    // living in this comment alone.
+    if (process.platform === "win32") {
+      expect((await stat(path)).isFile()).toBe(true);
+    } else {
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+    }
     const lines = (await readFile(path, "utf8")).split("\n");
     expect(lines.at(-1)).toBe("");
     expect(JSON.parse(lines[0] ?? "")).toMatchObject({ kind: "header", runId: header.runId });

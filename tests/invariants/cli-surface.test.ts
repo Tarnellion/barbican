@@ -372,7 +372,62 @@ describe("a mistake on the command line", () => {
  * ADR-0047. What must still never be there is `.partial` — a report caught
  * mid-write, which the rename exists to make impossible.
  */
-describe("an interrupted run", () => {
+/**
+ * Windows is a different question, not a weaker answer to this one.
+ *
+ * `subprocess.kill("SIGINT")` there does not deliver a signal — POSIX signals do
+ * not exist, and node maps the call onto `TerminateProcess`, which ends the
+ * target unconditionally. A handler cannot run, so the graceful half of ADR-0047
+ * — stop the walk, write what was observed, re-raise — is unreachable from a
+ * test and from CI alike. Asserting it there was asserting a promise the
+ * platform does not let the tool make, and it is what made the Windows job red
+ * on the release of 0.5.0.
+ *
+ * What Windows does answer for is the half that needs no handler: the stream is
+ * written as the walk goes, so a process killed outright still leaves the cells
+ * it had walked, and `--resume` still has something to continue from. That is
+ * the assertion below, and it is the reason the stream exists at all.
+ */
+const onPosix = process.platform === "win32" ? describe.skip : describe;
+const onWindows = process.platform === "win32" ? describe : describe.skip;
+
+onWindows("a run killed outright, where no handler can run", () => {
+  it("still leaves the cells the walk had reached", async () => {
+    const reportDir = await mkdtemp(join(tmpdir(), "barbican-cli-killed-"));
+    const report = join(reportDir, "run.json");
+    const stub = await startStub({ answer: false, answerFirst: 2 });
+    try {
+      const fixture = await writeFixture(stub.port, SIX_ENDPOINTS);
+      const running = startCli([
+        "run",
+        "-c",
+        fixture.config,
+        "-e",
+        fixture.endpoints,
+        "-r",
+        report,
+        "--rps",
+        "50",
+      ]);
+      await stub.until(3);
+      running.interrupt();
+      await running.done;
+
+      // No report: nothing ran to write one. The stream is what survived.
+      const left = (await readdir(reportDir)).sort();
+      expect(left).toContain("run.json.stream.ndjson");
+      expect(left).not.toContain("run.json");
+      const stream = await readFile(join(reportDir, "run.json.stream.ndjson"), "utf8");
+      const lines = stream.split("\n").filter(Boolean);
+      expect(JSON.parse(lines[0] ?? "")).toMatchObject({ kind: "header" });
+      expect(lines.length).toBeGreaterThan(1);
+    } finally {
+      await stub.close();
+    }
+  });
+});
+
+onPosix("an interrupted run", () => {
   /** The files a run leaves in the directory it was given, minus the report itself. */
   const besides = (files: readonly string[]): readonly string[] =>
     files.filter((one) => one !== "run.json").sort();
@@ -499,12 +554,22 @@ describe("a resumed run", () => {
   it("probes only what is left, and files it under the interrupted run's identifier", async () => {
     const reportDir = await mkdtemp(join(tmpdir(), "barbican-cli-resume-"));
     const report = join(reportDir, "run.json");
-    const held = await startStub({ answer: false, answerFirst: 2 });
+    const held = await startStub({ answer: true });
     let fixture: Fixture;
     let first: { runId: string };
     try {
       fixture = await writeFixture(held.port, SIX_ENDPOINTS);
-      const running = startCli([
+      // Stopped by its own ceiling rather than by a signal, and deliberately so.
+      // This is the case ADR-0047 is written from — an operator whose run hit the
+      // budget with the matrix half walked — and it is reachable on every
+      // platform. A signal is not: on Windows `kill` cannot deliver one, the
+      // handler never runs, and a test that interrupted this way was asserting a
+      // promise the platform does not let the tool make. Signals have their own
+      // tests above, each on the platform that can answer for it.
+      //
+      // Three requests: one canary, one control, one cell. The ceiling stops the
+      // walk with five of the six cells still ahead.
+      const stopped = await cli([
         "run",
         "-c",
         fixture.config,
@@ -514,10 +579,10 @@ describe("a resumed run", () => {
         report,
         "--rps",
         "50",
+        "--max-requests",
+        "3",
       ]);
-      await held.until(3);
-      running.interrupt();
-      expect((await running.done).status).toBe(130);
+      expect(stopped.status).toBe(2);
       first = JSON.parse(await readFile(report, "utf8")) as { runId: string };
     } finally {
       await held.close();
@@ -542,10 +607,10 @@ describe("a resumed run", () => {
         "--resume",
       ]);
 
-      expect(resumed.stderr).toContain("Resuming: 2 cells are already in");
+      expect(resumed.stderr).toContain("Resuming: 3 cells are already in");
       // Four requests, not six: the two the interrupted run paid for are not
       // paid for again.
-      expect(answering.seen).toHaveLength(4);
+      expect(answering.seen).toHaveLength(3);
 
       const written = JSON.parse(await readFile(report, "utf8")) as {
         truncated: boolean;
