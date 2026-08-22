@@ -15,6 +15,9 @@ export * from "./selectors.js";
 // here. See ADR-0041.
 export * from "./standards/bundled.js";
 export * from "./standards/catalog.js";
+// The other direction of the citation: from a clause to what exercised it,
+// including where nothing broke. See ADR-0052.
+export * from "./standards/coverage.js";
 export * from "./standards/types.js";
 export * from "./tenancy.js";
 export * from "./types.js";

@@ -587,6 +587,31 @@ retried only on `429`, `5xx` and a failure on the wire, so one `200` off a stale
 replica is a `critical` that is not there and one `403` off a node that has the
 rule hides one that is. Both are in the guide and in `docs/report.md`, held by a
 test.
+**The report carries a digest of itself**
+([ADR-0051](docs/adr/0051-the-report-answers-for-itself.md)). `runId`,
+`configDigest` and `tool.version` identified the run, the declaration and the
+build; nothing identified the artifact, so a row could be deleted from `findings`
+and a sentence rewritten in `verdict.reason` with nothing inside the file
+objecting — and since HTML and PDF are rendered from the JSON, the edit reaches
+every form of the document. `contentDigest` is a sha256 over the report with that
+field taken out, and `checkContentDigest()` recomputes it from a parsed file.
+**It catches a careless edit and not a deliberate one**, because whoever changed
+the row can recompute the value: the ADR records the signature that would, along
+with the questions — where the key lives, who holds the verifying half, what a
+signed report even claims — that have to be answered before there is one.
+
+**`coverage.clauses` says which clauses the run exercised, not only which ones
+broke** ([ADR-0052](docs/adr/0052-a-clause-can-be-reported-as-exercised.md)).
+`checksRun` had that for registered checks; the matrix channel — privilege
+escalation and cross-tenant access, which is what this tool is for — had nothing,
+so a clause exercised over nine hundred agreeing cells reached an evidence pack
+only if one of them broke. Each row carries the cells that concluded, the cells
+that concluded nothing by reason (`not-observed`, `probe-error`), and the
+reservations that stop "exercised" from meaning "holds": an endpoint never
+probed, a walk cut short, credentials nothing confirmed, a platform whose
+refusals this tool cannot recognise. **Nothing in it is a percentage** — a
+percentage hides its denominator, and claiming a clause covered over a surface
+the tool could not see is the same class of lie as a falsely clean run.
 
 ## Example
 
