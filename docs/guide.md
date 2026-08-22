@@ -3,6 +3,11 @@
 How to declare what gets checked and how to start a run. How to read the result —
 see [report.md](report.md).
 
+**Running against a platform you do not own?** Read
+[first-run.md](first-run.md) first: the eleven things to settle before the first
+request, in the order they have to be settled. This document explains each of
+them; that one is the order.
+
 ## The model in one paragraph
 
 You declare **who is meant to get what**. The tool walks the API as each account
@@ -1088,6 +1093,61 @@ And agree where the report is going to live before it exists. It names the place
 their authorization does not hold; until they have it, it is a document about an
 unfixed vulnerability in somebody else's system.
 
+A checklist of everything to settle before the first request —
+[first-run.md](first-run.md).
+
+### The run's own blast radius
+
+Two costs of running that are not about the platform's defects at all. Both are
+easy to meet for the first time in the middle of a run.
+
+**The job that runs barbican holds every role's live credentials at once.** The
+tool does not obtain tokens: a login is a POST, that is, outside safe mode, and
+"does not log in" is on the list above. So somebody puts working credentials for
+every declared account into the environment of one process — the customer, the
+affiliate, the support agent, the **tenant administrator**, the **operator
+console** — and keeps them there for the length of the walk. On a platform where
+those roles are deliberately held by different people, that process is a
+concentration of privilege the platform never grants anybody.
+
+`barbican.run.yaml` is the other half. It is meant to be committed and reviewed,
+and `tokenEnv` names a variable rather than a value exactly so that it can be —
+which makes the committed file an accurate map of which variable holds which
+role. That map plus read access to the job's environment, or the right to
+restart it, is every role at once.
+
+Nothing in the tool changes this, so it is a decision about the job: where it
+runs, who can read its environment or its process list, whether the CI variables
+are masked and scoped to one protected branch, and — the part that is usually
+forgotten — how soon the tokens are revoked after the window closes. A run is an
+hour; a token minted for it lives as long as nobody rotates it.
+
+**And the run is shaped like the thing it is looking for.** By construction it
+sends a long run of `401` and `403` from one subject in a few minutes: every cell
+the policy expects to be refused, back to back, on one account. That is the
+signature an account lockout, a step-up challenge or an anti-fraud rule is hung
+on, and a platform that has one is usually a platform worth testing.
+
+What happens then is the part worth knowing in advance:
+
+- the account is locked mid-walk, and every remaining cell of it answers `401` —
+  a denial, which agrees with a policy of denial and is counted as tested and
+  agreed;
+- the canary probed after the walk fails, so the run does end in exit code 2 and
+  names the account. It names it in **`staleCredentials`**, which is worded for a
+  token that expired on its own. The run caused this one, and nothing in the file
+  says so;
+- the real account, belonging to a real person on the platform, is locked after
+  the run has finished. Support hears about it from them.
+
+`--rps` and `--concurrency` lower the rate, not the ratio: a matrix whose cells
+are mostly denials produces mostly refusals however slowly it is walked. The
+things that actually help are agreed with the platform's owner rather than
+configured here — an exemption for the accounts named in the run, a lockout
+counter reset afterwards, or accounts created for the run and disabled with it.
+Put the account identifiers in the same message as the window; they are the ones
+that will need unlocking.
+
 ## Choosing which checks run
 
 Every registered check runs unless you say otherwise. `--checks` narrows that to
@@ -1311,6 +1371,45 @@ methods, which is worth fixing in the list.
 `Requests that failed: N (reasons in the report)` in yellow. That is not a
 verdict — the run can still end in `0` — but it is the thread to pull, and it is
 the difference between a boundary you can see and one you cannot.
+
+### One probe per cell
+
+The sections above are about statuses the tool reads wrongly. This one is about
+how many times it reads them, which is **once**.
+
+A cell is one request, asked once. A finding is not re-probed to see whether it
+holds; a cell that agreed is not re-probed either; and nothing the run writes
+distinguishes a result seen twice from one seen once, because no result was.
+
+Requests are repeated, and the difference is the whole point of this section.
+The retry loop fires on `429`, on `5xx` and on a request that failed on the wire
+— conditions that say the answer never arrived. **An unexpected outcome is not
+one of them**, deliberately: a `200` where the policy said `denied` is the
+finding the run exists to produce, and asking again would be the tool choosing
+between two answers it has no grounds to choose between.
+
+So a matrix cell is a coin tossed once, and both faces are expensive.
+
+**One `200` makes a `critical`.** A stale replica behind a cache, still answering
+from before a permission was revoked. A permissions rollout part-way through a
+fleet, one node updated and another not. An A/B branch or a feature flag, and the
+account landed on the arm that has not been fixed. Each of those gives one
+`privilege-escalation` at `foreign-tenant` — severity `critical`, and identical
+in the report to a hole that is always open. Before such a finding goes into a
+ticket, repeat the request by hand: the finding carries the `request` line to do
+it with, and that is the confirmation the tool cannot perform for you.
+
+**One `403` hides a hole**, and this is the direction nobody checks. The cell
+comes back refused, agrees with the policy, and is counted in
+`coverage.cellsMatched` — "tested and agreed", where what happened is "asked
+once, and once it was refused". A leak open on two nodes out of three reads as
+protection.
+
+What follows for the declaration: on a platform behind a cache, a rolling deploy
+or a flag system, cut the matrix rather than widen it. Twenty endpoints probed
+during a quiet window, with the interesting cells repeated by hand, are worth
+more than two hundred whose every row is a single sample. `docs/report.md` says
+the same thing to whoever is reading the file afterwards.
 
 ## Working example
 

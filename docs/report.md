@@ -640,6 +640,50 @@ None of the four has a flag. Each needs the operator to declare something the
 tool may not derive from the system under test, and there is no such declaration
 yet — see `docs/guide.md`, "The statuses this tool cannot read".
 
+## One probe per cell
+
+Every row in this file is **one request, asked once**. There is no second pass:
+a finding is not re-probed to see whether it holds, and a cell that agreed is not
+re-probed either. Nothing in the report distinguishes a result that was seen
+twice from one that was seen once, because no result in it was ever seen twice.
+
+The tool does repeat a request, and it is worth knowing which repeats those are,
+so the sentence above is not read as "the tool never asks again". The retry loop
+fires on `429`, on `5xx` and on a request that failed on the wire — conditions
+about the transport, chosen because they say the answer never arrived. An
+**unexpected outcome is not one of them.** A `200` where the policy said `denied`
+is a finding, and a finding is what the run is for; asking again would be the
+tool deciding which of two answers it prefers.
+
+**A single `200` is enough for a `critical`.** Any one of these produces one, on
+a platform whose isolation is intact:
+
+- a stale replica behind a cache, answering from the state before a permission
+  was revoked;
+- a permissions rollout part-way through the fleet, where one node has the new
+  rule and another does not;
+- an A/B branch, a feature flag or a canary deployment, where the account landed
+  on the arm that has not been fixed.
+
+The row that comes out of that is `privilege-escalation`, `foreign-tenant`,
+severity `critical` — indistinguishable, in the file, from the same row produced
+by a hole that is always open. Before a finding of that weight leaves for a
+ticket, ask for it again by hand, with the `request` line the finding carries.
+That is a repeat the tool cannot make for you.
+
+**And the other direction is quieter, which makes it the more expensive one.** A
+single `403` off the node that *does* have the rule settles the cell as agreed:
+`match: true`, no finding, and one more towards `coverage.cellsMatched`. That
+counter reads "tested and agreed", and on such a cell what it means is "asked
+once, and once it was refused". A hole open on two nodes out of three is a coin
+this run tossed a single time.
+
+There is no way to say any of this in the file — no `confirmed` field, no count
+of probes per cell — because there is nothing to put in one. Read
+`cellsMatched`, and every `match: true` under it, as a single sample. See
+`docs/guide.md`, "One probe per cell", for the same boundary before a run rather
+than after it.
+
 ## What was tested and what was not
 
 The `coverage` section answers the question without which the numbers above mean
@@ -1153,6 +1197,59 @@ traffic is indistinguishable from an attack. Nothing in the file says which of
 the two happened — the operator's terminal does, on a line reading either
 `Named on the wire as: …` or `This run did not name itself on the wire`. See
 [ADR-0045](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0045-a-consented-run-says-who-it-is.md).
+
+## The run's own blast radius
+
+The rest of this document is about what the run observed. This section is about
+what the run **did**, because two of its consequences show up in the file wearing
+somebody else's name.
+
+**The job that produced this report held every role's live credentials at once.**
+barbican does not log in — a login is usually a POST, and that is outside safe
+mode — so the operator supplies working tokens through the environment
+of one process: the customer, the affiliate, the support agent, the tenant
+administrator and the operator console, side by side, for the length of the walk.
+That process is a concentration of privilege the platform itself never grants to
+one principal. `accounts[].tokenEnv` in this file names the variable each of them
+came from, and `barbican.run.yaml` is meant to be committed and reviewed —
+`tokenEnv` names a variable rather than a value precisely so that it can be. The
+committed file is therefore a map of which variable holds which role, which is
+harmless on its own and is half of a pair. Whoever reads this report is holding
+the other half: the addresses, the account identifiers, and the places the
+authorization does not hold.
+
+Nothing in the tool can shrink that. What can be decided is where the job runs,
+who can read its environment, who can restart it with a shell, and how long the
+tokens live after the window closes.
+
+**And the run is shaped like the attack it looks for.** By construction it sends
+a long run of `401` and `403` from one subject in a few minutes — every cell the
+policy expects to be refused, in order, from one account. That is the signature
+platforms hang an account lockout, a step-up challenge or an anti-fraud flag on,
+and the ones that do it are the ones worth testing: consumer platforms, payment
+surfaces, anything with a regulator behind it.
+
+The report knows the case where **half the requests failed** and exits 2 for it.
+It does not know this one, and the difference matters twice over. A lockout does
+not fail requests — it answers them, correctly formed, with `401` or `403`. Those
+are denials. A denial agrees with a policy of denial, so the cells past the
+lockout land in `cellsMatched` and read as tested and agreed, and the run can
+still end in `0`.
+
+What does fire is the canary, probed again after the walk, and **it reports the
+lockout as `staleCredentials`** — an account whose canary passed before and
+failed after. That row is worded for a token that expired on its own. Read it as
+the question "what happened to this account during the walk", not as the answer
+"the token was too short-lived": on a platform with a lockout policy, the run is
+the likeliest cause, and it is the one cause the tool cannot see. The same goes
+for a sudden wall of `probe-error` from one account part-way through the file:
+`at` on each observation is the timestamp to line up against the platform's own
+security log.
+
+None of this is a reason not to run. It is the reason the run is agreed in
+advance, in writing, with someone who can unlock an account — see "Before a run
+against something you do not own" and the checklist in
+[first-run.md](first-run.md).
 
 ## Where this file came from, and who can read it
 
