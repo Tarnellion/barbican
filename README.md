@@ -134,14 +134,16 @@ npm install barbican
 barbican run --help
 ```
 
-`0.4.0` is the current release, and the one to install. Publishing goes through
+`0.5.0` is the current release, and the one to install. Publishing goes through
 CI with provenance, so `npm audit signatures` verifies it against this repository
 and the workflow that built it.
 
-Neither earlier version is worth having. **`0.1.0` is a stub whose CLI registers
-no commands**, published by hand before the release pipeline existed; `0.2.0`
-ships a tarball with no guide and no examples, and a CLI that speaks Russian
-around English documentation.
+Of the four versions before it, none is worth having. **`0.1.0` is a stub whose
+CLI registers no commands**, published by hand before the release pipeline
+existed; `0.2.0` ships a tarball with no guide and no examples, and a CLI that
+speaks Russian around English documentation; `0.3.0` and `0.4.0` both answer
+`0` — "tested, and clean" — to runs that tested nothing, by the six roads the
+section below closes.
 
 ### What changed in 0.3.0
 
@@ -232,11 +234,14 @@ naming every declared endpoint.
 whitespace**, `Retry-After` can no longer shorten the backoff below the tool's own
 formula, and `--dry-run` no longer refuses configurations that run.
 
-### Unreleased
+### What changed in 0.5.0
 
-On `main`, not on npm. `0.4.0` is still what `npm install barbican` gives you, and
-none of the following is in it. This section is written as the changes land and is
-renamed to name the version when that version is tagged.
+The largest release so far, and most of it came out of an adversarial audit of
+20-21 August 2026 rather than out of the roadmap: six ways a run could come back
+`0` about something it had not tested, four doors that carried more than a path,
+and twenty-four invariants that were held by a comment and by nothing else. Read
+the first four paragraphs before upgrading — three of them stop a configuration
+that used to start.
 
 **A canary has to tell this account from nobody at all**
 ([ADR-0040](docs/adr/0040-a-canary-has-to-tell-somebody-from-nobody.md)). A 2xx
