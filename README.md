@@ -528,6 +528,29 @@ again and says so; a declaration that covered nothing is reported as
 `matched: 0`; and `not-observed` and `probe-error` cannot be accepted at all,
 because a run may not buy its way out of saying it reached nothing.
 
+**`barbican diff` compares two saved reports**
+([ADR-0050](docs/adr/0050-a-comparison-is-of-defects-not-of-files.md)). The two
+questions a second run is made to answer — "what changed since yesterday" and
+"is this the platform regressing or did I edit the declaration" — had both
+halves of both answers sitting in the file and nothing reading either:
+`configDigest` exists to separate those two causes, `defects[].key` was made
+readable and stable across runs so a ticket could cite one, and a plain `diff` of
+two report files is useless, because `runId`, the timestamps, `durationMs` on
+every observation and every `signals.digest` differ on two runs of one matrix
+against one unchanged platform. The comparison says the declaration first — a
+moved `configDigest` means part of what follows may be your own edit — and joins
+on the defect rather than the finding row, since one defect is fifty rows or one
+depending on the evidence budget and the width of the matrix. **A disappearance
+is attributed**: a defect gone from a run that never probed that endpoint is
+reported as nothing fixed and nothing looked at, and a new one on an endpoint the
+earlier run never probed may be newly covered rather than newly broken. A defect
+now held out of the verdict by an `accepted:` declaration is a change and not a
+fix, which is otherwise indistinguishable from one. Coverage that shrank exits
+`2` along with a truncated run, a run whose own verdict was `2`, a report
+compared with itself and two reports of different `schemaVersion`; `1` is a real
+difference, `0` is the same defects over the same surface, and `64` stays what
+the argument parser rejects. `--json` writes the same conclusion to stdout.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.
@@ -628,6 +651,13 @@ worse: a typo in a flag name used to exit `1`, which in CI is indistinguishable
 from "a privilege escalation was found". The line is drawn where the run starts —
 what the argument parser rejects is `64`, and anything that fails after that is
 `2`.
+
+`barbican diff` keeps the same four meanings one level up: `0` the same defects
+over the same surface, `1` the two runs do not describe the same platform, `2`
+the comparison cannot be trusted — a truncated run, a report compared with
+itself, coverage that shrank — and `64` for the command line alone. The table of
+reasons is in [docs/report.md](docs/report.md), "Comparing this report with an
+earlier one".
 
 Code `2` takes priority over `1`: an unverified run is never clean. Note that an
 *unexpected denial* also fails the run — the tool compares declared intent with

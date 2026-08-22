@@ -53,6 +53,8 @@ import {
 import { findUnauthenticated } from "./report/authenticity.js";
 import type { CanaryOutcome, RunReport } from "./report/build.js";
 import { buildReport, runVerdict, WARNINGS } from "./report/build.js";
+import type { ComparisonTone } from "./report/compare.js";
+import { compareRuns, renderComparison, toComparableRun } from "./report/compare.js";
 import type { ObservationStream } from "./report/write.js";
 import {
   declarationDigest,
@@ -1667,6 +1669,82 @@ async function endBySignal(
 }
 
 /**
+ * How the comparison's own tones reach a terminal.
+ *
+ * A `Record` over `ComparisonTone` and not a lookup with a default, for the
+ * reason `WARNING_STYLE` above is one: a tone added to the report layer without
+ * a colour here does not compile, so it cannot reach the screen unpainted.
+ * Green appears exactly once, on the tone whose name is `good` — a comparison
+ * screen that made a caveat look like a clearance would be `escalationLine`'s
+ * defect in a new place.
+ */
+const COMPARISON_STYLE: Readonly<Record<ComparisonTone, Parameters<typeof paint>[1] | undefined>> =
+  {
+    plain: undefined,
+    good: "green",
+    warn: "yellow",
+    bad: "red",
+  };
+
+/**
+ * A report file, read and parsed, with the argument that named it.
+ *
+ * `readNamedFile` next door names the four flags a run takes; a comparison
+ * takes two positional paths, and "EISDIR: illegal operation on a directory"
+ * says which of them no better here than it did there.
+ *
+ * @throws {Error} naming which of the two arguments failed
+ */
+async function readReport(role: string, path: string): Promise<unknown> {
+  const text = await readFile(path, "utf8").catch((cause: unknown) => {
+    throw new Error(
+      `the ${role} report cannot be read from "${path}": ${
+        cause instanceof Error ? cause.message : String(cause)
+      }. A comparison takes two paths, and the system error names neither`,
+    );
+  });
+  try {
+    return JSON.parse(text) as unknown;
+  } catch (cause) {
+    throw new Error(
+      `the ${role} report at "${path}" is not JSON: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }. This takes the file \`run --report\` writes, not the stream beside it ` +
+        `(${OBSERVATION_STREAM_FORMAT} is one JSON document per line)`,
+    );
+  }
+}
+
+/**
+ * Two saved reports, read against each other.
+ *
+ * The summary goes to stderr and `--json` to stdout, which is the split `run`
+ * already uses: the artifact is redirectable and the screen is not mixed into
+ * it. Both are produced from one `compareRuns`, so the file and the terminal
+ * cannot come to different conclusions — the mistake `WARNINGS` spent four days
+ * being.
+ */
+async function diff(beforePath: string, afterPath: string, asJson: boolean): Promise<number> {
+  const [before, after] = await Promise.all([
+    readReport("first", beforePath).then((one) => toComparableRun(one, beforePath)),
+    readReport("second", afterPath).then((one) => toComparableRun(one, afterPath)),
+  ]);
+  const comparison = compareRuns(before, after);
+  if (asJson) {
+    process.stdout.write(`${JSON.stringify(comparison, null, 2)}\n`);
+  }
+  process.stderr.write(
+    `${renderComparison(comparison)
+      .map((line) => {
+        const style = COMPARISON_STYLE[line.tone];
+        return style === undefined ? line.text : paint(line.text, style);
+      })
+      .join("\n")}\n`,
+  );
+  return comparison.verdict.code;
+}
+
+/**
  * A mistake in the command line, not a finding about the platform.
  *
  * commander exits 1 on an unknown option or a missing required one, and 1 is
@@ -1731,6 +1809,26 @@ program
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`${paint("Run aborted:", "red")} ${message}\n`);
+      process.exitCode = 2;
+    }
+  });
+
+program
+  .command("diff")
+  .description("Compare two saved reports: what changed, and whether it was the platform")
+  .argument("<before>", "the earlier report, written by `run --report`")
+  .argument("<after>", "the later one")
+  .option("--json", "write the comparison to stdout as JSON instead of a summary")
+  .action(async (before: string, after: string, flags: { readonly json?: boolean }) => {
+    try {
+      process.exitCode = await diff(before, after, flags.json === true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // 2 and not 64, and the line is the same one `run` draws: what the
+      // argument parser rejects is a usage error, and everything after that —
+      // a path that is not there, a file that is not JSON, a document that is
+      // not a report — is a conclusion the tool refuses to draw.
+      process.stderr.write(`${paint("Comparison aborted:", "red")} ${message}\n`);
       process.exitCode = 2;
     }
   });

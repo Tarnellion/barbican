@@ -32,6 +32,22 @@ Two more you will need beside them:
 The example in the [README](../README.md) is compiled and run by a test, and it
 uses four of these.
 
+## Comparing two runs
+
+`compareRuns(before, after)` takes two reports and returns what changed between
+them: whether the declaration behind them moved, whether the second run looked
+at less than the first, and which defects appeared, went or changed — joined on
+`defects[].key`, because a difference in the number of finding **rows** is news
+about the shape of a run and not about the platform. `renderComparison(result)`
+turns that into the lines the CLI prints, each with a tone rather than a colour.
+See [ADR-0050](adr/0050-a-comparison-is-of-defects-not-of-files.md) for what the
+exit codes mean and why a truncated run can be compared but not believed.
+
+Its input is a structural view that a `RunReport` already satisfies, so a walk
+you drove yourself needs no conversion. A report that came back off disk is
+JSON and is not one until something has checked it: `toComparableRun(value,
+source)` is that check, and it throws `UnreadableReportError` naming the file.
+
 ## Running the walk yourself
 
 `collectObservations` performs it: it takes the endpoints, the accounts, a
@@ -86,13 +102,13 @@ the same terms as the bundled three. See
 
 ## What the rest of the surface is
 
-The package exports 216 values and a comparable number of types. They fall into
+The package exports 221 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,
    `Endpoint`, `Resource`, `RunConfig`, `AccessObservation`, `AccessDiff`,
    `RunReport` and their neighbours.
-2. **95 error classes.** These are public on purpose: catching an error and
+2. **96 error classes.** These are public on purpose: catching an error and
    naming it is the only way to tell a configuration mistake from a network
    failure, and `instanceof` needs the class. They are grouped by the module that
    throws them.

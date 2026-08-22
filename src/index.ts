@@ -51,4 +51,14 @@ export * from "./io/config.js";
 export * from "./io/untrusted.js";
 export * from "./report/authenticity.js";
 export * from "./report/build.js";
+// Two saved reports read against each other (ADR-0050). Exported for the same
+// reason `buildReport` is: a consumer running the walk from the library holds
+// the reports afterwards, and the question "what changed since yesterday" does
+// not become a different question because the walk was driven by code. Its
+// input is a structural view a `RunReport` satisfies, so no conversion is
+// needed; `toComparableRun` is for a report that came back off disk as JSON,
+// and `UnreadableReportError` is what it throws — a class rather than a name,
+// because telling a mistyped path from a report of another vintage is done in
+// a `catch`.
+export * from "./report/compare.js";
 export * from "./runner.js";
