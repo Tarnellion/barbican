@@ -91,6 +91,10 @@ function report(overrides: {
       bodiesComparedOn: [],
       writeMethodsProbed: false,
       checksRun: [],
+      // Nothing exercised a clause here: this report is assembled by hand out of
+      // counters, and a clause row invented beside them would be a claim of
+      // coverage with no run behind it. `runVerdict` does not read the field.
+      clauses: [],
       byCheck: [],
       contextsProbed: {},
       resourcesNotFound: [],
@@ -587,9 +591,19 @@ describe("coverage and run identification", () => {
    * it has found something. Found by a second cold read.
    */
   it("lists the checks that ran, including the ones that found nothing", () => {
-    expect(build({ checksRun: ["identical-response-across-tenants"] }).coverage.checksRun).toEqual([
-      "identical-response-across-tenants",
-    ]);
+    // A `CheckRun` and not a bare id. This case still passed the id alone —
+    // `overrides` is a `Record<string, unknown>`, so the compiler had nothing to
+    // say — and that shape stopped being the field's since schema `2` on
+    // 15 August 2026. Nothing read `standards` off these rows in `buildReport`
+    // until `coverage.clauses` did, and `mergeFindings` mapped the same list to
+    // `[undefined, undefined]` in silence beside it.
+    const ran = {
+      id: "identical-response-across-tenants",
+      description: "bodies differ",
+      standards: [],
+    };
+
+    expect(build({ checksRun: [ran] }).coverage.checksRun).toEqual([ran]);
   });
 
   /**

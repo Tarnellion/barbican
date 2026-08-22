@@ -54,6 +54,12 @@ import {
   SEVERITY_ORDER,
 } from "../core/index.js";
 import { byCodeUnits } from "../core/order.js";
+// The clause-to-coverage direction. Shaped and computed in the core for the
+// reason ADR-0041 gave for keeping `standardsForDiff` there: which clause a cell
+// is evidence about is a statement about what a discrepancy means, and the
+// report carries what a channel declares rather than deciding it.
+import type { ClauseCoverage, ClauseReservation, JudgedCell } from "../core/standards/coverage.js";
+import { clauseCoverage } from "../core/standards/coverage.js";
 import type {
   AccountConfig,
   ContextAttributeValue,
@@ -674,6 +680,35 @@ export interface Coverage {
    */
   readonly checksRun: readonly CheckRun[];
   /**
+   * Every clause this run reached, and what it did about it.
+   *
+   * The second direction of the citation, for both channels at once.
+   * `checksRun` above has always had it for registered checks — the clauses a
+   * check answers for, named whether or not it found anything. The matrix
+   * channel had no such list, so a clause exercised across nine hundred agreeing
+   * cells appeared in an evidence pack only if one of them broke: the pack could
+   * say "here is what failed under 8.2.2" and not "8.2.2 was exercised across
+   * the surface and holds", which is the sentence a certifying body asks for.
+   * ADR-0041 recorded the gap; ADR-0052 closes it.
+   *
+   * **Nothing here is a ratio, on purpose.** A percentage is the shape this
+   * record could most easily lie in: it hides its denominator, and the
+   * denominator is the whole question. Each row carries the cells that concluded
+   * and the cells that did not — by reason, with every reason present — so that
+   * "exercised: 900" cannot be read without "and 140 cells said nothing".
+   *
+   * And each row carries the run-level reservations that stop "exercised" from
+   * meaning "holds": an endpoint never probed, a walk cut short, credentials
+   * nothing confirmed, a platform whose refusals this tool cannot recognise.
+   * Claiming a clause covered over a surface the tool structurally could not see
+   * is worse than claiming nothing, and it is the same class of failure as a
+   * falsely clean run.
+   *
+   * Additive: a reader written against schema `2` is not broken by a field it
+   * does not know.
+   */
+  readonly clauses: readonly ClauseCoverage[];
+  /**
    * What each check examined, in the check's own terms.
    *
    * This was `bodyComparison`, a shape belonging to one particular check, and
@@ -789,6 +824,32 @@ export interface RunReport {
    * incidental construction order of another one.
    */
   readonly configDigest: string;
+  /**
+   * The report's fingerprint of itself, over everything but this field.
+   *
+   * Three fields identified a run — `runId`, `configDigest`, `tool.version` —
+   * and none of them identified the **artifact**. `createHash` occurred once in
+   * this file and it hashed the configuration, so the document could be opened
+   * in a text editor, have a row taken out of `findings` and a sentence
+   * rewritten in `verdict.reason`, and nothing inside it would object. The
+   * provenance npm publishes attests to the package, not to what a run of it
+   * produced. Under ADR-0002 the edit is not contained either: HTML and PDF are
+   * rendered from this file, so a doctored JSON carries into every form of the
+   * document.
+   *
+   * `checkContentDigest` is what recomputes it — over the parsed document, so
+   * that reindenting the file does not read as tampering.
+   *
+   * **It catches carelessness and not malice**, and ADR-0051 says so in the
+   * decision rather than in a footnote: anyone who can change a row can
+   * recompute this value. A signature is the other half and is deliberately not
+   * done — where the key lives and who holds the public half are decisions this
+   * one does not make.
+   *
+   * Additive: a reader written against schema `2` is not broken by a field it
+   * does not know.
+   */
+  readonly contentDigest: string;
   /**
    * Who produced this file, and where its shape is explained.
    *
@@ -1912,7 +1973,14 @@ export const WARNINGS = {
  *
  * Anonymous accounts are not in the answer: there is nothing to confirm.
  */
-function unconfirmedCredentials(report: VerdictInputs): readonly string[] {
+function unconfirmedCredentials(
+  // The two fields it reads and no more, because a third reader arrived that
+  // has them before the report exists: `clauseReservationsOf` asks the same
+  // question while `coverage` is still being assembled. Narrowing the parameter
+  // is what lets the answer stay one function rather than becoming the pair that
+  // drifted within four days the first time it was written twice.
+  report: Pick<VerdictInputs, "accounts" | "canaries">,
+): readonly string[] {
   // `?? []` although the type says the field is there: `runVerdict` and
   // `exitCodeFor` are exported, and a consumer recomputing a verdict from a
   // report saved by 0.4.0 hands over an object that predates the field. It used
@@ -2000,26 +2068,169 @@ function warningsFor(report: VerdictInputs, config: RunConfig): readonly string[
  * Found by the audit of 21 August 2026 (L-2); `src/core/order.ts` holds the rule.
  */
 function canonical(value: unknown): string {
+  const pieces: string[] = [];
+  canonicalInto((piece) => pieces.push(piece), value);
+  return pieces.join("");
+}
+
+/**
+ * The same serialisation, handed to a sink one piece at a time.
+ *
+ * One traversal for both readers, which is the whole reason this function is
+ * shaped like this: `configDigest` hashes a configuration small enough to hold
+ * as a string, and `contentDigest` hashes the finished report, which is not.
+ * `src/report/write.ts` was rewritten in chunks because the string ceiling —
+ * 536 870 888 characters — is reachable on this tool's ordinary output: a run of
+ * 57 826 cells against a platform answering with 196 headers died at the last
+ * step with every request already spent (ADR-0038). Building the canonical form
+ * as one string to hash it would put that ceiling straight back, one function
+ * further along.
+ *
+ * A second serialiser would be the other way to have it, and this project has a
+ * rule about that. The `Set` branch is the one place a piece has to be
+ * materialised — its members are sorted by their serialised form — and it is
+ * bounded by the set, not by the document.
+ */
+function canonicalInto(write: (piece: string) => void, value: unknown): void {
   if (value instanceof Map) {
     const entries = [...value.entries()].sort(([left], [right]) =>
       byCodeUnits(String(left), String(right)),
     );
-    return `Map(${entries.map(([key, one]) => `${JSON.stringify(String(key))}:${canonical(one)}`).join(",")})`;
+    write("Map(");
+    entries.forEach(([key, one], index) => {
+      write(index === 0 ? "" : ",");
+      write(`${JSON.stringify(String(key))}:`);
+      canonicalInto(write, one);
+    });
+    write(")");
+    return;
   }
   if (value instanceof Set) {
-    return `Set(${[...value].map(canonical).sort(byCodeUnits).join(",")})`;
+    write(`Set(${[...value].map(canonical).sort(byCodeUnits).join(",")})`);
+    return;
   }
   if (Array.isArray(value)) {
-    return `[${value.map(canonical).join(",")}]`;
+    write("[");
+    value.forEach((element, index) => {
+      write(index === 0 ? "" : ",");
+      canonicalInto(write, element);
+    });
+    write("]");
+    return;
   }
   if (value !== null && typeof value === "object") {
-    const keys = Object.keys(value).sort(byCodeUnits);
-    const pairs = keys.map(
-      (key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`,
-    );
-    return `{${pairs.join(",")}}`;
+    const record = value as Record<string, unknown>;
+    // A key whose value is `undefined`, a function or a symbol is dropped, for
+    // the reason `reportChunks` drops it: `JSON.stringify` does, so the file on
+    // disk does not have it. `contentDigest` is checked against a report parsed
+    // back out of that file, and a serialisation that wrote `"tenant":null`
+    // where the document has no `tenant` at all would fail every honest report
+    // it was asked about. Found the first time this digest was compared with
+    // itself across a round trip — `ReportedAccount.tenant` is `string |
+    // undefined` and an account outside a tenant carries the key unset.
+    //
+    // It is the right answer for `configDigest` too, and slightly more right
+    // than what stood here: `{ exclude: undefined }` and `{}` are one
+    // declaration, and a fingerprint that told them apart was answering a
+    // question nobody asked.
+    const keys = Object.keys(record)
+      .filter((key) => {
+        const own = record[key];
+        return own !== undefined && typeof own !== "function" && typeof own !== "symbol";
+      })
+      .sort(byCodeUnits);
+    write("{");
+    keys.forEach((key, index) => {
+      write(index === 0 ? "" : ",");
+      write(`${JSON.stringify(key)}:`);
+      canonicalInto(write, record[key]);
+    });
+    write("}");
+    return;
   }
-  return JSON.stringify(value) ?? "null";
+  // `undefined` inside an array, and a function or a symbol anywhere: all three
+  // become `null`, which is what `JSON.stringify` writes for them in an array.
+  write(JSON.stringify(value) ?? "null");
+}
+
+/**
+ * The name of the field a report carries its own digest under.
+ *
+ * Written once, because two readers need it and they must agree: the builder
+ * that fills it and the verifier that has to take it back out before
+ * recomputing. A literal in both places is the shape ADR-0024 was written
+ * against, at the one spot where a disagreement would make every report verify
+ * against itself and none against the file.
+ */
+const CONTENT_DIGEST = "contentDigest";
+
+/**
+ * The digest of everything in a report except the field that carries it.
+ *
+ * Over the **parsed** document and not over its bytes, which is the same
+ * decision `configDigest` rests on: indentation, key order and the trailing
+ * newline are the file's formatting, not its content, and a reader who
+ * reserialised the JSON to look at it would otherwise be told the report had
+ * been tampered with.
+ *
+ * A whole sha256 rather than the sixteen characters `configDigest` keeps.
+ * That one is a label two runs are compared by, where a short string is easier
+ * to read off a screen; this one is a check value, and truncating a check value
+ * trades collision resistance for nothing.
+ */
+export function contentDigestOf(report: object): string {
+  const { [CONTENT_DIGEST]: _carried, ...content } = report as Record<string, unknown>;
+  const hash = createHash("sha256");
+  canonicalInto((piece) => {
+    hash.update(piece);
+  }, content);
+  return hash.digest("hex");
+}
+
+/** What {@link checkContentDigest} answers. */
+export interface ContentDigestCheck {
+  /**
+   * Whether the file carries a digest and that digest is the one its content
+   * gives.
+   *
+   * **False on a report that carries none.** A verifier that read a missing
+   * field as a pass would make the whole exercise optional: delete the line and
+   * the document is unimpeachable again. `declared` is what tells the two cases
+   * apart — a report written before 0.5.0 has no digest, and that is a thing to
+   * know rather than a thing to wave through.
+   */
+  readonly ok: boolean;
+  /** The digest this content gives now. */
+  readonly computed: string;
+  /** The digest the file carries, if it carries one. */
+  readonly declared?: string;
+}
+
+/**
+ * Whether a report is the file the run wrote.
+ *
+ * **What it catches:** an edit made without thinking — a row deleted from
+ * `findings`, a sentence rewritten in `verdict.reason`, a counter nudged in
+ * `summary`, a merge that mangled the JSON, a truncated download. Since
+ * HTML and PDF are rendered from this file (ADR-0002), an edit here reaches
+ * every form of the document, and this is what makes the edit visible.
+ *
+ * **What it does not catch: a deliberate change.** Whoever edited the row can
+ * run this function and write the new value back, and nothing here would know.
+ * A digest a reader can recompute is a digest an author can recompute. Making
+ * the artifact evidence against a determined editor takes a signature — a key
+ * that does not live beside the report and a verifier that holds the public
+ * half — and that is a separate decision this one does not make. ADR-0051
+ * records it as not done rather than leaving the reader to assume it was.
+ */
+export function checkContentDigest(report: object): ContentDigestCheck {
+  const declared = (report as Record<string, unknown>)[CONTENT_DIGEST];
+  const computed = contentDigestOf(report);
+  return {
+    ok: typeof declared === "string" && declared === computed,
+    computed,
+    ...(typeof declared === "string" ? { declared } : {}),
+  };
 }
 
 /**
@@ -2122,6 +2333,103 @@ function countByContext(options: BuildReportOptions): Readonly<Record<string, nu
     }
   }
   return counts;
+}
+
+/**
+ * The cells of the matrix, reduced to what a clause row needs of each.
+ *
+ * From `options.cells` — the walk's own enumeration, which carries a verdict for
+ * every cell including the ones no request reached — and **not** from the
+ * observations, which have no row for a cell that was never asked. That absence
+ * is the single most important number on a clause row: an evidence pack that
+ * counts only what came back describes the surface it happened to touch.
+ *
+ * The narrowed match is taken from the published observations rather than from
+ * `cell.match`, so that `upheld` here is the same "tested and agreed" as
+ * `coverage.cellsMatched`. The walk is not the only channel that judges a cell:
+ * a body check objects to cells the walk agreed with (ADR-0022), and a second
+ * reading of `match` in this file would be the two-sources-of-verdict defect
+ * `withVerdicts` exists to avoid.
+ *
+ * An `error` outcome concluded nothing whatever the verdict says about it, and
+ * is counted as such before anything else looks at `match`.
+ */
+function judgedCells(
+  cells: readonly CellVerdict[],
+  observations: readonly ReportedObservation[],
+): readonly JudgedCell[] {
+  const narrowed = new Map(
+    observations
+      .filter((observation) => observation.match !== undefined)
+      .map((observation) => [cellKey(observation), observation.match === true]),
+  );
+  return cells.map((cell) => {
+    const relation = cell.relation === undefined ? {} : { relation: cell.relation };
+    if (cell.actual === undefined) {
+      return { ...relation, verdict: "not-observed" as const };
+    }
+    if (cell.actual === "error") {
+      return { ...relation, verdict: "probe-error" as const };
+    }
+    const upheld = narrowed.get(cellKey(cell)) ?? cell.match;
+    return { ...relation, verdict: upheld ? ("upheld" as const) : ("breached" as const) };
+  });
+}
+
+/**
+ * Why the clause rows are not a statement about the whole surface.
+ *
+ * Every one of these is already somewhere in the report — in `coverage`, in
+ * `truncated`, in `canaries`, in `outcomes` — and that is exactly why they are
+ * repeated on the rows: a clause row is what gets pulled out of the file and
+ * into a pack about one requirement, and a qualification that stayed behind in
+ * another section is one that did not travel with the claim. The report already
+ * had `endpointsProbed` when a run probed two endpoints of eleven and printed
+ * "No privilege escalation found" over the other nine (B-4); nothing was missing
+ * from the file, and the number that mattered was not next to the claim.
+ */
+function clauseReservationsOf(input: {
+  readonly accounts: readonly ReportedAccount[];
+  readonly canaries: readonly CanaryOutcome[];
+  readonly staleCredentials: readonly string[];
+  readonly unverifiedAfterWalk: readonly string[];
+  readonly unauthenticated: readonly string[];
+  readonly endpointsProbed: number;
+  readonly endpointsTotal: number;
+  readonly truncated: boolean;
+  readonly observed: number;
+  readonly denied: number;
+}): readonly ClauseReservation[] {
+  const reservations: ClauseReservation[] = [];
+  // All four ways a run can fail to prove that an account was who it said it
+  // was, under one code. They differ in the cure and not in what they do to a
+  // clause row: a refusal recorded under an account whose credentials nothing
+  // confirmed says what an unauthenticated request says, so a cell that
+  // "upheld" a denial upheld nothing. Which of the four it was is in
+  // `verdict.reason` and in `canaries`.
+  if (
+    input.staleCredentials.length > 0 ||
+    input.unverifiedAfterWalk.length > 0 ||
+    input.unauthenticated.length > 0 ||
+    unconfirmedCredentials(input).length > 0
+  ) {
+    reservations.push("authentication-unproved");
+  }
+  if (input.endpointsProbed < input.endpointsTotal) {
+    reservations.push("endpoints-not-probed");
+  }
+  // `denied: 0` with observations present. It does not settle whether the
+  // platform grants everything or refuses with 200 and the outcome in the body,
+  // and it cannot: from status codes alone the two are one picture. Either way
+  // the cells under this run were read off a document the tool may not be able
+  // to read. See L-3 and `coverage.outcomes`.
+  if (input.observed > 0 && input.denied === 0) {
+    reservations.push("no-refusal-observed");
+  }
+  if (input.truncated) {
+    reservations.push("run-truncated");
+  }
+  return reservations;
 }
 
 /**
@@ -2255,6 +2563,19 @@ export function buildReport(options: BuildReportOptions): RunReport {
   // After the grouping and before the file: the counts above answer for every
   // finding, the rows below are the evidence and evidence has a budget.
   const capped = capRows(marked);
+  // Hoisted out of the literal below, because the clause rows need them while
+  // `coverage` is still being written: `clauseReservationsOf` asks the same
+  // questions of the accounts and of the surface that the warnings and the
+  // verdict ask of the finished report, and it has to ask them of the same
+  // values rather than of a second reading.
+  const accounts = withContextAccounts(options).map((account) =>
+    reportedAccount(account, options.config),
+  );
+  const canaries = options.canaries ?? [];
+  const endpointsTotal = options.endpoints.length;
+  const endpointsProbed =
+    options.probed?.length ?? options.endpoints.length - options.skipped.length;
+  const outcomes = countByOutcome(options.observations);
   const report: VerdictInputs = {
     schemaVersion: REPORT_SCHEMA_VERSION,
     runId: randomUUID(),
@@ -2267,16 +2588,14 @@ export function buildReport(options: BuildReportOptions): RunReport {
     startedAt: options.startedAt.toISOString(),
     finishedAt: options.finishedAt.toISOString(),
     target: reportedTarget(options.config.target),
-    accounts: withContextAccounts(options).map((account) =>
-      reportedAccount(account, options.config),
-    ),
+    accounts,
     endpoints: options.endpoints,
     resources: options.config.resources,
     skipped: options.skipped,
     failures: options.failures,
     unauthenticated: options.unauthenticated,
     canariesChecked: options.canariesChecked,
-    canaries: options.canaries ?? [],
+    canaries,
     staleCredentials: options.staleCredentials ?? [],
     unverifiedAfterWalk: options.unverifiedAfterWalk ?? [],
     truncated: options.truncated,
@@ -2289,8 +2608,8 @@ export function buildReport(options: BuildReportOptions): RunReport {
     findingsOmitted: capped.omitted,
     accepted: applied.accepted,
     coverage: {
-      endpointsTotal: options.endpoints.length,
-      endpointsProbed: options.probed?.length ?? options.endpoints.length - options.skipped.length,
+      endpointsTotal,
+      endpointsProbed,
       cellsObserved: options.observations.length,
       cellsNotObserved: notObserved,
       notProbed: countByReason(options.skipped),
@@ -2314,10 +2633,33 @@ export function buildReport(options: BuildReportOptions): RunReport {
           : [])(probedEndpointIds(options), (options.checksRun ?? []).length > 0),
       writeMethodsProbed: options.unsafeMethods ?? false,
       checksRun: options.checksRun ?? [],
+      // Both channels on one list of clauses, with the denominator on every row.
+      //
+      // `cells` and not the observations, so that the cells nobody asked are in
+      // the answer: an evidence pack built from what came back describes the
+      // surface the run happened to touch. Absent from the input when the run
+      // computed no verdicts, and then no row carries `matrixCells` at all —
+      // the same silence `cellsMatched` keeps, and for the same reason.
+      clauses: clauseCoverage({
+        ...(options.cells === undefined ? {} : { cells: judgedCells(options.cells, observations) }),
+        checksRun: options.checksRun ?? [],
+        reservations: clauseReservationsOf({
+          accounts,
+          canaries,
+          staleCredentials: options.staleCredentials ?? [],
+          unverifiedAfterWalk: options.unverifiedAfterWalk ?? [],
+          unauthenticated: options.unauthenticated,
+          endpointsProbed,
+          endpointsTotal,
+          truncated: options.truncated,
+          observed: options.observations.length,
+          denied: outcomes.denied,
+        }),
+      }),
       byCheck: options.byCheck ?? [],
       contextsProbed: countByContext(options),
       resourcesNotFound: resourcesNeverFound(options.observations),
-      outcomes: countByOutcome(options.observations),
+      outcomes,
       // Counted from the verdicts themselves, not by subtraction. Subtraction
       // lied: among the discrepancies there are `not-observed` ones that have no
       // observation at all, and the number came out too low. ADR-0020 promises
@@ -2382,11 +2724,15 @@ export function buildReport(options: BuildReportOptions): RunReport {
   // Computed last, from the finished report, and put inside it. The alternative
   // was recomputing it in every consumer; the exit code exists precisely because
   // the arithmetic is not obvious from the counters.
-  return {
+  const concluded = {
     ...report,
     verdict: runVerdict(report),
     warnings: warningsFor(report, options.config),
   };
+  // And the digest after even that, over everything above it. The verdict and
+  // the warnings are the two sentences a reader is most likely to want changed,
+  // so a digest taken before them would cover the file except where it matters.
+  return { ...concluded, contentDigest: contentDigestOf(concluded) };
 }
 
 /**
@@ -2406,7 +2752,7 @@ const UNTRUSTWORTHY_ERROR_SHARE = 0.5;
  * otherwise refer to itself. This is also the honest signature: `runVerdict`
  * reads inputs and does not read the field it produces.
  */
-export type VerdictInputs = Omit<RunReport, "verdict" | "warnings">;
+export type VerdictInputs = Omit<RunReport, "verdict" | "warnings" | "contentDigest">;
 
 /** The verdict on a run: the code CI acts on, and the sentence a human reads. */
 export interface RunVerdict {

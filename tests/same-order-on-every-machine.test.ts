@@ -38,7 +38,7 @@ import { buildAccessMatrix, diffAccess, expandPolicy } from "../src/core/index.j
 import { byCodeUnits } from "../src/core/order.js";
 import { parseRunConfig, UnknownEndpointReferenceError } from "../src/io/config.js";
 import type { RunReport } from "../src/report/build.js";
-import { buildReport } from "../src/report/build.js";
+import { buildReport, contentDigestOf } from "../src/report/build.js";
 
 /**
  * Two identifiers the collations of Sweden and the United States disagree about.
@@ -159,7 +159,16 @@ function report(): RunReport {
     startedAt: new Date(0),
     finishedAt: new Date(1),
   });
-  return { ...built, runId: "pinned" };
+  // The run identifier is the one field of a report that is meant to differ
+  // between two runs of one matrix, so it is pinned rather than compared — and
+  // the self-digest is recomputed over the pinned document, because a report
+  // whose `contentDigest` answers for a `runId` it no longer carries is not a
+  // report this fixture should be asserting anything about. Recomputing it also
+  // puts the digest itself under the locale comparison, which is where it
+  // belongs: it is built on the same `canonical` the audit of 21 August found
+  // sorting by `LC_ALL`.
+  const pinned = { ...built, runId: "pinned" };
+  return { ...pinned, contentDigest: contentDigestOf(pinned) };
 }
 
 describe("the fixture", () => {

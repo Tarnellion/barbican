@@ -137,6 +137,43 @@ function crossesTenantBoundary(relation: ResourceRelation | undefined): boolean 
 }
 
 /**
+ * The controls a matrix cell is evidence about, whatever became of it.
+ *
+ * The half of `standardsForDiff` that depends on the cell alone, taken out of it
+ * because a second reader arrived: `clauseCoverage` in `src/core/standards/`
+ * asks the same question of a cell that produced no finding at all — that is the
+ * clause-to-coverage direction, and it has to reach the same clauses from the
+ * same declaration or the two answers drift the way two copies of a fact always
+ * do. One place spells a clause, two places assign one, and the second one is
+ * now a caller of the first rather than a copy of it.
+ *
+ * **Controls only.** A defect class — API1, API5, CWE-285 — is not here, and
+ * that is the same refusal ADR-0041 made from the other side: an unexpected
+ * denial is not credited with a broken-authorization finding, and neither is a
+ * clean cell credited with having searched for one. What a conclusive cell shows
+ * is that the control was exercised and how it came out; "we looked for improper
+ * authorization here and found none" is a claim about the tool's reach that a
+ * comparison against one declared policy does not support.
+ *
+ * - Every cell cites `ASVS_DOCUMENTED_RULES`: a declaration and a platform were
+ *   compared there, which is the one thing every cell has in common.
+ * - The cell adds the level — object where it names a resource, function where
+ *   it does not — and tenant isolation where it crosses a boundary.
+ *
+ * No clause is returned twice: each is appended on exactly one branch.
+ */
+export function controlClausesForCell(relation?: ResourceRelation): readonly StandardRef[] {
+  const refs: StandardRef[] = [
+    ASVS_DOCUMENTED_RULES,
+    relation === undefined ? ASVS_FUNCTION_LEVEL_ACCESS : ASVS_OBJECT_LEVEL_ACCESS,
+  ];
+  if (crossesTenantBoundary(relation)) {
+    refs.push(ASVS_TENANT_ISOLATION);
+  }
+  return refs;
+}
+
+/**
  * The clauses a matrix discrepancy answers for.
  *
  * The same two axes `severityOf` takes, and for the same reason: what a
@@ -146,42 +183,31 @@ function crossesTenantBoundary(relation: ResourceRelation | undefined): boolean 
  * carries the object-level/function-level distinction as well as the kinship.
  *
  * The rule in one sentence: **the cell decides which control the row is evidence
- * about, and the kind decides what kind of evidence it is.**
+ * about, and the kind decides what kind of evidence it is.** The first half is
+ * `controlClausesForCell` above, which the coverage direction reads too; what is
+ * left here is the second.
  *
- * - Every discrepancy cites `ASVS_DOCUMENTED_RULES`: it is a declaration and a
- *   platform disagreeing, which is the one thing all four kinds have in common.
- * - The cell adds the level — object where it names a resource, function where
- *   it does not — and tenant isolation where it crosses a boundary.
  * - Only `privilege-escalation` adds a defect class (`API1`/`API5` and CWE-285).
  *   An unexpected denial is the platform being stricter than the declaration; an
  *   unobserved cell and a failed probe say nothing was learned. Crediting any of
  *   the three with a broken-authorization finding would be the inflated claim of
  *   coverage the isolation check dropped `API3` over.
  *
- * That last point is why the two inconclusive kinds still carry the level clause
- * rather than nothing: an evidence pack needs both directions, and "ASVS 8.2.2
- * was left unproved on 140 cells" is a statement about 8.2.2 that has to reach
- * the clause it is about. A row's `kind` and `severity` say which direction it
- * is; dropping the clause would leave the gap attached to nothing, which is the
- * failure this mapping exists to end.
- *
- * No clause is returned twice: each is appended on exactly one branch.
+ * That is why the two inconclusive kinds still carry the level clause rather
+ * than nothing: an evidence pack needs both directions, and "ASVS 8.2.2 was left
+ * unproved on 140 cells" is a statement about 8.2.2 that has to reach the clause
+ * it is about. A row's `kind` and `severity` say which direction it is; dropping
+ * the clause would leave the gap attached to nothing, which is the failure this
+ * mapping exists to end.
  */
 export function standardsForDiff(
   kind: DiffKind,
   relation?: ResourceRelation,
 ): readonly StandardRef[] {
-  const namesAResource = relation !== undefined;
-  const refs: StandardRef[] = [
-    ASVS_DOCUMENTED_RULES,
-    namesAResource ? ASVS_OBJECT_LEVEL_ACCESS : ASVS_FUNCTION_LEVEL_ACCESS,
-  ];
-  if (crossesTenantBoundary(relation)) {
-    refs.push(ASVS_TENANT_ISOLATION);
-  }
+  const refs: StandardRef[] = [...controlClausesForCell(relation)];
   if (kind === "privilege-escalation") {
     refs.push(
-      namesAResource ? API_OBJECT_LEVEL_AUTHORIZATION : API_FUNCTION_LEVEL_AUTHORIZATION,
+      relation === undefined ? API_FUNCTION_LEVEL_AUTHORIZATION : API_OBJECT_LEVEL_AUTHORIZATION,
       CWE_IMPROPER_AUTHORIZATION,
     );
   }

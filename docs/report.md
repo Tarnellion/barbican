@@ -555,6 +555,30 @@ differ in every one of them:
       ]
     }
   ],
+  "clauses": [                            // what this run did about each clause
+    {
+      "standard": "OWASP-ASVS-5.0",
+      "clause": "8.1.1",                  // every cell cites it, so this row is the whole matrix
+      "checkIds": [],
+      "matrixCells": {
+        "conclusive": 144,                // cells that gave an answer this tool can read
+        "upheld": 74,                     //   the declaration and the platform agreed
+        "breached": 70,                   //   they did not
+        "inconclusive": {                 // cells the clause reaches and nothing was learned from
+          "not-observed": 0,
+          "probe-error": 0
+        }
+      },
+      "reservations": ["endpoints-not-probed"]   // one endpoint of the seven was never asked
+    },
+    {
+      "standard": "CWE",
+      "clause": "285",
+      "checkIds": ["identical-response-across-tenants"],   // reached by a check and not by the matrix
+      "reservations": ["endpoints-not-probed"]             // no matrixCells: see below
+    }
+    // …and one row like the first for each of 8.2.1, 8.2.2 and 8.4.1.
+  ],
   "byCheck": [                            // what each check examined, in its own terms
     {
       "checkId": "identical-response-across-tenants",
@@ -613,13 +637,16 @@ list of findings. Until 15 August 2026 `Check.standards` was declared, filled an
 read by no line of code: the word did not occur in a report, so neither direction
 could be built from a saved artifact.
 
-**Of the matrix channel only the first direction exists.** Its findings cite
-clauses, and there is no `checksRun` entry for it — so a clause the matrix
-exercised on nine hundred cells that all agreed with the policy appears here only
-if one of them did not. Reading a clause's coverage off this file therefore
-understates what the run actually touched, and the fix is to make the matrix
-channel a registered check; ADR-0041 says why that has not happened yet and what
-has to move with it.
+**Of the matrix channel only the first direction was here** until 22 August
+2026. Its findings cite clauses and there is still no `checksRun` entry for it —
+`checksRun` is the list of registered checks, and the matrix channel is not one
+(ADR-0041 says why, and what has to move before it becomes one). So a clause the
+matrix exercised on nine hundred cells that all agreed with the policy appeared
+in this section only if one of them did not.
+
+`coverage.clauses` below is the other direction for both channels at once. Read
+it rather than `checksRun` when the question is "what did this run do about
+8.2.2"; read `checksRun` when the question is "which checks ran".
 
 **And each entry says what the check asserts, in words.** `description` was in
 exactly the same state until 17 August 2026, and was answered the same way. An
@@ -629,6 +656,69 @@ report is the person who has the report and not `src/core/checks/`, which is the
 only reason the field exists at all. Reports written before that date have no
 `description` on these entries; `schemaVersion` stays `2`, because a reader
 written against `2` is not broken by a field appearing.
+
+### `clauses` — what the run did about each clause, and what it could not
+
+One row per clause either channel reached. `checkIds` names the registered
+checks that answer for it and ran; `matrixCells` is what the matrix channel
+reached. A clause both reach is one row with both halves.
+
+**There is no percentage here, on purpose.** A percentage hides its denominator,
+and the denominator is the entire question. So a row carries the cells that
+concluded and the cells that concluded nothing side by side:
+
+    conclusive + every value of inconclusive === the clause's whole reach
+
+and
+
+    upheld + breached === conclusive
+
+`conclusive` is the number "exercised" means: cells where a request was made, an
+answer came back, and the tool could read it. `upheld` is the same "tested and
+agreed" the rest of this document uses — narrowed by the checks, so a cell the
+walk agreed with and a body check objected to is not in it. For **8.1.1**, which
+every cell cites, `upheld` is `cellsMatched`; that is the arithmetic to check
+this section against the rest of the file by.
+
+**`inconclusive` is where the honest half of the answer is.** `not-observed` is a
+cell the policy declared and no request reached. `probe-error` is a request that
+failed — a cell with no answer in it. Neither is evidence about anything, and
+neither is counted as an exercise of the clause. Both keys are always present: a
+missing key would be read as a zero by whoever thought to look for it.
+
+**`reservations` say why "exercised" is not "holds across the surface."** Four
+codes, and each one is elsewhere in this report as well — they are repeated on
+every row because a row is what gets copied out of here and into a document about
+one requirement, and a qualification left behind in another section is one that
+did not travel with the claim.
+
+| Code | What it means | Where the detail is |
+|---|---|---|
+| `authentication-unproved` | some account's credentials were never proved: no canary passed for it, its token went stale, the second confirmation never happened, or it was granted access nowhere. A refusal recorded under such an account says what an unauthenticated request says, so a cell that "upheld" a denial upheld nothing | `canaries`, `staleCredentials`, `unverifiedAfterWalk`, `unauthenticated`, `verdict.reason` |
+| `endpoints-not-probed` | fewer endpoints were probed than the source gave. The clause was not asked there at all — and a skipped path template is the object half of the surface | `endpointsTotal`, `endpointsProbed`, `notProbed` |
+| `no-refusal-observed` | not one observation came back denied. Either the platform grants everything or it refuses with `200` and the outcome in the body; from status codes alone the two are one picture | `outcomes` |
+| `run-truncated` | the walk was cut short, so the tail of the matrix was never reached | `truncated`, `verdict` |
+
+**Three things this section deliberately does not say**, because each would be a
+claim it cannot support:
+
+- **A row with no `matrixCells` has no cell numbers, and none are invented.**
+  That is a clause a check reached and the matrix did not: what the check
+  examined is `byCheck`, in the check's own counters.
+- **API1, API5 and CWE-285 never carry `matrixCells`.** A clean cell shows that a
+  control was exercised; it does not show that the tool went looking for a class
+  of weakness and failed to find it. Those clauses keep the other direction —
+  findings cite them — and appear here when a check does.
+- **A clause nothing in this run touched is not here.** This section is about
+  what a run reached. "Which catalogued clauses does nothing cover" is a
+  different question, answered against a catalogue by
+  `findUncoveredClauses`, and it is not in the report.
+
+A run that computed no cell verdicts has no `matrixCells` on any row — the same
+silence `cellsMatched` keeps, and for the same reason: a zero would be a claim
+about the platform where what has to be said is "we did not count this".
+
+See [ADR-0052](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0052-a-clause-can-be-reported-as-exercised.md).
 
 **`skippedDifferentContextPairs` — pairs under different conditions.** They are
 not compared on purpose: in such a pair the tenant and the context attributes
@@ -1010,10 +1100,43 @@ startup.
 | `schemaVersion` | the shape of the report has changed and will change again; without a version a parser breaks silently. **`2` since 15 August 2026** — `checksRun` holds objects where it held bare ids, `bodyComparison` became `byCheck`, `checksWithUnusableFindings` is gone, and `findings[].accountId` and `.endpointId` are optional. A reader written against `1` breaks on all four |
 | `runId` | otherwise two reports cannot be told apart — and, since 21 August 2026, the value the run went out under on the wire |
 | `configDigest` | to tell "the platform changed" from "we changed the declaration" |
+| `contentDigest` | to tell whether this is the file the run wrote. **Since 22 August 2026** |
 
 The fingerprint is computed over the **parsed** configuration, not over the text
 of the file: comments and indentation do not affect the result of a run, while
 they would affect a hash of the text.
+
+### `contentDigest`: what it proves, and what it does not
+
+A sha256 over everything in this report except that field, and
+`checkContentDigest(report)` in the library recomputes it. Over the **parsed**
+document for the same reason `configDigest` is: reindenting the JSON, or reading
+it through a formatter, is handling and not tampering.
+
+Until 22 August 2026 nothing in the file said anything about the file. Three
+fields identify the run, the declaration and the build; none identified the
+artifact. So a report could be opened in an editor, have a row taken out of
+`findings` and a sentence rewritten in `verdict.reason`, and nothing inside it
+would object — and under this project's own invariant the edit spreads, because
+HTML and PDF are rendered from this JSON rather than produced alongside it.
+
+**It catches carelessness. It does not catch anyone who means it.** Whoever
+deleted the row can recompute this value and write it back; a digest a reader can
+check is a digest an author can forge. What it does catch is what usually
+happens: an edit made without thinking, a hand-merge that mangled the file, a
+truncated copy, a tidy-up before forwarding.
+
+**The real answer is a signature, and there is not one.** Where a key would live,
+who holds the half that verifies it, and what a signed report would even be
+claiming are open questions, and an artifact that looks stronger than it is would
+be worse than one that is honestly weak. Do not present this digest to anybody as
+proof that a report was not altered. See
+[ADR-0051](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0051-the-report-answers-for-itself.md).
+
+A report written before 22 August 2026 carries no digest. `checkContentDigest`
+answers `ok: false` with `declared` absent on such a file — not `ok: true`,
+because a verifier that waved a missing field through would make the whole thing
+optional.
 
 ### `runId` is also what the platform's own logs recorded
 

@@ -84,9 +84,28 @@ beside the private checks that cite it. Both functions then hold it to exactly
 the same terms as the bundled three. See
 [ADR-0041](adr/0043-a-catalogue-of-clauses.md).
 
+`clauseCoverage({ cells, checksRun, reservations })` is the other direction, and
+`report.coverage.clauses` is what a run puts there: one row per clause either
+channel reached, carrying the cells that concluded, the cells that concluded
+nothing by reason, and the reservations that stop "exercised" from meaning
+"holds across the surface". `controlClausesForCell(relation)` is the rule it
+shares with `standardsForDiff`. See
+[ADR-0052](adr/0052-a-clause-can-be-reported-as-exercised.md).
+
+## Saying whether a report is the file the run wrote
+
+`report.contentDigest` is a sha256 over the report's canonical form with that
+field taken out, and `checkContentDigest(parsedReport)` recomputes it: `ok` is
+true only when the file carries a digest and the content gives that same digest.
+`contentDigestOf(parsedReport)` is the value alone.
+
+It catches a careless edit and not a deliberate one — anyone who can change a row
+can recompute the digest. A signature is a separate decision and is not made; see
+[ADR-0051](adr/0051-the-report-answers-for-itself.md).
+
 ## What the rest of the surface is
 
-The package exports 216 values and a comparable number of types. They fall into
+The package exports 222 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,

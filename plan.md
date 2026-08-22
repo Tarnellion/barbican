@@ -238,14 +238,30 @@ on, all closed:
   had been spent. At one registered check that was theoretical; at fifty, written
   by more than one person, it is ordinary.
 
-What is still ahead and still unestimated: the clause-by-clause content itself,
-and the second direction of traceability. `coverage.checksRun` names the clauses
-a check answered for **even when it found nothing**; the matrix channel has no
-such list, so a clause exercised over nine hundred clean cells reaches an
-evidence pack only if one of them broke. The pack can say "here is what failed
-under 8.2.2" and cannot yet say "8.2.2 was exercised across the surface and
-holds" — and the second sentence is the one a certifying body asks for. ADR-0041
-records what that costs and why it was not paid on the day.
+**The second direction of traceability is in, as of 22 August 2026.**
+`coverage.clauses` is one row per clause either channel reached, and the sentence
+a certifying body asks for — "8.2.2 was exercised across the surface and holds" —
+is now something a saved report can be asked. Nothing in it is a percentage: a
+row carries the cells that concluded and the cells that concluded nothing by
+reason, plus the reservations that stop "exercised" from meaning "holds", because
+claiming a clause covered over a surface the tool structurally could not see is
+the same class of failure as a falsely clean run
+([ADR-0052](docs/adr/0052-a-clause-can-be-reported-as-exercised.md)). The matrix
+channel is still not a registered check; ADR-0041's reasoning for that is
+unchanged, and this buys the time to make the move carefully rather than
+replacing it.
+
+Beside it, and about the artifact rather than its contents: **the report carries
+a digest of itself** ([ADR-0051](docs/adr/0051-the-report-answers-for-itself.md)).
+A document meant as the raw material of an evidence pack could be edited in a
+text editor without a trace. `contentDigest` closes the careless half of that and
+says out loud that it does not close the other one — a signature is named there
+as not done, with the questions it needs answered first.
+
+What is still ahead and still unestimated: **the clause-by-clause content
+itself**, and the rendering. The catalogue holds the part of ASVS V8 this tool
+can speak to; deciding what a pack claims per clause, and what a reader of it is
+entitled to conclude, is the work neither ADR does.
 
 ---
 
