@@ -83,8 +83,13 @@ none.
   and read back in index order, so the order is the order the cells were laid
   out, not the order the platform answered in — the same guarantee
   [ADR-0036](0036-one-order-on-every-machine.md) rests on, reached the same way.
-  `tests/same-order-on-every-machine.test.ts` and the resume test that compares a
-  resumed walk against an uninterrupted one hold it.
+  The failures are the half that needed a new test: they now live in a map keyed
+  by the cell's index and are drained in the same pass as the observations, and
+  nothing asked whether they came back in cell order when the platform answered
+  the last cell first. `tests/runner-concurrency.test.ts` holds every request
+  until all of them are in flight and then answers them backwards; before that
+  test, reading the failures out of the map in insertion order passed the whole
+  suite.
 - **The numbers the verdict is computed from.** Nothing here touches
   `summary.verdictInputs`, which is still taken before the rows are capped
   (the addendum to [ADR-0029](0029-evidence-rows-have-a-budget.md)).
