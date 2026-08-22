@@ -20,13 +20,8 @@
  * exists.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const read = (path: string) => readFileSync(resolve(ROOT, path), "utf8");
+import { read, section } from "./markdown.js";
 
 /**
  * The three places, and why each of them.
@@ -88,7 +83,7 @@ describe("a platform that refuses with 200", () => {
 const BOUNDARY_HEADING = "The statuses this tool cannot read";
 
 /**
- * The named section of a document, and nothing else.
+ * The named section, and nothing else — `section` from `./markdown.js`.
  *
  * Matching the whole file was the first version and it was false-green within
  * the hour: the README's `### Unreleased` entry describing this very change
@@ -98,21 +93,9 @@ const BOUNDARY_HEADING = "The statuses this tool cannot read";
  * has to be found by its heading, which also pins the name the three documents
  * cross-reference each other by.
  *
- * Ends at the next heading of the same level or higher: `##` in `docs/report.md`,
- * `###` in the other two, where the section sits inside "Status" and inside the
- * guide's list of what the tool does not do.
+ * The helper moved out of this file once two more guards over prose needed the
+ * same lesson. One spelling of one rule; the reasoning travels with it.
  */
-function section(text: string, heading: string): string {
-  const start = new RegExp(`^(#{2,3}) ${heading}\\s*$`, "m").exec(text);
-  if (start === null) {
-    return "";
-  }
-  const level = (start[1] ?? "###").length;
-  const body = text.slice(start.index + start[0].length);
-  const end = new RegExp(`^#{1,${level}} `, "m").exec(body);
-  return end === null ? body : body.slice(0, end.index);
-}
-
 const UNREADABLE_STATUSES = [
   {
     what: "a refusal that redirects",

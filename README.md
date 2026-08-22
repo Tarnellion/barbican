@@ -112,6 +112,10 @@ test enforces it — the rule survives exactly as long as it is checked. Russian
 copies live outside the repository and are a snapshot, not a second version;
 where two language versions disagree, the English files are the source of truth.
 
+- **[docs/first-run.md](docs/first-run.md)** — the eleven things to settle before
+  the first request against a platform you do not own: permission, scope, a
+  canary per account, how many requests this actually is, and what the result
+  will not cover. Start here.
 - **[docs/guide.md](docs/guide.md)** — declaring accounts, tenants, resources and
   the access policy; running a scan; what the tool deliberately does not do.
 - **[docs/report.md](docs/report.md)** — reading the report: every summary field,
@@ -527,6 +531,23 @@ every counter, and only `summary.verdictInputs` loses it. Past the date it count
 again and says so; a declaration that covered nothing is reported as
 `matched: 0`; and `not-observed` and `probe-error` cannot be accepted at all,
 because a run may not buy its way out of saying it reached nothing.
+
+**A checklist for the first run against a platform you do not own**, and two
+assumptions that were nowhere in writing. [docs/first-run.md](docs/first-run.md)
+is the eleven things to settle before the first request — permission, scope,
+`exclude`, a canary per account, the request arithmetic `--dry-run` prints, the
+walk against a token's lifetime, how large a matrix stays practical, how the
+owner will recognise the traffic, where the report goes, `--resume`, and what the
+result will not cover. It is linked from here and from the guide, because a
+document nothing points at is one nobody reads. The assumptions are **the run's
+own blast radius** — the job holds every role's live credentials at once, and a
+run is by construction a burst of `401`/`403` from one subject, which is what a
+lockout or an anti-fraud rule is hung on, and which the report then names
+`staleCredentials` — and **one probe per cell**: every row is a single sample,
+retried only on `429`, `5xx` and a failure on the wire, so one `200` off a stale
+replica is a `critical` that is not there and one `403` off a node that has the
+rule hides one that is. Both are in the guide and in `docs/report.md`, held by a
+test.
 
 ## Example
 
