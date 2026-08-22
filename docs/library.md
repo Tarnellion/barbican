@@ -121,7 +121,7 @@ can recompute the digest. A signature is a separate decision and is not made; se
 
 ## What the rest of the surface is
 
-The package exports 221 values and a comparable number of types. They fall into
+The package exports 227 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,
