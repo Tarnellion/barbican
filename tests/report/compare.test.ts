@@ -379,16 +379,15 @@ describe("a difference in coverage", () => {
     expect(comparison.verdict.code).toBe(1);
   });
 
-  /**
-   * Why the surface shrank, in the report's own words for it.
-   *
-   * The reasons are a record keyed by names this tool did not choose — a saved
-   * report is a document handed to the tool, and the key space is the runner's,
-   * not this module's. ADR-0024: built with `openRecord`, read with `lookup`.
-   */
-  it("carries the reasons endpoints were left out, including one named __proto__", () => {
+  /** Why the surface shrank, in the runner's own vocabulary for it. */
+  it("carries the reasons endpoints were left out", () => {
     const before = run({
-      coverage: { endpointsTotal: 4, endpointsProbed: 4, cellsObserved: 144, notProbed: {} },
+      coverage: {
+        endpointsTotal: 4,
+        endpointsProbed: 4,
+        cellsObserved: 144,
+        notProbed: { excluded: 1 },
+      },
     });
     const after = run({
       runId: SECOND_RUN,
@@ -397,18 +396,51 @@ describe("a difference in coverage", () => {
         endpointsTotal: 4,
         endpointsProbed: 1,
         cellsObserved: 12,
-        // A reason this tool never emits, in a file this tool did not write. A
-        // plain object literal swallows the assignment and the row disappears.
-        notProbed: JSON.parse('{"path-parameters": 3, "__proto__": 1}') as Record<string, number>,
+        notProbed: { excluded: 1, "path-parameters": 3 },
       },
     });
 
     const comparison = compareRuns(before, after);
 
     expect(comparison.coverage.reasons).toEqual([
-      { reason: "__proto__", before: 0, after: 1 },
+      { reason: "excluded", before: 1, after: 1 },
       { reason: "path-parameters", before: 0, after: 3 },
     ]);
+    // The unchanged one is carried and not printed: a line saying a number did
+    // not move is a line a reader has to skip on every run.
+    expect(screen(comparison)).toContain('endpoints skipped as "path-parameters": 0 → 3');
+    expect(screen(comparison)).not.toContain('endpoints skipped as "excluded"');
+  });
+
+  /**
+   * A reason named after something on `Object.prototype`.
+   *
+   * `coverage.notProbed` is keyed by the runner's vocabulary as a **saved file**
+   * spells it, which is a key space this module did not choose — and a report
+   * parsed back out of JSON carries `Object.prototype`. Reading the other run's
+   * count with `record[reason]` instead of `lookup` therefore answers for
+   * `constructor` with a **function**, and the row this comparison prints comes
+   * out as one. ADR-0024, on the reading side; the key here is present in one
+   * run and absent from the other, which is the only way that lookup happens.
+   */
+  it("reads a reason named constructor as absent from the run that lacks it", () => {
+    const before = run({
+      coverage: {
+        endpointsTotal: 4,
+        endpointsProbed: 4,
+        cellsObserved: 144,
+        notProbed: JSON.parse('{"constructor": 2}') as Record<string, number>,
+      },
+    });
+    const after = run({
+      runId: SECOND_RUN,
+      startedAt: LATER,
+      coverage: { endpointsTotal: 4, endpointsProbed: 4, cellsObserved: 144, notProbed: {} },
+    });
+
+    const comparison = compareRuns(before, after);
+
+    expect(comparison.coverage.reasons).toEqual([{ reason: "constructor", before: 2, after: 0 }]);
   });
 });
 
@@ -674,6 +706,54 @@ describe("reading a report off disk", () => {
       "orders.list",
     ]);
     expect(parsed.coverage.notProbed).toEqual({ excluded: 1 });
+  });
+
+  /**
+   * A skip reason named `__proto__`, in a file this tool did not write.
+   *
+   * `JSON.parse` makes it an own property and `Object.entries` lists it, so the
+   * record is read correctly and then **written** into an object literal, where
+   * the assignment calls the prototype setter, is ignored for a number, and the
+   * row silently disappears. `openRecord` — `Object.create(null)` — is what
+   * makes the write land. ADR-0024, and the exact shape it names: "a plain
+   * object literal swallows a key named `__proto__`".
+   *
+   * Written as JSON text rather than as an object literal because there is no
+   * other way to build one: `{ "__proto__": 2 }` in source is the syntax that
+   * sets a prototype, not the syntax that creates a property.
+   */
+  it("keeps a skip reason named __proto__, which an object literal swallows", () => {
+    const document = JSON.parse(`{
+      "schemaVersion": "2",
+      "runId": "33333333-3333-4333-8333-333333333333",
+      "configDigest": "aaaa",
+      "startedAt": "2026-08-21T09:00:00.000Z",
+      "truncated": false,
+      "target": { "baseUrl": "https://api.test" },
+      "defects": [],
+      "observations": [],
+      "coverage": {
+        "endpointsTotal": 4,
+        "endpointsProbed": 1,
+        "cellsObserved": 12,
+        "notProbed": { "__proto__": 2, "excluded": 1 }
+      },
+      "verdict": { "code": 0, "reason": "clean" }
+    }`) as unknown;
+
+    const parsed = toComparableRun(document, "after.json");
+
+    expect(Object.entries(parsed.coverage.notProbed)).toEqual([
+      ["__proto__", 2],
+      ["excluded", 1],
+    ]);
+    // And it survives into what a reader is shown, rather than into a count
+    // that no longer adds up against `endpointsProbed`.
+    expect(compareRuns(run(), parsed).coverage.reasons).toContainEqual({
+      reason: "__proto__",
+      before: 0,
+      after: 2,
+    });
   });
 
   it("names the file when the document is not a report", () => {
