@@ -408,6 +408,118 @@ against observed behaviour, and a discrepancy is a discrepancy whichever way it
 points. It cannot tell which side is wrong — the platform or your declaration —
 and since it cannot, it has no right to stay silent.
 
+## Comparing this report with an earlier one
+
+**Do not `diff` two report files.** They differ almost everywhere and agree on
+everything worth knowing: `runId`, `startedAt` and `finishedAt`, the `at` and
+`durationMs` of every observation, and every `signals.digest` — the digest salt
+is drawn afresh per run on purpose. Two runs of one matrix against one unchanged
+platform produce two files a text diff calls entirely different.
+
+```
+barbican diff yesterday.json today.json
+```
+
+```
+before: run d02be8cb-… started 2026-08-21T09:12:04.061Z against orders staging
+after:  run 6f895b72-… started 2026-08-22T09:10:58.970Z against orders staging
+The declaration is the same in both runs (configDigest 995214bfffe7fb1a), so
+what follows is about the platform.
+Coverage: 144 cells over 7 of 7 endpoints, unchanged.
+Defects: 2 → 2 — 1 new, 1 gone, 0 changed, 1 unchanged.
+New (1):
+  reports.list any-resource baseline — privilege-escalation, critical, 4 cells
+      the first run probed reports.list too, so this is new behaviour.
+Gone (1):
+  orders.list any-resource baseline — was privilege-escalation, critical, 2 cells
+      the second run probed orders.list and found nothing there.
+Run verdicts: 1 → 1.
+Exit code 1: the two runs do not describe the same platform: 1 new, 1 gone
+```
+
+`--json` writes the same conclusion to stdout as a document, while the summary
+above stays on stderr — so a redirect gives you JSON and not JSON with a
+paragraph in front of it. Both come from one comparison; they cannot disagree.
+
+Four things about how to read it.
+
+**The declaration is the first line, and it governs the rest.** If
+`configDigest` moved between the two runs, the comparison says so before it says
+anything else: comparing findings across two declarations is legitimate and
+often the point, but half the differences may then be your own edit rather than
+the platform's doing. A changed digest does **not** by itself make the exit code
+1 — two runs finding the same defects over the same surface describe a platform
+in the same state, whatever you edited in between.
+
+**The unit is the defect, not the finding row.** Rows are joined on
+`defects[].key` — endpoint, relation, conditions — which is what that key was
+made readable and stable for. A difference in the *number of rows* is news about
+the shape of a run, not about the platform: one defect is fifty rows or one
+depending on the evidence budget above and on how wide your matrix is, and
+`violations` moves the moment you add an account. So `violations`, `accountIds`
+and `resourceIds` are printed and compared by nothing. A defect counts as
+**changed** along three axes only: its set of `kinds`, its `severity`, and
+whether an `accepted:` declaration now holds it out of the verdict — that last
+one because a defect somebody signed for looks, to the exit code and to every
+counter beside it, exactly like a defect that was fixed.
+
+**A defect that is gone is not necessarily fixed.** It is absent from the second
+report both when the platform was repaired and when nothing went looking, and
+the two are identical in `defects`. Every disappearance therefore carries the
+answer to one question — did the second run probe that endpoint at all, judged
+from `observations[].endpointId`, which is what a run really asked about rather
+than what it was handed:
+
+```
+Coverage shrank: 144 cells over 7 of 7 endpoints → 12 cells over 1 of 7 endpoints.
+  no longer probed: invoices.list, orders.list, payouts.list, reports.list, users.list
+  endpoints skipped as "excluded": 0 → 5
+A defect gone from a run that did not go looking for it was not fixed. Read the
+disappearances below against this line.
+```
+
+The mirror holds too: a new defect on an endpoint the *first* run never probed
+may be newly covered surface rather than newly broken behaviour, and it says so.
+
+**A difference in coverage is a difference.** Coverage that grew is news and
+exits 1. Coverage that shrank exits **2**, because every disappearance under it
+is unexplained — a run that looked at twelve cells where yesterday's looked at a
+hundred and forty-four fixed nothing.
+
+### What the comparison exits with
+
+| Code | Meaning |
+|---|---|
+| 0 | the same defects, over the same surface |
+| 1 | the two runs do not describe the same platform: a defect appeared, went or changed, or the surface probed is not the same |
+| 2 | **this comparison cannot be trusted** |
+| 64 | the command line was wrong; nothing was read |
+
+`2` outranks `1` for the reason it does above: what was not tested is never
+clean. Six ways to get it, and they divide in two. These stop the comparison
+before it starts, and nothing below the declaration line is printed:
+
+| Reason | What it means |
+|---|---|
+| different `schemaVersion`s | the fields do not line up — `coverage.bodyComparison` became `coverage.byCheck`, `checksRun` changed what its entries hold — so a field-by-field reading would compare things that are not the same thing |
+| a `schemaVersion` this build does not read | the two files agree with each other and not with anything here, and a comparison that guessed would answer confidently about fields it never read |
+
+And these let it run and print in full, because you still want to see it:
+
+| Reason | What it means |
+|---|---|
+| the same `runId` in both files | a report compared with itself. Every difference is zero by construction, which is indistinguishable from a quiet week — and it is the most expensive false clean this subcommand can produce |
+| either run is `truncated` | that run never reached the end of its matrix, so the comparison is honest only as "here is what was looked at". Deliberately compared rather than refused: refusing would hide the half that *was* walked from the operator whose CI job was killed on its timeout |
+| either run's own verdict was `2` | a comparison cannot be steadier than the runs it is made of |
+| coverage shrank | above |
+
+**64 is what the argument parser rejects, and nothing else** — the same line this
+document draws for `run`. A path that is not there, a file that is not JSON and a
+document that is not a report are all **2**: conclusions the tool refuses to
+draw, not mistakes in the invocation.
+
+See [ADR-0050](adr/0050-a-comparison-is-of-defects-not-of-files.md).
+
 ## How to tell "clean" from "nothing was tested"
 
 This is the main question to ask of any report like this, and there is something
@@ -433,12 +545,16 @@ not tested, and there are no findings there precisely because it was never
 reached.
 
 The field does not say **which** of the three it was, and that is deliberate: the
-shape of this file is compared byte for byte by the polygon's oracle and by
-anyone diffing two runs, so a field was not added for it. The terminal that ran
-the walk says which, and so does the stream beside the report — see "A run that
-was interrupted" in the [guide](guide.md). What matters for reading the report is
-the same either way: nothing follows from the absence of findings in the part
-that was never walked.
+shape of this file is compared byte for byte by the polygon's oracle, so a field
+was not added for it. The terminal that ran the walk says which, and so does the
+stream beside the report — see "A run that was interrupted" in the
+[guide](guide.md). What matters for reading the report is the same either way:
+nothing follows from the absence of findings in the part that was never walked.
+
+`barbican diff` treats a truncated run on either side as a reason to exit 2
+while still printing the whole comparison, for exactly this: what is missing
+from such a run is missing from the walk, not from the platform. See "Comparing
+this report with an earlier one" above.
 
 ## How to tell a broken platform from a misread one
 

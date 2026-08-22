@@ -891,3 +891,236 @@ policy:
     }
   }, 30_000);
 });
+
+/**
+ * `barbican diff`, driven end to end over two reports the tool itself wrote.
+ *
+ * `tests/report/compare.test.ts` holds the comparison against hand-written
+ * fixtures, which is where the awkward shapes belong. What cannot be asked
+ * there is the pair of things this file exists for: the exit code a pipeline
+ * reads, and whether the reports a real run produces are comparable at all —
+ * the module's view of a report is a narrow structural one, and a structural
+ * type agrees with any shape it never met.
+ *
+ * The deployment is one stub whose open set is switched between runs, so one
+ * defect is fixed and another appears with nothing else moving. That is also
+ * the only way to be sure `defects[].key` is stable across two runs: the whole
+ * comparison joins on it, and a key carrying anything run-specific would make
+ * every defect of every pair read as gone and new at once.
+ */
+describe("comparing two saved reports", () => {
+  /** The paths the stub answers 200 to. Everything else is refused. */
+  let open: ReadonlySet<string> = new Set();
+  let server: Server;
+  let port = 0;
+  let dir = "";
+
+  const DIFF_ENDPOINTS = `endpoints:
+${["orders", "invoices", "reports", "payouts"]
+  .map((name) => `  - id: ${name}.list\n    method: GET\n    path: /v1/${name}\n`)
+  .join("")}`;
+
+  const configFor = (exclude: string): string => `target:
+  label: diff stub
+  baseUrl: http://127.0.0.1:${port}
+  allowedHosts: [127.0.0.1]
+accounts:
+  - id: anonymous
+    role: anonymous
+policy:
+  fallback: denied
+  rules:
+    - { roles: [anonymous], endpoints: "*", outcome: denied }
+${exclude}`;
+
+  /** One run against the stub as it stands, written to a report file of its own. */
+  async function walk(name: string, openPaths: readonly string[], exclude = ""): Promise<string> {
+    open = new Set(openPaths);
+    const config = join(dir, `${name}.yaml`);
+    const report = join(dir, `${name}.json`);
+    await writeFile(config, configFor(exclude), "utf8");
+    const outcome = await cli([
+      "run",
+      "-c",
+      config,
+      "-e",
+      join(dir, "endpoints.yaml"),
+      "-r",
+      report,
+    ]);
+    // A walk that produced no defects would make every assertion below pass
+    // for the wrong reason.
+    expect(outcome.status).toBe(1);
+    return report;
+  }
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "barbican-diff-"));
+    server = createServer((request, response) => {
+      response.writeHead(open.has((request.url ?? "").split("?")[0] ?? "") ? 200 : 403).end();
+    });
+    await new Promise<void>((settle) => {
+      server.listen(0, "127.0.0.1", settle);
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("the diff stub deployment did not start");
+    }
+    port = address.port;
+    await writeFile(join(dir, "endpoints.yaml"), DIFF_ENDPOINTS, "utf8");
+  }, 60_000);
+
+  afterAll(async () => {
+    await new Promise<void>((settle, fail) => {
+      server.closeAllConnections();
+      server.close((error) => (error ? fail(error) : settle()));
+    });
+  });
+
+  it("names what was fixed and what broke, and exits 1", async () => {
+    // Yesterday: orders and invoices answered everybody.
+    const before = await walk("before", ["/v1/orders", "/v1/invoices"]);
+    // Today: orders was fixed and reports broke. invoices is untouched.
+    const after = await walk("after", ["/v1/invoices", "/v1/reports"]);
+
+    const outcome = await cli(["diff", before, after]);
+
+    expect(outcome.status).toBe(1);
+    // The declaration first, and it did not move — which is the sentence every
+    // conclusion below rests on.
+    expect(outcome.stderr).toContain("The declaration is the same in both runs");
+    expect(outcome.stderr).toContain("1 new, 1 gone, 0 changed, 1 unchanged");
+    expect(outcome.stderr).toContain("reports.list any-resource baseline");
+    expect(outcome.stderr).toContain("the second run probed orders.list and found nothing there");
+  }, 120_000);
+
+  /**
+   * The same platform seen through a narrower run.
+   *
+   * Nothing was fixed: `orders.list` is still wide open and the second run
+   * never asked. A comparison that called that a disappearance would hand an
+   * operator a clean line over an untouched hole, which is the one defect this
+   * subcommand must not have.
+   */
+  it("will not call a narrowed run a fix, and exits 2", async () => {
+    const before = await walk("wide", ["/v1/orders", "/v1/invoices"]);
+    const narrow = await walk(
+      "narrow",
+      ["/v1/orders", "/v1/invoices"],
+      "exclude: [orders.list, reports.list, payouts.list]\n",
+    );
+
+    const outcome = await cli(["diff", before, narrow]);
+
+    expect(outcome.status).toBe(2);
+    expect(outcome.stderr).toContain("Coverage shrank");
+    expect(outcome.stderr).toContain("no longer probed: orders.list");
+    expect(outcome.stderr).toContain(
+      "the second run never probed orders.list: nothing was fixed, nothing was looked at",
+    );
+    // And the changed declaration is said before any of it: the exclusion list
+    // is the reader's own edit, and it is what moved the digest.
+    const declaration = outcome.stderr.indexOf("The declaration changed");
+    const coverage = outcome.stderr.indexOf("Coverage shrank");
+    expect(declaration).toBeGreaterThan(-1);
+    expect(declaration).toBeLessThan(coverage);
+  }, 120_000);
+
+  /**
+   * A report against itself: every difference is zero by construction, which is
+   * indistinguishable from a quiet week.
+   */
+  it("refuses to compare one report with itself", async () => {
+    const only = await walk("itself", ["/v1/orders"]);
+
+    const outcome = await cli(["diff", only, only]);
+
+    expect(outcome.status).toBe(2);
+    expect(outcome.stderr).toContain("both files record the same run");
+  }, 120_000);
+
+  /**
+   * Two runs of one unchanged platform under one unchanged declaration — the
+   * only clean answer this subcommand gives. What makes it believable is the
+   * two cases above.
+   */
+  it("exits 0 when nothing moved", async () => {
+    const first = await walk("quiet-a", ["/v1/orders"]);
+    const second = await walk("quiet-b", ["/v1/orders"]);
+
+    const outcome = await cli(["diff", first, second]);
+
+    expect(outcome.status).toBe(0);
+    expect(outcome.stderr).toContain("Exit code 0: the same defects, over the same surface");
+  }, 120_000);
+
+  /**
+   * `--json` and the summary come out of one comparison.
+   *
+   * The report layer and the console spent four days disagreeing about the
+   * warnings because each built its own; two artifacts of one command must not
+   * be able to repeat it.
+   */
+  it("writes the same conclusion to stdout as JSON", async () => {
+    const before = await walk("json-a", ["/v1/orders"]);
+    const after = await walk("json-b", ["/v1/invoices"]);
+
+    const outcome = await cli(["diff", before, after, "--json"]);
+    const document = JSON.parse(outcome.stdout) as {
+      readonly verdict: { readonly code: number };
+      readonly defects: {
+        readonly gone: readonly unknown[];
+        readonly appeared: readonly unknown[];
+      };
+    };
+
+    expect(outcome.status).toBe(1);
+    expect(document.verdict.code).toBe(outcome.status);
+    expect(document.defects.gone).toHaveLength(1);
+    expect(document.defects.appeared).toHaveLength(1);
+    // The summary is on stderr, so redirecting stdout gives a JSON document and
+    // not a JSON document with a paragraph in front of it.
+    expect(outcome.stderr).toContain("Defects:");
+  }, 120_000);
+
+  /**
+   * A mistake on this command line is 64, like every other.
+   *
+   * The constant is held for `run` further up this file, and a subcommand added
+   * later is exactly what that guard cannot see: `program.exitOverride()` is
+   * applied by walking `program.commands`, so a command registered after the
+   * loop keeps commander's own `process.exit(1)` — which is this tool's "the
+   * platform disagrees with the declared policy", reported for a typo in a
+   * flag.
+   */
+  it("exits 64 on a command line it cannot parse", async () => {
+    const only = await walk("usage", ["/v1/orders"]);
+
+    const missingArgument = await cli(["diff", only]);
+    const unknownFlag = await cli(["diff", only, only, "--jsn"]);
+
+    expect(missingArgument.status).toBe(64);
+    expect(unknownFlag.status).toBe(64);
+  }, 120_000);
+
+  /**
+   * And a path that is not a report is 2, not 64.
+   *
+   * The line `docs/report.md` draws is where the run starts: what the argument
+   * parser rejects is a usage error, and everything after it is a conclusion
+   * the tool refuses to draw. A missing file is on the far side of that line.
+   */
+  it("exits 2 on a file that is not a report", async () => {
+    const notJson = join(dir, "endpoints.yaml");
+    const missing = join(dir, "nowhere.json");
+    const only = await walk("unreadable", ["/v1/orders"]);
+
+    const unparseable = await cli(["diff", notJson, only]);
+    const absent = await cli(["diff", only, missing]);
+
+    expect(unparseable.status).toBe(2);
+    expect(unparseable.stderr).toContain("is not JSON");
+    expect(absent.status).toBe(2);
+    expect(absent.stderr).toContain("nowhere.json");
+  }, 120_000);
+});
