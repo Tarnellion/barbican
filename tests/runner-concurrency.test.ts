@@ -121,4 +121,61 @@ describe("the order of the observations", () => {
       expect(key(await walk(concurrency))).toEqual(key(sequential));
     }
   });
+
+  /**
+   * And it does not depend on the order the platform answered in — nor does the
+   * order of `failures[]`.
+   *
+   * The test above varies the concurrency and lets the client answer as it will,
+   * which on a client that resolves in a fixed number of turns is still the
+   * order the cells went out in. That leaves the property untested in the one
+   * case it exists for: a platform that answers the last cell first.
+   *
+   * `failures[]` is the half worth saying out loud. The observations are written
+   * at the index of their cell and read back in index order, so they cannot
+   * follow the responses; the failures are collected by cell index and drained
+   * in the same pass for exactly that reason, and nothing but this asks whether
+   * they still are. `summary.failures` and the rows an operator reads are built
+   * from that array. See ADR-0036 and ADR-0053.
+   */
+  it("does not depend on the order the platform answered in", async () => {
+    const total = accounts.length * endpoints.length;
+
+    /** Holds every request until all are in flight, then answers them backwards. */
+    const reversing = (): HttpClient => {
+      const waiting: (() => void)[] = [];
+      return {
+        send() {
+          return new Promise((settle) => {
+            waiting.push(() => settle({ status: 500, headers: {} }));
+            if (waiting.length === total) {
+              for (const answer of [...waiting].reverse()) {
+                answer();
+              }
+            }
+          });
+        },
+      };
+    };
+
+    const backwards = await collectObservations({
+      baseUrl: "https://a.test",
+      endpoints,
+      accounts,
+      credentials,
+      client: reversing(),
+      concurrency: total,
+    });
+    const forwards = await walk(1);
+
+    const coordinate = (one: { accountId: string; endpointId: string }) =>
+      `${one.accountId}|${one.endpointId}`;
+    const expected = forwards.result.observations.map(coordinate);
+
+    expect(backwards.observations.map(coordinate)).toEqual(expected);
+    // 500 is a status the tool does not read, so every cell leaves a failure row
+    // as well — which is what makes this matrix able to answer the question.
+    expect(backwards.failures).toHaveLength(total);
+    expect(backwards.failures.map(coordinate)).toEqual(expected);
+  });
 });
