@@ -23,6 +23,7 @@ import { buildAccessMatrix, describeMatrix, expandPolicy } from "../../src/core/
 import { parseRunConfig } from "../../src/io/config.js";
 import type { RunReport } from "../../src/report/build.js";
 import { buildReport, checkContentDigest, contentDigestOf } from "../../src/report/build.js";
+import { reportChunks } from "../../src/report/write.js";
 
 const CONFIG = parseRunConfig(`
 target: { baseUrl: "https://api.test", allowedHosts: [api.test], label: demo }
@@ -113,6 +114,22 @@ describe("the digest a report carries of itself", () => {
 
     expect(verdict.ok).toBe(true);
     expect(verdict.declared).toBe(verdict.computed);
+  });
+
+  /**
+   * And against the bytes, which are not produced by `JSON.stringify`.
+   *
+   * The report is serialised in chunks (ADR-0038), so what a reader parses is
+   * what `reportChunks` emitted rather than what the object literal held. Every
+   * other case here round-trips through `JSON.stringify`, and a digest that
+   * verified there and nowhere else would fail on every real file while the
+   * suite stayed green. `write.test.ts` asserts the two serialisations are equal
+   * byte for byte; this asserts the consequence that matters here.
+   */
+  it("checks out against the bytes the writer produced", () => {
+    const parsed = JSON.parse([...reportChunks(reportOf(AS_DECLARED))].join("")) as object;
+
+    expect(checkContentDigest(parsed).ok).toBe(true);
   });
 
   /**
