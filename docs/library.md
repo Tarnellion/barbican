@@ -32,6 +32,22 @@ Two more you will need beside them:
 The example in the [README](../README.md) is compiled and run by a test, and it
 uses four of these.
 
+## Comparing two runs
+
+`compareRuns(before, after)` takes two reports and returns what changed between
+them: whether the declaration behind them moved, whether the second run looked
+at less than the first, and which defects appeared, went or changed — joined on
+`defects[].key`, because a difference in the number of finding **rows** is news
+about the shape of a run and not about the platform. `renderComparison(result)`
+turns that into the lines the CLI prints, each with a tone rather than a colour.
+See [ADR-0050](adr/0050-a-comparison-is-of-defects-not-of-files.md) for what the
+exit codes mean and why a truncated run can be compared but not believed.
+
+Its input is a structural view that a `RunReport` already satisfies, so a walk
+you drove yourself needs no conversion. A report that came back off disk is
+JSON and is not one until something has checked it: `toComparableRun(value,
+source)` is that check, and it throws `UnreadableReportError` naming the file.
+
 ## Running the walk yourself
 
 `collectObservations` performs it: it takes the endpoints, the accounts, a
@@ -43,18 +59,75 @@ so an implementation of your own can be substituted:
 - `createOpenApiParser`, `createEndpointListParser`, `createPostmanCollectionParser`
 - `createSignalExtractor` — response-body scalars, and nothing else reads a body
 - `createTenantHierarchy`, `createIdenticalResponseCheck`, `CheckRegistry`
+- `safeHeaders` — the checked constructor of the `HeaderValue` that
+  `CredentialProvider.headersFor` returns. A provider that signs a request needs
+  it ([ADR-0018](adr/0018-request-signing-is-a-port-concern.md)); an object
+  literal does not type-check in its place, because the grammar for a string from
+  outside applies to this door as well as to the CLI
+  ([ADR-0024](adr/0024-strings-from-outside.md)). It was unreachable until
+  21 August 2026, which made that whole promise false.
+
+Three of its options are about a walk that may not reach its end, and they are
+what the CLI builds `--resume` out of ([ADR-0047](adr/0047-a-walk-that-survives-its-run.md)):
+`record` is handed every cell the moment it is finished, `resumed` takes those
+records back and skips the cells they cover, and `abort` stops the walk where it
+stands and comes back `truncated: true`. A record that fits no cell of the matrix
+is refused with `ResumeDoesNotFitError` before the first request.
 
 The port interfaces are in `src/adapters/ports.ts` and exported by name.
 
+## Standards a check can cite
+
+`createBundledCatalog()` returns the clauses this repository carries as data:
+part of OWASP ASVS 5.0 chapter V8, the three authorization entries of the OWASP
+API Top 10 2023, and the access-control weaknesses under CWE-284. Each entry is
+an identifier, one line of the project's own about what the clause is for, and
+the address of the published text — never the requirement's own wording.
+
+Two functions read it:
+
+- `findUnresolvedStandardRefs(catalog, checks)` returns the references your
+  checks declare that no catalogue entry answers to. A misspelt clause number
+  otherwise reaches the report as a coverage row for a requirement that does not
+  exist, and nothing downstream would ever notice.
+- `findUncoveredClauses(catalog, checks)` returns the catalogued clauses no check
+  answers for — the half an evidence pack cannot be complete without, since a
+  pack built from findings alone lists only what happened to be checked.
+
+A standard whose numbering may not be published goes in through
+`StandardCatalog.register(definition)`, from a source outside this repository and
+beside the private checks that cite it. Both functions then hold it to exactly
+the same terms as the bundled three. See
+[ADR-0041](adr/0043-a-catalogue-of-clauses.md).
+
+`clauseCoverage({ cells, checksRun, reservations })` is the other direction, and
+`report.coverage.clauses` is what a run puts there: one row per clause either
+channel reached, carrying the cells that concluded, the cells that concluded
+nothing by reason, and the reservations that stop "exercised" from meaning
+"holds across the surface". `controlClausesForCell(relation)` is the rule it
+shares with `standardsForDiff`. See
+[ADR-0052](adr/0052-a-clause-can-be-reported-as-exercised.md).
+
+## Saying whether a report is the file the run wrote
+
+`report.contentDigest` is a sha256 over the report's canonical form with that
+field taken out, and `checkContentDigest(parsedReport)` recomputes it: `ok` is
+true only when the file carries a digest and the content gives that same digest.
+`contentDigestOf(parsedReport)` is the value alone.
+
+It catches a careless edit and not a deliberate one — anyone who can change a row
+can recompute the digest. A signature is a separate decision and is not made; see
+[ADR-0051](adr/0051-the-report-answers-for-itself.md).
+
 ## What the rest of the surface is
 
-The package exports 156 values and a comparable number of types. They fall into
+The package exports 227 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,
    `Endpoint`, `Resource`, `RunConfig`, `AccessObservation`, `AccessDiff`,
    `RunReport` and their neighbours.
-2. **75 error classes.** These are public on purpose: catching an error and
+2. **96 error classes.** These are public on purpose: catching an error and
    naming it is the only way to tell a configuration mistake from a network
    failure, and `instanceof` needs the class. They are grouped by the module that
    throws them.

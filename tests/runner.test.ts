@@ -73,12 +73,43 @@ describe("classifyStatus", () => {
     expect(classifyStatus(404)).toBe("not-found");
   });
 
+  /**
+   * 410 says what 404 says, and used to be an `error`.
+   *
+   * "Gone" is "the resource was not served, and it will not be" — a stronger
+   * statement than 404, not a different one. `toBinary` already folds
+   * `not-found` into a denial, and the reason it gives holds here word for word:
+   * telling "410 instead of 403, to hide existence" from "the object really is
+   * gone" needs to know that the object exists, and that belongs to the checks
+   * rather than to the base diff. As an `error` the cell was lost quietly — a
+   * low-severity `probe-error` outside the exit code, on a request the platform
+   * had in fact refused. See ADR-0044.
+   */
+  it("reads 410 the way it reads 404", () => {
+    expect(classifyStatus(410)).toBe("not-found");
+  });
+
   // Recording an ambiguous response as a denial means passing the absence of a
   // conclusion off as proof of protection.
   it("draws no conclusion about access from other statuses", () => {
     for (const status of [301, 302, 400, 405, 429, 500, 503]) {
       expect(classifyStatus(status)).toBe("error");
     }
+  });
+
+  /**
+   * The boundary, pinned rather than left to be found again.
+   *
+   * A 202 is "accepted, the answer comes later". A platform that queues the
+   * request and refuses it in a worker answers exactly this, and the tool reads
+   * it as access granted — so a cell the policy denies becomes a privilege
+   * escalation where there was only a refusal arriving later. Reading it as
+   * anything else would need to know whether this platform decides before it
+   * queues, and nothing declares that. Named in the three documents beside the
+   * other statuses this tool cannot read; see ADR-0044.
+   */
+  it("still reads 202 as access granted, which is the known limit", () => {
+    expect(classifyStatus(202)).toBe("allowed");
   });
 });
 
@@ -560,8 +591,16 @@ describe("safeguards against an untrustworthy run", () => {
   );
 
   it("reports the account as unauthenticated when the canary answers with a denial", async () => {
+    // The endpoint refuses an unauthenticated request, which is what makes it
+    // worth naming as a canary at all — and what the control request added by
+    // ADR-0040 asks it. A stand that answered everybody would be a stand whose
+    // canary proves nothing, and that case has its own test.
     const { client } = fakeClient((request) => ({
-      status: request.headers.authorization === "Bearer tok-a" ? 401 : 200,
+      status:
+        request.headers.authorization === undefined ||
+        request.headers.authorization === "Bearer tok-a"
+          ? 401
+          : 200,
       headers: {},
     }));
 
@@ -577,8 +616,12 @@ describe("safeguards against an untrustworthy run", () => {
     });
 
     expect(results).toEqual([
+      // No control request for a: the credentialed one did not succeed, so there
+      // is nothing to control against and the run is stopping anyway.
       { accountId: "a", endpointId: "me", status: 401, authenticated: false },
-      { accountId: "b", endpointId: "me", status: 200, authenticated: true },
+      // For b there is, and the 401 it came back with is the endpoint saying it
+      // tells the account apart from nobody — which is what a canary is for.
+      { accountId: "b", endpointId: "me", status: 200, authenticated: true, anonymousStatus: 401 },
     ]);
   });
 
@@ -746,11 +789,18 @@ describe("a path from the specification does not control the address", () => {
     expect(result.skipped).toEqual([{ endpointId: "e", reason: "escapes-target" }]);
   });
 
-  it("does not let a backslash lead to another host", async () => {
-    const { seen } = await probe("/\\evil.test/x");
+  it("refuses a backslash instead of normalising it away", async () => {
+    const { seen, result } = await probe("/\\evil.test/x");
 
-    // The backslash route stays inside the target.
-    expect(seen[0]?.url).toBe("https://api.example.test/v1/evil.test/x");
+    // This used to assert that the route "stays inside the target": the leading
+    // backslash was trimmed and the address came out `/v1/evil.test/x`. Trimming
+    // the leading one was the whole of it, and a backslash in the middle is a
+    // path separator to the URL parser — `/v1/reports\..\..\danger` arrived at
+    // `/danger`, past an exclusion list that works on ids. The character is
+    // refused now, at the seam where the address is built. See
+    // `isAddressablePath` and ADR-0032.
+    expect(seen).toEqual([]);
+    expect(result.skipped).toEqual([{ endpointId: "e", reason: "escapes-target" }]);
   });
 
   it("an ordinary path is assembled as before", async () => {
@@ -796,11 +846,31 @@ describe("requests to resources", () => {
       accounts: one,
       credentials,
       client,
-      // Otherwise a value with a slash would shift the path to another resource.
+      resources: [{ id: "r", tenantId: "t", params: { playerId: "a b" } }],
+    });
+
+    expect(seen[0]?.url).toBe("https://api.test/v1/players/a%20b");
+  });
+
+  /**
+   * A separator no longer relies on being escaped. `..%2Fadmin` is one segment
+   * here and `../admin` to a router that decodes before it matches — the cell
+   * then fails instead of quietly addressing a neighbour. See ADR-0035.
+   */
+  it("fails the cell rather than encoding a separator", async () => {
+    const { client, seen } = fakeClient(() => ({ status: 200, headers: {} }));
+
+    const result = await collectObservations({
+      baseUrl: "https://api.test",
+      endpoints: [profile],
+      accounts: one,
+      credentials,
+      client,
       resources: [{ id: "r", tenantId: "t", params: { playerId: "../admin" } }],
     });
 
-    expect(seen[0]?.url).toBe("https://api.test/v1/players/..%2Fadmin");
+    expect(seen).toHaveLength(0);
+    expect(result.failures[0]?.reason).toContain("../admin");
   });
 
   it("adds query string parameters", async () => {
@@ -929,10 +999,11 @@ describe("a resource's value does not divert the request", () => {
     expect(result.failures[0]?.reason).toContain("path navigation rather than an identifier");
   });
 
-  it("a slash in the value gets encoded and gives no bypass", async () => {
-    const { seen } = await probeWith({ playerId: "../.." });
+  it("a slash in the value stops the cell instead of being escaped", async () => {
+    const { seen, result } = await probeWith({ playerId: "../.." });
 
-    expect(seen[0]?.url).toBe("https://api.test/api/v1/players/..%2F..");
+    expect(seen).toHaveLength(0);
+    expect(result.failures).toHaveLength(1);
   });
 
   it("encodes an ordinary value and stays inside the base path", async () => {

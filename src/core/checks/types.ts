@@ -6,7 +6,7 @@
  * See docs/adr/0003-check-registry.md.
  */
 
-import type { AccessMatrix, Severity } from "../types.js";
+import type { AccessMatrix, ResourceRelation, Severity } from "../types.js";
 
 /**
  * A reference to a clause of an external standard.
@@ -62,6 +62,36 @@ export interface Finding {
    * at one finding and not at the schema.
    */
   readonly relatedAccountId?: string;
+  /**
+   * The resource the finding is about, when it is about one.
+   *
+   * A cell of the matrix is account × endpoint × resource × conditions, and this
+   * field is the third coordinate. Without it a check could name the first two
+   * and no more, so `withVerdicts` and `withRequest` — which look an observation
+   * up by the whole key — missed on every finding about a resource: the cell
+   * came out `match: true` with a finding standing on it, landed in
+   * `cellsMatched`, and the defect group carried an empty `resourceIds`.
+   *
+   * Latent until now, and only by accident: the one registered check compares
+   * whole endpoints and skips cells that name a resource. The first check of
+   * Module 2 that judges an object — a BOLA read against a body — is where it
+   * would have stopped being latent. Third time this class was closed: ADR-0022
+   * for the walk, `relatedAccountId` for the other side of a pair, and this.
+   *
+   * Found by the audit of 20 August 2026 (D-3).
+   */
+  readonly resourceId?: string;
+  /**
+   * The account's relation to that resource — `own`, `foreign-tenant` and the
+   * rest of `RESOURCE_RELATIONS`.
+   *
+   * Carried rather than recomputed. The report groups defects by
+   * endpoint × relation × conditions, and a check that knows which resource it
+   * judged knows the relation too; recomputing it in the report would need the
+   * tenant tree at a layer that does not have it, and the two answers would
+   * drift the way two copies of a fact always do.
+   */
+  readonly relation?: ResourceRelation;
   /**
    * Machine-readable evidence for the finding.
    *

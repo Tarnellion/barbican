@@ -69,8 +69,34 @@ describe("the grammars, written once", () => {
     for (const bad of ["", ".", ".."]) {
       expect(() => pathSegment(bad)).toThrow(UnusablePathSegmentError);
     }
-    // The slash is escaped, and that was never the hole: the dot is.
-    expect(pathSegment("a/b")).toBe("a%2Fb");
+  });
+
+  /**
+   * This line used to read "the slash is escaped, and that was never the hole:
+   * the dot is", and it was wrong in the half this project had already decided
+   * elsewhere. `isUsablePathTemplate` reads `%2e`, `%2f` and `%5c` precisely
+   * because the target decodes them and the target is where the navigation
+   * happens; the value grammar did not, so the two halves of one rule disagreed.
+   *
+   * `encodeURIComponent("../../admin")` is `..%2F..%2Fadmin`, one ordinary
+   * segment to this side — and `../../admin` to Spring with `urlDecode` on (its
+   * default) or Tomcat with `ALLOW_ENCODED_SLASH`. The request then reaches an
+   * endpoint the run never named, past an exclusion list that works on ids.
+   *
+   * The price, recorded rather than hidden: a hierarchical identifier —
+   * `docs/report.pdf` for `/v1/files/{path}` — can no longer be declared as one
+   * value. Where the depth is fixed the template takes two parameters instead;
+   * where it is not, the endpoint is out of reach. Fail-closed is the answer that
+   * does not depend on knowing how somebody else's router is configured.
+   * See ADR-0035, and the audit of 20 August 2026 (A-2).
+   */
+  it("refuses a separator in a value, because the target may decode it", () => {
+    for (const bad of ["a/b", "../..", "..\\..", "../../admin"]) {
+      expect(() => pathSegment(bad)).toThrow(UnusablePathSegmentError);
+    }
+    // What is still an identifier stays one: dots inside a name are not navigation.
+    expect(pathSegment("report.2026.pdf")).toBe("report.2026.pdf");
+    expect(pathSegment("a b")).toBe("a%20b");
   });
 });
 

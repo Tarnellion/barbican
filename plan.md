@@ -138,6 +138,15 @@ in that release still spoke Russian around English documentation. All three are 
 stated exit criterion. `barbican@0.3.0` is on npm as `latest`, published through
 the pipeline with provenance.
 
+`0.4.0` followed on 18 August and is what `latest` points at today: the raw zod
+schema is no longer in the published types, the signal extractor is exported at
+last, and `basis` travels on observations rather than only on findings. Recording
+it here is not bookkeeping — the version this file forgot to mention is the
+version main then drifted twenty-one commits past, in silence, until the audit of
+19 August. The rule that came out of that is
+[ADR-0034](docs/adr/0034-what-main-carries-beyond-the-release.md), and the place
+the drift is written down from now on is README's `### Unreleased` section.
+
 The blocker this section named is gone: `release.yml` ran one CI gate of four —
 `pnpm run check` — and skipped the secret scan over the history, the oracle
 verification and the vulnerability scan, so a tag could publish a commit that
@@ -202,6 +211,57 @@ first thing it needs is not code: the clause-by-clause content was never
 estimated, and choosing which standard to map first (GLI-19, the AGCO
 requirements, OWASP ASVS 5.0, which the existing check already cites) decides
 what the rest of the phase looks like.
+
+### The entry ticket, paid on 21 August 2026
+
+That choice is made and three things it needed are in: **OWASP ASVS 5.0 first**.
+It is public and under CC BY-SA, so clause identifiers can live in a public
+repository; its numbering is stable; and the one registered check already cites
+it. GLI-19 and the AGCO requirements are distributed under registration — their
+numbers and texts cannot go into this repository at all — so the catalogue is
+built to take a second standard by **registration from a source the repository
+never sees**, and the invariant is about a run rather than about the tree: every
+reference resolves against the catalogue assembled for that run
+([ADR-0043](docs/adr/0043-a-catalogue-of-clauses.md)).
+
+Three gaps the audit of 20 August found in what this phase was about to be built
+on, all closed:
+
+- **Matrix findings carried no clause at all**, so a traceability matrix built
+  from a report would have covered the one registered check and not privilege
+  escalation or cross-tenant access — that is, not the reason the tool exists
+  ([ADR-0041](docs/adr/0041-a-matrix-discrepancy-answers-for-a-clause.md)).
+- **A finding could not name the resource it was about**, so a check judging an
+  object — the first kind Module 2 will write — produced a cell the report
+  printed as agreed ([ADR-0039](docs/adr/0039-a-finding-names-the-whole-cell.md)).
+- **One check throwing discarded the whole run**, at the step after the traffic
+  had been spent. At one registered check that was theoretical; at fifty, written
+  by more than one person, it is ordinary.
+
+**The second direction of traceability is in, as of 22 August 2026.**
+`coverage.clauses` is one row per clause either channel reached, and the sentence
+a certifying body asks for — "8.2.2 was exercised across the surface and holds" —
+is now something a saved report can be asked. Nothing in it is a percentage: a
+row carries the cells that concluded and the cells that concluded nothing by
+reason, plus the reservations that stop "exercised" from meaning "holds", because
+claiming a clause covered over a surface the tool structurally could not see is
+the same class of failure as a falsely clean run
+([ADR-0052](docs/adr/0052-a-clause-can-be-reported-as-exercised.md)). The matrix
+channel is still not a registered check; ADR-0041's reasoning for that is
+unchanged, and this buys the time to make the move carefully rather than
+replacing it.
+
+Beside it, and about the artifact rather than its contents: **the report carries
+a digest of itself** ([ADR-0051](docs/adr/0051-the-report-answers-for-itself.md)).
+A document meant as the raw material of an evidence pack could be edited in a
+text editor without a trace. `contentDigest` closes the careless half of that and
+says out loud that it does not close the other one — a signature is named there
+as not done, with the questions it needs answered first.
+
+What is still ahead and still unestimated: **the clause-by-clause content
+itself**, and the rendering. The catalogue holds the part of ASVS V8 this tool
+can speak to; deciding what a pack claims per clause, and what a reader of it is
+entitled to conclude, is the work neither ADR does.
 
 ---
 

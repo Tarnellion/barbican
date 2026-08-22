@@ -88,3 +88,24 @@ outside. Scalar signals over the body
 ([ADR-0011](0011-response-body-signals.md)) could in principle: a different
 shape of response from different branches would give a different set of scalars.
 For now that is a guess, not a measurement.
+
+## Note of 2026-08-21: the signature is no longer the one described above
+
+The signature here is "the endpoint, the kind of discrepancy, the relation to
+the resource". Neither end of that survived unchanged, and this file said so
+nowhere while `docs/report.md` sent readers here for the example.
+
+[ADR-0019](0019-request-contexts.md) added the declared request conditions to the
+key: the same cell under `geo-blocked` and under the baseline are different
+defects, because the platform is being asked a different question.
+
+[ADR-0030](0030-a-defect-is-not-its-channel.md) removed the kind on 17 August
+2026: a defect is grouped by what is broken, not by which channel noticed it, so
+one endpoint broken in two ways is one entry naming both in `kinds`.
+
+What the code computes today is `endpoint × relation × contextId`
+(`defectSignature` in `src/core/defects.ts`), and the citable key printed in the
+report follows it. The example above — `orders.read × privilege-escalation ×
+foreign-tenant` — is of a format no run produces any more.
+
+Found by the audit of 20 August 2026 (K-1).

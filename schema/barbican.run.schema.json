@@ -24,7 +24,8 @@
           "minLength": 1
         }
       },
-      "required": ["baseUrl", "allowedHosts"]
+      "required": ["baseUrl", "allowedHosts"],
+      "additionalProperties": false
     },
     "accounts": {
       "minItems": 1,
@@ -65,7 +66,8 @@
             "minLength": 1
           }
         },
-        "required": ["id", "role"]
+        "required": ["id", "role"],
+        "additionalProperties": false
       }
     },
     "policy": {
@@ -123,7 +125,8 @@
                               "minLength": 1
                             }
                           },
-                          "required": ["path"]
+                          "required": ["path"],
+                          "additionalProperties": false
                         }
                       ]
                     }
@@ -154,7 +157,8 @@
           }
         }
       },
-      "required": ["fallback", "rules"]
+      "required": ["fallback", "rules"],
+      "additionalProperties": false
     },
     "exclude": {
       "type": "array",
@@ -209,7 +213,8 @@
             }
           }
         },
-        "required": ["id", "tenant"]
+        "required": ["id", "tenant"],
+        "additionalProperties": false
       }
     },
     "tenants": {
@@ -241,7 +246,8 @@
                 "format": "uri"
               }
             },
-            "required": ["id"]
+            "required": ["id"],
+            "additionalProperties": false
           }
         }
       ]
@@ -435,6 +441,45 @@
         "additionalProperties": false
       }
     },
+    "accepted": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "endpoint": {
+            "type": "string",
+            "minLength": 1
+          },
+          "relation": {
+            "type": "string",
+            "enum": ["own", "same-tenant", "descendant-tenant", "ancestor-tenant", "foreign-tenant"]
+          },
+          "context": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "until": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "ticket": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["endpoint", "kind", "reason", "until"],
+        "additionalProperties": false
+      }
+    },
     "bodySignals": {
       "type": "object",
       "properties": {
@@ -477,12 +522,38 @@
                 }
               }
             },
-            "required": ["name", "kind", "path", "endpoints"]
+            "required": ["name", "kind", "path", "endpoints"],
+            "additionalProperties": false
+          }
+        },
+        "compareSubtree": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "endpoints": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": ["endpoints", "path"],
+            "additionalProperties": false
           }
         }
       },
-      "required": ["responseMustDifferByTenant"]
+      "required": ["responseMustDifferByTenant"],
+      "additionalProperties": false
     }
   },
-  "required": ["target", "accounts", "policy"]
+  "required": ["target", "accounts", "policy"],
+  "additionalProperties": false
 }

@@ -72,16 +72,32 @@ export function findUnauthenticated(
   // every rule every time. The audit of 14 August measured 275 ms here against
   // 21 ms with the same policy trimmed to two rules.
   const rules = indexPolicy(policy);
+  // And the observations grouped by the account they belong to, for the reason
+  // the line above exists. The inner loop below used to walk **all** of them for
+  // every account and drop the ones belonging to somebody else — and a run's
+  // observations grow with its accounts, so the discarded work grew as the
+  // square of them. The comment above hoisted `indexPolicy` out of this loop and
+  // left the loop itself where it was.
+  //
+  // The grouping keeps the order the observations arrived in, which
+  // `dominantStatus` reads: the first status to reach the highest count wins,
+  // and a different order would answer differently on a tie.
+  const byAccount = new Map<string, AccessObservation[]>();
+  for (const observation of observations) {
+    const own = byAccount.get(observation.accountId);
+    if (own === undefined) {
+      byAccount.set(observation.accountId, [observation]);
+    } else {
+      own.push(observation);
+    }
+  }
 
   for (const account of accounts) {
     let expectedAllowed = 0;
     let refused = 0;
     const statusCounts = new Map<number, number>();
 
-    for (const observation of observations) {
-      if (observation.accountId !== account.id) {
-        continue;
-      }
+    for (const observation of byAccount.get(account.id) ?? []) {
       // The relation is required: rules with a `scope` do not apply at all without
       // it, and for a policy in the ADR-0010 style the counter would stay zero —
       // that is, the safeguard would stay silent on exactly the style that is

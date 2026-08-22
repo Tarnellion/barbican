@@ -81,6 +81,10 @@ async function run() {
     failures: walked.failures,
     unauthenticated: [],
     canariesChecked: 1,
+    // The account carries a `tokenEnv`, so the verdict wants a canary of its
+    // own: what is under test here is the untrustworthiness threshold, and an
+    // unconfirmed credential would answer 2 for a different reason.
+    canaries: [{ accountId: "a", endpointId: "player.read", status: 200, authenticated: true }],
     truncated: walked.truncated,
     findings,
     policy: { fallback: "allowed", rules: [] },

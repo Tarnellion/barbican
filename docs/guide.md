@@ -3,6 +3,11 @@
 How to declare what gets checked and how to start a run. How to read the result —
 see [report.md](report.md).
 
+**Running against a platform you do not own?** Read
+[first-run.md](first-run.md) first: the eleven things to settle before the first
+request, in the order they have to be settled. This document explains each of
+them; that one is the order.
+
 ## The model in one paragraph
 
 You declare **who is meant to get what**. The tool walks the API as each account
@@ -155,6 +160,7 @@ for.
 
 ```ts
 import { createHmac } from "node:crypto";
+import { safeHeaders } from "barbican";
 import type { CredentialProvider } from "barbican";
 
 const signing: CredentialProvider = {
@@ -163,10 +169,16 @@ const signing: CredentialProvider = {
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const { pathname, search } = new URL(request.url);
     const canonical = `${request.method}\n${pathname}${search}\n${timestamp}`;
-    return {
-      "x-timestamp": timestamp,
-      "x-signature": createHmac("sha256", secret).update(canonical).digest("hex"),
-    };
+    // `safeHeaders` is how a header becomes one: it checks the name against
+    // RFC 9110 and the value against what `fetch` will carry, and it is the only
+    // constructor of the `HeaderValue` this port returns. An object literal does
+    // not type-check here, and that is the point — the grammar for a string from
+    // outside is written once and applies to the library door as well as to the
+    // CLI (ADR-0024). The same call is in `tests/runner.test.ts`.
+    return safeHeaders([
+      ["x-timestamp", timestamp],
+      ["x-signature", createHmac("sha256", secret).update(canonical).digest("hex")],
+    ]);
   },
 };
 ```
@@ -524,6 +536,72 @@ For an account with a set of tenants the relation is computed for every
 membership, and the nearest one lands in the table — top to bottom down this
 same list.
 
+### Findings you already know about
+
+A first run against a platform that has never been checked finds things. Some of
+them are being fixed next quarter, and until then the run fails — which is a
+problem, because the usual response to a CI step that fails every day is to
+delete the step.
+
+The wrong way to quiet one is to declare the cell allowed. That does not say "we
+know"; it says "this is meant to work", and the finding leaves the report
+altogether — no row, no defect group, no trace that anyone ever looked. Use
+`accepted:` instead:
+
+```yaml
+accepted:
+  - endpoint: orders.get
+    relation: same-tenant
+    kind: privilege-escalation
+    reason: the order service has no tenant filter; PLAT-1234 replaces it
+    until: 2026-11-30
+    ticket: PLAT-1234
+```
+
+The finding stays in the report, at its own severity, with its request and its
+clauses, marked `accepted`. What it leaves is the **verdict**: the run stops
+failing over it until 30 November 2026, and on 1 December it fails again.
+
+**Copy the coordinates out of the report.** `defects[].key` prints them in this
+order:
+
+```jsonc
+"key": "orders.get same-tenant baseline",
+"kinds": ["privilege-escalation"]
+```
+
+— that is `endpoint`, then `relation`, then `context`. The words `any-resource`
+and `baseline` mean the field is absent: `any-resource` is a defect on cells with
+no resource at all, `baseline` is a request with no declared conditions. Leave
+the corresponding key out rather than writing the word.
+
+`kind` is one of the entries in `kinds` beside it: a kind of matrix discrepancy,
+or the identifier of the check that found it. It is part of the address on
+purpose. One endpoint can be broken two ways at once — no authorization *and*
+the same body for every tenant — and accepting the one you have read must not
+silence the one you have not.
+
+Four things to know before writing one.
+
+- **`reason` and `until` are required, and `until` is a real date**,
+  `YYYY-MM-DD`, inclusive of its last day, in UTC. There is no "forever". An
+  entry that carries no condition for its own removal is a pin nobody notices,
+  which is the same rule this project applies to a dependency override.
+- **The account and the resource are not part of the address.** One entry covers
+  every account and every resource of that defect, so declaring one more resource
+  next month does not silently take the acceptance apart.
+- **An entry that covered nothing is reported**, as `accepted[].matched: 0` and
+  in `summary.accepted.unused`. Usually that means the platform was fixed and the
+  line should go; sometimes it means the run never reached those cells, and
+  `coverage.notProbed` says why. It does not fail the run either way.
+- **`not-observed` and `probe-error` cannot be accepted.** They say the run did
+  not reach the cell or the cell did not answer — nothing about the platform — and
+  a run cannot buy its way out of saying so.
+
+The full shape in the report, and the identity the counters keep, are in
+[docs/report.md](report.md); the reasoning is
+[ADR-0048](adr/0048-a-finding-can-be-known-and-still-reported.md).
+
 ### Signals over the body
 
 ```yaml
@@ -553,6 +631,61 @@ where to compare bodies.
 are there when you dig in. "The responses matched for alice and carol" is the
 alarm, and digging in starts with the question of how many records each account
 saw.
+
+**Declare a `count` over the collection the endpoint returns.** It is not only
+for digging in. Two tenants with no records return the same bytes, so their
+digests match and the endpoint reports a `high` leak that is not there — on a
+fresh deployment, where half the tenants have nothing yet, that is a wall of
+findings and exit 1 on your first run. The count is what tells an empty response
+from a full one: where every declared count is zero on both sides, the pair is
+not compared and the report says `skippedBothEmptyPairs`. Without a count on the
+endpoint the tool has nothing that means "empty" and says so —
+`emptinessSignalsDeclared: 0` in that endpoint's coverage.
+
+#### The envelope, and `compareSubtree`
+
+```yaml
+bodySignals:
+  responseMustDifferByTenant: [orders.list]
+  compareSubtree:
+    - { endpoints: [orders.list], path: data.orders }
+```
+
+By default the digest is over the whole response, and on a real list endpoint
+that is usually the wrong thing. If your API answers
+
+```json
+{ "requestId": "01J8...", "generatedAt": "2026-08-21T09:12:44Z", "data": { "orders": [] } }
+```
+
+then **every response differs from every other one**, the digests never match,
+and this check finds nothing — including the case where `data.orders` holds both
+tenants' orders. A `serverTime`, a pagination cursor, an echoed ETag do the same.
+Nothing in the report looks wrong when this happens: `differedPairs` counts the
+pairs and the endpoint reads as compared.
+
+`compareSubtree` names the part of the body to compare instead. The path is
+dotted, the same syntax the signals above use, and you declare it — the tool will
+not work it out from responses, because "compare the fields that happen to agree"
+is the tool picking its own answer.
+
+Three things to know:
+
+- The endpoint must also be under `responseMustDifferByTenant`. A scope anywhere
+  else is refused rather than ignored: no digest is computed there, so the
+  declaration would sit in your file doing nothing.
+- One scope per endpoint.
+- If the path is not in a response — or that response is not JSON — there is **no
+  digest for that cell**, and the observation carries `digestScopeMissing: true`.
+  It does not quietly fall back to comparing whole bodies. The pair shows up as
+  `pairsWithoutDigest`.
+
+**And the boundary, which no declaration removes: a difference in digests is not
+proof of isolation.** It proves only that the bytes were different. A scope that
+excludes the field the leak is in, or two tenants shown the same records in a
+different order, both come back as `differedPairs`. This channel finds leaks; it
+never clears an endpoint of them. `docs/report.md` has the long version under "A
+difference in digests is not proof of isolation".
 
 ### Scope
 
@@ -679,6 +812,115 @@ Referring to an endpoint that is not among the parsed ones stops the run — the
 alternative is a rule that silently never applies. The error names the parsed
 identifiers, nearest first, so a typo answers itself.
 
+### Where the report goes
+
+`--report run.json` writes the report to that path, and creates it `0600` — owner
+only. **Without `--report` the report goes to stdout.** In a pipeline that is the
+build log: readable by everyone who can see the build, kept as long as the build
+is kept, and copied into whatever collects logs.
+
+The file is worth that much care. It holds no response bodies and no credentials
+— those are kept out by construction — but it does hold every request address,
+the identifiers of every account, tenant and resource, and a list of the places
+where the platform's authorization does not hold. On somebody else's platform
+that is a map of their unlocked doors, and it is yours to keep until they have
+it.
+
+So redirect it or name a path:
+
+```bash
+barbican run -c barbican.run.yaml -e endpoints.yaml --report run.json
+barbican run -c barbican.run.yaml -e endpoints.yaml > run.json   # the same, minus the 0600
+```
+
+Any real run started without `--report` says this on stderr. A dry run does not:
+it produces no report to misplace.
+
+### A run that was interrupted
+
+The expensive part of a run is not the time it takes. It is the traffic against a
+deployment that is not yours, inside a window somebody agreed to in writing — and
+that window may not open again this week.
+
+So a run with `--report` streams what it observes to `<report>.stream.ndjson`
+beside it, one line per cell, as each cell finishes, created `0600` like the
+report and holding the same data. Two things come out of that
+([ADR-0047](adr/0047-a-walk-that-survives-its-run.md)):
+
+**A run stopped by a signal still leaves a report.** Ctrl-C — often because the
+owner of the platform asked you to stop — and SIGTERM, which is how CI kills a
+job past its timeout, both stop the walk, write out what was observed, and then
+end the process the way the signal would have: `130` and `143`, unchanged. The
+report says `truncated: true` and comes back with exit code `2`: the tail was
+never probed, and the absence of findings in it means nothing. A second Ctrl-C
+goes straight through.
+
+**A run can be continued where it stopped.**
+
+```bash
+barbican run -c barbican.run.yaml -e endpoints.yaml --report run.json --resume
+```
+
+The cells already in the stream are not probed again — the number is printed
+before the walk, and `--dry-run --resume` will tell you it in advance. The
+resumed run adopts the interrupted run's `runId` and start time, so both halves
+of the traffic carry one identifier in the platform's logs and lead to one
+report. When the walk completes, the stream is deleted; the report is the
+artifact.
+
+**`--resume` refuses to continue a different run.** Before the first request it
+compares a digest of the declaration — the configuration file, the endpoint
+document, the values your request conditions take from the environment,
+`--unsafe-methods` and `--no-identify` — with the one the stream was written
+under. Anything different and the run stops with exit `2`, having sent nothing.
+Half a matrix walked under one declaration and half under another is not one run,
+and a report presenting them as one would carry a single digest and a single
+verdict over both.
+
+Two things it cannot see, and they are yours to hold:
+
+- **the token behind an account.** The digest covers the names of the environment
+  variables, never their values — a value hashed into a file is still a secret in
+  a file. Resume as the same principals. The canary confirms the token in force
+  works, which is not the same as confirming it is the same token.
+- **the platform.** A digest of your declaration says nothing about what was
+  deployed on the other side in between. Resuming across a deploy gives one
+  report about two platforms, and only you know whether that happened.
+
+Without `--report` there is no stream: the report goes to stdout, and choosing
+where a document of that sensitivity lives is not a decision the tool makes for
+you. Such a run says so before the walk, and an interruption costs it everything.
+
+### The run says who it is
+
+Every request carries a `user-agent` naming the tool, its version and the run:
+
+```
+barbican/0.4.0 (+https://github.com/Tarnellion/barbican#readme; run=3f2a…)
+```
+
+`run=` is the `runId` of the report the run produces, and that is the whole
+point. The owner who agreed to this can find the run in an access log or a SIEM,
+filter it out of an availability graph, show an anti-fraud rule what it was — and
+tie all of it to the specific JSON document you hand them. Without it the only
+thing connecting your report to their records is the clock.
+
+`user-agent` rather than a header of this tool's own, because it is the field
+their logging already keeps: a custom header would need a change on their side
+first, and asking for that is asking the wrong person to do the work.
+
+**`--no-identify` turns it off**, and there is one honest reason to reach for it:
+you are deliberately measuring what an unannounced sweep looks like, WAF reaction
+included. A marked run may be answered differently from an unmarked one, and then
+what is being tested is partly the WAF's opinion of a known tool. That is a
+decision to make on purpose and to write down in the agreement — say there how
+the traffic is to be recognised instead. The run's summary prints which of the
+two happened.
+
+If a set of request conditions declares a `user-agent` attribute of its own, the
+run stops at the first request rather than sending both values folded together.
+Rename the attribute, or use `--no-identify`.
+
 ### Seeing the plan before running it
 
 ```bash
@@ -708,10 +950,15 @@ is made against a platform that is not up, where a single request would fail.
 it did not:
 
 - a canary pointing at an excluded endpoint, or at one with path parameters, or
-  at no endpoint at all — refused here rather than after the accounts have
-  authenticated;
-- **no canary on any account with credentials** — the run would walk the whole
-  matrix and then exit 2, because nothing would confirm it authenticated;
+  at no endpoint at all, or at an endpoint the policy denies to that account's
+  own role — refused here rather than after the accounts have authenticated;
+- **any account with credentials and no canary of its own** — named one by one.
+  The run would walk the whole matrix and then exit 2, because nothing would
+  confirm it authenticated as that account. It used to be enough for one account
+  somewhere in the run to have a canary; see
+  [ADR-0033](adr/0033-a-canary-is-per-account.md);
+- a policy rule naming a role no account carries, and a resource that fits no
+  endpoint — each is a declaration that would silently do nothing;
 - `--max-requests` below the number of cells on the same command line — the run
   would stop part-way and report `truncated`;
 - `--report` — a dry run does not write it, so anything reading the file
@@ -833,6 +1080,73 @@ another's data is indistinguishable from the thing this tool is used to find.
 
 `--unsafe-methods` deserves its own sentence in that agreement: it changes
 state, and the change outlives the report.
+
+So does the way they will recognise the traffic. By default every request names
+the tool, its version and the run in `user-agent`, and the `run=` part is the
+`runId` of the report you will hand over — that pair is what lets them separate a
+run they agreed to from an intrusion in their own logs, and match their records
+against your findings. Put the identifier in the agreement, or in the message
+that says the run has started. If you intend to use `--no-identify`, say that
+instead, and agree on what will stand in for it.
+
+And agree where the report is going to live before it exists. It names the places
+their authorization does not hold; until they have it, it is a document about an
+unfixed vulnerability in somebody else's system.
+
+A checklist of everything to settle before the first request —
+[first-run.md](first-run.md).
+
+### The run's own blast radius
+
+Two costs of running that are not about the platform's defects at all. Both are
+easy to meet for the first time in the middle of a run.
+
+**The job that runs barbican holds every role's live credentials at once.** The
+tool does not obtain tokens: a login is a POST, that is, outside safe mode, and
+"does not log in" is on the list above. So somebody puts working credentials for
+every declared account into the environment of one process — the customer, the
+affiliate, the support agent, the **tenant administrator**, the **operator
+console** — and keeps them there for the length of the walk. On a platform where
+those roles are deliberately held by different people, that process is a
+concentration of privilege the platform never grants anybody.
+
+`barbican.run.yaml` is the other half. It is meant to be committed and reviewed,
+and `tokenEnv` names a variable rather than a value exactly so that it can be —
+which makes the committed file an accurate map of which variable holds which
+role. That map plus read access to the job's environment, or the right to
+restart it, is every role at once.
+
+Nothing in the tool changes this, so it is a decision about the job: where it
+runs, who can read its environment or its process list, whether the CI variables
+are masked and scoped to one protected branch, and — the part that is usually
+forgotten — how soon the tokens are revoked after the window closes. A run is an
+hour; a token minted for it lives as long as nobody rotates it.
+
+**And the run is shaped like the thing it is looking for.** By construction it
+sends a long run of `401` and `403` from one subject in a few minutes: every cell
+the policy expects to be refused, back to back, on one account. That is the
+signature an account lockout, a step-up challenge or an anti-fraud rule is hung
+on, and a platform that has one is usually a platform worth testing.
+
+What happens then is the part worth knowing in advance:
+
+- the account is locked mid-walk, and every remaining cell of it answers `401` —
+  a denial, which agrees with a policy of denial and is counted as tested and
+  agreed;
+- the canary probed after the walk fails, so the run does end in exit code 2 and
+  names the account. It names it in **`staleCredentials`**, which is worded for a
+  token that expired on its own. The run caused this one, and nothing in the file
+  says so;
+- the real account, belonging to a real person on the platform, is locked after
+  the run has finished. Support hears about it from them.
+
+`--rps` and `--concurrency` lower the rate, not the ratio: a matrix whose cells
+are mostly denials produces mostly refusals however slowly it is walked. The
+things that actually help are agreed with the platform's owner rather than
+configured here — an exemption for the accounts named in the run, a lockout
+counter reset afterwards, or accounts created for the run and disabled with it.
+Put the account identifiers in the same message as the window; they are the ones
+that will need unlocking.
 
 ## Choosing which checks run
 
@@ -988,6 +1302,114 @@ exit code 1
 Four is every cell the policy denies. The fifth is two refusals mistaken for one
 shared record. The exit code says "checked, and reality does not match what you
 declared", which is exactly what it would say about a real catastrophe.
+
+### The statuses this tool cannot read
+
+The section above is one member of a family, and the loudest. The rest are
+quieter and fail the other way round: instead of a report full of findings that
+are not there, they give a report with cells **missing** from it, and a run that
+ends in `0`.
+
+The conclusion about access is drawn from the status code, and only where it is
+unambiguous:
+
+| Answer | Read as |
+| --- | --- |
+| `2xx` | access granted |
+| `401`, `403`, `451` | refused |
+| `404`, `410` | not served — folded into a refusal by the diff |
+| anything else | no conclusion: `outcome: "error"`, a `probe-error` cell |
+
+A `probe-error` is low severity, it does not enter the exit code, and while
+fewer than half the cells are one, the run finishes with `0`. Four kinds of
+platform land there, and each of them can make a real refusal invisible.
+
+**A refusal that redirects.** An operator console on a session cookie —
+`kind: cookie` above, and the case that scheme exists for — does not answer a
+refused caller with `403`. It answers `302 Location: /login`. barbican does not
+follow redirects (deliberately: the target of one can be off the allowlist
+entirely), so what stands behind it was never fetched, and every denied cell of
+that surface becomes a `probe-error`. Nothing in the report says the refusals
+were dropped; the counters simply do not include them.
+
+The warning that looks like it should catch this does not. `nothingRefused`
+fires on `coverage.outcomes.denied == 0` — the whole run, not one surface — so a
+configuration covering an API that answers `401` beside a console that answers
+`302` never earns it, and the sentence it prints names the other cause anyway.
+
+What it takes to fix is a declaration: *on this platform, a refusal looks like
+this*. There is no such field today, and the tool will not guess from a
+`Location` header — that is somebody else's convention, and deriving the
+expectation from the system under test is the mistake
+[ADR-0006](adr/0006-expected-access-declaration.md) exists against. Until then,
+if your denied cells come back as `probe-error` with a 3xx status, read them as
+uncounted refusals rather than as a healthy run.
+
+**An outcome that is not final.** `202 Accepted` means the request was taken,
+not that it was allowed. A platform that queues the work and refuses it in a
+worker answers `202` to a caller who has no right to it, and this tool reads
+that as access granted: the cell becomes a `privilege-escalation` finding where
+the truth is a refusal arriving a second later. Nothing in the response says
+which of the two it is. If a write endpoint of yours is asynchronous, the
+verdict on it is about admission to the queue, not about the operation.
+
+**A delete that only hides the object.** Under soft delete, an object that is
+hidden answers `404` or `410` to everyone — the accounts that should reach it
+included. The diff folds both into a refusal, so a cell reads as protected when
+it is only empty, and an account that genuinely lost access is indistinguishable
+from one looking at a tombstone. `coverage.resourcesNotFound` is where to look:
+a resource missing for *every* account is usually this rather than authorization.
+
+**An answer about the endpoint rather than the account.** `405 Method Not
+Allowed` says this endpoint does not offer this method. It says nothing about
+who asked, and a matrix cell asks about who asked. It stays a `probe-error`; a
+wall of them usually means the endpoint list and the platform disagree about
+methods, which is worth fixing in the list.
+
+**What the run does say.** Every cell whose status is not read leaves a row in
+`failures` naming the status and why nothing follows from it, and the CLI prints
+`Requests that failed: N (reasons in the report)` in yellow. That is not a
+verdict — the run can still end in `0` — but it is the thread to pull, and it is
+the difference between a boundary you can see and one you cannot.
+
+### One probe per cell
+
+The sections above are about statuses the tool reads wrongly. This one is about
+how many times it reads them, which is **once**.
+
+A cell is one request, asked once. A finding is not re-probed to see whether it
+holds; a cell that agreed is not re-probed either; and nothing the run writes
+distinguishes a result seen twice from one seen once, because no result was.
+
+Requests are repeated, and the difference is the whole point of this section.
+The retry loop fires on `429`, on `5xx` and on a request that failed on the wire
+— conditions that say the answer never arrived. **An unexpected outcome is not
+one of them**, deliberately: a `200` where the policy said `denied` is the
+finding the run exists to produce, and asking again would be the tool choosing
+between two answers it has no grounds to choose between.
+
+So a matrix cell is a coin tossed once, and both faces are expensive.
+
+**One `200` makes a `critical`.** A stale replica behind a cache, still answering
+from before a permission was revoked. A permissions rollout part-way through a
+fleet, one node updated and another not. An A/B branch or a feature flag, and the
+account landed on the arm that has not been fixed. Each of those gives one
+`privilege-escalation` at `foreign-tenant` — severity `critical`, and identical
+in the report to a hole that is always open. Before such a finding goes into a
+ticket, repeat the request by hand: the finding carries the `request` line to do
+it with, and that is the confirmation the tool cannot perform for you.
+
+**One `403` hides a hole**, and this is the direction nobody checks. The cell
+comes back refused, agrees with the policy, and is counted in
+`coverage.cellsMatched` — "tested and agreed", where what happened is "asked
+once, and once it was refused". A leak open on two nodes out of three reads as
+protection.
+
+What follows for the declaration: on a platform behind a cache, a rolling deploy
+or a flag system, cut the matrix rather than widen it. Twenty endpoints probed
+during a quiet window, with the interesting cells repeated by hand, are worth
+more than two hundred whose every row is a single sample. `docs/report.md` says
+the same thing to whoever is reading the file afterwards.
 
 ## Working example
 

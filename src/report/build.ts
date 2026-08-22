@@ -18,6 +18,7 @@ import type { ThrottleLimits } from "../adapters/throttle.js";
 // file's business is to carry it, not to decide what goes in. It was declared
 // here, and `description` was the field the mapping that built it left out.
 // See `describeChecks`.
+import { standardsForDiff } from "../core/checks/clauses.js";
 import type {
   CheckCoverage,
   CheckRun,
@@ -25,6 +26,7 @@ import type {
   StandardRef,
 } from "../core/checks/types.js";
 import type {
+  Acceptance,
   AccessDiff,
   AccessObservation,
   AccessOutcome,
@@ -41,7 +43,23 @@ import type {
   Severity,
   TenantNode,
 } from "../core/index.js";
-import { defectSignature, groupDefects, principalOf, SEVERITY_ORDER } from "../core/index.js";
+import {
+  citableDefectKey,
+  defectSignature,
+  groupDefects,
+  indexAcceptances,
+  isAcceptanceInForce,
+  matchingAcceptance,
+  principalOf,
+  SEVERITY_ORDER,
+} from "../core/index.js";
+import { byCodeUnits } from "../core/order.js";
+// The clause-to-coverage direction. Shaped and computed in the core for the
+// reason ADR-0041 gave for keeping `standardsForDiff` there: which clause a cell
+// is evidence about is a statement about what a discrepancy means, and the
+// report carries what a channel declares rather than deciding it.
+import type { ClauseCoverage, ClauseReservation, JudgedCell } from "../core/standards/coverage.js";
+import { clauseCoverage } from "../core/standards/coverage.js";
 import type {
   AccountConfig,
   ContextAttributeValue,
@@ -49,6 +67,7 @@ import type {
   RunConfig,
   RunTarget,
 } from "../io/config.js";
+import { lookup, openRecord } from "../io/untrusted.js";
 import type { ProbeFailure, SkippedEndpoint } from "../runner.js";
 
 /**
@@ -143,6 +162,104 @@ export interface ReportSummary {
    * does not know. See ADR-0029's addendum.
    */
   readonly verdictInputs: VerdictCounts;
+  /**
+   * What the `accepted:` declarations did to this run.
+   *
+   * Four numbers and a breakdown, and the reason there are four is that a reader
+   * of a report with a green verdict has to be able to ask three different
+   * questions of it: how much is being held out of the verdict, how much of that
+   * has lapsed, and how many declarations covered nothing at all. See ADR-0048.
+   *
+   * Additive, like `verdictInputs` before it: a reader written against schema
+   * `2` does not break on a field it does not know.
+   */
+  readonly accepted: AcceptanceCounts;
+}
+
+/**
+ * How many findings the acceptances held, and how many of them stopped holding.
+ *
+ * The identity worth checking, for every matrix kind: `byKind[k]` minus
+ * `accepted.byKind[k]` is `verdictInputs.matrixByKind[k]`. It is what makes
+ * "counters that tell the truth" a statement a reader can verify rather than a
+ * promise — the whole objection to suppression is that the numbers stop meaning
+ * what they say.
+ */
+export interface AcceptanceCounts {
+  /** Entries in the configuration's `accepted:` section. */
+  readonly declared: number;
+  /** Finding rows an acceptance is holding out of the verdict right now. */
+  readonly findings: number;
+  /**
+   * Rows whose acceptance has lapsed.
+   *
+   * These are **not** in `findings` and **are** in `verdictInputs`: past its day
+   * an acceptance stops holding, which is the difference between this mechanism
+   * and a silencer. The rows keep the mark, with `expired: true` on it, because
+   * "found and once accepted" is what explains a run that has just started
+   * failing again.
+   */
+  readonly expired: number;
+  /**
+   * Declarations that covered no finding on this run.
+   *
+   * Either the platform was fixed — in which case the line should be deleted —
+   * or the run never reached those cells, in which case `coverage.notProbed`
+   * says why. The report cannot tell the two apart and does not guess.
+   */
+  readonly unused: number;
+  /**
+   * The rows in `findings` above, by kind.
+   *
+   * By kind and not only as a total, because that is what makes the identity at
+   * the head of this type checkable from the file alone. `findings[]` cannot
+   * answer it: the evidence rows are capped.
+   */
+  readonly byKind: Readonly<Record<string, number>>;
+}
+
+/**
+ * One `accepted:` declaration, and what it did.
+ *
+ * `defect` is the citable key rather than the three fields it was written from,
+ * built by the same function that names `defects[].key`: the reader with the
+ * JSON and nothing else can line the two up by eye, and a ticket quoting one
+ * quotes the other.
+ */
+export interface ReportedAcceptance {
+  /** The defect, in the words `defects[].key` uses. */
+  readonly defect: string;
+  /** The way that defect showed itself: a kind of discrepancy, or a check id. */
+  readonly kind: string;
+  readonly reason: string;
+  /** The last day it holds, `YYYY-MM-DD`, inclusive, UTC. */
+  readonly until: string;
+  readonly ticket?: string;
+  /** Whether the day had passed when this run started. */
+  readonly expired: boolean;
+  /** How many finding rows it covered. Zero is the case worth reading. */
+  readonly matched: number;
+}
+
+/**
+ * The mark an accepted finding carries, on the row itself.
+ *
+ * The row keeps its kind, its severity, its request and its clauses; what this
+ * adds is who said it was known and until when. Nothing here is derived — the
+ * reason and the date are the operator's own words, copied.
+ */
+export interface AcceptedMark {
+  readonly reason: string;
+  readonly until: string;
+  readonly ticket?: string;
+  /**
+   * Whether the deadline had passed when the run started.
+   *
+   * `true` means the row counts in the verdict again, and the mark is kept
+   * anyway: a run that has just started failing over something that was accepted
+   * until last week is explained by this field and by nothing else in the file.
+   */
+  readonly expired: boolean;
 }
 
 /**
@@ -170,6 +287,15 @@ export interface CanaryOutcome {
   readonly endpointId: string;
   readonly status: number;
   readonly authenticated: boolean;
+  /**
+   * What the same endpoint answered to a request with no credentials.
+   *
+   * The reader of the report gets to see what the run checked: a canary that
+   * distinguishes shows a refusal here, and one that does not is a canary the
+   * run refused to start on. Absent where the credentialed request did not
+   * succeed, and where the anonymous one failed on the wire. See ADR-0040.
+   */
+  readonly anonymousStatus?: number;
   /**
    * The transport failure's code, when there was no status to report at all —
    * `ECONNREFUSED`, `ENOTFOUND` and their like.
@@ -223,8 +349,24 @@ export interface ReportFinding {
   /**
    * The clauses of external standards this finding answers for.
    *
-   * From the check that produced it. Matrix discrepancies carry none: they come
-   * from the declared policy, not from a check mapped onto a standard.
+   * From the check that produced it, and — since 21 August 2026 — from
+   * `standardsForDiff` for a matrix discrepancy. The comment that stood here
+   * said matrix discrepancies carry none, "they come from the declared policy,
+   * not from a check mapped onto a standard". Formally true and a dead end: the
+   * matrix channel is privilege escalation and cross-tenant access, which is
+   * everything this tool is written for, so a traceability matrix built from a
+   * saved report covered one registered check and none of that. Found as M-11;
+   * see ADR-0041.
+   *
+   * Both directions of the citation are meant. On an escalation the clause is
+   * the control the platform broke; on an unobserved cell or a failed probe it
+   * is the control this run left unproved, which is a statement an evidence pack
+   * needs to attach to the same clause rather than to nothing. `kind` and
+   * `severity` on the same row say which of the two it is.
+   *
+   * Still optional, and the reason is narrower than it looks: every finding this
+   * file produces has clauses today, and a check registered by a consumer of the
+   * library may declare an empty `standards`.
    */
   readonly standards?: readonly StandardRef[];
   /** The second account of a paired finding. See `Finding.relatedAccountId`. */
@@ -279,6 +421,17 @@ export interface ReportFinding {
    * triple.
    */
   readonly request?: RequestRecord;
+  /**
+   * Present when an `accepted:` declaration names this finding.
+   *
+   * The row is here either way — that is the point of ADR-0048 — and this is
+   * what says whether it counted towards the verdict. `expired: true` on the
+   * mark means it did.
+   *
+   * A run-level finding never carries one: an acceptance is addressed by defect
+   * coordinates, and a statement about the run has none.
+   */
+  readonly accepted?: AcceptedMark;
   /**
    * The second request of a paired finding.
    *
@@ -527,6 +680,35 @@ export interface Coverage {
    */
   readonly checksRun: readonly CheckRun[];
   /**
+   * Every clause this run reached, and what it did about it.
+   *
+   * The second direction of the citation, for both channels at once.
+   * `checksRun` above has always had it for registered checks — the clauses a
+   * check answers for, named whether or not it found anything. The matrix
+   * channel had no such list, so a clause exercised across nine hundred agreeing
+   * cells appeared in an evidence pack only if one of them broke: the pack could
+   * say "here is what failed under 8.2.2" and not "8.2.2 was exercised across
+   * the surface and holds", which is the sentence a certifying body asks for.
+   * ADR-0041 recorded the gap; ADR-0052 closes it.
+   *
+   * **Nothing here is a ratio, on purpose.** A percentage is the shape this
+   * record could most easily lie in: it hides its denominator, and the
+   * denominator is the whole question. Each row carries the cells that concluded
+   * and the cells that did not — by reason, with every reason present — so that
+   * "exercised: 900" cannot be read without "and 140 cells said nothing".
+   *
+   * And each row carries the run-level reservations that stop "exercised" from
+   * meaning "holds": an endpoint never probed, a walk cut short, credentials
+   * nothing confirmed, a platform whose refusals this tool cannot recognise.
+   * Claiming a clause covered over a surface the tool structurally could not see
+   * is worse than claiming nothing, and it is the same class of failure as a
+   * falsely clean run.
+   *
+   * Additive: a reader written against schema `2` is not broken by a field it
+   * does not know.
+   */
+  readonly clauses: readonly ClauseCoverage[];
+  /**
    * What each check examined, in the check's own terms.
    *
    * This was `bodyComparison`, a shape belonging to one particular check, and
@@ -643,6 +825,32 @@ export interface RunReport {
    */
   readonly configDigest: string;
   /**
+   * The report's fingerprint of itself, over everything but this field.
+   *
+   * Three fields identified a run — `runId`, `configDigest`, `tool.version` —
+   * and none of them identified the **artifact**. `createHash` occurred once in
+   * this file and it hashed the configuration, so the document could be opened
+   * in a text editor, have a row taken out of `findings` and a sentence
+   * rewritten in `verdict.reason`, and nothing inside it would object. The
+   * provenance npm publishes attests to the package, not to what a run of it
+   * produced. Under ADR-0002 the edit is not contained either: HTML and PDF are
+   * rendered from this file, so a doctored JSON carries into every form of the
+   * document.
+   *
+   * `checkContentDigest` is what recomputes it — over the parsed document, so
+   * that reindenting the file does not read as tampering.
+   *
+   * **It catches carelessness and not malice**, and ADR-0051 says so in the
+   * decision rather than in a footnote: anyone who can change a row can
+   * recompute this value. A signature is the other half and is deliberately not
+   * done — where the key lives and who holds the public half are decisions this
+   * one does not make.
+   *
+   * Additive: a reader written against schema `2` is not broken by a field it
+   * does not know.
+   */
+  readonly contentDigest: string;
+  /**
    * Who produced this file, and where its shape is explained.
    *
    * The audit of 14 August looked for a reference to the documentation and found
@@ -725,6 +933,24 @@ export interface RunReport {
    * and the verdict is 2 for the same reason.
    */
   readonly staleCredentials: readonly string[];
+  /**
+   * Accounts whose canary could not be probed after the walk, because the run
+   * had reached its own ceiling.
+   *
+   * The third way past the rule of ADR-0033, and the one the tool itself leads
+   * an operator into. `--dry-run` counted the canary requests once while the run
+   * makes them twice, so a ceiling it called sufficient stops the second pass;
+   * every result of that pass then carries a terminal failure, which is our own
+   * doing rather than a dead token. Saying "the credentials went stale" there
+   * would send the reader after the wrong thing — so this is a separate field,
+   * and `truncated` is not it either: the matrix **was** walked to the end, and
+   * that reason would be false.
+   *
+   * What is unproved is narrower and worth its own sentence: the tokens were
+   * confirmed before the walk and never confirmed after it. Found by the audit
+   * of 20 August 2026 (B-1).
+   */
+  readonly unverifiedAfterWalk: readonly string[];
   /** The run was cut short before it reached the end of the matrix. */
   readonly truncated: boolean;
   readonly observations: readonly ReportedObservation[];
@@ -747,6 +973,18 @@ export interface RunReport {
    * point is to tell one who does not.
    */
   readonly findingsOmitted: number;
+  /**
+   * The `accepted:` declarations, in the order written, and what each one did.
+   *
+   * Top-level rather than under `inputs`, beside `canaries` and for the same
+   * reason: those fields are declarations **and** their outcomes, while `inputs`
+   * holds what was declared and nothing about how it went. `matched` and
+   * `expired` are outcomes.
+   *
+   * Empty on a run that accepts nothing, which is nearly every run. See
+   * ADR-0048.
+   */
+  readonly accepted: readonly ReportedAcceptance[];
 
   /** The inputs the conclusions rest on. */
   readonly inputs: RunInputs;
@@ -820,6 +1058,8 @@ export interface BuildReportOptions {
   readonly canaries?: readonly CanaryOutcome[];
   /** Accounts whose canary passed before the walk and failed after it. */
   readonly staleCredentials?: readonly string[];
+  /** Accounts whose canary the run's own ceiling stopped it from probing again. */
+  readonly unverifiedAfterWalk?: readonly string[];
   readonly truncated: boolean;
   /** Whether methods that change state were performed. */
   readonly unsafeMethods?: boolean;
@@ -1048,6 +1288,11 @@ function mergeFindings(
       severity,
       accountId,
       endpointId,
+      // The clauses this discrepancy answers for, from the same declarations the
+      // registered checks cite. Never empty, so no conditional spread: the
+      // mapping answers for every kind, and a row with no clause on it is the
+      // state M-11 was written from. See `standardsForDiff` and ADR-0041.
+      standards: standardsForDiff(kind, relation),
       expected,
       ...(actual === undefined ? {} : { actual }),
       ...(contextId === undefined ? {} : { contextId }),
@@ -1094,6 +1339,8 @@ function mergeFindings(
       endpointId,
       contextId,
       relatedAccountId,
+      resourceId,
+      relation,
       evidence,
       ...unnamed
     } = check;
@@ -1114,6 +1361,13 @@ function mergeFindings(
       // merged it with the baseline one, and `request` was printed without the
       // attributes. Found by a cold read.
       ...(contextId === undefined ? {} : { contextId }),
+      // The third coordinate of the cell, and the relation that goes with it.
+      // Absent on a check that judges a whole endpoint, which is every check in
+      // the registry today; present the moment one judges an object, and then
+      // `withVerdicts` and `withRequest` below find the observation instead of
+      // missing it and printing the cell as agreed. See ADR-0039.
+      ...(resourceId === undefined ? {} : { resourceId }),
+      ...(relation === undefined ? {} : { relation }),
       title,
       // Which clauses this finding answers for. Declared on the check since
       // ADR-0003 and read by nothing until now, so the traceability the plan
@@ -1138,18 +1392,120 @@ function mergeFindings(
   // The tie-breakers are what makes it a **stable** order: two runs of the same
   // matrix have to produce the same file, and severity alone leaves eighty rows
   // free to shuffle.
+  //
+  // Stable across machines, which is what the sentence above always meant and
+  // what these four comparisons did not deliver: they were `localeCompare()`
+  // with no locale, so the order came from the `LC_ALL` of whoever ran the tool
+  // — `sv_SE` and `en_US` sorted the same rows differently. `MAX_ROWS_PER_DEFECT`
+  // cuts the evidence below this line, so the two machines did not merely print
+  // one file in two orders: they kept different rows. `byCodeUnits` is the one
+  // rule the project compares by; see `src/core/order.ts` for why it is code
+  // units and not a pinned locale. Found by the audit of 21 August 2026 (L-2).
   return [...fromMatrix, ...fromChecks].sort((left, right) => {
     const bySeverity = SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity];
     if (bySeverity !== 0) {
       return bySeverity;
     }
     return (
-      (left.endpointId ?? "").localeCompare(right.endpointId ?? "") ||
-      (left.accountId ?? "").localeCompare(right.accountId ?? "") ||
-      (left.resourceId ?? "").localeCompare(right.resourceId ?? "") ||
-      left.kind.localeCompare(right.kind)
+      byCodeUnits(left.endpointId ?? "", right.endpointId ?? "") ||
+      byCodeUnits(left.accountId ?? "", right.accountId ?? "") ||
+      byCodeUnits(left.resourceId ?? "", right.resourceId ?? "") ||
+      byCodeUnits(left.kind, right.kind)
     );
   });
+}
+
+/**
+ * What the `accepted:` declarations did to a list of findings.
+ *
+ * One pass, because three answers have to agree: the mark on each row, the
+ * counters in the summary, and the per-declaration `matched`. Computed
+ * separately they would be three walks over one question, which is the shape
+ * ADR-0020 made `describeMatrix` out of.
+ *
+ * The moment is the run's **start** and is passed in rather than read from a
+ * clock here: this file is the report layer, and a function that asks the system
+ * what time it is cannot be tested against a boundary. One moment for the whole
+ * run, too — a walk that crosses midnight must not accept its first half and
+ * report its second.
+ */
+function applyAcceptances(
+  findings: readonly ReportFinding[],
+  declared: readonly Acceptance[],
+  at: Date,
+): {
+  readonly rows: readonly ReportFinding[];
+  readonly accepted: readonly ReportedAcceptance[];
+  readonly counts: AcceptanceCounts;
+} {
+  const index = indexAcceptances(declared);
+  const inForce = new Map(
+    declared.map((acceptance) => [acceptance, isAcceptanceInForce(acceptance, at)]),
+  );
+  const matched = new Map<Acceptance, number>();
+  // The same key space as `summary.byKind`, and guarded the same way — see
+  // `countByKind`. A check id is a name this tool did not choose.
+  const byKind = openRecord<number>();
+  let held = 0;
+  let expired = 0;
+
+  const rows = findings.map((finding) => {
+    // A run-level finding — "this clause is covered by nothing" — has no defect
+    // coordinates, so there is nothing for a declaration to name. It is also not
+    // the kind of statement an acceptance is for: it is about the run.
+    if (finding.endpointId === undefined) {
+      return finding;
+    }
+    const acceptance = matchingAcceptance(
+      {
+        endpointId: finding.endpointId,
+        kind: finding.kind,
+        ...(finding.relation === undefined ? {} : { relation: finding.relation }),
+        ...(finding.contextId === undefined ? {} : { contextId: finding.contextId }),
+      },
+      index,
+    );
+    if (acceptance === undefined) {
+      return finding;
+    }
+    matched.set(acceptance, (matched.get(acceptance) ?? 0) + 1);
+    const lapsed = inForce.get(acceptance) !== true;
+    if (lapsed) {
+      expired += 1;
+    } else {
+      held += 1;
+      byKind[finding.kind] = (lookup(byKind, finding.kind) ?? 0) + 1;
+    }
+    return {
+      ...finding,
+      accepted: {
+        reason: acceptance.reason,
+        until: acceptance.until,
+        ...(acceptance.ticket === undefined ? {} : { ticket: acceptance.ticket }),
+        expired: lapsed,
+      },
+    };
+  });
+
+  return {
+    rows,
+    accepted: declared.map((acceptance) => ({
+      defect: citableDefectKey(acceptance),
+      kind: acceptance.kind,
+      reason: acceptance.reason,
+      until: acceptance.until,
+      ...(acceptance.ticket === undefined ? {} : { ticket: acceptance.ticket }),
+      expired: inForce.get(acceptance) !== true,
+      matched: matched.get(acceptance) ?? 0,
+    })),
+    counts: {
+      declared: declared.length,
+      findings: held,
+      expired,
+      unused: declared.filter((acceptance) => (matched.get(acceptance) ?? 0) === 0).length,
+      byKind,
+    },
+  };
 }
 
 function countGroupsBySeverity(groups: readonly DefectGroup[]): Readonly<Record<Severity, number>> {
@@ -1160,10 +1516,25 @@ function countGroupsBySeverity(groups: readonly DefectGroup[]): Readonly<Record<
   return counts;
 }
 
+/**
+ * Findings by kind, over a key space the tool does not own.
+ *
+ * `kind` is a diff kind for a matrix row and a **check id** for the other
+ * channel, and a check id comes from whoever registered the check. So this is
+ * one of the records ADR-0024 is about: an object literal swallows a key named
+ * `__proto__` — the assignment is a no-op and the count silently disappears —
+ * and indexing one answers for `constructor`. `openRecord` and `lookup` are the
+ * grammar, written once in `src/io/untrusted.ts`.
+ *
+ * `summary.accepted.byKind` beside it is built the same way, over the same key
+ * space. Two records of one kind guarded differently is the shape that rule
+ * exists against.
+ */
 function countByKind(findings: readonly ReportFinding[]): Readonly<Record<string, number>> {
-  const counts: Record<string, number> = { ...EMPTY_BY_KIND };
+  const counts = openRecord<number>();
+  Object.assign(counts, EMPTY_BY_KIND);
   for (const finding of findings) {
-    counts[finding.kind] = (counts[finding.kind] ?? 0) + 1;
+    counts[finding.kind] = (lookup(counts, finding.kind) ?? 0) + 1;
   }
   return counts;
 }
@@ -1448,7 +1819,7 @@ function withVerdicts(
       // finding leaves an unexplainable row behind: expectation `allowed`,
       // outcome `allowed`, `match: false`, and nothing on the line saying which
       // channel objected.
-      ...(kinds === undefined ? {} : { findingKinds: [...kinds].sort() }),
+      ...(kinds === undefined ? {} : { findingKinds: [...kinds].sort(byCodeUnits) }),
       ...(relation === undefined ? {} : { relation }),
       ...(ruleIndex === undefined ? {} : { ruleIndex }),
     };
@@ -1560,10 +1931,23 @@ export const WARNINGS = {
   // and the reader of the artifact is the one who needs to know why the run came
   // back 2 without a single finding to explain it.
   noCanary:
-    "Authentication is unverified: no account has a canary, so nothing confirms " +
-    "the accounts were authenticated at all. If the tokens do not work, the run " +
-    "reports 'no escalations found' having tested nothing, which is why a run " +
-    "without a canary ends with exit code 2.",
+    "Authentication is unverified for at least one account that has credentials: " +
+    "no canary of its own passed, so nothing confirms the run ever authenticated " +
+    "as it. If its token does not work, every cell walked under that account " +
+    "answers the way an unauthenticated request would and is read here as a lawful " +
+    "denial — which is why such a run ends with exit code 2. The verdict names " +
+    "the accounts.",
+  // What the other four cannot say. Every counter beside them answers "was
+  // anything found"; this one answers "was anything looked at", which is the
+  // question `coverage` exists for and which nothing consulted. See B-4.
+  endpointsNotProbed:
+    "Not every endpoint was probed: coverage.notProbed says how many were left " +
+    "out and for what reason. No finding against one of them means no request " +
+    "ever went to it, not that it is clean. The usual reason is a path " +
+    "parameter with no resource declaring a value for it, and that reason drops " +
+    "the object half of the surface — the endpoints addressed by identifier, " +
+    "which is where broken object-level authorization lives. Declare resources " +
+    "for them, or read this report as covering the rest of the list only.",
   findingsCapped:
     "Some evidence rows were left out of this file: a defect was observed more " +
     `times than the ${MAX_ROWS_PER_DEFECT} rows kept per defect. Nothing about ` +
@@ -1572,6 +1956,53 @@ export const WARNINGS = {
     "says how many rows are missing. Each defect keeps its own examples, so none " +
     "of them is left with no evidence at all.",
 } as const;
+
+/**
+ * The accounts whose credentials this run confirmed nothing about.
+ *
+ * One function because two readers need the same answer — the warning and the
+ * verdict — and the pair that was written twice drifted within four days:
+ * `canariesChecked === 0` asked whether the run had **a** canary, while the
+ * sentence beside it promised something about "the accounts".
+ *
+ * A row under request conditions is not a separate principal: it is the same
+ * account with the same token making a differently shaped request, so it is the
+ * base account's canary that clears it. Without this the rule would demand a
+ * canary for a row no operator can declare one on — `baseAccountId` is the
+ * carrier, `contextId` only says the row exists.
+ *
+ * Anonymous accounts are not in the answer: there is nothing to confirm.
+ */
+function unconfirmedCredentials(
+  // The two fields it reads and no more, because a third reader arrived that
+  // has them before the report exists: `clauseReservationsOf` asks the same
+  // question while `coverage` is still being assembled. Narrowing the parameter
+  // is what lets the answer stay one function rather than becoming the pair that
+  // drifted within four days the first time it was written twice.
+  report: Pick<VerdictInputs, "accounts" | "canaries">,
+): readonly string[] {
+  // `?? []` although the type says the field is there: `runVerdict` and
+  // `exitCodeFor` are exported, and a consumer recomputing a verdict from a
+  // report saved by 0.4.0 hands over an object that predates the field. It used
+  // to read `canariesChecked` only, so such an object worked; a TypeError where
+  // an exit code was expected is a worse answer than "nothing confirmed".
+  const confirmed = new Set(
+    (report.canaries ?? [])
+      .filter((canary) => canary.authenticated)
+      .map((canary) => canary.accountId),
+  );
+  const unconfirmed = new Set<string>();
+  for (const account of report.accounts) {
+    if (account.anonymous === true) {
+      continue;
+    }
+    const principal = account.baseAccountId ?? account.id;
+    if (!confirmed.has(principal)) {
+      unconfirmed.add(principal);
+    }
+  }
+  return [...unconfirmed].sort(byCodeUnits);
+}
 
 /**
  * What the console said that the numbers do not.
@@ -1589,10 +2020,24 @@ function warningsFor(report: VerdictInputs, config: RunConfig): readonly string[
   if (report.summary.observations > 0 && report.coverage.outcomes.denied === 0) {
     warnings.push(WARNINGS.nothingRefused);
   }
+  // The counters this function reads all answer "was anything found". None of
+  // them answers "was anything looked at", and `coverage` was not read here at
+  // all — so a run that probed two endpoints out of eleven, the other nine being
+  // templated with no resources declared, came back with `warnings: []`,
+  // `findings: 0` and exit 0, and the screen called it clean. The nine are the
+  // object half of the surface. Found by the audit of 21 August 2026 (B-4).
+  //
+  // The two counters and not `notProbed`, which is built from `skipped` alone:
+  // `endpointsProbed` may also come from `options.probed`, and a run that
+  // reached fewer endpoints than the source gave owes the reservation however it
+  // came to.
+  if (report.coverage.endpointsProbed < report.coverage.endpointsTotal) {
+    warnings.push(WARNINGS.endpointsNotProbed);
+  }
   if (report.findingsOmitted > 0) {
     warnings.push(WARNINGS.findingsCapped);
   }
-  if (report.canariesChecked === 0 && report.accounts.some((account) => !account.anonymous)) {
+  if (unconfirmedCredentials(report).length > 0) {
     warnings.push(WARNINGS.noCanary);
   }
   return warnings;
@@ -1612,28 +2057,180 @@ function warningsFor(report: VerdictInputs, config: RunConfig): readonly string[
  * new way to do it would be a poor exchange. Arrays keep their order — in a
  * policy the order of rules decides the outcome, and sorting them would make two
  * different policies look alike.
+ *
+ * All three sorts go through `byCodeUnits`, and until 21 August 2026 they did
+ * not: the `Map` branch used `localeCompare()` while the `Set` branch and the
+ * object keys used the default `.sort()`. One function, two orders — and the
+ * `Map` half took its order from the machine's `LC_ALL`, so `configDigest` came
+ * out different on a Swedish machine than on an American one over the same
+ * declaration. That is precisely the question `docs/report.md` sells this digest
+ * as the answer to: "the platform changed" against "we changed the declaration".
+ * Found by the audit of 21 August 2026 (L-2); `src/core/order.ts` holds the rule.
  */
 function canonical(value: unknown): string {
+  const pieces: string[] = [];
+  canonicalInto((piece) => pieces.push(piece), value);
+  return pieces.join("");
+}
+
+/**
+ * The same serialisation, handed to a sink one piece at a time.
+ *
+ * One traversal for both readers, which is the whole reason this function is
+ * shaped like this: `configDigest` hashes a configuration small enough to hold
+ * as a string, and `contentDigest` hashes the finished report, which is not.
+ * `src/report/write.ts` was rewritten in chunks because the string ceiling —
+ * 536 870 888 characters — is reachable on this tool's ordinary output: a run of
+ * 57 826 cells against a platform answering with 196 headers died at the last
+ * step with every request already spent (ADR-0038). Building the canonical form
+ * as one string to hash it would put that ceiling straight back, one function
+ * further along.
+ *
+ * A second serialiser would be the other way to have it, and this project has a
+ * rule about that. The `Set` branch is the one place a piece has to be
+ * materialised — its members are sorted by their serialised form — and it is
+ * bounded by the set, not by the document.
+ */
+function canonicalInto(write: (piece: string) => void, value: unknown): void {
   if (value instanceof Map) {
     const entries = [...value.entries()].sort(([left], [right]) =>
-      String(left).localeCompare(String(right)),
+      byCodeUnits(String(left), String(right)),
     );
-    return `Map(${entries.map(([key, one]) => `${JSON.stringify(String(key))}:${canonical(one)}`).join(",")})`;
+    write("Map(");
+    entries.forEach(([key, one], index) => {
+      write(index === 0 ? "" : ",");
+      write(`${JSON.stringify(String(key))}:`);
+      canonicalInto(write, one);
+    });
+    write(")");
+    return;
   }
   if (value instanceof Set) {
-    return `Set(${[...value].map(canonical).sort().join(",")})`;
+    write(`Set(${[...value].map(canonical).sort(byCodeUnits).join(",")})`);
+    return;
   }
   if (Array.isArray(value)) {
-    return `[${value.map(canonical).join(",")}]`;
+    write("[");
+    value.forEach((element, index) => {
+      write(index === 0 ? "" : ",");
+      canonicalInto(write, element);
+    });
+    write("]");
+    return;
   }
   if (value !== null && typeof value === "object") {
-    const keys = Object.keys(value).sort();
-    const pairs = keys.map(
-      (key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`,
-    );
-    return `{${pairs.join(",")}}`;
+    const record = value as Record<string, unknown>;
+    // A key whose value is `undefined`, a function or a symbol is dropped, for
+    // the reason `reportChunks` drops it: `JSON.stringify` does, so the file on
+    // disk does not have it. `contentDigest` is checked against a report parsed
+    // back out of that file, and a serialisation that wrote `"tenant":null`
+    // where the document has no `tenant` at all would fail every honest report
+    // it was asked about. Found the first time this digest was compared with
+    // itself across a round trip — `ReportedAccount.tenant` is `string |
+    // undefined` and an account outside a tenant carries the key unset.
+    //
+    // It is the right answer for `configDigest` too, and slightly more right
+    // than what stood here: `{ exclude: undefined }` and `{}` are one
+    // declaration, and a fingerprint that told them apart was answering a
+    // question nobody asked.
+    const keys = Object.keys(record)
+      .filter((key) => {
+        const own = record[key];
+        return own !== undefined && typeof own !== "function" && typeof own !== "symbol";
+      })
+      .sort(byCodeUnits);
+    write("{");
+    keys.forEach((key, index) => {
+      write(index === 0 ? "" : ",");
+      write(`${JSON.stringify(key)}:`);
+      canonicalInto(write, record[key]);
+    });
+    write("}");
+    return;
   }
-  return JSON.stringify(value) ?? "null";
+  // `undefined` inside an array, and a function or a symbol anywhere: all three
+  // become `null`, which is what `JSON.stringify` writes for them in an array.
+  write(JSON.stringify(value) ?? "null");
+}
+
+/**
+ * The name of the field a report carries its own digest under.
+ *
+ * Written once, because two readers need it and they must agree: the builder
+ * that fills it and the verifier that has to take it back out before
+ * recomputing. A literal in both places is the shape ADR-0024 was written
+ * against, at the one spot where a disagreement would make every report verify
+ * against itself and none against the file.
+ */
+const CONTENT_DIGEST = "contentDigest";
+
+/**
+ * The digest of everything in a report except the field that carries it.
+ *
+ * Over the **parsed** document and not over its bytes, which is the same
+ * decision `configDigest` rests on: indentation, key order and the trailing
+ * newline are the file's formatting, not its content, and a reader who
+ * reserialised the JSON to look at it would otherwise be told the report had
+ * been tampered with.
+ *
+ * A whole sha256 rather than the sixteen characters `configDigest` keeps.
+ * That one is a label two runs are compared by, where a short string is easier
+ * to read off a screen; this one is a check value, and truncating a check value
+ * trades collision resistance for nothing.
+ */
+export function contentDigestOf(report: object): string {
+  const { [CONTENT_DIGEST]: _carried, ...content } = report as Record<string, unknown>;
+  const hash = createHash("sha256");
+  canonicalInto((piece) => {
+    hash.update(piece);
+  }, content);
+  return hash.digest("hex");
+}
+
+/** What {@link checkContentDigest} answers. */
+export interface ContentDigestCheck {
+  /**
+   * Whether the file carries a digest and that digest is the one its content
+   * gives.
+   *
+   * **False on a report that carries none.** A verifier that read a missing
+   * field as a pass would make the whole exercise optional: delete the line and
+   * the document is unimpeachable again. `declared` is what tells the two cases
+   * apart — a report written before 0.5.0 has no digest, and that is a thing to
+   * know rather than a thing to wave through.
+   */
+  readonly ok: boolean;
+  /** The digest this content gives now. */
+  readonly computed: string;
+  /** The digest the file carries, if it carries one. */
+  readonly declared?: string;
+}
+
+/**
+ * Whether a report is the file the run wrote.
+ *
+ * **What it catches:** an edit made without thinking — a row deleted from
+ * `findings`, a sentence rewritten in `verdict.reason`, a counter nudged in
+ * `summary`, a merge that mangled the JSON, a truncated download. Since
+ * HTML and PDF are rendered from this file (ADR-0002), an edit here reaches
+ * every form of the document, and this is what makes the edit visible.
+ *
+ * **What it does not catch: a deliberate change.** Whoever edited the row can
+ * run this function and write the new value back, and nothing here would know.
+ * A digest a reader can recompute is a digest an author can recompute. Making
+ * the artifact evidence against a determined editor takes a signature — a key
+ * that does not live beside the report and a verifier that holds the public
+ * half — and that is a separate decision this one does not make. ADR-0051
+ * records it as not done rather than leaving the reader to assume it was.
+ */
+export function checkContentDigest(report: object): ContentDigestCheck {
+  const declared = (report as Record<string, unknown>)[CONTENT_DIGEST];
+  const computed = contentDigestOf(report);
+  return {
+    ok: typeof declared === "string" && declared === computed,
+    computed,
+    ...(typeof declared === "string" ? { declared } : {}),
+  };
 }
 
 /**
@@ -1715,7 +2312,7 @@ function resourcesNeverFound(observations: readonly AccessObservation[]): readon
   return [...answered]
     .filter(([, seen]) => seen.total > 0 && seen.total === seen.missing)
     .map(([resourceId]) => resourceId)
-    .sort();
+    .sort(byCodeUnits);
 }
 
 /** How many cells were observed under each set of conditions, untested included. */
@@ -1736,6 +2333,103 @@ function countByContext(options: BuildReportOptions): Readonly<Record<string, nu
     }
   }
   return counts;
+}
+
+/**
+ * The cells of the matrix, reduced to what a clause row needs of each.
+ *
+ * From `options.cells` — the walk's own enumeration, which carries a verdict for
+ * every cell including the ones no request reached — and **not** from the
+ * observations, which have no row for a cell that was never asked. That absence
+ * is the single most important number on a clause row: an evidence pack that
+ * counts only what came back describes the surface it happened to touch.
+ *
+ * The narrowed match is taken from the published observations rather than from
+ * `cell.match`, so that `upheld` here is the same "tested and agreed" as
+ * `coverage.cellsMatched`. The walk is not the only channel that judges a cell:
+ * a body check objects to cells the walk agreed with (ADR-0022), and a second
+ * reading of `match` in this file would be the two-sources-of-verdict defect
+ * `withVerdicts` exists to avoid.
+ *
+ * An `error` outcome concluded nothing whatever the verdict says about it, and
+ * is counted as such before anything else looks at `match`.
+ */
+function judgedCells(
+  cells: readonly CellVerdict[],
+  observations: readonly ReportedObservation[],
+): readonly JudgedCell[] {
+  const narrowed = new Map(
+    observations
+      .filter((observation) => observation.match !== undefined)
+      .map((observation) => [cellKey(observation), observation.match === true]),
+  );
+  return cells.map((cell) => {
+    const relation = cell.relation === undefined ? {} : { relation: cell.relation };
+    if (cell.actual === undefined) {
+      return { ...relation, verdict: "not-observed" as const };
+    }
+    if (cell.actual === "error") {
+      return { ...relation, verdict: "probe-error" as const };
+    }
+    const upheld = narrowed.get(cellKey(cell)) ?? cell.match;
+    return { ...relation, verdict: upheld ? ("upheld" as const) : ("breached" as const) };
+  });
+}
+
+/**
+ * Why the clause rows are not a statement about the whole surface.
+ *
+ * Every one of these is already somewhere in the report — in `coverage`, in
+ * `truncated`, in `canaries`, in `outcomes` — and that is exactly why they are
+ * repeated on the rows: a clause row is what gets pulled out of the file and
+ * into a pack about one requirement, and a qualification that stayed behind in
+ * another section is one that did not travel with the claim. The report already
+ * had `endpointsProbed` when a run probed two endpoints of eleven and printed
+ * "No privilege escalation found" over the other nine (B-4); nothing was missing
+ * from the file, and the number that mattered was not next to the claim.
+ */
+function clauseReservationsOf(input: {
+  readonly accounts: readonly ReportedAccount[];
+  readonly canaries: readonly CanaryOutcome[];
+  readonly staleCredentials: readonly string[];
+  readonly unverifiedAfterWalk: readonly string[];
+  readonly unauthenticated: readonly string[];
+  readonly endpointsProbed: number;
+  readonly endpointsTotal: number;
+  readonly truncated: boolean;
+  readonly observed: number;
+  readonly denied: number;
+}): readonly ClauseReservation[] {
+  const reservations: ClauseReservation[] = [];
+  // All four ways a run can fail to prove that an account was who it said it
+  // was, under one code. They differ in the cure and not in what they do to a
+  // clause row: a refusal recorded under an account whose credentials nothing
+  // confirmed says what an unauthenticated request says, so a cell that
+  // "upheld" a denial upheld nothing. Which of the four it was is in
+  // `verdict.reason` and in `canaries`.
+  if (
+    input.staleCredentials.length > 0 ||
+    input.unverifiedAfterWalk.length > 0 ||
+    input.unauthenticated.length > 0 ||
+    unconfirmedCredentials(input).length > 0
+  ) {
+    reservations.push("authentication-unproved");
+  }
+  if (input.endpointsProbed < input.endpointsTotal) {
+    reservations.push("endpoints-not-probed");
+  }
+  // `denied: 0` with observations present. It does not settle whether the
+  // platform grants everything or refuses with 200 and the outcome in the body,
+  // and it cannot: from status codes alone the two are one picture. Either way
+  // the cells under this run were read off a document the tool may not be able
+  // to read. See L-3 and `coverage.outcomes`.
+  if (input.observed > 0 && input.denied === 0) {
+    reservations.push("no-refusal-observed");
+  }
+  if (input.truncated) {
+    reservations.push("run-truncated");
+  }
+  return reservations;
 }
 
 /**
@@ -1765,11 +2459,13 @@ function capRows(findings: readonly ReportFinding[]): {
     // with none of them, under a warning promising that "each defect keeps its
     // own examples". Two changes of the same day, and the interaction was in
     // neither. Found by adversarial review on 17 August 2026.
+    //
+    // The three coordinates and nothing else. `defectSignature` reads exactly
+    // them; the account and the severity were passed because the parameter used
+    // to demand a whole finding, and it asks for `DefectCoordinates` since
+    // ADR-0048 — the same shape an acceptance is written against.
     const signature = `${finding.kind}\u0000${defectSignature({
       endpointId: finding.endpointId,
-      accountId: finding.accountId,
-      kind: finding.kind,
-      severity: finding.severity,
       ...(finding.relation === undefined ? {} : { relation: finding.relation }),
       ...(finding.contextId === undefined ? {} : { contextId: finding.contextId }),
     })}`;
@@ -1802,6 +2498,14 @@ function verdictCountsOf(findings: readonly ReportFinding[]): VerdictCounts {
   let failingCheckFindings = 0;
 
   for (const finding of findings) {
+    // A finding an acceptance holds is out of the verdict and nowhere else: it
+    // keeps its row, its severity, its place in `byKind` and its defect group.
+    // An **expired** acceptance is not this — `expired` on the mark means the
+    // day has passed, and the row counts again, which is the whole difference
+    // between a deadline and a silencer. See ADR-0048.
+    if (finding.accepted !== undefined && !finding.accepted.expired) {
+      continue;
+    }
     if (finding.source === "matrix") {
       matrixByKind[finding.kind as DiffKind] += 1;
     } else if (finding.severity !== "info") {
@@ -1822,12 +2526,19 @@ export function buildReport(options: BuildReportOptions): RunReport {
     options.config.contexts,
     options.checksRun ?? [],
   );
-  const observations = withVerdicts(options, merged);
+  // Then the acceptances, before anything reads the findings. Everything
+  // downstream sees the marked rows: the counters, the defect groups, the cap
+  // and the verdict. Applying it later would mean two lists of findings in one
+  // function, which is how `match: true` once came to stand on a cell that
+  // carried a finding.
+  const applied = applyAcceptances(merged, options.config.accepted, options.startedAt);
+  const marked = applied.rows;
+  const observations = withVerdicts(options, marked);
   const notObserved = options.findings.filter((finding) => finding.kind === "not-observed").length;
   // The other side of a paired finding sits in `evidence`: grouping does not see
   // it, and without it a group names one side of the leak out of two.
   const groups = groupDefects(
-    merged
+    marked
       // A defect group answers "how many distinct breakages of the platform".
       // A run-level finding — "this clause is covered by nothing" — is a
       // statement about the run, not about the platform, and grouping it by a
@@ -1838,15 +2549,33 @@ export function buildReport(options: BuildReportOptions): RunReport {
         (finding): finding is ReportFinding & { accountId: string; endpointId: string } =>
           finding.accountId !== undefined && finding.endpointId !== undefined,
       )
-      .map((finding) =>
-        finding.relatedAccountId === undefined
-          ? finding
-          : { ...finding, counterpartAccountId: finding.relatedAccountId },
-      ),
+      .map((finding) => ({
+        ...finding,
+        // What the group prints as `acceptedKinds`. An expired acceptance does
+        // not count: the finding is back in the verdict, and a group marked
+        // accepted while it fails the build would be the mark lying.
+        accepted: finding.accepted !== undefined && !finding.accepted.expired,
+        ...(finding.relatedAccountId === undefined
+          ? {}
+          : { counterpartAccountId: finding.relatedAccountId }),
+      })),
   );
   // After the grouping and before the file: the counts above answer for every
   // finding, the rows below are the evidence and evidence has a budget.
-  const capped = capRows(merged);
+  const capped = capRows(marked);
+  // Hoisted out of the literal below, because the clause rows need them while
+  // `coverage` is still being written: `clauseReservationsOf` asks the same
+  // questions of the accounts and of the surface that the warnings and the
+  // verdict ask of the finished report, and it has to ask them of the same
+  // values rather than of a second reading.
+  const accounts = withContextAccounts(options).map((account) =>
+    reportedAccount(account, options.config),
+  );
+  const canaries = options.canaries ?? [];
+  const endpointsTotal = options.endpoints.length;
+  const endpointsProbed =
+    options.probed?.length ?? options.endpoints.length - options.skipped.length;
+  const outcomes = countByOutcome(options.observations);
   const report: VerdictInputs = {
     schemaVersion: REPORT_SCHEMA_VERSION,
     runId: randomUUID(),
@@ -1859,17 +2588,16 @@ export function buildReport(options: BuildReportOptions): RunReport {
     startedAt: options.startedAt.toISOString(),
     finishedAt: options.finishedAt.toISOString(),
     target: reportedTarget(options.config.target),
-    accounts: withContextAccounts(options).map((account) =>
-      reportedAccount(account, options.config),
-    ),
+    accounts,
     endpoints: options.endpoints,
     resources: options.config.resources,
     skipped: options.skipped,
     failures: options.failures,
     unauthenticated: options.unauthenticated,
     canariesChecked: options.canariesChecked,
-    canaries: options.canaries ?? [],
+    canaries,
     staleCredentials: options.staleCredentials ?? [],
+    unverifiedAfterWalk: options.unverifiedAfterWalk ?? [],
     truncated: options.truncated,
     observations,
     // The rows, after the per-defect cap. Everything derived from findings —
@@ -1878,9 +2606,10 @@ export function buildReport(options: BuildReportOptions): RunReport {
     // verdict, the same counts and the same exit code as an uncapped one.
     findings: capped.rows,
     findingsOmitted: capped.omitted,
+    accepted: applied.accepted,
     coverage: {
-      endpointsTotal: options.endpoints.length,
-      endpointsProbed: options.probed?.length ?? options.endpoints.length - options.skipped.length,
+      endpointsTotal,
+      endpointsProbed,
       cellsObserved: options.observations.length,
       cellsNotObserved: notObserved,
       notProbed: countByReason(options.skipped),
@@ -1904,10 +2633,33 @@ export function buildReport(options: BuildReportOptions): RunReport {
           : [])(probedEndpointIds(options), (options.checksRun ?? []).length > 0),
       writeMethodsProbed: options.unsafeMethods ?? false,
       checksRun: options.checksRun ?? [],
+      // Both channels on one list of clauses, with the denominator on every row.
+      //
+      // `cells` and not the observations, so that the cells nobody asked are in
+      // the answer: an evidence pack built from what came back describes the
+      // surface the run happened to touch. Absent from the input when the run
+      // computed no verdicts, and then no row carries `matrixCells` at all —
+      // the same silence `cellsMatched` keeps, and for the same reason.
+      clauses: clauseCoverage({
+        ...(options.cells === undefined ? {} : { cells: judgedCells(options.cells, observations) }),
+        checksRun: options.checksRun ?? [],
+        reservations: clauseReservationsOf({
+          accounts,
+          canaries,
+          staleCredentials: options.staleCredentials ?? [],
+          unverifiedAfterWalk: options.unverifiedAfterWalk ?? [],
+          unauthenticated: options.unauthenticated,
+          endpointsProbed,
+          endpointsTotal,
+          truncated: options.truncated,
+          observed: options.observations.length,
+          denied: outcomes.denied,
+        }),
+      }),
       byCheck: options.byCheck ?? [],
       contextsProbed: countByContext(options),
       resourcesNotFound: resourcesNeverFound(options.observations),
-      outcomes: countByOutcome(options.observations),
+      outcomes,
       // Counted from the verdicts themselves, not by subtraction. Subtraction
       // lied: among the discrepancies there are `not-observed` ones that have no
       // observation at all, and the number came out too low. ADR-0020 promises
@@ -1954,25 +2706,33 @@ export function buildReport(options: BuildReportOptions): RunReport {
       // of five differed from the rest by exactly the findings by body. The same
       // class as the earlier bySeverity bug, in the same object — found by a
       // second cold read.
-      findings: merged.length,
-      byKind: countByKind(merged),
-      bySeverity: countBySeverity(merged),
+      findings: marked.length,
+      byKind: countByKind(marked),
+      bySeverity: countBySeverity(marked),
       defectGroups: groups.length,
       defectsBySeverity: countGroupsBySeverity(groups),
-      checkFindings: merged.filter((finding) => finding.source === "check").length,
-      // From `merged`, never from `capped.rows`: this is what the verdict reads.
-      verdictInputs: verdictCountsOf(merged),
+      checkFindings: marked.filter((finding) => finding.source === "check").length,
+      // From the whole marked list, never from `capped.rows`: this is what the
+      // verdict reads, and it is where an acceptance — and only an acceptance —
+      // takes a row out. The counters above keep every row, which is what makes
+      // `byKind` minus `accepted.byKind` reconcile with this map.
+      verdictInputs: verdictCountsOf(marked),
+      accepted: applied.counts,
     },
   };
 
   // Computed last, from the finished report, and put inside it. The alternative
   // was recomputing it in every consumer; the exit code exists precisely because
   // the arithmetic is not obvious from the counters.
-  return {
+  const concluded = {
     ...report,
     verdict: runVerdict(report),
     warnings: warningsFor(report, options.config),
   };
+  // And the digest after even that, over everything above it. The verdict and
+  // the warnings are the two sentences a reader is most likely to want changed,
+  // so a digest taken before them would cover the file except where it matters.
+  return { ...concluded, contentDigest: contentDigestOf(concluded) };
 }
 
 /**
@@ -1992,7 +2752,7 @@ const UNTRUSTWORTHY_ERROR_SHARE = 0.5;
  * otherwise refer to itself. This is also the honest signature: `runVerdict`
  * reads inputs and does not read the field it produces.
  */
-export type VerdictInputs = Omit<RunReport, "verdict" | "warnings">;
+export type VerdictInputs = Omit<RunReport, "verdict" | "warnings" | "contentDigest">;
 
 /** The verdict on a run: the code CI acts on, and the sentence a human reads. */
 export interface RunVerdict {
@@ -2019,6 +2779,61 @@ export interface RunVerdict {
  * give two sets of rules that agree until they do not.
  */
 export function runVerdict(report: VerdictInputs): RunVerdict {
+  const verdict = verdictOfRun(report);
+  const note = acceptanceNote(report);
+  return note === undefined ? verdict : { ...verdict, reason: `${verdict.reason}; ${note}` };
+}
+
+/**
+ * What the acceptances add to the sentence beside the code.
+ *
+ * `undefined` on a run that declares none, which is nearly every run. On one
+ * that does, the exit code stops being derivable from the counters above it —
+ * a critical finding sits in the file under a code of 0 — and the reason is
+ * where this project says out loud what the arithmetic did. That argument is
+ * `runVerdict`'s own; this is the case where it bites hardest, because the
+ * alternative is a green line over something the operator has already been told
+ * about and a reader has not.
+ *
+ * The other two clauses are the ways an acceptance stops being what it says it
+ * is. A lapsed one is why a run that passed last week fails today, and a
+ * declaration that covered nothing is a line nobody will delete unless
+ * something says it did nothing — the same failure as an `overrides` entry
+ * carrying no condition for its own removal.
+ *
+ * `?? ` although the type says the field is there, for the reason
+ * `unconfirmedCredentials` has one: `runVerdict` is exported, and a consumer
+ * recomputing a verdict from a report saved by 0.4.0 hands over an object that
+ * predates it.
+ */
+function acceptanceNote(report: VerdictInputs): string | undefined {
+  const counts = report.summary.accepted ?? { findings: 0, expired: 0, unused: 0 };
+  const clauses: string[] = [];
+  if (counts.findings > 0) {
+    clauses.push(
+      `${counts.findings} ${counts.findings === 1 ? "finding is" : "findings are"} held out ` +
+        `of this verdict by an acceptance and ${counts.findings === 1 ? "is" : "are"} still ` +
+        `in the report`,
+    );
+  }
+  if (counts.expired > 0) {
+    clauses.push(
+      `${counts.expired} ${counts.expired === 1 ? "row" : "rows"} whose acceptance has ` +
+        `expired ${counts.expired === 1 ? "counts" : "count"} again`,
+    );
+  }
+  if (counts.unused > 0) {
+    clauses.push(
+      `${counts.unused} ${counts.unused === 1 ? "acceptance" : "acceptances"} matched ` +
+        `nothing here — either what it names is fixed, or the run did not reach those ` +
+        `cells (coverage.notProbed)`,
+    );
+  }
+  return clauses.length === 0 ? undefined : clauses.join("; ");
+}
+
+/** The verdict itself, before the acceptances have their say in the sentence. */
+function verdictOfRun(report: VerdictInputs): RunVerdict {
   if (report.summary.observations === 0) {
     return { code: 2, reason: "not a single cell was probed — there is nothing to conclude from" };
   }
@@ -2046,29 +2861,63 @@ export function runVerdict(report: VerdictInputs): RunVerdict {
         `about access`,
     };
   }
+  // The same class a third time, and the narrowest of the three: the walk
+  // finished, the tokens were confirmed before it, and the run's own ceiling
+  // stopped the confirmation after it. Below `staleCredentials` on purpose —
+  // there we know the tail lied, here we only know that nobody asked. Nothing
+  // here says the credentials are bad; it says the second half of the check
+  // never happened, and a run that cannot say its accounts were still
+  // authenticated at the end has not tested what it claims. See ADR-0035.
+  if ((report.unverifiedAfterWalk ?? []).length > 0) {
+    return {
+      code: 2,
+      reason:
+        `authentication was never confirmed a second time: ` +
+        `${(report.unverifiedAfterWalk ?? []).join(", ")} — the run stopped itself ` +
+        `(a request ceiling or the circuit breaker) or the platform stopped ` +
+        `answering, and either way the walk that came before it is unproved. ` +
+        `canaries[] says which: a failure code is ours, a status of 0 is the ` +
+        `platform's silence`,
+    };
+  }
   if (report.unauthenticated.length > 0) {
     return {
       code: 2,
       reason: `accounts granted access nowhere: ${report.unauthenticated.join(", ")} — most likely the tokens, not the policy`,
     };
   }
-  // Not a single canary means authentication is confirmed by nothing. The
-  // `findUnauthenticated` safeguard does not help here by construction: it is
-  // built as 'declared accessible, but granted nowhere', and a policy made of
-  // denials alone declares nothing accessible, so it stays silent.
+  // Authentication is confirmed per account, and it used to be asked per run:
+  // `canariesChecked === 0`. One canary on one account cleared every other
+  // account of the same run.
   //
-  // Found by adversarial review: the deployment answered 401 to everything, the
-  // tokens were stale, and the report came out clean with exit code 0 — and with
-  // `match: true` on each of the twelve cells at that. This is exactly the case
-  // the 2 exists for: what was not tested is never clean.
+  // The `findUnauthenticated` safeguard does not close the gap and cannot by
+  // construction: it is built as 'declared accessible, but granted nowhere', and
+  // for an account the policy denies everywhere nothing is declared accessible,
+  // so it stays silent on exactly the account whose token nothing else proves.
   //
-  // Accounts without credentials are excluded from the rule: an anonymous run —
-  // 'check that nobody at all can get in here' — has nothing to authenticate, and
-  // demanding a canary of it would forbid a legitimate scenario.
-  if (report.canariesChecked === 0 && report.accounts.some((account) => !account.anonymous)) {
+  // Found twice. Adversarial review of 17 August: the deployment answered 401 to
+  // everything, the tokens were stale, and the report came out clean with exit
+  // code 0 — with `match: true` on each of the twelve cells at that. Adversarial
+  // review of 19 August, against the rule written after it: a second account
+  // carrying a dead token and no canary of its own, beside one healthy account
+  // that had one. Exit 0, no warning, `match: true` on every denied cell — and
+  // the claim being made about that account, 'a guest reaches nothing', is the
+  // most valuable one such a run produces.
+  //
+  // Accounts without credentials are excluded: an anonymous run — 'check that
+  // nobody at all can get in here' — has nothing to authenticate, and demanding a
+  // canary of it would forbid a legitimate scenario.
+  const unconfirmed = unconfirmedCredentials(report);
+  if (unconfirmed.length > 0) {
     return {
       code: 2,
-      reason: "no canary was checked: nothing confirms the accounts were authenticated at all",
+      reason:
+        `credentials nothing confirmed: ${unconfirmed.join(", ")} — each of them has a token ` +
+        `and no canary that passed, so every cell walked under it says what an ` +
+        `unauthenticated request says and nothing about access. Declare a canary on an ` +
+        `endpoint the policy allows that account; where the policy allows it nothing at ` +
+        `all, nothing here can tell a dead token from a lawful denial, and an account ` +
+        `whose token is not the point belongs in the run without one`,
     };
   }
   // A threshold, not 'every single one'. The previous condition required **all**
@@ -2132,11 +2981,21 @@ export function runVerdict(report: VerdictInputs): RunVerdict {
   // The line a cold read needed: "Distinct defects: at least 1" next to exit 0
   // reads as "a defect was found and the build is green" unless the summary says
   // out loud that nothing above the threshold was among them.
+  //
+  // The third wording is what an acceptance costs this sentence: "the rows above
+  // are notes" stops being true the moment one of them is a critical finding
+  // somebody signed for. Which rows those are is on the rows themselves, and how
+  // many is in the clause `acceptanceNote` appends.
+  const held = report.summary.accepted?.findings ?? 0;
+  if (report.summary.findings === 0) {
+    return { code: 0, reason: "no discrepancy with the declared policy" };
+  }
   return {
     code: 0,
     reason:
-      report.summary.findings === 0
-        ? "no discrepancy with the declared policy"
+      held > 0
+        ? "no discrepancy that fails a run — the rows above are notes, or findings an " +
+          "acceptance holds out of the verdict"
         : "no discrepancy that fails a run — the rows above are notes, not access holes",
   };
 }

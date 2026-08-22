@@ -194,3 +194,29 @@ fail the day it stops being.
 
 Found by the audit of 14 August 2026, which noted only that the mutation
 `resolve: { external: true }` breaks no test.
+
+## Note of 2026-08-21: two of these invariants were narrowed elsewhere
+
+This file is the one a reader opens for "the safety invariants", so it has to
+say where they stopped being what it describes.
+
+**"The `HttpResponse` port holds only the status and the headers — there is no
+body in it at all"** was narrowed by [ADR-0011](0011-response-body-signals.md)
+on 12 August 2026. The body is read in transit where a human declared
+`bodySignals.responseMustDifferByTenant`, and irreversible scalars — `SignalValue`
+is a number or a boolean, nothing else — reach the report. It is still never
+stored, which is what the paragraph was defending; the sentence as written is
+stronger than the code, and the difference is exactly the surface where PII
+would live.
+
+**The throttling guarantee** was narrowed by
+[ADR-0026](0026-the-rate-is-a-shape-not-only-a-count.md): above 500 requests a
+second the pacing between starts is switched off and only the sliding window
+holds, so the shape of the traffic is not what this file implies at any rate.
+
+Two more moved after this file was last amended: the address grammar sits at the
+seam rather than at the doors ([ADR-0032](0032-the-grammar-sits-at-the-seam.md)),
+and a canary is owed per account rather than per run
+([ADR-0033](0033-a-canary-is-per-account.md)).
+
+Found by the audit of 20 August 2026 (K-9).

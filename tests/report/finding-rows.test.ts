@@ -41,6 +41,19 @@ const ENDPOINTS = [
 ];
 
 /**
+ * One passing canary per account with credentials.
+ *
+ * Both accounts here carry a `tokenEnv`, and since 19 August 2026 the verdict
+ * asks for a canary of each: what is under test in this file is the evidence
+ * cap, and a run untrustworthy for an unrelated reason would answer 2 to every
+ * question asked below.
+ */
+const CANARIES = [
+  { accountId: "alice", endpointId: "orders.list", status: 200, authenticated: true },
+  { accountId: "carol", endpointId: "orders.list", status: 200, authenticated: true },
+];
+
+/**
  * One leak, seen `count` times on one endpoint.
  *
  * Written out by hand rather than driven through the isolation check: what is
@@ -77,7 +90,8 @@ function build(checks: readonly ResolvedFinding[]) {
     skipped: [],
     failures: [],
     unauthenticated: [],
-    canariesChecked: 1,
+    canariesChecked: 2,
+    canaries: CANARIES,
     truncated: false,
     findings: [],
     checks,
@@ -194,7 +208,8 @@ describe("a run where nothing answered, with more cells than the cap", () => {
       skipped: [],
       failures: [],
       unauthenticated: [],
-      canariesChecked: 1,
+      canariesChecked: 2,
+      canaries: CANARIES,
       truncated: false,
       findings: observations.map((one) => ({
         accountId: one.accountId,
@@ -284,7 +299,8 @@ describe("the cap is spent per defect, not first-come", () => {
       skipped: [],
       failures: [],
       unauthenticated: [],
-      canariesChecked: 1,
+      canariesChecked: 2,
+      canaries: CANARIES,
       truncated: false,
       findings: [...escalations, ...denials],
       policy: { fallback: "denied", rules: [] },

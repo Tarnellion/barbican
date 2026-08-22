@@ -60,3 +60,22 @@ shebang in `dist/cli.js`, and the executable bit is set by a separate step.
 Revisit if: CJS or bundling is needed (bring back tsup/tsdown); TypeScript 7 leaves preview
 and stabilizes its API (migrate); commander stops being zero-dependency (look for a
 replacement).
+
+## Note of 2026-08-21: the revision condition fired
+
+"TypeScript 7 leaves preview and stabilizes its API (migrate)" is the condition
+above, and half of it arrived on 8 July 2026. The decision was taken on 19
+August in [ADR-0031](0031-typescript-7.md): the package is `typescript@7.0.2`
+in `package.json`, `tsc --noEmit` is clean against the same configuration, and
+`tsconfig.build.json` emits the same files. The other half — a stable public API
+— has not arrived and does not apply here: nothing in this repository imports
+the compiler as a library.
+
+Which makes two sentences above stale rather than wrong, and they are left in
+place because this file records what was decided in August, not what is true
+today: **TypeScript 6.0.3** in the Decision, and "nothing else in the base stack
+has moved" in the note of 2026-08-16. ADR-0031 is the current answer to "what
+compiles this project".
+
+Found by the audit of 20 August 2026 (K-10), which looked for decisions the code
+had overturned in silence.

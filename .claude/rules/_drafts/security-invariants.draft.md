@@ -25,6 +25,16 @@ to break unnoticed while caught up in a task.
 - **Throttling.** A port, not an option. There must be no "no limits" mode.
 - **A mandatory scope.** Without a host allowlist the tool refuses to work.
   Do not introduce a default "allow everything".
+- **The address grammar.** `isAddressablePath` in `src/io/untrusted.ts`, applied in
+  `joinUrl` — the seam where the address is built, which is what makes it cover the
+  library door as well as the three adapters. Do not move the check back into the
+  sources, and do not "normalise" a backslash or a control character instead of
+  refusing it: the URL parser reads those differently than a split on `/` does,
+  and modelling its normalisation is how the first version was wrong (ADR-0032).
+- **A canary per account.** Every account with a `tokenEnv` needs one that passed, or
+  the run exits 2. Weakening this to "the run has a canary" is exactly the state
+  ADR-0033 was written from: an account with a dead token, denied everywhere by the
+  policy, reads as tested and clean.
 - **`minimumReleaseAge`, `strictDepBuilds`, the empty `allowBuilds`.** An install that failed
   because of a lifecycle script is not an obstacle but the protection firing. The right reaction is
   to read the script and perform the needed action with an explicit command, not to add the package

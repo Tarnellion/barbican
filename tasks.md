@@ -2203,10 +2203,15 @@ recorded underneath.
       principle — a role no rule mentions is a real declaration — but the reasoning in
       the comment is wider than the fact. `nearestFirst` is already in the file; a
       warning for a role one edit away from a declared one would close it.
-- [ ] **`--dry-run` still paraphrases `noCanary` in its own words and its own
+- [x] **`--dry-run` still paraphrases `noCanary` in its own words and its own
       colour** — red in `describePlan`, yellow in `WARNING_STYLE`, one fact said twice.
       The command the guide tells you to run first is the one place the 18 August fix
-      did not reach.
+      did not reach. Closed on 19 August with the canary rule: the preview reads
+      `WARNING_STYLE.noCanary` for its colour. The words stay its own and that half is
+      deliberate — the preview names the accounts that owe a canary, which is the line
+      of configuration to add, while the report's sentence is about a run that has
+      already happened. What was wrong was the same fact in two colours, not two
+      sentences about two moments.
 - [ ] **The two new file-system tripwires in `openapi.test.ts` remove both barriers
       at once**, so they cannot tell which one holds — the header claims each holds
       independently and the tests do not measure that. One five-line test with
@@ -2230,6 +2235,97 @@ recorded underneath.
       Angular bootstrap configuration a shopfront needs before login; the note should
       cite the field that makes it a defect, or the three cells will not survive a
       reviewer.
+
+## Adversarial review of 19 August 2026, second pass (the fixes themselves)
+
+Run against the eleven fixes of the morning, on the invariants they touch. Three
+breaks, two of them recurrences of a class closed two days earlier — which is the
+point of running the attacker after the fix and not only before it. All four
+closed the same day; every one had a PoC through the CLI or the published library
+entry point before it had a patch.
+
+- [x] **A backslash walked past `pathTemplate` and reached an excluded endpoint.**
+      `/v1/reports\..\..\danger` is one segment to a guard that splits on `/` and
+      three to the URL parser, which reads `\` as a separator for http and https. The
+      request arrived at `/danger` while the report stated `danger` was skipped by
+      exclusion, and the escalation verdict for `reports` was computed from that
+      answer. Tab, newline and carriage return are the same defect in a second
+      spelling: the parser removes them before parsing, so `.` newline `.` is `..`
+      after approval. Closed: the characters are refused rather than normalised, with
+      `%5c` decoded like `%2e` and `%2f` already were. [ADR-0032](docs/adr/0032-the-grammar-sits-at-the-seam.md).
+- [x] **The library was a fourth door with no guard on it.** `collectObservations`
+      takes `Endpoint[]` from the caller and `Endpoint.path` is a plain string, so
+      `?_method=DELETE` went on the wire with `allowUnsafeMethods: false` and an
+      exclusion list declared — every refusal written on 17 August, open through the
+      entry point `package.json` publishes. Closed by moving the check to the seam:
+      `isAddressablePath` in `joinUrl`, the one place an address is built. Branding
+      `Endpoint.path` was considered and is recorded in the ADR as the stronger
+      answer, with the reason it was not taken.
+- [x] **One canary cleared every account of the run.** alice with a working token
+      and a canary, mallory with a dead token and none: every cell of mallory's
+      answered 401, the policy declares it denied everywhere, so the matrix agreed and
+      the run exited 0 with `match: true` on each of them. `findUnauthenticated`
+      cannot reach it — it needs a cell the policy declares accessible, and such an
+      account has none. Closed: the rule is per account, the warning and the verdict
+      read one function, and the verdict names who is unconfirmed.
+      [ADR-0033](docs/adr/0033-a-canary-is-per-account.md).
+- [x] **The check by value knew seven method names.** `MOVE` deletes the source and
+      went through as a resource query and as an attribute value with
+      `--unsafe-methods` absent. Closed: the WebDAV, versioning, binding and ACL
+      methods are in `WRITE_METHOD_WORDS`, with `PURGE`. Written into the comment is
+      why an enumeration is allowed here and was not for header names: the methods a
+      platform can be talked into performing are a registered vocabulary, and the
+      names that will ever carry a secret are not.
+- [x] **Nothing said that main was twenty-one commits ahead of what npm serves.**
+      Found by an audit rather than by a release, and the third instance of the same
+      shape after `v0.2.0` and `0.3.0`. The fixes above were, that morning, fixed for
+      a reader of the repository and open for everyone who installs the package.
+      Closed as a rule with a guard rather than as a note: the difference is written
+      in README's `### Unreleased` section as it lands, and CI fails a change under
+      `src/` or `schema/` that does not write one.
+      [ADR-0034](docs/adr/0034-what-main-carries-beyond-the-release.md).
+
+### The same attacker, run again on the fixes
+
+Seven findings against the five fixes above, three of them worth the name. Every
+one had a PoC before it had a patch, and all are closed:
+
+- [x] **`%2e%2e` walked through the new seam.** The literal grammar was written on
+      the reasoning that only the target decodes; `new URL` collapses the encoded
+      dots itself, so the request reached the excluded endpoint again through the
+      one door the seam had been added for. Closed: the navigation check reads the
+      `%2e` spelling everywhere, `%2f` and `%5c` stay literal at the seam.
+- [x] **`..;` passed both.** A servlet container strips `;params` before
+      normalising the path. Closed: the check reads the part before `;`.
+- [x] **An absolute URL as an OpenAPI `paths` key.** `https://user:secret@host/x`
+      kept the origin comparison happy — origin has no userinfo — and the
+      credentials were printed into `observations[].url`; `//host/x` silently
+      became a path inside the target that the endpoint does not name. The other
+      two parsers refused both in their own way. Closed in the grammar, for all of
+      them at once.
+- [x] **Six registered methods that write were missing** from the set whose own
+      comment claims the IANA registry: `LINK`, `UNLINK`, `MKCALENDAR`,
+      `MKREDIRECTREF`, `UPDATEREDIRECTREF`, `ORDERPATCH`.
+- [x] **`runVerdict` threw on a report saved by 0.4.0**, which has no `canaries`
+      field — a contract change that came with reading the outcomes instead of the
+      count, and was not in the ADR's consequences. Closed: `?? []`, and the
+      answer is 2.
+- [x] **The message for an encoded backslash said the document carries one.** It
+      does not; it carries `%5c`, and an operator sent looking for a backslash
+      finds nothing. Split in two.
+- [x] **A canary is impossible for an account the policy denies everywhere** —
+      `DeniedCanaryError` on one side, exit 2 on the other. Not closed with an
+      escape hatch: this is the tool saying something true, and both ways out are
+      declarations of fact. Written into the verdict's own reason and into
+      ADR-0033, which also says what a real answer would need — a way to confirm
+      authentication that does not go through the access policy, and its own ADR.
+
+Recorded and still open from the same pass: `content-length` in the response
+header allowlist is an indirect channel about the body; an IDN entry in
+`allowedHosts` written in unicode matches nothing — fail closed, but the operator
+learns it only from a wall of `HostNotAllowedError`; and `%252e%252e` reaches a
+target that decodes twice, which nothing here can demonstrate without such a
+target.
 
 ## Adversarial review of 18 August 2026 (the gate itself)
 
@@ -2920,8 +3016,15 @@ behaviour, but merging them was not an option.
 - [x] **#2 Biome 2.5.6 → 2.5.7** — updated locally, the schema in `biome.json` was migrated.
 - [x] **#1 TypeScript 7.0.2** — rejected: a preview with `API: not ready`, while `tsc --noEmit`
       is a CI gate. The reasoning: [ADR-0001](docs/adr/0001-stack-and-versions.md).
+      **Reversed on 19 August 2026** by [ADR-0031](docs/adr/0031-typescript-7.md): the
+      shipped package no longer calls itself a preview, this repository never imports the
+      compiler API, and the block in `.github/dependabot.yml` is lifted. The line stays
+      because the decision it records was real; struck through it would read as if
+      nothing had been decided.
 - [x] **#3 `@types/node` 26.1.1** — rejected: the 22 line is pinned under `engines: >=22.12.0`.
 - [x] `ignore` for `typescript` (>=7) and `@types/node` (>=23) in `.github/dependabot.yml`.
+      Half of it is gone: the `typescript` block was lifted with ADR-0031 on 19 August,
+      the `@types/node` one stands under `engines: >=22.12.0`.
 
 Lift these bans together with the corresponding ADR, not "along for the ride" with an update.
 

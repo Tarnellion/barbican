@@ -198,7 +198,12 @@ ${resources === 0 ? "" : `\nresources:\n${resourceLines.join("\n")}\n`}`;
 interface ReportFile {
   readonly warnings: readonly string[];
   readonly summary: { readonly findings: number };
-  readonly coverage: { readonly resourcesNotFound: readonly string[] };
+  readonly coverage: {
+    readonly resourcesNotFound: readonly string[];
+    readonly endpointsTotal: number;
+    readonly endpointsProbed: number;
+    readonly notProbed: Readonly<Record<string, number>>;
+  };
 }
 
 /**
@@ -382,8 +387,8 @@ describe("a path on the command line that cannot be read", () => {
 /**
  * A run that makes one warning fire, and why it does.
  *
- * Four fixtures rather than one, because the four warnings answer to four
- * different things and a run cannot be in all four states at once.
+ * Five fixtures rather than one, because the five warnings answer to five
+ * different things and a run cannot be in all five states at once.
  */
 interface WarningCase {
   /** What in this configuration produces the warning. */
@@ -418,6 +423,15 @@ const WARNING_CASES: Readonly<Record<keyof typeof WARNINGS, WarningCase>> = {
     why: "the stand answers 200 to everything, so no cell was ever refused",
     config: (port) => configFor(port),
     endpoints: ENDPOINTS,
+  },
+  endpointsNotProbed: {
+    why: "an endpoint takes a path parameter and no resource declares a value for it",
+    // The same endpoint list `findingsCapped` uses and none of its resources:
+    // `items.get` is then skipped, which is the ordinary shape of this defect —
+    // the operator declared the endpoints and not the objects, and the half of
+    // the surface addressed by identifier goes unasked.
+    config: (port) => configFor(port),
+    endpoints: ENDPOINTS_WITH_ITEMS,
   },
   findingsCapped: {
     why: "one defect over MAX_ROWS_PER_DEFECT + 1 resources, so a row is dropped",
@@ -726,6 +740,39 @@ describe("the headline of the screen", () => {
   });
 
   /**
+   * The state both earlier fixes still cleared: nothing found, verdict 0, and
+   * most of the surface never asked.
+   *
+   * The audit of 21 August 2026 (B-4). Eleven endpoints, nine of them templated
+   * with no `resources` declared, so the run probed two — and printed the bare
+   * green sentence, with `warnings: []` in the file beside it. Neither of the
+   * conditions this line already had could see it: no request went to those nine,
+   * so they left no finding to be counted and nothing in `resourcesNotFound`,
+   * which is about objects that were asked for and were not there.
+   *
+   * The half that goes missing is the object half — the endpoints addressed by
+   * identifier — which is where BOLA and IDOR live, and it goes missing on the
+   * most ordinary mistake there is: declaring the endpoints and forgetting the
+   * resources, or misspelling a `params` key.
+   */
+  it("does not stand alone on a run that did not reach every endpoint", async () => {
+    const { stderr, report, exitCode } = await runAgainstStand({
+      config: (port) => configFor(port),
+      endpoints: ENDPOINTS_WITH_ITEMS,
+    });
+
+    // The fixture really is the case: a clean verdict over a partial walk.
+    expect(report.summary.findings).toBe(0);
+    expect(exitCode).toBe(0);
+    expect(report.coverage.endpointsProbed).toBeLessThan(report.coverage.endpointsTotal);
+    // And not the reservation the previous fix added: every resource that was
+    // asked for answered, because none was declared to ask about.
+    expect(report.coverage.resourcesNotFound).toEqual([]);
+
+    expect(headlineOf(stderr)).not.toBe(NO_ESCALATION);
+  });
+
+  /**
    * The third state, which is neither: nothing was found and nothing was proved.
    * Without a canary the run walks the whole matrix, confirms no authentication
    * and exits 2 — and the headline used to be green on it too.
@@ -743,5 +790,161 @@ describe("the headline of the screen", () => {
     expect(headline).toBeDefined();
     expect(headline).not.toBe(NO_ESCALATION);
     expect(headline).toContain("exit code 2");
+  });
+});
+
+/**
+ * M-6 and M-7 · what the run says about itself, to the platform and to the operator.
+ *
+ * Both findings are about a default nobody chose. The wire carried
+ * `user-agent: node`, so the owner who signed the permission had no way to pick
+ * the run out of their own logs; and the report goes to **stdout** when
+ * `--report` is absent, which in the ordinary CI invocation is the build log —
+ * while the same document written to a path is created `0600` with a comment
+ * beside it explaining that it is a map of the holes in someone else's
+ * authorization.
+ *
+ * `tests/invariants/transport.test.ts` holds the header at the client. What is
+ * held here is the pair of defaults and the tie between them: the value on the
+ * wire has to be the `runId` of the artifact, or naming the run buys the owner
+ * nothing they could act on.
+ */
+describe("what a run says about itself", () => {
+  /** The plain stand, plus a note of who each request claimed to be. */
+  async function startListeningTarget() {
+    const agents: (string | undefined)[] = [];
+    const server = createServer((request, response) => {
+      agents.push(request.headers["user-agent"]);
+      const token = (request.headers.authorization ?? "").replace("Bearer ", "");
+      if ((request.url ?? "") === "/v1/me") {
+        response.writeHead(token === "token-alice" ? 200 : 401).end();
+        return;
+      }
+      response.writeHead(200).end();
+    });
+    await new Promise<void>((settle) => {
+      server.listen(0, "127.0.0.1", settle);
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("could not start the deployment");
+    }
+    return {
+      agents,
+      port: address.port,
+      close: () =>
+        new Promise<void>((settle, fail) => {
+          server.close((error) => (error === undefined ? settle() : fail(error)));
+        }),
+    };
+  }
+
+  /**
+   * One run, with the report on disk or on stdout as the case asks.
+   *
+   * `runAgainstStand` above always passes `--report`, which is the one thing
+   * half of these cases are about.
+   */
+  async function runListened(options: {
+    readonly flags?: readonly string[];
+    /** `false` leaves `--report` off, which is the default this is testing. */
+    readonly toFile?: boolean;
+  }) {
+    const target = await startListeningTarget();
+    const directory = await mkdtemp(join(tmpdir(), "barbican-identify-"));
+    const configPath = join(directory, "run.yaml");
+    const endpointsPath = join(directory, "endpoints.yaml");
+    const reportPath = join(directory, "report.json");
+    await writeFile(configPath, configFor(target.port), "utf8");
+    await writeFile(endpointsPath, ENDPOINTS, "utf8");
+    process.env.CLI_TEST_TOKEN_ALICE = "token-alice";
+    try {
+      const result = await runCli(
+        "run",
+        "--config",
+        configPath,
+        "--endpoints",
+        endpointsPath,
+        ...(options.toFile === false ? [] : ["--report", reportPath]),
+        ...(options.flags ?? []),
+      );
+      const document =
+        options.toFile === false ? result.stdout : await readFile(reportPath, "utf8");
+      const report = (document.trim() === "" ? {} : JSON.parse(document)) as {
+        readonly runId?: string;
+      };
+      return { ...result, report, agents: target.agents };
+    } finally {
+      delete process.env.CLI_TEST_TOKEN_ALICE;
+      await target.close();
+    }
+  }
+
+  it("names itself to the platform, with the identifier the report is filed under", async () => {
+    const { report, agents } = await runListened({});
+
+    expect(report.runId).toBeDefined();
+    // Every request of the run, canaries included: the first thing the platform
+    // sees is a canary, and an unmarked probe followed by marked traffic is a
+    // log the owner still cannot read straight.
+    expect(agents.length).toBeGreaterThan(2);
+    for (const agent of agents) {
+      expect(agent).toContain("barbican/");
+      // The tie that makes the marking worth anything. Two different identifiers
+      // — one on the wire, one in the file — would let the owner filter the
+      // traffic and still not know which report it produced.
+      expect(agent).toContain(`run=${report.runId}`);
+    }
+  });
+
+  it("stops naming itself when the operator asks it not to", async () => {
+    const { agents, exitCode } = await runListened({ flags: ["--no-identify"] });
+
+    expect(agents.length).toBeGreaterThan(2);
+    // node's own default, which is what every run of this tool sent until now.
+    expect(agents).toEqual(agents.map(() => "node"));
+    // And the run itself is unaffected: this is a decision about what the
+    // platform is told, not about what is tested.
+    expect(exitCode).toBe(1);
+  });
+
+  it("says on the screen which of the two it did", async () => {
+    const named = await runListened({});
+    const silent = await runListened({ flags: ["--no-identify"] });
+
+    // The report has no field for this, so the operator's own transcript is the
+    // only record of whether the run announced itself.
+    expect(named.stderr).toContain("barbican/");
+    expect(silent.stderr).toContain("--no-identify");
+  });
+
+  it("warns that the report is going to stdout when no --report was given", async () => {
+    const { stderr, report } = await runListened({ toFile: false });
+
+    // The report really did come out on stdout — otherwise the warning would be
+    // about nothing.
+    expect(report.runId).toBeDefined();
+    expect(stderr).toContain("stdout");
+    expect(stderr).toContain("0600");
+  });
+
+  it("keeps quiet about stdout when the report is going to a file", async () => {
+    const { stderr } = await runListened({});
+
+    expect(stderr).not.toContain("The report has nowhere to go but stdout");
+  });
+
+  /**
+   * And not on a dry run, which sends nothing and writes nothing.
+   *
+   * A preview that warns about where a report goes is warning about a report it
+   * is not going to produce — and `--dry-run` already says the opposite in the
+   * same breath when `--report` *is* given ("is not written by a dry run").
+   */
+  it("keeps quiet about stdout on a dry run", async () => {
+    const { stderr, agents } = await runListened({ toFile: false, flags: ["--dry-run"] });
+
+    expect(agents).toEqual([]);
+    expect(stderr).not.toContain("The report has nowhere to go but stdout");
   });
 });

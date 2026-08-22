@@ -156,6 +156,9 @@ policy:
         failures,
         unauthenticated: [],
         canariesChecked: canaries.length,
+        // The outcomes and not only their number: the verdict asks which
+        // accounts were confirmed, one by one.
+        canaries,
         truncated: false,
         findings,
         policy,
@@ -305,6 +308,9 @@ policy:
         failures,
         unauthenticated: [],
         canariesChecked: canaries.length,
+        // The outcomes and not only their number: the verdict asks which
+        // accounts were confirmed, one by one.
+        canaries,
         truncated: false,
         findings,
         policy,

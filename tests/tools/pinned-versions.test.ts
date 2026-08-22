@@ -34,6 +34,26 @@ function manifest(): Manifest {
   return JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as Manifest;
 }
 
+/**
+ * The file `node_modules/.bin/tsc` runs, read out of the compiler's own manifest.
+ *
+ * Taken from `bin` rather than spelled out here, so the path stays one fact in
+ * one place: a package that renamed or moved its entry point would fail this
+ * loudly instead of leaving the assertion measuring some other compiler.
+ */
+function compilerEntry(): string {
+  const installed = resolve(ROOT, "node_modules", "typescript");
+  const bin = (
+    JSON.parse(readFileSync(resolve(installed, "package.json"), "utf8")) as {
+      bin?: { tsc?: string };
+    }
+  ).bin?.tsc;
+  if (bin === undefined) {
+    throw new Error("typescript declares no `tsc` entry under `bin`");
+  }
+  return resolve(installed, bin);
+}
+
 /** Every direct dependency and the version this repository pins for it. */
 function pinned(): readonly [string, string][] {
   const declared = manifest();
@@ -123,12 +143,25 @@ describe("the versions this repository pins", () => {
    * `node_modules/typescript/package.json` and `tsc --version` can disagree —
    * a stale binary, a shadowing install higher up the tree — and it is the second
    * one that decides what the gate actually checked.
+   *
+   * Spawned as node plus the compiler's own entry point, and not through the
+   * launcher that was here first. On Windows npm installs that launcher as a
+   * `.cmd` and a `.ps1` and there is no `.exe`, while libuv resolves a bare name
+   * against `.com` and `.exe` only — so the call threw ENOENT and, with no
+   * `try`/`catch` around it, took the job down with it. That was the state from
+   * the day `windows-latest` joined the matrix; on macOS and Linux the same line
+   * works, which is why nobody's machine said so. A shell would also have found
+   * the `.cmd`, and would have put an argument string in front of `cmd.exe` to
+   * parse — `process.execPath` needs no quoting rules to be right.
+   *
+   * What is asked is unchanged: the same file `pnpm run typecheck` reaches
+   * through `node_modules/.bin`, answering with the version it reports itself.
    */
   it("include a compiler that reports the version it was pinned at", () => {
     const declared = manifest().devDependencies?.typescript;
     expect(declared).toBeDefined();
 
-    const reported = execFileSync("npx", ["tsc", "--version"], {
+    const reported = execFileSync(process.execPath, [compilerEntry(), "--version"], {
       cwd: ROOT,
       encoding: "utf8",
     }).trim();

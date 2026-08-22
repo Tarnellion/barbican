@@ -10,7 +10,8 @@ BOLA/IDOR, and cross-tenant leaks.
 ## Status
 
 Early development, but end-to-end: `barbican run` walks a live API and writes a report.
-Validated against three targets — [crAPI](docs/polygons/crapi.md), VAmPI, and a
+Validated against four targets — [crAPI](docs/polygons/crapi.md),
+[VAmPI](docs/polygons/vampi.md), [Juice Shop](docs/polygons/juice-shop.md), and a
 [reference platform](https://github.com/Tarnellion/barbican/tree/main/polygon) with switchable defects and a hand-written oracle.
 
 - **Works today** — OpenAPI/Postman/manual endpoint sources, throttled probing across
@@ -72,6 +73,36 @@ answer for such a platform is that this tool cannot check it yet.
 
 See [docs/guide.md](docs/guide.md), "A platform that refuses with 200".
 
+### The statuses this tool cannot read
+
+The section above is the loud way to be wrong. Four more are quiet ones: cells
+dropped out of the verdict instead of added to it, and a run that ends in `0`.
+
+Access is concluded from `2xx`, from `401`, `403` and `451`, and from `404` and
+`410`. Anything else is `outcome: "error"` — a low-severity `probe-error` that
+does not enter the exit code.
+
+- **A refusal that redirects.** An operator console on a session cookie answers a
+  refused caller `302 Location: /login`, not `403`. Redirects are not followed,
+  so every denied cell of that surface is discarded. The `nothingRefused` warning
+  does not catch it in a mixed run — it needs *no* denials anywhere in the run.
+- **An outcome that is not final.** `202 Accepted` reads as access granted, so a
+  platform that queues the request and refuses it in a worker produces a
+  privilege escalation that is really a refusal arriving later.
+- **A delete that only hides the object.** Under soft delete, `404` and `410`
+  answer everybody alike and both fold into a refusal, so an empty cell reads as
+  a protected one.
+- **An answer about the endpoint rather than the account.** `405` is about the
+  method, not about who asked.
+
+Fixing any of them takes a declaration from the operator — *a refusal on this
+platform looks like this* — and there is no such field yet; guessing it from the
+platform's own answers is the mistake
+[ADR-0006](docs/adr/0006-expected-access-declaration.md) exists against. What the
+run does do is leave a row in `failures` for every cell whose status it could not
+read, so the boundary is visible instead of silent. See
+[docs/guide.md](docs/guide.md), "The statuses this tool cannot read".
+
 ## Documentation
 
 The repository is English throughout: this README, both guides, every polygon
@@ -81,6 +112,10 @@ test enforces it — the rule survives exactly as long as it is checked. Russian
 copies live outside the repository and are a snapshot, not a second version;
 where two language versions disagree, the English files are the source of truth.
 
+- **[docs/first-run.md](docs/first-run.md)** — the eleven things to settle before
+  the first request against a platform you do not own: permission, scope, a
+  canary per account, how many requests this actually is, and what the result
+  will not cover. Start here.
 - **[docs/guide.md](docs/guide.md)** — declaring accounts, tenants, resources and
   the access policy; running a scan; what the tool deliberately does not do.
 - **[docs/report.md](docs/report.md)** — reading the report: every summary field,
@@ -99,14 +134,16 @@ npm install barbican
 barbican run --help
 ```
 
-`0.4.0` is the current release, and the one to install. Publishing goes through
+`0.5.0` is the current release, and the one to install. Publishing goes through
 CI with provenance, so `npm audit signatures` verifies it against this repository
 and the workflow that built it.
 
-Neither earlier version is worth having. **`0.1.0` is a stub whose CLI registers
-no commands**, published by hand before the release pipeline existed; `0.2.0`
-ships a tarball with no guide and no examples, and a CLI that speaks Russian
-around English documentation.
+Of the four versions before it, none is worth having. **`0.1.0` is a stub whose
+CLI registers no commands**, published by hand before the release pipeline
+existed; `0.2.0` ships a tarball with no guide and no examples, and a CLI that
+speaks Russian around English documentation; `0.3.0` and `0.4.0` both answer
+`0` — "tested, and clean" — to runs that tested nothing, by the six roads the
+section below closes.
 
 ### What changed in 0.3.0
 
@@ -196,6 +233,390 @@ naming every declared endpoint.
 **Two accounts presenting the same token are refused even if one has trailing
 whitespace**, `Retry-After` can no longer shorten the backoff below the tool's own
 formula, and `--dry-run` no longer refuses configurations that run.
+
+### What changed in 0.5.0
+
+The largest release so far, and most of it came out of an adversarial audit of
+20-21 August 2026 rather than out of the roadmap: six ways a run could come back
+`0` about something it had not tested, four doors that carried more than a path,
+and twenty-four invariants that were held by a comment and by nothing else. Read
+the first four paragraphs before upgrading — three of them stop a configuration
+that used to start.
+
+**A canary has to tell this account from nobody at all**
+([ADR-0040](docs/adr/0040-a-canary-has-to-tell-somebody-from-nobody.md)). A 2xx
+said the endpoint answered, not that it answered *this* account, and `/health`,
+`/version`, `/api/status` answer everybody — which is what an operator reaches
+for when asked to name an endpoint the account can reach. A dead token passed
+such a canary, every cell of the account came back 401, the policy declared it
+denied, and the run said `match: true` on all of them with exit `0`. Each canary
+now sends one request with no credentials at all; if that answers 2xx the run
+refuses to start and names the account, the endpoint and the status. Three
+requests per account with a canary instead of two, counted by `--dry-run`, and
+`canaries[].anonymousStatus` is in the report.
+
+**A check that throws takes only itself out of the run.** `runChecks` had no
+`try`, and it runs after the walk and before the report is built: one check
+meeting a shape it did not expect discarded an hour of traffic against somebody
+else's deployment with "Run aborted" and no file. The failure is a run-level
+finding now — the class of the error, never its message — because a check that
+crashed and a check that found nothing are otherwise the same report, and the
+second reads as good news.
+
+**A check finding can name the resource it is about.** A cell is
+account × endpoint × resource × conditions and `Finding` carried three of the
+four, so a finding about an object could not be matched to its observation: the
+cell came out `match: true` with the finding standing on it, counted in
+`cellsMatched`, with an empty `resourceIds` on the defect group and no request to
+reproduce it with. Latent while the registry holds one check that judges whole
+endpoints; the first check of Module 2 that judges an object is where it stops
+being latent.
+
+**`resources[].query` is checked where the request is assembled**, like
+`contexts[].query` beside it. It was left at the configuration door, so the
+library door still put `?_method=DELETE` on the wire with
+`allowUnsafeMethods: false` and printed a credential into `observations[].url`.
+
+**The report is written through a staging file that cannot be a symlink**, and a
+platform that stops answering after the walk is no longer reported as credentials
+going stale. The staging path is removed and created exclusively; a symlink there
+used to take the report — every address, every account identifier — wherever it
+pointed.
+
+**An unknown key in the configuration is refused.** `z.object` accepted what it
+did not know and said nothing, in eight sections out of ten — only `policy.rules[]`
+and `contexts[]` were strict. A single letter turned a run into a false zero:
+`tokenENV` made the account anonymous, which also excused it from the canary rule;
+`bodySignal` removed the body channel; `resouces` cut a matrix of six cells to two;
+`excludes` disarmed the exclusion list and the run went on to knock at the address
+declared untouchable. The guards inside each section are good, and none of them can
+fire when the section itself is gone. **A configuration carrying a stray key stops
+now where it used to run**, and the published JSON Schema carries
+`additionalProperties: false`, so an editor bound to `$schema` marks the typo too.
+
+**A canary that could not be probed after the walk is named.** The canaries are
+probed twice — before the walk and after it — and `--dry-run` counted them once, so
+a ceiling the preview itself called sufficient was exhausted by the second pass.
+Every result of that pass carried a terminal failure, the loop reading them skipped
+exactly those, `truncated` stayed false because the matrix *was* walked, and a run
+whose token died halfway came back `0` carrying the first pass with
+`authenticated: true`. `report.unverifiedAfterWalk[]` is the new field and its own
+reason for exit `2`, kept apart from `staleCredentials`: our own ceiling and a dead
+token send the reader to different places. The preview counts the canary requests
+twice and says so.
+
+**A resource value carrying `/` or `\` is refused**
+([ADR-0035](docs/adr/0035-a-separator-in-a-value-is-refused.md)).
+`encodeURIComponent` turns the separator into `%2F`, which is one ordinary segment
+here and `../../admin` to Spring with `urlDecode` at its default or Tomcat with
+`ALLOW_ENCODED_SLASH` — both decode before they route. The template grammar had
+already decided this question the strict way; the value grammar had not, so the two
+halves of one rule disagreed. The price is in the ADR: a hierarchical identifier
+is no longer declarable as one value.
+
+**Condition attributes are checked where the request is assembled**
+([ADR-0037](docs/adr/0037-the-rest-of-the-request-sits-at-the-seam.md)). The
+address grammar moved to the seam; the three checks over attributes did not, and
+`collectObservations` called none of them — so through the library door, with
+`allowUnsafeMethods: false`, a run put `?_method=DELETE`, an
+`x-http-method-override` header and a credential in a query parameter on the wire.
+The merge order is reversed with it: attributes went in *after* the credentials
+under a comment calling that the second line of the same defence, and a later
+spread wins — `authorization` declared as an attribute replaced the account's own
+header while the report named the original account.
+
+**The report is written in chunks, through a file beside it**
+([ADR-0038](docs/adr/0038-the-report-is-written-in-chunks.md)). `JSON.stringify`
+builds the document in memory first, and a string in node stops at 536 870 888
+characters: 57 826 cells against a platform answering with 196 headers spent every
+request and then lost the lot to `Invalid string length`. Where that wall stands is
+the target's to decide, not the operator's — 692 000 cells at six response headers,
+74 000 at 126. The bytes are unchanged. The file goes to `<path>.partial` and is
+renamed, so an interrupted write no longer replaces a good report with half of one,
+and the mode is set again after the rename: `mode` on an open applies to a file
+being *created*, so a report written twice into the same path used to keep the
+permissions it already had.
+
+**A run that did not reach every endpoint says so**, in the file and on the
+screen. Eleven endpoints with nine of them templated and no `resources` declared
+gave `endpointsProbed: 2`, `warnings: []`, no findings, exit `0` and a green "No
+privilege escalation found" — over the object half of the surface, the endpoints
+addressed by identifier, which is where BOLA and IDOR live and which drops out on
+the most ordinary mistake there is. Nothing read `coverage`: every other counter
+answers "was anything found", and none of them answers "was anything looked at".
+`report.warnings[]` has a fifth sentence for it, and the headline no longer stands
+alone on such a run.
+
+**The order in the report, and `configDigest`, no longer depend on the machine's
+locale** ([ADR-0036](docs/adr/0036-one-order-on-every-machine.md)). Eleven
+comparisons went through `localeCompare()` with no locale argument, which sorts
+by whatever `LC_ALL` says: `sv_SE` and `en_US` ordered the finding rows, the
+defect groups and a check's compared pairs differently, and hashed one
+declaration into two different digests. `configDigest` is offered in
+`docs/report.md` as the way to tell "the platform changed" from "we changed the
+declaration", and evidence rows are cut *after* the sort — so two machines
+walking one matrix did not merely print the same file in two orders, they kept
+different rows of the same defect. Everything compares by UTF-16 code units now,
+which is what the plain `.sort()` calls standing beside them already did.
+
+**A canary is required per account, not per run.** A run where one account has a
+canary and another with a `tokenEnv` does not now exits `2` and names the accounts.
+It used to be enough for the run to have one canary anywhere: an account carrying a
+dead token, denied everywhere by the policy, produced `match: true` on every cell
+and exit `0` — "tested and clean" about credentials nothing had ever shown to work.
+`findUnauthenticated` cannot reach that case by construction, because a policy that
+declares nothing accessible to an account gives it nothing to be refused. The text
+of the `noCanary` warning in `report.warnings[]` changed with it.
+
+**A backslash or a control character in an endpoint path is refused**, and the
+grammar now also sits where the address is built rather than only at the three
+adapters that read a document. `/v1/reports\..\..\danger` was one segment to a
+guard that splits on `/` and three to the URL parser, which reads `\` as a
+separator for http and https: the request arrived at `/danger` — an endpoint the
+configuration had excluded — and the verdict for `reports` was computed from its
+answer. Tab, newline and carriage return go the same way: the parser removes them
+before reading, so `.` newline `.` becomes `..` after approval. Percent-encoded
+`%5c` too.
+
+**The same refusals now apply to the library.** `collectObservations` takes
+`Endpoint[]` from whoever calls it, and `Endpoint.path` is a plain string: every
+refusal written for the adapters was open through that door, including
+`?_method=DELETE` performing a write with `allowUnsafeMethods: false`.
+
+**Navigation is refused in the spellings the receiver collapses**, not only the
+one written out. `%2e%2e`, `.%2e` and `%2e.` are double-dot segments to `new URL`
+itself — the tool's own parser, before any platform sees them — and `..;` is `..`
+to a servlet container, which strips `;params` from a segment before normalising
+the path.
+
+**An absolute or scheme-relative URL is refused as an endpoint path.** The
+endpoint list and the Postman parser each refused one in their own way; an
+OpenAPI `paths` key did not, and `https://user:secret@host/x` there kept the
+origin check happy — origin does not carry userinfo — and printed the credentials
+into `observations[].url`.
+
+**`runVerdict` and `exitCodeFor` accept a report saved by an older version.**
+They read the canary outcomes now, and a 0.4.0 report has no `canaries` field: it
+answers 2, where it had started throwing a `TypeError`.
+
+**The registered methods that write are refused in request conditions and
+resource queries.** The check by value knew the methods this tool can issue; a
+platform honouring an override is not limited to them, and `MOVE` deletes the
+source. The WebDAV, versioning, binding, calendar, redirect-reference and ACL
+methods are in the set now, with `PURGE`.
+
+**Three configurations that used to start now stop at `--dry-run`**: a policy rule
+naming a role no account carries, a resource that fits no endpoint, and a canary
+the policy denies to the account's own role. Each was a rule or a check that
+silently did nothing.
+
+**The preview names the accounts owed a canary** instead of saying "not one
+account declares a canary", which was false whenever one did, and prints it in the
+colour the finished run uses for the same warning.
+
+**The build is TypeScript 7.0.2** ([ADR-0031](docs/adr/0031-typescript-7.md)). No
+API change; the emitted declarations keep doc comments 6.x dropped.
+
+**The grammar for a string from outside is exported.** `src/io/untrusted.ts` was
+re-exported by no index, so from outside the package `HeaderValue` was a branded
+type with no reachable constructor: the signing provider
+[ADR-0018](docs/adr/0018-request-signing-is-a-port-concern.md) describes did not
+compile, and the only spelling that did was a cast — the grammar skipped rather
+than applied. `safeHeaders`, `headerValue`, `headerName`, `pathSegment`,
+`pathTemplate`, the predicates, `openRecord`, `lookup` and the four error classes
+beside them are on the surface now, `UnusablePathTemplateError` among them: the
+class a run's refusal of a hostile path arrives as, which could previously be
+recognised only by comparing `err.name` to a string.
+
+**Three quadratic walks are gone**, with no change to what any of them answers.
+The untrustworthy-run check read every observation of the run once per account
+and discarded the ones belonging to somebody else: 37.51 ms at 640 accounts,
+0.82 ms now, and the growth is linear in the accounts instead of squared. The
+matrix walk and the run's own asked an account's list of declared endpoints with
+`includes` once per endpoint, which only bites where request conditions are
+declared — and that is exactly where the matrix is largest: `describeMatrix` at
+1600 endpoints went from 18.96 ms to 7.58 ms.
+
+**The body channel compares what a human named**
+([ADR-0044](docs/adr/0044-the-body-channel-compares-what-a-human-named.md)). The
+one check the "bodies are not read" invariant was relaxed for was wrong in both
+directions at once, and both were reproduced. Two tenants with no records answer
+`{"orders":[],"total":0}` byte for byte, so the digests matched and a `high`
+cross-tenant leak was reported — on a fresh deployment, where half the tenants
+have nothing yet, a wall of them and exit `1` against a healthy platform. And two
+responses carrying the records of *both* tenants, differing by one `requestId` in
+the envelope, produced no finding at all: a `serverTime`, a `generatedAt`, a
+pagination cursor or an echoed ETag switches the check off entirely, which is the
+ordinary shape of a list endpoint. **A pair where every declared `count` is zero
+on both sides is no longer compared**, and `bodySignals.compareSubtree` declares
+which part of the body to compare — `{ endpoints: [orders.list], path: data.orders }`
+— so the envelope may move. A scope that cannot be resolved yields no digest
+rather than falling back to the whole body; the observation says
+`digestScopeMissing`. Both readings were also invisible in the report:
+`comparedPairs` grew by one whether the digests matched, differed, or were
+compared when there was nothing to compare, so it splits into `matchedPairs` and
+`differedPairs`, with `skippedBothEmptyPairs`, `pairsWithoutDigest` and
+`emptinessSignalsDeclared` beside them. `docs/report.md` states the boundary none
+of this removes, held by a test: **a difference in digests is not proof of
+isolation** — it proves only that the bytes were different.
+**A run now says who it is on the wire**
+([ADR-0044](docs/adr/0045-a-consented-run-says-who-it-is.md)). Every request
+carries `user-agent: barbican/<version> (+<homepage>; run=<runId>)`, where `run=`
+is the identifier of the report the run produces. It was `user-agent: node`
+before, and the `runId` never left the file. README has asked for the platform
+owner's written agreement since the beginning and says why — "someone has to know
+that the traffic in their logs is yours" — and nothing made that possible. Now
+they can pick the run out of an access log or a SIEM, keep it out of an
+availability graph, and tie their own records to the exact report they were
+handed: the other direction of the correlation `x-request-id` off the response
+already served. `--no-identify` sends the run unannounced, for the deliberate
+case of measuring what an unmarked sweep looks like; the summary and `--dry-run`
+both print which of the two a run was. A set of request conditions declaring a
+`user-agent` attribute of its own stops the run instead of sending both values
+folded into one.
+
+**A run without `--report` now says where the report is going.** It goes to
+stdout, which in a pipeline is the build log — while the same document written to
+a path is created `0600` on purpose, because it names every request address,
+every account and resource, and the places the platform's authorization does not
+hold. The weaker of the two paths was the default and no document said so;
+`docs/report.md` and the guide now do.
+**`410 Gone` is read as a refusal, and the statuses that stay unreadable are
+named** ([ADR-0046](docs/adr/0046-410-is-a-refusal-and-the-rest-is-named.md)).
+410 says what 404 says and says it harder — the resource was not served, and it
+will not be — and it used to be an `error`, so a refusal the platform had
+actually issued left a low-severity `probe-error` outside the exit code and
+vanished from the verdict. It now folds into a denial the way 404 does, which
+changes verdicts in both directions, and the guard against a 404 this run caused
+with its own `DELETE` covers 410 with it, since a platform that soft-deletes
+answers "gone". Beside it, a cell whose status the tool does **not** read leaves
+a row in `failures` giving the status and why nothing follows from it, so
+`summary.failures` and the CLI's yellow "Requests that failed" line stop staying
+silent about discarded cells. The four classes that stay unreadable — a refusal
+that redirects, an outcome that is not final behind `202`, a soft delete, and
+`405` answering about the endpoint rather than the account — are written into the
+README, the guide and the report document, held by a test in all three. The
+redirect case is the one that costs most: an operator console on a session cookie
+refuses with `302 Location: /login`, and every denied cell of it is discarded
+today. Fixing it needs a declaration of what a refusal looks like on that
+platform, and that is deliberately not half-built.
+
+**A walk now survives the run that made it**
+([ADR-0047](docs/adr/0047-a-walk-that-survives-its-run.md)). Nothing reached disk
+until the last response was in, and nothing in `src/` mentioned SIGINT — so
+Ctrl-C, the OOM killer, a CI job cancelled on its timeout and a dropped network
+each took the whole run with them: every request already spent against somebody
+else's deployment, inside a window that may not open again this week. And an
+operator whose run met `--max-requests` on the 1900th cell of 9000 had one
+answer, which was to spend those 1900 again. A run with `--report` now streams
+each finished cell to `<report>.stream.ndjson` beside it, `0600` like the report.
+**A signal stops the walk, writes the report it has and then ends the process the
+way the signal would have** — `130` for SIGINT and `143` for SIGTERM are
+unchanged, and the report says `truncated: true` with the exit code `2` that
+belongs to it. **`--resume` continues where the run stopped**, adopting its
+`runId` and start time so both halves of the traffic lead to one document, and
+refusing before the first request if the declaration is not the one the stream
+was written under — the configuration, the endpoint list, a value a condition
+takes from the environment, `--unsafe-methods` or `--no-identify`. A completed
+walk deletes its stream. The bytes of the report are unchanged, which is why it
+still cannot say *which* of the three ways a run was cut short; the terminal and
+the stream can. Without `--report` there is no stream, and the run says so.
+**A finding can be known and accepted without leaving the report**
+([ADR-0048](docs/adr/0048-a-finding-can-be-known-and-still-reported.md)). There
+was one channel for intent and it carried two statements: the only way to stop a
+finding failing a build was to declare the cell allowed, after which the finding
+is gone from the artifact entirely — no row, no defect group, `match: true`, exit
+`0`, and nothing recording that anybody knew. That is also what a team with forty
+findings on the first run has to do to forty cells before the tool can go into
+CI, and the usual answer to that is to take the step out of CI instead. The new
+`accepted:` section names a defect the way `defects[].key` prints it — endpoint,
+relation, conditions — plus the kind it showed itself by, and requires a reason
+and a real `until` date: the row keeps its severity, its request and its place in
+every counter, and only `summary.verdictInputs` loses it. Past the date it counts
+again and says so; a declaration that covered nothing is reported as
+`matched: 0`; and `not-observed` and `probe-error` cannot be accepted at all,
+because a run may not buy its way out of saying it reached nothing.
+
+**`barbican diff` compares two saved reports**
+([ADR-0050](docs/adr/0050-a-comparison-is-of-defects-not-of-files.md)). The two
+questions a second run is made to answer — "what changed since yesterday" and
+"is this the platform regressing or did I edit the declaration" — had both
+halves of both answers sitting in the file and nothing reading either:
+`configDigest` exists to separate those two causes, `defects[].key` was made
+readable and stable across runs so a ticket could cite one, and a plain `diff` of
+two report files is useless, because `runId`, the timestamps, `durationMs` on
+every observation and every `signals.digest` differ on two runs of one matrix
+against one unchanged platform. The comparison says the declaration first — a
+moved `configDigest` means part of what follows may be your own edit — and joins
+on the defect rather than the finding row, since one defect is fifty rows or one
+depending on the evidence budget and the width of the matrix. **A disappearance
+is attributed**: a defect gone from a run that never probed that endpoint is
+reported as nothing fixed and nothing looked at, and a new one on an endpoint the
+earlier run never probed may be newly covered rather than newly broken. A defect
+now held out of the verdict by an `accepted:` declaration is a change and not a
+fix, which is otherwise indistinguishable from one. Coverage that shrank exits
+`2` along with a truncated run, a run whose own verdict was `2`, a report
+compared with itself and two reports of different `schemaVersion`; `1` is a real
+difference, `0` is the same defects over the same surface, and `64` stays what
+the argument parser rejects. `--json` writes the same conclusion to stdout.
+**The walk holds one copy of the matrix instead of three**
+([ADR-0053](docs/adr/0053-the-walk-holds-one-copy-of-the-matrix.md)). The
+measurement that named three materialisations of the matrix in a run counted the
+walk as one of them; the walk was three by itself — a task per cell laid out
+before the first request, a result per cell filled during it, and the
+observations drained out of that at the end, all alive together when the last cell
+came back. It also minted a key string per cell before the first request to
+resolve `--resume`, on every run, including the ones resuming nothing. The task
+list is now a cursor over the accounts and the `endpoint × resource` pairs, a
+worker writes its observation straight into the array the walk returns, and the
+holes an interrupted run leaves are closed up in place. Measured on the same
+ladder as before: the walk's peak resident set is down by up to 22% at 576 000
+cells and the reduction grows with the matrix, and the walk now retains 1.010
+copies of what it hands back where it retained 1.478. **The peak of the whole run
+is unchanged** — it is reached while the report is being built, where the three
+materialisations still stand; the ADR says which they are, what each costs and
+what moving them would take.
+**A checklist for the first run against a platform you do not own**, and two
+assumptions that were nowhere in writing. [docs/first-run.md](docs/first-run.md)
+is the eleven things to settle before the first request — permission, scope,
+`exclude`, a canary per account, the request arithmetic `--dry-run` prints, the
+walk against a token's lifetime, how large a matrix stays practical, how the
+owner will recognise the traffic, where the report goes, `--resume`, and what the
+result will not cover. It is linked from here and from the guide, because a
+document nothing points at is one nobody reads. The assumptions are **the run's
+own blast radius** — the job holds every role's live credentials at once, and a
+run is by construction a burst of `401`/`403` from one subject, which is what a
+lockout or an anti-fraud rule is hung on, and which the report then names
+`staleCredentials` — and **one probe per cell**: every row is a single sample,
+retried only on `429`, `5xx` and a failure on the wire, so one `200` off a stale
+replica is a `critical` that is not there and one `403` off a node that has the
+rule hides one that is. Both are in the guide and in `docs/report.md`, held by a
+test.
+**The report carries a digest of itself**
+([ADR-0051](docs/adr/0051-the-report-answers-for-itself.md)). `runId`,
+`configDigest` and `tool.version` identified the run, the declaration and the
+build; nothing identified the artifact, so a row could be deleted from `findings`
+and a sentence rewritten in `verdict.reason` with nothing inside the file
+objecting — and since HTML and PDF are rendered from the JSON, the edit reaches
+every form of the document. `contentDigest` is a sha256 over the report with that
+field taken out, and `checkContentDigest()` recomputes it from a parsed file.
+**It catches a careless edit and not a deliberate one**, because whoever changed
+the row can recompute the value: the ADR records the signature that would, along
+with the questions — where the key lives, who holds the verifying half, what a
+signed report even claims — that have to be answered before there is one.
+
+**`coverage.clauses` says which clauses the run exercised, not only which ones
+broke** ([ADR-0052](docs/adr/0052-a-clause-can-be-reported-as-exercised.md)).
+`checksRun` had that for registered checks; the matrix channel — privilege
+escalation and cross-tenant access, which is what this tool is for — had nothing,
+so a clause exercised over nine hundred agreeing cells reached an evidence pack
+only if one of them broke. Each row carries the cells that concluded, the cells
+that concluded nothing by reason (`not-observed`, `probe-error`), and the
+reservations that stop "exercised" from meaning "holds": an endpoint never
+probed, a walk cut short, credentials nothing confirmed, a platform whose
+refusals this tool cannot recognise. **Nothing in it is a percentage** — a
+percentage hides its denominator, and claiming a clause covered over a surface
+the tool could not see is the same class of lie as a falsely clean run.
 
 ## Example
 
@@ -298,6 +719,13 @@ from "a privilege escalation was found". The line is drawn where the run starts 
 what the argument parser rejects is `64`, and anything that fails after that is
 `2`.
 
+`barbican diff` keeps the same four meanings one level up: `0` the same defects
+over the same surface, `1` the two runs do not describe the same platform, `2`
+the comparison cannot be trusted — a truncated run, a report compared with
+itself, coverage that shrank — and `64` for the command line alone. The table of
+reasons is in [docs/report.md](docs/report.md), "Comparing this report with an
+earlier one".
+
 Code `2` takes priority over `1`: an unverified run is never clean. Note that an
 *unexpected denial* also fails the run — the tool compares declared intent with
 observed behaviour, and a disagreement is a disagreement whichever way it points.
@@ -332,6 +760,14 @@ This is not legal advice, and the licence disclaims warranty — but the reason 
 ask is simpler than the law: someone has to know that the traffic in their logs
 is yours.
 
+And they have to be able to *find* it there. Every request names the tool, its
+version and the run in `user-agent` — `run=` being the `runId` of the report you
+will hand over — so an access log, a SIEM query and an availability graph can all
+separate the run they agreed to from the thing it is shaped like. Put that
+identifier in the agreement. `--no-identify` sends the run unannounced, which is
+worth having when what you are measuring is how an unmarked sweep is received,
+and worth saying out loud when it is not.
+
 ## Safety defaults
 
 barbican is meant to run against systems you do not own outright, so the defaults are
@@ -349,6 +785,11 @@ conservative and enforced by construction rather than by flags you have to remem
   (SSRF and path traversal).
 - Throttling is always on: concurrency and rate caps, exponential backoff, a circuit
   breaker, and `Retry-After` is respected.
+- The run names itself on the wire, so the owner of the platform can tell it from an
+  attack in their own logs and match those logs to the report. `--no-identify` for the
+  deliberate case where it must not.
+- The report is written `0600` when `--report` names a path. Without it the report goes
+  to stdout, and the run says so before it starts.
 
 ## Development
 
@@ -409,10 +850,19 @@ Publishing goes through CI, never from a laptop. `publishConfig.provenance` is o
 and provenance needs an OIDC witness that a local machine cannot provide — a manual
 `npm publish` fails by design, which is the point.
 
+A release is three edits and a tag, in one commit:
+
+1. Rename the `### Unreleased` section of this README to
+   `### What changed in <version>`. It has been written as the changes landed —
+   that is [ADR-0034](docs/adr/0034-what-main-carries-beyond-the-release.md), and
+   the reason is that reconstructing it from the log at tag time failed twice.
+2. Set that version in `package.json`. Between releases it names the last version
+   this tree shipped, so this is where it moves.
+3. Read the renamed section as a consumer of the previous version would.
+
 ```bash
-# 1. version in package.json is already the one being released
-# 2. tag it — the tag must match that version, the workflow verifies it
-git tag v0.3.0 && git push origin v0.3.0
+# the tag must match package.json's version — the workflow verifies it
+git tag v0.5.0 && git push origin v0.5.0
 ```
 
 The tag triggers [`release.yml`](https://github.com/Tarnellion/barbican/blob/main/.github/workflows/release.yml): it runs the same

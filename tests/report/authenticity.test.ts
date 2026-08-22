@@ -100,6 +100,57 @@ describe("findUnauthenticated", () => {
   });
 });
 
+/**
+ * What the pass reads out of the observations besides their contents.
+ *
+ * Written when the inner loop stopped walking every observation and filtering by
+ * account, and started reading a list grouped by account instead. The counts are
+ * the same either way; the order within an account and the boundary between
+ * accounts are the two things a grouping could quietly change, and neither was
+ * pinned anywhere. A test that only counted would have agreed with a grouping
+ * that sorted, or that let a neighbour's 401 through.
+ */
+describe("the observations one account is judged on", () => {
+  const wide: ResolvedAccessPolicy = {
+    fallback: "denied",
+    rules: [{ roles: ANY, endpoints: ANY, outcome: "allowed" }],
+  };
+
+  /**
+   * A tie goes to the status seen first, because `dominantStatus` is a hint
+   * about where to look and the run order is the only thing it can be a hint
+   * from. Asserted in both directions: one of them alone passes under a sort.
+   */
+  it.each([
+    [401, 404],
+    [404, 401],
+  ])("breaks a tie in the dominant status towards the first seen (%i)", (first, second) => {
+    const observations = [observe("user", "a", first), observe("user", "b", second)];
+
+    expect(findUnauthenticated(accounts, observations, wide)).toEqual([
+      { accountId: "user", expectedAllowed: 2, refused: 2, dominantStatus: first },
+    ]);
+  });
+
+  it("are its own, and no one else's", () => {
+    // Interleaved, so a grouping that took a neighbour's row would take it from
+    // the middle rather than from an edge. `ghost` is in no account list at all:
+    // its refusals belong to nobody and must count for nobody.
+    const observations = [
+      observe("user", "a", 401),
+      observe("ghost", "a", 401),
+      observe("admin", "a", 200),
+      observe("user", "b", 401),
+      observe("ghost", "b", 401),
+      observe("admin", "b", 200),
+    ];
+
+    expect(findUnauthenticated(accounts, observations, wide)).toEqual([
+      { accountId: "user", expectedAllowed: 2, refused: 2, dominantStatus: 401 },
+    ]);
+  });
+});
+
 // A regression introduced by the move to a three-dimensional matrix: rules with
 // a `scope` did not apply without a relation, so on an ADR-0010 style policy the
 // counter of declared access stayed at zero and the safeguard was always silent.

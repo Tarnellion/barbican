@@ -105,3 +105,29 @@ site at once.
   today — the values are literals by schema, as D-5 required — and inventing a
   `QueryValue` before there is a second producer would be the duplicate-shaped
   mistake pointing the other way.
+
+## Note of 2026-08-21: "not from a consumer of the library" held for the CLI only
+
+The Decision above says `HttpRequest.headers` and `CredentialProvider.headersFor`
+ask for `HeaderValue`, "so a raw `Record<string, string>` cannot reach the client
+from anywhere — not from the CLI, and not from a consumer of the library. That is
+the half that was open."
+
+The half stayed open, in a shape the sentence did not consider. The types were
+right; the module holding them was re-exported by neither index, so from outside
+this repository `HeaderValue` was a type with no reachable constructor. A
+consumer could not write a compiling provider at all, and the way out of that is
+a cast — `as never` type-checks, and a cast is the grammar skipped rather than
+applied. The check was not weakened, it was made unreachable, which costs the
+same.
+
+Fixed on 21 August 2026 by re-exporting `src/io/untrusted.ts` from
+`src/index.ts`, whole: the predicates, the constructors, the four error classes,
+and `openRecord`/`lookup` with them. Those last two read as internal mechanics
+and are the same rule — a record keyed by names the tool did not choose — which a
+consumer holds the moment it reads `observation.headers` out of a report parsed
+back from JSON.
+
+The lesson is the one this ADR is already about, one level up: a rule written
+once has to be **reachable** once. `tests/public-surface.test.ts` reads `src/io`
+now, and requires every error class the source declares to be exported.

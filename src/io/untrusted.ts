@@ -189,26 +189,140 @@ export class UnusablePathTemplateError extends Error {
 }
 
 /**
+ * Characters a URL parser does not read the way a split on `/` does.
+ *
+ * A backslash is a path separator for http and https — `new URL` says so and
+ * this grammar's `split("/")` did not, so a template spelling `reports`, two
+ * navigating segments and `danger` with backslashes between them was one
+ * segment here and `/danger` on the wire. Tab, newline and carriage return are
+ * worse than a separator: the parser **removes** them before it reads anything,
+ * so a segment of dot, newline, dot becomes `..` after this function has
+ * approved it. Both were found by adversarial review on 19 August 2026, against
+ * the guard written on 17 August for the same class.
+ *
+ * Refused outright rather than folded into the split. Modelling somebody else's
+ * normalisation is how this was wrong the first time; a path has no use for
+ * either character, and refusing does not depend on getting the model right.
+ * The rest of the C0 range and DEL come along: the parser percent-encodes them,
+ * so they navigate nowhere, but a document carrying one is to be looked at
+ * rather than walked.
+ */
+function isNeverInAPath(character: string): boolean {
+  const code = character.codePointAt(0) ?? 0;
+  // A regular expression would say this in one line and Biome refuses it —
+  // `noControlCharactersInRegex`, and for once the rule and the intent agree:
+  // the class is easier to read as the question it is asking.
+  return character === "\\" || code < 0x20 || code === 0x7f;
+}
+
+/** Whether the string carries any of them. */
+function carriesNothingAddressable(value: string): boolean {
+  return [...value].some(isNeverInAPath);
+}
+
+/**
+ * The percent-encoded spellings of the three characters this grammar decides on.
+ *
+ * The target decodes them, and the target is where the navigation happens: this
+ * side never sees a `/` in `%2f`. `%5c` joined the pair when the backslash did.
+ */
+function decodePathish(value: string): string {
+  return value.replace(/%2e/gi, ".").replace(/%2f/gi, "/").replace(/%5c/gi, "\\");
+}
+
+/**
+ * Whether a segment navigates, in any spelling the receiver will collapse.
+ *
+ * Three of them, and the first was the whole of this function until the second
+ * adversarial review of 19 August 2026:
+ *
+ * - `.` and `..` written out, which everyone collapses;
+ * - `%2e` in either case, which **`new URL` itself** collapses — the URL Standard
+ *   calls `.%2e`, `%2e.` and `%2e%2e` double-dot path segments, so
+ *   `reports/%2e%2e/danger` became `/danger` inside `joinUrl`, before any
+ *   platform saw it. The seam had been written to read the string literally, on
+ *   the reasoning that only the target decodes. The reasoning was wrong about the
+ *   parser this tool itself calls;
+ * - a `;` parameter after the dots. `..;` is not `..` to anybody here, and a
+ *   servlet container strips `;params` from a segment **before** it normalises
+ *   the path — the long-standing way past a path-prefix rule in Spring Security.
+ *
+ * The `%2e` decoding happens here rather than in `decodePathish` because it is
+ * safe on both sides of the grammar: a value a resource substituted went through
+ * `encodeURIComponent`, which turns a literal `%` into `%25`, so no legitimate
+ * value can arrive spelled `%2e`. `%2f` and `%5c` are not decoded here for the
+ * opposite reason — the parser leaves them alone, and reading them would refuse
+ * an encoded identifier that navigates nowhere.
+ */
+function navigates(value: string): boolean {
+  return value.split("/").some((segment) => {
+    const withoutParameters = segment.split(";")[0] ?? "";
+    const dots = withoutParameters.replace(/%2e/gi, ".");
+    return dots === "." || dots === "..";
+  });
+}
+
+/**
+ * Whether the string is an address rather than a path.
+ *
+ * `new URL(path, base)` gives priority to an absolute address, which is why
+ * `joinUrl` compares origins — and origin does not carry userinfo, so
+ * `https://bob:s3cret@api.test/v1/x` as an OpenAPI `paths` key passed the
+ * comparison and was printed into `observations[].url` in full. A
+ * scheme-relative `//api.test/v1/x` went a stranger way: `joinUrl` strips the
+ * leading slashes, so it became `/v1/api.test/v1/x` — a request the endpoint
+ * does not name, reported as if it were the one it does.
+ *
+ * The endpoint list and the Postman parser each refused this in their own way
+ * already, and the OpenAPI parser did not. One rule, in the grammar, for the
+ * same reason as everything else in this file.
+ */
+function isAddress(value: string): boolean {
+  return value.startsWith("//") || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value);
+}
+
+/**
+ * Whether a path is one this tool can turn into an address, taken literally.
+ *
+ * The seam, as opposed to the door. `isUsablePathTemplate` below reads the
+ * percent-encoded spellings too, because a template comes from a document and
+ * the platform will decode it; this one is applied where the address is actually
+ * built — `joinUrl` in the runner — and there the values a resource substituted
+ * have already been through `encodeURIComponent`. Decoding at that point would
+ * read an escaped value back as the character it stands for and refuse a
+ * legitimate identifier.
+ *
+ * Two strictnesses of one grammar, in one file, per ADR-0024. Why the seam
+ * exists at all: `pathTemplate` is called by three adapters, and the fourth door
+ * — a consumer of the library handing `Endpoint.path` straight to
+ * `collectObservations` — had no grammar between it and the wire.
+ */
+export function isAddressablePath(value: string): boolean {
+  return (
+    !value.includes("?") &&
+    !value.includes("#") &&
+    !carriesNothingAddressable(value) &&
+    !isAddress(value) &&
+    !navigates(value)
+  );
+}
+
+/**
  * Whether a path template is one.
  *
  * Exported beside the constructor because the core reads it too: an endpoint is a
  * cell coordinate, and the same string reaches the matrix.
  */
 export function isUsablePathTemplate(value: string): boolean {
-  if (value.includes("?") || value.includes("#")) {
-    return false;
-  }
-  // Percent-encoded forms as well: `%2e%2e` decodes to `..` in the target, and
-  // the origin server is where that matters rather than here.
-  const decoded = value.replace(/%2e/gi, ".").replace(/%2f/gi, "/");
-  return !decoded.split("/").some((segment) => segment === "." || segment === "..");
+  return isAddressablePath(decodePathish(value));
 }
 
 /**
  * @throws {UnusablePathTemplateError}
  */
 export function pathTemplate(value: string): string {
-  if (value.includes("?") || value.includes("#")) {
+  const decoded = decodePathish(value);
+  if (decoded.includes("?") || decoded.includes("#")) {
     throw new UnusablePathTemplateError(
       value,
       "carries a query string or a fragment, which would travel to the platform " +
@@ -216,11 +330,39 @@ export function pathTemplate(value: string): string {
         "never asked for",
     );
   }
-  if (!isUsablePathTemplate(value)) {
+  if (carriesNothingAddressable(decoded)) {
+    throw new UnusablePathTemplateError(
+      value,
+      carriesNothingAddressable(value)
+        ? "carries a backslash or a control character, which a URL parser reads as " +
+            "a separator or removes outright — either way the address stops being " +
+            "the one this template spells"
+        : // The document has neither character in it, and an operator told it does
+          // goes looking for the wrong thing. It has the escape, and the platform
+          // is where that becomes a separator.
+          "carries `%5c` or an encoded control character, which the platform decodes " +
+            "into a path separator this tool would never have written",
+    );
+  }
+  // `decoded`, like every other branch here, and this line said `value` for the
+  // first half-hour of its life: `%2f%2fhost/x` then threw nothing while
+  // `isUsablePathTemplate` — one function below, over the same string — answered
+  // false. Two readings of one rule is the defect this whole file exists against.
+  if (isAddress(decoded)) {
+    throw new UnusablePathTemplateError(
+      value,
+      "is an address rather than a path: an absolute or scheme-relative URL in a " +
+        "document decides where the request goes, and the credentials, the scheme " +
+        "and the port are the tool's to choose",
+    );
+  }
+  if (navigates(decoded)) {
     throw new UnusablePathTemplateError(
       value,
       "navigates with `.` or `..`, so the request would reach an endpoint other " +
-        "than the one it names — past the exclusion list, which works on ids",
+        "than the one it names — past the exclusion list, which works on ids. " +
+        "`%2e` and a `;` parameter after the dots are the same navigation in " +
+        "another spelling, and the receiver collapses them",
     );
   }
   return value;

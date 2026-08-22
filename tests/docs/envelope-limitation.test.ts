@@ -20,13 +20,8 @@
  * exists.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const read = (path: string) => readFileSync(resolve(ROOT, path), "utf8");
+import { read, section } from "./markdown.js";
 
 /**
  * The three places, and why each of them.
@@ -64,5 +59,89 @@ describe("a platform that refuses with 200", () => {
     const doc = source.slice(0, source.indexOf("export function classifyStatus"));
 
     expect(doc).toMatch(/error envelope/i);
+  });
+});
+
+/**
+ * The rest of the same boundary, written down the same way.
+ *
+ * "200 with the outcome in the body" is one member of a family, and it was the
+ * only member anybody had written down. The other four are not hypothetical:
+ * `docs/guide.md` offers `kind: cookie` as a first-class scheme and describes an
+ * operator console behind a session cookie, and such a console refuses with a
+ * redirect to its sign-in page. A run against one drops every refusal into
+ * low-severity `probe-error`, which is outside the exit code, and comes back
+ * green.
+ *
+ * None of these is fixed by this test and none is fixed in the code — each needs
+ * the operator to declare something the tool cannot derive, and ADR-0006 is why
+ * it may not be guessed at. What a test can hold is that they are named where
+ * somebody will meet them, instead of being found again in six months. That is
+ * the argument the block above makes, applied to the cases it left out; see
+ * ADR-0044.
+ */
+const BOUNDARY_HEADING = "The statuses this tool cannot read";
+
+/**
+ * The named section, and nothing else — `section` from `./markdown.js`.
+ *
+ * Matching the whole file was the first version and it was false-green within
+ * the hour: the README's `### Unreleased` entry describing this very change
+ * repeats every keyword the patterns look for, so deleting the section itself
+ * left the test passing off the changelog — and a changelog entry is renamed at
+ * release and then kept forever, so it would have gone on passing. The section
+ * has to be found by its heading, which also pins the name the three documents
+ * cross-reference each other by.
+ *
+ * The helper moved out of this file once two more guards over prose needed the
+ * same lesson. One spelling of one rule; the reasoning travels with it.
+ */
+const UNREADABLE_STATUSES = [
+  {
+    what: "a refusal that redirects",
+    // The status, the mechanism, and the surface the reader recognises.
+    patterns: [/\b30[123478]\b/, /redirect/i, /sign-in|sign in|login/i],
+  },
+  {
+    what: "an outcome that is not final",
+    patterns: [/\b202\b/, /worker|queue|asynchronous|later/i],
+  },
+  {
+    what: "a delete that only hides the object",
+    patterns: [/soft[- ]delete/i, /\b410\b/],
+  },
+  {
+    what: "an answer about the endpoint rather than the account",
+    patterns: [/\b405\b/],
+  },
+] as const;
+
+describe("the statuses the tool cannot read", () => {
+  /** The heading itself, so an empty slice fails as a missing section rather than four times over. */
+  it.each(DOCUMENTS)("have a section of their own in %s", (path) => {
+    expect(section(read(path), BOUNDARY_HEADING).trim().length).toBeGreaterThan(200);
+  });
+
+  for (const { what, patterns } of UNREADABLE_STATUSES) {
+    it.each(DOCUMENTS)(`names ${what} in %s`, (path) => {
+      const text = section(read(path), BOUNDARY_HEADING);
+
+      for (const pattern of patterns) {
+        expect(text).toMatch(pattern);
+      }
+    });
+  }
+
+  /**
+   * And a reader who arrives from a report rather than from the documents finds
+   * the same list at the function that made the choice.
+   */
+  it("names them at classifyStatus too", () => {
+    const source = read("src/runner.ts");
+    const doc = source.slice(0, source.indexOf("export function classifyStatus"));
+
+    expect(doc).toMatch(/\b202\b/);
+    expect(doc).toMatch(/\b405\b/);
+    expect(doc).toMatch(/redirect/i);
   });
 });

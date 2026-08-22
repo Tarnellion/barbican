@@ -194,9 +194,20 @@ export interface Endpoint {
  */
 export type SignalValue = number | boolean;
 
-/** What to compute over the body. Declared by a human, not derived. */
+/**
+ * What to compute over the body. Declared by a human, not derived.
+ *
+ * `digest` carries an optional `path`: the part of the body to compare, instead
+ * of the whole of it. Without it the digest is over the raw bytes, which is what
+ * ADR-0011 introduced and what real list endpoints defeat — a response wrapped
+ * in an envelope with a `requestId` or a `generatedAt` differs on every request,
+ * so two bodies carrying **both** tenants' records got different digests and the
+ * check found nothing. The path is a human's declaration like every other one in
+ * this model, never read off a response: deriving it would mean picking the
+ * fields that happen to agree, which is choosing the answer. See ADR-0044.
+ */
 export type SignalSpec =
-  | { readonly name: string; readonly kind: "digest" }
+  | { readonly name: string; readonly kind: "digest"; readonly path?: string }
   | { readonly name: string; readonly kind: "count"; readonly path: string }
   | { readonly name: string; readonly kind: "present"; readonly path: string };
 
@@ -224,6 +235,19 @@ export type SignalSpec =
  * an address from one for whoever assembles resources through the library.
  */
 export function isUsablePathSegment(value: string): boolean {
+  // A separator in the value is refused rather than escaped. `encodeURIComponent`
+  // turns `/` into `%2F` and `\` into `%5C`, which this side then treats as one
+  // ordinary segment — and Spring with `urlDecode` on, or Tomcat with
+  // `ALLOW_ENCODED_SLASH`, decodes it back before routing. So `../../admin` in a
+  // resource value arrived as `..%2F..%2Fadmin`, passed the seam and reached a
+  // different endpoint, past an exclusion list that works on ids.
+  //
+  // The template grammar in `io/untrusted.ts` already reads the percent-encoded
+  // spellings for exactly this reason; the value grammar did not, and the two
+  // halves of one rule disagreed. Found by the audit of 20 August 2026 (A-2).
+  if (value.includes("/") || value.includes("\\")) {
+    return false;
+  }
   return value !== "" && value !== "." && value !== "..";
 }
 

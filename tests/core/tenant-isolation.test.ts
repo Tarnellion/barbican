@@ -75,14 +75,27 @@ describe("coverage of body comparison", () => {
       ],
     };
 
-    // holding x op-a are related and skipped. The other two pairs were compared.
-    // Through the check's own `coverage`, which is how the report gets it: a
-    // second exported entry point called by name was the coupling L-4 removed.
+    // holding x op-a are related and skipped. The other two pairs were compared,
+    // and one of them matched. Through the check's own `coverage`, which is how
+    // the report gets it: a second exported entry point called by name was the
+    // coupling L-4 removed.
+    //
+    // Written out in full rather than matched loosely: this is the one place the
+    // whole counter set is pinned, so a counter that quietly stops being
+    // reported has somewhere to fail.
     expect(createIdenticalResponseCheck().coverage?.({ matrix })).toEqual([
       {
         checkId: "identical-response-across-tenants",
         endpointId: "orders-list",
-        counters: { comparedPairs: 2, skippedRelatedPairs: 1 },
+        counters: {
+          comparedPairs: 2,
+          matchedPairs: 0,
+          differedPairs: 2,
+          skippedBothEmptyPairs: 0,
+          pairsWithoutDigest: 0,
+          emptinessSignalsDeclared: 0,
+          skippedRelatedPairs: 1,
+        },
       },
     ]);
   });
@@ -478,5 +491,171 @@ describe("identical-response-across-tenants", () => {
     });
 
     expect(first).toEqual(second);
+  });
+});
+
+/**
+ * An empty response is evidence of nothing.
+ *
+ * Two tenants with no records answer `{"orders":[],"total":0}` byte for byte,
+ * the digests match, and the check called it a leak. On a fresh deployment,
+ * where half the tenants have nothing yet, that is a wall of findings and exit
+ * 1 — the risk `plan.md` names first: a tool that finds things that do not exist
+ * loses trust on the first run.
+ *
+ * The signal for it already exists and no more of the body is read to get it:
+ * `count` at a path, declared by a human. A pair where every declared count is
+ * zero on both sides carries no information about isolation, so it is not
+ * compared — and the coverage says so, or the silence reads as "compared, and
+ * they honestly differed".
+ */
+const LIST_WITH_COUNT: Endpoint = {
+  ...LIST,
+  signals: [{ name: "orderCount", kind: "count", path: "orders" }],
+};
+
+/** An observation carrying the declared count beside the digest. */
+function counted(accountId: string, digest: number, orderCount: number): AccessObservation {
+  return observed(accountId, digest, { signals: { digest, orderCount } });
+}
+
+describe("a pair where both sides are empty", () => {
+  it("is not a finding", () => {
+    const findings = check.run({
+      matrix: matrixOf([counted("alice-a", 111, 0), counted("carol-b", 111, 0)], LIST_WITH_COUNT),
+    });
+
+    expect(findings).toEqual([]);
+  });
+
+  it("is counted in the coverage with a reason of its own", () => {
+    const coverage = check.coverage?.({
+      matrix: matrixOf([counted("alice-a", 111, 0), counted("carol-b", 111, 0)], LIST_WITH_COUNT),
+    });
+
+    expect(coverage?.[0]?.counters).toMatchObject({
+      comparedPairs: 0,
+      skippedBothEmptyPairs: 1,
+      matchedPairs: 0,
+    });
+  });
+
+  /**
+   * The control, and the half that keeps the rule from becoming a way to hide a
+   * leak: two tenants that both have records and got the same response is the
+   * finding this check exists for.
+   */
+  it("still finds the leak when both sides have records", () => {
+    const findings = check.run({
+      matrix: matrixOf([counted("alice-a", 111, 4), counted("carol-b", 111, 4)], LIST_WITH_COUNT),
+    });
+
+    expect(findings).toHaveLength(1);
+  });
+
+  /**
+   * And emptiness is a property of the pair, not of one side. If one account
+   * sees nothing while the other sees four records under the same digest, the
+   * digest is the thing that needs explaining — suppressing that would be the
+   * blindness the body channel was opened to remove.
+   */
+  it("is still a finding when only one side is empty", () => {
+    const findings = check.run({
+      matrix: matrixOf([counted("alice-a", 111, 0), counted("carol-b", 111, 4)], LIST_WITH_COUNT),
+    });
+
+    expect(findings).toHaveLength(1);
+  });
+
+  /**
+   * Where nothing says what "empty" means here, the check cannot tell one from
+   * the other and does not pretend to. The number is in the coverage so a reader
+   * can see the rule could not have fired on this endpoint at all.
+   */
+  it("cannot be told from a full one when no count was declared", () => {
+    const coverage = check.coverage?.({
+      matrix: matrixOf([observed("alice-a", 111), observed("carol-b", 111)]),
+    });
+
+    expect(coverage?.[0]?.counters).toMatchObject({
+      emptinessSignalsDeclared: 0,
+      comparedPairs: 1,
+      matchedPairs: 1,
+    });
+  });
+});
+
+describe("the coverage counters tell the outcomes apart", () => {
+  /**
+   * `comparedPairs` grew by one whether the digests matched, differed, or were
+   * never compared because both sides were empty. A reader of the report could
+   * not tell "we compared and they honestly differed" from "we compared, the
+   * difference sat in a request identifier, and the leak went past us".
+   */
+  it("counts a matched pair apart from a differing one", () => {
+    const coverage = check.coverage?.({
+      matrix: matrixOf([
+        observed("alice-a", 111),
+        observed("bob-a", 111),
+        observed("carol-b", 222),
+      ]),
+    });
+
+    // alice x bob share a tenant and are skipped. alice x carol and bob x carol
+    // were compared, and both differed.
+    expect(coverage?.[0]?.counters).toMatchObject({
+      comparedPairs: 2,
+      matchedPairs: 0,
+      differedPairs: 2,
+      skippedRelatedPairs: 1,
+    });
+  });
+
+  it("counts a matched pair as matched", () => {
+    const coverage = check.coverage?.({
+      matrix: matrixOf([observed("alice-a", 111), observed("carol-b", 111)]),
+    });
+
+    expect(coverage?.[0]?.counters).toMatchObject({
+      comparedPairs: 1,
+      matchedPairs: 1,
+      differedPairs: 0,
+    });
+  });
+
+  /**
+   * A pair the tool could not compare at all. A body over `maxBodyBytes` yields
+   * no digest, and before this counter such a pair vanished from every number in
+   * the report: the observation was filtered out before pairing, so
+   * `comparedPairs` quietly did not grow and nothing said why. That is the same
+   * silence D-5 closed on the observation, still open one layer above it.
+   */
+  it("counts a pair one side of which has no digest", () => {
+    const coverage = check.coverage?.({
+      matrix: matrixOf([
+        observed("alice-a", 111),
+        observed("carol-b", 0, { signals: { bodyOverLimit: true } }),
+      ]),
+    });
+
+    expect(coverage?.[0]?.counters).toMatchObject({
+      comparedPairs: 0,
+      pairsWithoutDigest: 1,
+    });
+  });
+
+  /** And the identity a reader can check on the spot. */
+  it("keeps comparedPairs equal to matched plus differed", () => {
+    const counters = check.coverage?.({
+      matrix: matrixOf([
+        observed("alice-a", 111),
+        observed("bob-a", 333),
+        observed("carol-b", 111),
+      ]),
+    })?.[0]?.counters;
+
+    expect(counters?.["comparedPairs"]).toBe(
+      (counters?.["matchedPairs"] ?? 0) + (counters?.["differedPairs"] ?? 0),
+    );
   });
 });

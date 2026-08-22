@@ -202,3 +202,24 @@ The tool compares outcomes, not decisions.
   job: from the outside "leaks with the attribute" and "leaks without it" may be
   different paths in the code, and conditions were introduced for exactly that
   case. The reader is told this directly in `docs/report.md`.
+
+## Note of 2026-08-21: the outbound half now has unit coverage
+
+Everything above was held by the polygon and by nothing else. The audit of
+20 August 2026 (C-2) mutated one argument in the resource branch of the walk —
+`account.contextId` to `undefined` — and 994 unit tests stayed green while the
+polygon's oracle produced twelve invented `unexpected-denial` findings on a clean
+platform and exit 1 in place of 0.
+
+The cause was narrow and complete: every scenario in `tests/core/contexts.test.ts`
+went through an endpoint with no path parameters, so the branch that substitutes a
+resource never received a `contextId` in a test. Wider than that, `contextAttributes`
+— conditions becoming actual headers and query parameters on the wire — was named
+by no test in the tree at all.
+
+`tests/conditions-on-parameterized-endpoints.test.ts` covers the three layers as
+one hole: the core's verdict for a conditioned row on an object endpoint, the
+runner putting an attribute into a substituted path and into a request that keeps
+the base account's credentials, and `contextId` reaching both a matrix finding and
+a check finding in the report. The polygon still runs; it is no longer the only
+thing that would notice.

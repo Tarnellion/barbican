@@ -91,11 +91,47 @@ export function runChecks(
   checks: readonly Check[],
   context: CheckContext,
 ): readonly ResolvedFinding[] {
-  return checks.flatMap((check) =>
-    check
-      .run(context)
-      .map((finding) => ({ ...finding, severity: finding.severity ?? check.severity })),
-  );
+  return checks.flatMap((check) => {
+    try {
+      return check
+        .run(context)
+        .map((finding) => ({ ...finding, severity: finding.severity ?? check.severity }));
+    } catch (cause) {
+      // A check that threw takes itself out of the run and nothing else with it.
+      //
+      // It used to take everything: `runChecks` is called after the walk and
+      // before `buildReport`, so an exception here reached the CLI's handler,
+      // printed "Run aborted" and wrote no file — an hour of traffic against
+      // somebody else's deployment discarded because one check met a shape it
+      // did not expect, which is the ordinary condition of a check reading data
+      // from a system nobody here controls. Twenty lines further on, the CLI
+      // catches a failure to write the report and prints it to stdout instead,
+      // with the reason spelled out: the run is already paid for in traffic, and
+      // losing the result now would mean spending it twice. The same argument
+      // had not been applied one step earlier.
+      //
+      // The failure becomes a finding rather than a log line, because a check
+      // that crashed and a check that found nothing are indistinguishable
+      // otherwise — the distinction `describeChecks` exists to make. A run-level
+      // finding is the shape ADR-0025 introduced for exactly this class:
+      // something to say about the run rather than about a cell.
+      //
+      // `error` and not the message: the class name is a bounded vocabulary, and
+      // a message from a check is a string this project has not audited for
+      // credentials. Found by the audit of 20 August 2026 (M-13).
+      return [
+        {
+          checkId: check.id,
+          severity: "high" as const,
+          title: `The check "${check.id}" failed and judged nothing`,
+          evidence: {
+            error: cause instanceof Error ? cause.name : "unknown",
+            checkFailed: true,
+          },
+        },
+      ];
+    }
+  });
 }
 
 /**

@@ -236,12 +236,18 @@ function walk(
 
   for (const account of matrix.accounts) {
     const byEndpoint = index.get(account.id);
+    // A set, built once per account rather than scanned once per endpoint.
+    // `endpointIds` is a list as long as the endpoints the conditions are
+    // declared on, so asking it with `includes` inside the loop below made the
+    // walk cost endpoints squared — and conditions are exactly the feature that
+    // multiplies the endpoint list in the first place.
+    const declaredOn = account.endpointIds === undefined ? undefined : new Set(account.endpointIds);
     for (const endpoint of matrix.endpoints) {
       // An account under conditions does not exist across the whole surface:
       // where the conditions are not declared there is no cell at all — and
       // "not observed" cannot be said about it, that would be an invented hole
       // in coverage.
-      if (account.endpointIds !== undefined && !account.endpointIds.includes(endpoint.id)) {
+      if (declaredOn !== undefined && !declaredOn.has(endpoint.id)) {
         continue;
       }
       // An endpoint with parameters exists only together with a resource:

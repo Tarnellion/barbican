@@ -12,11 +12,15 @@ import { z } from "zod";
 import type { AuthScheme } from "../adapters/credentials.js";
 import { assertAuthSchemeIsSound, DEFAULT_AUTH_SCHEME } from "../adapters/credentials.js";
 import type { ContextAttributes } from "../adapters/ports.js";
+import { parseSignalPath } from "../adapters/signals.js";
 import type {
+  Acceptance,
   Account,
   Endpoint,
   ExpectedAccessPolicy,
   Resource,
+  ResourceRelation,
+  SignalSpec,
   TenantNode,
 } from "../core/index.js";
 import {
@@ -24,8 +28,11 @@ import {
   assertIndependentMemberships,
   assertPolicyIsSound,
   BODY_OVER_LIMIT_SIGNAL,
+  citableDefectKey,
   createTenantHierarchy,
   DEFAULT_DIGEST_SIGNAL,
+  DIGEST_SCOPE_MISSING_SIGNAL,
+  describeAcceptance,
   describePolicyRule,
   FLAT_HIERARCHY,
   HTTP_METHODS,
@@ -33,6 +40,7 @@ import {
   RESOURCE_RELATIONS,
   resourceApplies,
 } from "../core/index.js";
+import { byCodeUnits } from "../core/order.js";
 import type { HeaderValue } from "./untrusted.js";
 import { isHeaderName, isHeaderValue, lookup, safeHeaders } from "./untrusted.js";
 
@@ -132,7 +140,7 @@ const endpointSelectorSchema = z.union([
     .array(
       z.union([
         z.string().min(1),
-        z.object({
+        z.strictObject({
           // The set comes from the core, like `RESOURCE_RELATIONS` below and for
           // the same reason: a list written out here read the type nowhere, so a
           // method added to the domain would be refused by this schema as
@@ -207,6 +215,29 @@ const authSchema = z.discriminatedUnion("kind", [
 const contextValueSchema = z.union([z.string(), z.strictObject({ env: z.string().min(1) })]);
 
 /**
+ * Whether `YYYY-MM-DD` names a day that exists.
+ *
+ * The regular expression above admits `2026-11-31` and `2026-13-01`; `Date.UTC`
+ * rolls both over into a different day without complaint, which would leave the
+ * file saying one date and the run honouring another. Building the date and
+ * reading the three fields back is the check — a calendar written here would be
+ * a second implementation of one somebody else already ships.
+ */
+function isCalendarDate(value: string): boolean {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (parts === null) {
+    return false;
+  }
+  const [year, month, day] = [Number(parts[1]), Number(parts[2]), Number(parts[3])];
+  const built = new Date(Date.UTC(year, month - 1, day));
+  return (
+    built.getUTCFullYear() === year &&
+    built.getUTCMonth() === month - 1 &&
+    built.getUTCDate() === day
+  );
+}
+
+/**
  * The validator a run configuration is parsed with. Not exported.
  *
  * It was, and that put zod's own types into the published surface of this
@@ -219,8 +250,8 @@ const contextValueSchema = z.union([z.string(), z.strictObject({ env: z.string()
  * answers. A dependency in a public type is a version of that dependency the
  * package has promised to keep. Found by the audit of 14 August 2026 (E-6).
  */
-const configSchema = z.object({
-  target: z.object({
+const configSchema = z.strictObject({
+  target: z.strictObject({
     baseUrl: z.url({ protocol: /^https?$/ }),
     allowedHosts: z
       .array(z.string().min(1), {
@@ -247,7 +278,7 @@ const configSchema = z.object({
   accounts: z
     .array(
       z
-        .object({
+        .strictObject({
           id: z.string().min(1),
           role: z.string().min(1),
           /**
@@ -315,7 +346,7 @@ const configSchema = z.object({
         }),
     )
     .min(1),
-  policy: z.object({
+  policy: z.strictObject({
     fallback: outcomeSchema,
     rules: z.array(ruleSchema),
   }),
@@ -329,7 +360,7 @@ const configSchema = z.object({
   /** The resources requested and their owners — see ADR-0010. */
   resources: z
     .array(
-      z.object({
+      z.strictObject({
         id: z.string().min(1),
         tenant: z.string().min(1),
         owner: z.string().min(1).optional(),
@@ -358,7 +389,7 @@ const configSchema = z.object({
       z.array(z.string().min(1)).min(1),
       z
         .array(
-          z.object({
+          z.strictObject({
             id: z.string().min(1),
             /** The parent. Absent means the root. See ADR-0013. */
             parent: z.string().min(1).optional(),
@@ -446,6 +477,78 @@ const configSchema = z.object({
     .min(1)
     .optional(),
   /**
+   * Findings that are known, accepted, and held out of the verdict until a date.
+   *
+   * The second channel for intent. `policy` says what access is *meant* to
+   * exist; this says what is not meant to exist, is known to exist, and is not
+   * being fixed this quarter. Before it there was one way to stop a finding
+   * failing a build — declare the cell allowed — and that erases the finding
+   * from the report altogether, which is the difference an evidence pack is for.
+   * See ADR-0048.
+   *
+   * A row here is addressed the way a defect is addressed: endpoint, relation to
+   * the resource, request conditions, and the way the defect showed itself.
+   * Neither the account nor the resource is part of it — a key carrying either
+   * would come apart the moment one more of them is declared.
+   */
+  accepted: z
+    .array(
+      z.strictObject({
+        endpoint: z.string().min(1),
+        /**
+         * The relation the finding was made under. Absent means the defect on
+         * cells with no resource at all — printed as `any-resource` in
+         * `defects[].key`, and a coordinate of its own rather than a wildcard.
+         */
+        relation: relationSchema.optional(),
+        /** The conditions. Absent means baseline, exactly as in a policy rule. */
+        context: z.string().min(1).optional(),
+        /**
+         * A kind of matrix discrepancy, or the id of the check that found it.
+         *
+         * Not an enum: check ids come from a registry this schema cannot see,
+         * and half of what an operator most wants to accept on a first run is
+         * found by a check. The two kinds nothing may accept are refused below,
+         * where the reason can be stated.
+         */
+        kind: z.string().min(1),
+        reason: z
+          .string()
+          .min(
+            1,
+            "an accepted finding needs a reason. A suppression nobody can read is a " +
+              "pin nobody notices — the same failure as an `overrides` entry with no " +
+              "condition for its own removal, and here what it hides is a finding",
+          ),
+        /**
+         * The last day the acceptance holds, `YYYY-MM-DD`, inclusive, UTC.
+         *
+         * The shape is checked here rather than left to the expiry arithmetic,
+         * which answers `NaN` for anything it cannot read — and `NaN` compares
+         * false, so an unreadable date would silently mean one of the two
+         * extremes instead of what the file says.
+         */
+        until: z
+          .string()
+          .regex(
+            /^\d{4}-\d{2}-\d{2}$/,
+            'the deadline is a date in the form YYYY-MM-DD, for example "2026-11-30". ' +
+              "It is the last day the acceptance holds, in UTC — not the machine's " +
+              "zone, so that the verdict does not depend on which runner picked the " +
+              "job up",
+          )
+          .refine(isCalendarDate, {
+            message:
+              "there is no such day. A deadline that does not exist would be read by " +
+              "the calendar as some other day, and the file would not say which",
+          }),
+        /** Where the fix is tracked. Optional: not every team has a tracker to cite. */
+        ticket: z.string().min(1).optional(),
+      }),
+    )
+    .min(1)
+    .optional(),
+  /**
    * Reading response bodies for the sake of scalar signals. Off when the section
    * is absent.
    *
@@ -456,7 +559,7 @@ const configSchema = z.object({
    * See ADR-0011.
    */
   bodySignals: z
-    .object({
+    .strictObject({
       responseMustDifferByTenant: z.array(z.string().min(1)).min(1),
       maxBodyBytes: z.number().int().positive().optional(),
       /**
@@ -473,11 +576,55 @@ const configSchema = z.object({
        */
       signals: z
         .array(
-          z.object({
+          z.strictObject({
             name: z.string().min(1),
             kind: z.enum(["count", "present"]),
             path: z.string(),
             endpoints: z.array(z.string().min(1)).min(1),
+          }),
+        )
+        .min(1)
+        .optional(),
+      /**
+       * The part of the body to compare, instead of the whole of it.
+       *
+       * A digest over raw bytes is defeated by the envelope real list endpoints
+       * come wrapped in: two responses carrying **both** tenants' records differ
+       * by one `requestId`, the digests differ with them, and the check that the
+       * "bodies are not read" invariant was relaxed for finds nothing. A
+       * `serverTime`, a `generatedAt`, a pagination cursor, an echoed ETag do
+       * the same.
+       *
+       * The path is declared here and never read off a response. Deriving it —
+       * "compare the fields that happen to agree" — would be the tool choosing
+       * its own answer, which is the mistake ADR-0006 exists against. See
+       * ADR-0044.
+       */
+      compareSubtree: z
+        .array(
+          z.strictObject({
+            endpoints: z.array(z.string().min(1)).min(1),
+            /**
+             * The grammar is `parseSignalPath`, called rather than copied: a
+             * second spelling of one grammar is the drift ADR-0024 is about. The
+             * root is refused — comparing the whole body is what happens without
+             * this section, so declaring it would be a line that reads as a
+             * decision and is not one.
+             */
+            path: z
+              .string()
+              .min(1)
+              .refine(
+                (path) => {
+                  try {
+                    parseSignalPath(path);
+                    return true;
+                  } catch {
+                    return false;
+                  }
+                },
+                { message: "the path has an empty segment" },
+              ),
           }),
         )
         .min(1)
@@ -532,6 +679,19 @@ export interface DeclaredSignal {
   readonly endpoints: readonly string[];
 }
 
+/**
+ * The part of the body to compare on a set of endpoints.
+ *
+ * One entry per scope, and an endpoint may appear in only one of them: two
+ * scopes for one endpoint would be two answers to a question that has one.
+ */
+export interface CompareSubtree {
+  /** The endpoints this scope applies to. Each must be one whose bodies are compared. */
+  readonly endpoints: readonly string[];
+  /** A dotted path into the parsed body, in the syntax `parseSignalPath` states. */
+  readonly path: string;
+}
+
 export interface BodySignalsConfig {
   /**
    * The endpoints whose response must differ between tenants.
@@ -542,6 +702,13 @@ export interface BodySignalsConfig {
   readonly responseMustDifferByTenant: readonly string[];
   readonly maxBodyBytes?: number | undefined;
   readonly signals?: readonly DeclaredSignal[] | undefined;
+  /**
+   * Where to compare only part of the body. Absent means the whole of it.
+   *
+   * The envelope is what makes this necessary — see the schema above and
+   * ADR-0044.
+   */
+  readonly compareSubtree?: readonly CompareSubtree[] | undefined;
 }
 
 /** The fields one of two shapes declares and the other does not. */
@@ -611,6 +778,12 @@ type _DeclaredSignalIsTiedToTheSchema = Tied<
     NonNullable<NonNullable<ParsedConfig["bodySignals"]>["signals"]>[number]
   >
 >;
+type _CompareSubtreeIsTiedToTheSchema = Tied<
+  SameFields<
+    CompareSubtree,
+    NonNullable<NonNullable<ParsedConfig["bodySignals"]>["compareSubtree"]>[number]
+  >
+>;
 
 export class DuplicateSignalNameError extends Error {
   constructor(name: string) {
@@ -636,6 +809,51 @@ export class DuplicateSignalNameError extends Error {
  * than resolved: an operator who wanted a scalar of their own gets to rename it,
  * and nobody gets a report that lies in silence.
  */
+/**
+ * A scope declared for an endpoint whose bodies are never compared.
+ *
+ * The digest exists only where `responseMustDifferByTenant` says so — that
+ * declaration is what makes the body be read at all. A scope on any other
+ * endpoint therefore scopes nothing, and it fails in the worst way available: the
+ * operator believes the envelope is being skipped, the run goes on comparing
+ * whole bodies, and every `requestId` in the response keeps the check silent.
+ * Nothing in the report would contradict them.
+ *
+ * Refused rather than ignored, for the same reason `ReservedSignalNameError` is:
+ * a declaration that quietly does nothing is the failure this tool exists to
+ * find, arriving through its own configuration file. See ADR-0044.
+ */
+export class CompareSubtreeWithoutComparisonError extends Error {
+  constructor(endpointId: string) {
+    super(
+      `compareSubtree names endpoint "${endpointId}", which is not under ` +
+        `responseMustDifferByTenant. No digest is computed there, so the scope would ` +
+        `scope nothing and the declaration would be silently dead. Add the endpoint to ` +
+        `responseMustDifferByTenant, or drop it from compareSubtree.`,
+    );
+    this.name = "CompareSubtreeWithoutComparisonError";
+  }
+}
+
+/**
+ * Two scopes for one endpoint.
+ *
+ * One endpoint yields one digest, so the second declaration could only replace
+ * the first or be dropped, and both readings are defensible — which is exactly
+ * why the operator has to say which they meant. Left to a rule, this is a
+ * configuration whose meaning depends on the order of two lines in a file.
+ */
+export class DuplicateCompareSubtreeError extends Error {
+  constructor(endpointId: string) {
+    super(
+      `Endpoint "${endpointId}" is named by more than one compareSubtree entry. One ` +
+        `endpoint produces one digest, so a second scope for it would either replace the ` +
+        `first or be dropped, and the file would not say which.`,
+    );
+    this.name = "DuplicateCompareSubtreeError";
+  }
+}
+
 export class ReservedSignalNameError extends Error {
   constructor(name: string) {
     super(
@@ -672,6 +890,14 @@ export interface RunConfig {
   readonly tenants?: readonly TenantConfig[] | undefined;
   /** The request conditions. Empty when none are declared. */
   readonly contexts: readonly RequestContextConfig[];
+  /**
+   * Findings held out of the verdict until a date. Empty when none are declared.
+   *
+   * The core's shape rather than the declared one: `endpoint` and `context`
+   * become `endpointId` and `contextId` here, exactly as a resource's `tenant`
+   * becomes `tenantId`. See ADR-0048.
+   */
+  readonly accepted: readonly Acceptance[];
 }
 
 /**
@@ -728,6 +954,98 @@ interface DeclaredContext {
 type _DeclaredContextIsTiedToTheSchema = Tied<
   SameFields<DeclaredContext, NonNullable<ParsedConfig["contexts"]>[number]>
 >;
+
+/**
+ * One accepted finding as it was written, before the coordinates are renamed.
+ *
+ * The same arrangement as `DeclaredContext` and for the same reason: `Acceptance`
+ * in the core spells the coordinates `endpointId` and `contextId`, so it is not a
+ * mirror of this section and equal field names would be the wrong thing to
+ * demand of it. This shape is the mirror, and the tie below is what notices a
+ * field added to the schema and carried by nobody.
+ */
+interface DeclaredAcceptance {
+  readonly endpoint: string;
+  readonly relation?: ResourceRelation | undefined;
+  readonly context?: string | undefined;
+  readonly kind: string;
+  readonly reason: string;
+  readonly until: string;
+  readonly ticket?: string | undefined;
+}
+
+type _DeclaredAcceptanceIsTiedToTheSchema = Tied<
+  SameFields<DeclaredAcceptance, NonNullable<ParsedConfig["accepted"]>[number]>
+>;
+
+/**
+ * A kind of finding an acceptance may not be written for.
+ *
+ * `not-observed` and `probe-error` are the two kinds that say nothing about the
+ * platform: the first means no request covered the cell, the second that the
+ * request did not come back. Accepting either is accepting "we did not look",
+ * and for `probe-error` it is worse than that — half a matrix failing to answer
+ * is the exit code 2 that says the report describes the state of the network
+ * rather than of the platform, and that conclusion must not be purchasable from
+ * a configuration file.
+ *
+ * Neither is a thing an operator needs to accept, which is what makes the rule
+ * cheap: `not-observed` is `low` and fails no run, and `probe-error` fails one
+ * only at half the matrix, where the run is telling the truth.
+ */
+export class UnacceptableFindingKindError extends Error {
+  constructor(where: string, kind: string) {
+    super(
+      `${where} is written for kind "${kind}", which says nothing about the platform: ` +
+        `it says the run did not reach the cell, or that the cell did not answer. ` +
+        `Accepting it would accept "we did not look" — and for probe errors it would ` +
+        `buy the exit code 2 that reports a broken deployment. Fix the reach of the ` +
+        `run instead: coverage.notProbed and failures[] say what stopped it.`,
+    );
+    this.name = "UnacceptableFindingKindError";
+  }
+}
+
+/**
+ * Two acceptances naming one defect and one kind.
+ *
+ * They carry different reasons and different deadlines, so which of them applies
+ * decides when the finding comes back — and either resolution would be a silent
+ * choice made for the operator. The same objection as two `compareSubtree`
+ * scopes on one endpoint.
+ */
+export class DuplicateAcceptanceError extends Error {
+  constructor(where: string, defect: string, kind: string) {
+    super(
+      `${where} names the defect "${defect}" and kind "${kind}", which an earlier ` +
+        `entry already names. Two acceptances of one finding carry two deadlines, and ` +
+        `which one holds would decide when the finding comes back — the file has to ` +
+        `say, rather than the order of two lines in it.`,
+    );
+    this.name = "DuplicateAcceptanceError";
+  }
+}
+
+/**
+ * An acceptance written for conditions that are not declared.
+ *
+ * A defect under conditions and the same defect in the baseline are different
+ * findings — the whole reason `contextId` is part of the signature — so a typo
+ * here does not widen the acceptance, it empties it. The operator believes a
+ * finding is held and it is not; the run fails for a reason the file appears to
+ * have answered.
+ */
+export class UnknownAcceptanceContextError extends Error {
+  constructor(where: string, contextId: string, declared: readonly string[]) {
+    super(
+      `${where} names context "${contextId}", which is not declared. ` +
+        `Declared: ${declared.length === 0 ? "none" : declared.join(", ")}. ` +
+        `Conditions are part of a defect's identity, so this acceptance would match ` +
+        `no finding at all — leave the field out to accept the baseline defect.`,
+    );
+    this.name = "UnknownAcceptanceContextError";
+  }
+}
 
 export class ConfigParseError extends Error {
   constructor(message: string, options?: { cause: unknown }) {
@@ -1020,7 +1338,12 @@ function nearestFirst(target: string, known: readonly string[]): readonly string
     return length;
   };
 
-  return [...known].sort((a, b) => sharedPrefix(b) - sharedPrefix(a) || a.localeCompare(b));
+  // The tie-break under the prefix rule is by code units, not by the machine's
+  // locale: these lists go into CI output that gets diffed between runs, and
+  // `localeCompare()` with no argument put them in a different order on a
+  // different `LC_ALL`. See `../core/order.js`; found by the audit of
+  // 21 August 2026 (L-2).
+  return [...known].sort((a, b) => sharedPrefix(b) - sharedPrefix(a) || byCodeUnits(a, b));
 }
 
 /**
@@ -1204,6 +1527,20 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
     }
   }
 
+  // An acceptance whose endpoint does not exist matches nothing, and the
+  // direction it fails in is the harmless one: the finding is reported, CI stays
+  // red, somebody looks. It is refused all the same, because that is what this
+  // project does with every reference resolving to nothing, and because the
+  // operator who wrote it believes the opposite has happened — that a finding is
+  // held, and that a deadline is running against it.
+  for (const [index, acceptance] of config.accepted.entries()) {
+    if (!known.has(acceptance.endpointId)) {
+      throw new UnknownEndpointReferenceError(describeAcceptance(index), acceptance.endpointId, [
+        ...known,
+      ]);
+    }
+  }
+
   for (const account of config.accounts) {
     if (account.canary !== undefined && !known.has(account.canary)) {
       throw new UnknownEndpointReferenceError(
@@ -1239,6 +1576,22 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
       }
     }
   }
+
+  // A typo here fails the same way as one in `responseMustDifferByTenant`: the
+  // scope lands on nothing, the whole body goes on being compared, and the
+  // report says neither. The other two things a scope can be wrong about — the
+  // endpoint's bodies not being compared at all, and two scopes for one
+  // endpoint — need no endpoint list and are refused at the parse gate, which a
+  // library consumer cannot walk past.
+  for (const subtree of config.bodySignals?.compareSubtree ?? []) {
+    for (const endpointId of subtree.endpoints) {
+      if (!known.has(endpointId)) {
+        throw new UnknownEndpointReferenceError("The compareSubtree declaration", endpointId, [
+          ...known,
+        ]);
+      }
+    }
+  }
 }
 
 /**
@@ -1255,13 +1608,28 @@ export function applyBodySignals(
 ): readonly Endpoint[] {
   const mustDiffer = new Set(config.bodySignals?.responseMustDifferByTenant ?? []);
   const declared = config.bodySignals?.signals ?? [];
+  const scopes = config.bodySignals?.compareSubtree ?? [];
   if (mustDiffer.size === 0 && declared.length === 0) {
     return endpoints;
   }
   return endpoints.map((endpoint) => {
-    const extra = declared
+    const extra: SignalSpec[] = declared
       .filter((signal) => signal.endpoints.includes(endpoint.id))
       .map(({ name, kind, path }) => ({ name, kind, path }) as const);
+
+    // The scoped digest travels as one of the endpoint's own signals, under the
+    // name the tool reserves for itself. The runner prepends the whole-body
+    // digest that `responseMustDifferByTenant` implies and appends these, and
+    // the extractor resolves a digest name to its **last** spec — so the
+    // declared scope replaces the default rather than sitting beside it. The
+    // validation above is what makes the pair well defined: at most one scope
+    // per endpoint, and only on endpoints whose bodies are compared at all.
+    // See ADR-0044.
+    const scope = scopes.find((one) => one.endpoints.includes(endpoint.id));
+    if (scope !== undefined) {
+      extra.push({ name: DEFAULT_DIGEST_SIGNAL, kind: "digest", path: scope.path });
+    }
+
     return {
       ...endpoint,
       ...(mustDiffer.has(endpoint.id) ? { responseMustDifferByTenant: true } : {}),
@@ -1465,6 +1833,29 @@ export function parseRunConfig(source: string): RunConfig {
     if (signal.name === DEFAULT_DIGEST_SIGNAL) {
       throw new ReservedSignalNameError(signal.name);
     }
+    if (signal.name === DIGEST_SCOPE_MISSING_SIGNAL) {
+      throw new ReservedSignalNameError(signal.name);
+    }
+  }
+
+  // A scope on an endpoint whose bodies nobody compares is a line that reads as
+  // a decision and does nothing, and a second scope on one endpoint is two
+  // answers to one question. Here rather than in the schema because both are
+  // statements about how two sections of the file relate, which zod sees one
+  // field at a time — and here rather than in `assertReferencesResolve` because
+  // neither needs to know what endpoints exist.
+  const compared = new Set(config.bodySignals?.responseMustDifferByTenant ?? []);
+  const scoped = new Set<string>();
+  for (const subtree of config.bodySignals?.compareSubtree ?? []) {
+    for (const endpointId of subtree.endpoints) {
+      if (!compared.has(endpointId)) {
+        throw new CompareSubtreeWithoutComparisonError(endpointId);
+      }
+      if (scoped.has(endpointId)) {
+        throw new DuplicateCompareSubtreeError(endpointId);
+      }
+      scoped.add(endpointId);
+    }
   }
 
   const accountAuth = resolveAccountAuth(config.authSchemes, config.accounts);
@@ -1606,6 +1997,39 @@ export function parseRunConfig(source: string): RunConfig {
     });
   }
 
+  // The kinds a run may never buy its way out of, hardcoded here rather than
+  // read from anywhere: they are the two that describe the run's own reach, and
+  // the list is not an operator's to extend. `probe-error` in particular is what
+  // exit code 2 is computed from.
+  const UNACCEPTABLE_KINDS = new Set(["not-observed", "probe-error"]);
+  const accepted: Acceptance[] = [];
+  const acceptedKeys = new Set<string>();
+  for (const [index, declared] of (config.accepted ?? []).entries()) {
+    const where = describeAcceptance(index);
+    if (UNACCEPTABLE_KINDS.has(declared.kind)) {
+      throw new UnacceptableFindingKindError(where, declared.kind);
+    }
+    const acceptance: Acceptance = {
+      endpointId: declared.endpoint,
+      ...(declared.relation === undefined ? {} : { relation: declared.relation }),
+      ...(declared.context === undefined ? {} : { contextId: declared.context }),
+      kind: declared.kind,
+      reason: declared.reason,
+      until: declared.until,
+      ...(declared.ticket === undefined ? {} : { ticket: declared.ticket }),
+    };
+    // The citable key and the kind, which is exactly what the report matches a
+    // finding on. Composed from the same function `defects[].key` is, so "two
+    // entries for one defect" here means the same thing it means there.
+    const defect = citableDefectKey(acceptance);
+    const key = `${defect} ${acceptance.kind}`;
+    if (acceptedKeys.has(key)) {
+      throw new DuplicateAcceptanceError(where, defect, acceptance.kind);
+    }
+    acceptedKeys.add(key);
+    accepted.push(acceptance);
+  }
+
   const contexts = normalizeContexts(config.contexts ?? [], {
     accountIds: seen,
     policy,
@@ -1615,6 +2039,20 @@ export function parseRunConfig(source: string): RunConfig {
     // such a key would silently rewrite the resource's address — see below.
     resourceQueryKeys: new Set(resources.flatMap((r) => Object.keys(r.query ?? {}))),
   });
+
+  // After `normalizeContexts`, which is where the declared conditions are
+  // verified and where a typo in a **rule's** reference is reported. An
+  // acceptance naming conditions that do not exist matches no finding at all —
+  // the operator believes something is held, and the run fails for a reason the
+  // file appears to have answered.
+  const contextIds = new Set(contexts.map((context) => context.id));
+  for (const [index, acceptance] of accepted.entries()) {
+    if (acceptance.contextId !== undefined && !contextIds.has(acceptance.contextId)) {
+      throw new UnknownAcceptanceContextError(describeAcceptance(index), acceptance.contextId, [
+        ...contextIds,
+      ]);
+    }
+  }
 
   return {
     auth: config.auth ?? DEFAULT_AUTH_SCHEME,
@@ -1627,13 +2065,20 @@ export function parseRunConfig(source: string): RunConfig {
     ...(tenantNodes === undefined ? {} : { tenants: tenantNodes }),
     resources,
     contexts,
+    accepted,
   };
 }
 
 export class MethodOverrideInContextError extends Error {
-  constructor(contextId: string, where: string, value: string) {
+  /**
+   * @param subject where the value was declared — `Context` or `Resource`. The
+   * message names the section of the file the operator has to go and edit, and
+   * the two are different sections; the seam checks both, so it cannot call
+   * either one by the other's name.
+   */
+  constructor(contextId: string, where: string, value: string, subject = "Context") {
     super(
-      `Context "${contextId}" sets ${where} to "${value}" — that is the name of an ` +
+      `${subject} "${contextId}" sets ${where} to "${value}" — that is the name of an ` +
         `HTTP method. Platforms that honour method override (Rails, Laravel, Symfony, ` +
         `Spring, most API gateways) will perform a write for such a request even ` +
         `while a GET goes over the wire: the safe-method gate looks at the request ` +
@@ -1682,6 +2127,83 @@ export function assertContextsCannotWrite(
       if (WRITE_METHOD_WORDS.has(value.trim().toUpperCase())) {
         throw new MethodOverrideInContextError(contextId, `query parameter "${key}"`, value);
       }
+    }
+  }
+}
+
+/**
+ * The same three rules, asked at the seam where the request is assembled.
+ *
+ * `assertContextsCannotWrite` above and the checks in `normalizeContexts` read a
+ * parsed configuration, which is one door of four. `collectObservations` takes
+ * `contextAttributes` straight from a consumer of the library, and that door had
+ * nothing between it and the wire: the audit of 20 August 2026 (A-1, E-02, E-03)
+ * sent `?_method=DELETE` and `x-http-method-override: DELETE` through it with
+ * `allowUnsafeMethods: false`, and put a credential from `resources[].query`
+ * into the report.
+ *
+ * ADR-0032 moved the address grammar to the seam for this reason and moved only
+ * that; this is the rest of the same move. The door keeps its checks: it knows
+ * the context id, the declared auth schemes and the resource keys, so it says
+ * more about what is wrong and says it before a single request goes out. What
+ * cannot be said here is said there — but what is said here is said for every
+ * door there will ever be.
+ *
+ * Cheap on purpose: two sets and a prefix list against the attributes of one
+ * request, next to a network call.
+ *
+ * @throws {MethodOverrideInContextError} a value names a method that writes
+ * @throws {ForbiddenContextHeaderError} a name decides the basis of the request
+ * @throws {ForbiddenContextQueryError} a key presents credentials
+ */
+export function assertAttributesKeepTheBasis(
+  /**
+   * Where these values were declared, so the message names the line to go and
+   * edit. A resource and a set of conditions are different sections of the file,
+   * and calling a resource a context sends the reader to the wrong one — the
+   * class of defect this project keeps finding in its own diagnostics.
+   */
+  subject: { readonly kind: "context" | "resource"; readonly id: string },
+  attributes: {
+    readonly headers: Readonly<Record<string, string>>;
+    readonly query: Readonly<Record<string, string>>;
+  },
+  options: { readonly allowUnsafeMethods: boolean },
+): void {
+  const { kind, id: contextId } = subject;
+  for (const [name, value] of Object.entries(attributes.headers)) {
+    const lower = name.toLowerCase();
+    const forbidden =
+      FORBIDDEN_CONTEXT_HEADERS.get(lower) ??
+      FORBIDDEN_HEADER_PREFIXES.find(([prefix]) => lower.startsWith(prefix))?.[1];
+    if (forbidden !== undefined) {
+      throw new ForbiddenContextHeaderError(contextId, name, forbidden);
+    }
+    if (!options.allowUnsafeMethods && WRITE_METHOD_WORDS.has(value.trim().toUpperCase())) {
+      throw new MethodOverrideInContextError(
+        contextId,
+        `header "${name}"`,
+        value,
+        kind === "resource" ? "Resource" : "Context",
+      );
+    }
+  }
+  for (const [key, value] of Object.entries(attributes.query)) {
+    if (FORBIDDEN_QUERY_KEYS.has(key.toLowerCase())) {
+      const why =
+        "credentials are presented through this: the platform would serve the " +
+        "request as a different account while the report names the original one";
+      throw kind === "resource"
+        ? new ForbiddenResourceQueryError(contextId, key, why)
+        : new ForbiddenContextQueryError(contextId, key, why);
+    }
+    if (!options.allowUnsafeMethods && WRITE_METHOD_WORDS.has(value.trim().toUpperCase())) {
+      throw new MethodOverrideInContextError(
+        contextId,
+        `query parameter "${key}"`,
+        value,
+        kind === "resource" ? "Resource" : "Context",
+      );
     }
   }
 }
@@ -1840,6 +2362,21 @@ const FORBIDDEN_HEADER_PREFIXES: readonly (readonly [string, string])[] = [
  * honouring an override does not care what this tool's type says. One source
  * because two places read it — the conditions an operator declares and the query
  * a resource declares — and a set written twice is the shape B-10 was about.
+ *
+ * The seven original words were the methods this tool knows. That is not the set
+ * a platform will execute: adversarial review of 19 August 2026 got `MOVE`
+ * through as a resource query and as an attribute value, and `MOVE` deletes the
+ * source. The WebDAV and versioning methods are here now, with `PURGE` for the
+ * caches that honour it.
+ *
+ * An enumeration, and this one is allowed to be an enumeration — unlike the
+ * denylist of header names ADR-0005's addendum threw out. The difference is what
+ * the set has to be complete against: header names that will ever carry a secret
+ * are unbounded and belong to whoever wrote the platform, while a method a
+ * platform can be talked into performing is a registered token — IANA's method
+ * registry plus the handful of vendor verbs below. Where a name outside it does
+ * turn out to perform a write, the entry to add is here, in the one set both
+ * readers share.
  */
 const WRITE_METHOD_WORDS: ReadonlySet<string> = new Set([
   "POST",
@@ -1849,6 +2386,43 @@ const WRITE_METHOD_WORDS: ReadonlySet<string> = new Set([
   "OPTIONS",
   "TRACE",
   "CONNECT",
+  // RFC 4918 (WebDAV): every one of these changes something on the target.
+  "COPY",
+  "LOCK",
+  "MKCOL",
+  "MOVE",
+  "PROPPATCH",
+  "UNLOCK",
+  // RFC 3253 and RFC 5842: versioning and binding.
+  "BASELINE-CONTROL",
+  "BIND",
+  "CHECKIN",
+  "CHECKOUT",
+  "LABEL",
+  "MERGE",
+  "MKACTIVITY",
+  "MKWORKSPACE",
+  "REBIND",
+  "UNBIND",
+  "UNCHECKOUT",
+  "UPDATE",
+  "VERSION-CONTROL",
+  // The rest of the registry that writes, and the reason this list is written
+  // out rather than described: the second adversarial review of 19 August took
+  // the paragraph above at its word — "IANA's method registry" — and found six
+  // registered methods missing from it. A claim about a registry has to be the
+  // registry.
+  "LINK",
+  "MKCALENDAR",
+  "MKREDIRECTREF",
+  "ORDERPATCH",
+  "UNLINK",
+  "UPDATEREDIRECTREF",
+  // RFC 3744: access control. A method that rewrites permissions on a run
+  // checking permissions is the worst of the lot.
+  "ACL",
+  // Vendor, and common enough to matter: cache invalidation.
+  "PURGE",
 ]);
 
 const FORBIDDEN_QUERY_KEYS: ReadonlySet<string> = new Set([

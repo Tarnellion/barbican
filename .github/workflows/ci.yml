@@ -59,6 +59,12 @@ jobs:
       # Actions are pinned by SHA: a tag can be moved to another commit.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Tags and history, for the guard that compares main against the newest
+          # release (ADR-0034). A shallow checkout has neither, and then every
+          # assertion in that guard passes by knowing nothing — which is the shape
+          # of guard this repository keeps finding in its own CI.
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

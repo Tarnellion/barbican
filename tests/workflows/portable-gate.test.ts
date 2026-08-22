@@ -9,15 +9,18 @@
  * job in `ci.yml` ran on `ubuntu-latest`. Found by the audit of 14 August 2026
  * (K-7).
  *
- * Two assertions, and neither is a substitute for the other. The first is that
- * the scripts stay spellable on every platform — a guard that runs here, on any
+ * Three assertions, and none is a substitute for another. The first is that the
+ * scripts stay spellable on every platform — a guard that runs here, on any
  * machine, the moment somebody reaches for a shell command again. The second is
- * that a Windows job exists to actually run them, because the first only checks
- * a list of names somebody thought of, and the list is not the platform.
+ * that the code those scripts run spawns nothing Windows cannot start, which the
+ * first cannot see: `package.json` said `vitest run`, and the platform defect was
+ * a line inside a test file. The third is that a Windows job exists to actually
+ * run them, because the other two only read files, and reading is not the
+ * platform.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
@@ -76,6 +79,85 @@ describe("the scripts a contributor is told to run", () => {
       for (const missing of NOT_ON_WINDOWS) {
         if (command.includes(missing)) {
           offending.push(`${name}: ${command}`);
+        }
+      }
+    }
+
+    expect(offending).toEqual([]);
+  });
+});
+
+/**
+ * `tests/` and `tools/`, because that is what `pnpm run check` runs.
+ *
+ * `polygons/` spawns `docker` and `node` and is not in the gate: it is run by
+ * hand against a deployment somebody stood up, and its portability is a separate
+ * question from whether a contributor can run the project's own checks.
+ */
+const GATE_SOURCES = ["tests", "tools"];
+
+/** Every source file under those — this one excepted, see below. */
+function gateSources(): readonly string[] {
+  const self = fileURLToPath(import.meta.url);
+  const found: string[] = [];
+  for (const directory of GATE_SOURCES) {
+    for (const entry of readdirSync(resolve(ROOT, directory), {
+      recursive: true,
+      withFileTypes: true,
+    })) {
+      const path = resolve(entry.parentPath, entry.name);
+      // Excepted because it has to write the forbidden shape down in order to
+      // look for it, and would otherwise be its own first finding.
+      if (entry.isFile() && /\.[cm]?[jt]s$/.test(entry.name) && path !== self) {
+        found.push(path);
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * A `child_process` call whose command is written as a literal.
+ *
+ * Only a literal. `process.execPath` and a path assembled by `resolve` are not
+ * names for the operating system to go looking for, and they are the cure here
+ * rather than the disease.
+ */
+const SPAWN_CALL = /\b(?:execFile|exec|spawn|fork)(?:Sync)?\s*\(\s*"([^"]*)"/g;
+
+/**
+ * The names that really are executables everywhere, and nothing else.
+ *
+ * An allowlist, for the reason the response-header allowlist is one: the set
+ * that breaks cannot be enumerated. `npx` was the name that broke, but so would
+ * `pnpm`, `npm`, `yarn`, `biome`, `vitest` and every other `node_modules/.bin`
+ * entry — npm writes them as `.cmd` and `.ps1` shims, there is no `.exe`, and
+ * libuv resolves a bare name against `.com` and `.exe` only. Listing the ones to
+ * refuse means being wrong about the next one. `git` and `gitleaks` ship a real
+ * `git.exe` and `gitleaks.exe`; anything else earns a line here with its reason,
+ * or is spawned as `process.execPath` plus a path.
+ */
+const REAL_EXECUTABLES = new Set(["git", "gitleaks"]);
+
+describe("the commands that gate's own code spawns", () => {
+  it("reads the files, rather than agreeing with an empty list", () => {
+    const files = gateSources();
+
+    expect(files.length).toBeGreaterThan(20);
+    expect(files.some((path) => path.endsWith("pinned-versions.test.ts"))).toBe(true);
+  });
+
+  /**
+   * Named one by one with the file they are in. The cure is the one
+   * `tests/tools/pinned-versions.test.ts` uses: `process.execPath` and the path
+   * to the entry point, which needs neither a shell nor a per-platform suffix.
+   */
+  it("start no launcher that Windows installs as a shim", () => {
+    const offending: string[] = [];
+    for (const path of gateSources()) {
+      for (const [, command] of readFileSync(path, "utf8").matchAll(SPAWN_CALL)) {
+        if (command !== undefined && !REAL_EXECUTABLES.has(command)) {
+          offending.push(`${relative(ROOT, path)}: ${command}`);
         }
       }
     }

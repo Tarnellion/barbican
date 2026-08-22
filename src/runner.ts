@@ -25,7 +25,13 @@ import {
   resourceApplies,
   SAFE_METHODS,
 } from "./core/index.js";
-import { pathSegment } from "./io/untrusted.js";
+import { assertAttributesKeepTheBasis } from "./io/config.js";
+import {
+  isAddressablePath,
+  pathSegment,
+  safeHeaders,
+  UnusablePathTemplateError,
+} from "./io/untrusted.js";
 
 /**
  * What is computed over the body of a marked endpoint.
@@ -63,6 +69,67 @@ export interface ProbeFailure {
   readonly endpointId: string;
   readonly resourceId?: string;
   readonly reason: string;
+}
+
+/**
+ * One finished cell, as it leaves the walk and as it comes back into one.
+ *
+ * The coordinate is written out beside the observation although the observation
+ * carries the same three fields. A reader of the stream keys on the cell, and
+ * making it reconstruct the key out of a record whose shape may grow is the kind
+ * of duplicate that drifts in the direction nobody watches — here, towards
+ * skipping a cell that is not the one that was walked.
+ *
+ * The failure travels with it. `summary.failures` is built from `failures[]`,
+ * and a resumed run that kept the observations only would come back with a
+ * smaller number over the same matrix — one walk, two documents.
+ */
+export interface CellRecord {
+  readonly accountId: string;
+  readonly endpointId: string;
+  readonly resourceId?: string;
+  readonly observation: AccessObservation;
+  readonly failure?: ProbeFailure;
+}
+
+/** The cell a record belongs to: account × endpoint × resource, and nothing else. */
+function cellKey(cell: {
+  readonly accountId: string;
+  readonly endpointId: string;
+  readonly resourceId?: string;
+}): string {
+  return `${cell.accountId}\u0000${cell.endpointId}\u0000${cell.resourceId ?? ""}`;
+}
+
+/**
+ * A resumed record that fits no cell of the matrix being walked.
+ *
+ * The gate on resuming is a digest over the declaration, and it lives where the
+ * declaration is read. This is the second lock, on the one thing a digest cannot
+ * check — that the cells really are the same cells — and it fires before a
+ * single cell of the walk is probed.
+ *
+ * Left to itself the mismatch is silent and its result is the worst artifact
+ * this tool can produce: half a matrix walked under one declaration, half under
+ * another, presented as one run with one `configDigest` and one verdict. See
+ * ADR-0047.
+ */
+export class ResumeDoesNotFitError extends Error {
+  readonly cells: readonly string[];
+
+  constructor(cells: readonly string[]) {
+    super(
+      `The walk being resumed does not contain ${cells.length} of the cells the ` +
+        `stream already holds, among them ${cells.slice(0, 3).join(", ")}. A resumed ` +
+        `run has to be the same run: cells that have gone missing mean the accounts, ` +
+        `the endpoints or the resources are not the ones that were walked, and a ` +
+        `report assembled out of two declarations would carry one digest and one ` +
+        `verdict over both. Start a fresh run, or restore the declaration this ` +
+        `stream was made under.`,
+    );
+    this.name = "ResumeDoesNotFitError";
+    this.cells = cells;
+  }
 }
 
 export interface CollectOptions {
@@ -105,6 +172,58 @@ export interface CollectOptions {
    * See ADR-0019.
    */
   readonly contextAttributes?: ReadonlyMap<string, ContextAttributes>;
+  /**
+   * Every cell, handed over the moment it is finished.
+   *
+   * The walk holds its observations in an array and returns them at the end,
+   * and everything that ends a process short of that returns nothing: Ctrl-C
+   * because the owner of the platform asked to stop, the OOM killer, a CI job
+   * cancelled on its timeout, the network going away. What is lost is the
+   * traffic already spent against somebody else's deployment — the most
+   * expensive and the most politically awkward resource this tool consumes, and
+   * one that may not be spendable a second time inside the agreed window.
+   *
+   * A callback and not a path: the runner sits above the ports and has no file
+   * system in it. Where the CLI puts the lines, and in what format, is
+   * `src/report/write.ts` and ADR-0047.
+   *
+   * The record arrives **after** the cell is complete and never for a cell the
+   * walk did not finish — a cell recorded here is a cell `--resume` will not
+   * probe again, so recording an interrupted one would file a request the
+   * platform never answered as an answer.
+   *
+   * Awaited, so a sink with backpressure can apply it. A sink that throws stops
+   * the walk: the caller that cannot afford that is the caller who must catch
+   * inside it. The CLI does, and says so — a stream that cannot be written is a
+   * reason to lose the safety net, not the run.
+   */
+  readonly record?: (record: CellRecord) => void | Promise<void>;
+  /**
+   * The cells a previous run already walked.
+   *
+   * They are not probed again, and they take their place in the result at the
+   * index the walk would have put them at — not appended after the cells probed
+   * now. The report drains its observations in cell order precisely so that two
+   * runs over one matrix produce one document; a resumed walk that reordered
+   * them would make `configDigest` promise more than it delivers.
+   *
+   * A record that fits no cell of this matrix is refused rather than ignored.
+   * See `ResumeDoesNotFitError`.
+   */
+  readonly resumed?: readonly CellRecord[];
+  /**
+   * A stop asked for from outside, mid-walk.
+   *
+   * Two things follow from it, and they are not the same thing: no worker takes
+   * another cell, and the signal is handed to `client.send`, so a request
+   * already on the wire is dropped rather than waited out. An operator who was
+   * asked to stop touching a platform has stopped touching it.
+   *
+   * The cells not reached are simply not observed, and the walk comes back
+   * `truncated: true` — the same word an exhausted budget earns, and it means
+   * the same thing: there are no findings in the tail because nothing looked.
+   */
+  readonly abort?: AbortSignal;
   /**
    * How many cells may be in flight at once.
    *
@@ -177,6 +296,40 @@ const TEMPLATE_PARAMETER = /\{[^}]+\}/;
  * There is no way to declare "a refusal looks like this" today. The limitation is
  * written down in the README, in `docs/guide.md` and in `docs/report.md` rather
  * than left for the reader of a bad report to work out. See L-3.
+ *
+ * **410 joins 404**, and that is the one line of this list that moved since. It
+ * says what 404 says and says it harder — the resource was not served, and it
+ * will not be. The reason `toBinary` gives for folding `not-found` into a denial
+ * holds here word for word: telling "410 instead of 403, to hide existence" from
+ * "the object really is gone" needs to know that the object exists, and that
+ * belongs to the checks rather than to the base diff. As an `error` such a cell
+ * was lost quietly, as a low-severity `probe-error` outside the exit code, on a
+ * request the platform had in fact refused. See ADR-0046.
+ *
+ * **The rest of the list stays unreadable, and the classes are named rather than
+ * left to be rediscovered.** None of them can be fixed here: each needs the
+ * operator to declare something this tool must not derive from the system under
+ * test (ADR-0006).
+ *
+ * - **A refusal that redirects.** A console on a session cookie answers a
+ *   refused caller with `302 Location: /login`, not with 403 — and redirects are
+ *   not followed, so what is behind it was never fetched. Every denied cell of
+ *   such a surface is an `error` here. Reading a 3xx as a denial would be a
+ *   guess at somebody else's convention; what it needs is a declaration of what
+ *   this platform refuses with.
+ * - **An outcome that is not final.** `202` is "accepted, the answer comes
+ *   later". A platform that queues the request and refuses it in a worker is
+ *   read here as having granted access, and a cell the policy denies becomes a
+ *   privilege escalation where there was a refusal arriving late.
+ * - **A delete that only hides the object.** Soft delete makes 404 and 410
+ *   indistinguishable from a refusal for everyone, including the accounts that
+ *   should have been served.
+ * - **An answer about the endpoint rather than the account.** `405` says this
+ *   method is not offered here. Nothing about who asked.
+ *
+ * What the run does do for all of them: a cell whose status this function cannot
+ * read leaves a row in `failures` saying so. The conclusion is still not drawn —
+ * the run merely stops being silent about what it discarded.
  */
 export function classifyStatus(status: number): AccessOutcome {
   if (status >= 200 && status < 300) {
@@ -185,10 +338,42 @@ export function classifyStatus(status: number): AccessOutcome {
   if (status === 401 || status === 403 || status === 451) {
     return "denied";
   }
-  if (status === 404) {
+  if (status === 404 || status === 410) {
     return "not-found";
   }
   return "error";
+}
+
+/**
+ * Why nothing follows from this cell, in words for the report.
+ *
+ * `ProbeFailure` requires a reason because "an `error` with no explanation makes
+ * it impossible to tell a deployment that is down from a wrong configuration".
+ * That held for a thrown request and for the self-inflicted 404, and not for the
+ * commonest way of earning an `error`: a status this tool does not read. Such a
+ * cell used to leave an `error` outcome and no row at all, so `summary.failures`
+ * stayed 0 and the CLI printed no line about it either.
+ *
+ * The 3xx sentence is separate because it is the only one that names something
+ * the report cannot show on its own. The status is already in the row; that a
+ * redirect was not followed, and that a sign-in redirect is how a whole class of
+ * surface refuses, is not.
+ */
+function unreadableStatusReason(status: number): string {
+  if (status >= 300 && status < 400) {
+    return (
+      `Status ${status} is a redirect, and a redirect is not an outcome: they are ` +
+      `not followed, so whatever stands behind it was never fetched. A console on ` +
+      `a session cookie refuses by sending the caller to its sign-in page and ` +
+      `answers exactly this — if that is this surface, the run counted no denial ` +
+      `here. See "The statuses this tool cannot read" in docs/guide.md.`
+    );
+  }
+  return (
+    `Status ${status} is not one this tool reads as an outcome: access is concluded ` +
+    `from 2xx, from 401, 403 and 451, and from 404 and 410. Nothing follows about ` +
+    `this cell. See "The statuses this tool cannot read" in docs/guide.md.`
+  );
 }
 
 export class PathEscapesTargetError extends Error {
@@ -216,11 +401,32 @@ export class PathEscapesTargetError extends Error {
  * led to an arbitrary port. The allowlist check did not catch this: it compared
  * only the host name.
  *
- * A backslash and `..` are cut off as well: comparing origins makes the form of
- * the notation irrelevant.
+ * That paragraph used to end "a backslash and `..` are cut off as well:
+ * comparing origins makes the form of the notation irrelevant", and it was
+ * wrong in the half that mattered. Only a **leading** backslash was cut off, and
+ * comparing origins says nothing about which path inside the origin was reached:
+ * a template of `reports`, two navigating segments and `danger` joined by
+ * backslashes kept the origin, kept the base prefix and arrived at `/danger` —
+ * an endpoint the configuration had excluded, with the verdict for `reports`
+ * computed from its answer. Adversarial review, 19 August 2026.
+ *
+ * Hence the grammar here, and not only in the adapters that read a document.
+ * This is the one place an address is built, so it is the one place where every
+ * door — a specification, an endpoint list, a Postman collection, and a consumer
+ * of the library building `Endpoint[]` by hand — passes through the same check.
+ * `isAddressablePath` is that grammar's literal half; see it for why the seam
+ * does not decode percent-escapes the way the door does.
  */
 function joinUrl(baseUrl: string, path: string): string {
   const base = new URL(baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
+  if (!isAddressablePath(path)) {
+    throw new UnusablePathTemplateError(
+      path,
+      "is not a path this tool can address: a query string, a fragment, a " +
+        "backslash, a control character or a navigating segment makes the " +
+        "address something other than what the endpoint names",
+    );
+  }
   const resolved = new URL(path.replace(/^[/\\]+/, ""), base);
   // Both the origin and the path prefix are compared. The origin alone is not
   // enough: a `..` in a resource's value led the request above the declared base
@@ -346,6 +552,17 @@ export interface CanaryResult {
   readonly status: number;
   readonly authenticated: boolean;
   /**
+   * What the same endpoint answered with no credentials at all.
+   *
+   * Absent where the credentialed request did not succeed — there is nothing to
+   * control against — and absent where the unauthenticated request failed on the
+   * wire, which is a refusal loud enough to count as distinguishing.
+   *
+   * A canary that answers 2xx to nobody in particular confirms nothing: the
+   * account's token could be a random string. See ADR-0040.
+   */
+  readonly anonymousStatus?: number;
+  /**
    * Why the request never produced a status, when it did not: `ECONNREFUSED`,
    * `ENOTFOUND`, `UND_ERR_CONNECT_TIMEOUT` and their like.
    *
@@ -459,6 +676,41 @@ export class ExcludedCanaryError extends Error {
  * the same endpoint, gets the same 200, and files a `privilege-escalation`
  * against a platform that did nothing wrong.
  */
+/**
+ * A canary that answers the same to nobody as it does to the account.
+ *
+ * The fourth road to the state ADR-0033 was written to end, and the only one
+ * that leaves a canary in the configuration doing nothing. `/health`,
+ * `/version`, `/api/status` are what an operator reaches for when asked to name
+ * an endpoint the account can reach; every one of them answers 2xx without
+ * credentials, so the canary passes with a dead token, every cell of the account
+ * comes back 401, the policy declares it denied, and the report says
+ * `match: true` on all of them with exit 0.
+ *
+ * See ADR-0040 and the adversarial review of 21 August 2026 (V-2).
+ */
+export class UndiscerningCanaryError extends Error {
+  readonly accountId: string;
+  readonly endpointId: string;
+  readonly anonymousStatus: number;
+
+  constructor(accountId: string, endpointId: string, anonymousStatus: number) {
+    super(
+      `The canary of account "${accountId}" points at "${endpointId}", which ` +
+        `answered ${anonymousStatus} to a request carrying no credentials at all. ` +
+        `A canary exists to show that this account's credentials work; an endpoint ` +
+        `that answers everybody shows nothing, and the account's token could be a ` +
+        `random string for all this run would notice. Pick an endpoint that ` +
+        `refuses an anonymous request — the one the account needs its credentials ` +
+        `for is the one worth naming here.`,
+    );
+    this.name = "UndiscerningCanaryError";
+    this.accountId = accountId;
+    this.endpointId = endpointId;
+    this.anonymousStatus = anonymousStatus;
+  }
+}
+
 export class DeniedCanaryError extends Error {
   readonly accountId: string;
   readonly endpointId: string;
@@ -475,6 +727,50 @@ export class DeniedCanaryError extends Error {
     this.name = "DeniedCanaryError";
     this.accountId = accountId;
     this.endpointId = endpointId;
+  }
+}
+
+/**
+ * A canary whose method a run without `--unsafe-methods` does not issue.
+ *
+ * The same class as `ExcludedCanaryError` — a canary pointing at something the
+ * run will not probe — and the third of the four reasons `planEndpoints` has for
+ * not probing to be mirrored here. The fourth, `escapes-target`, no endpoint
+ * source can produce; see `assertCanariesUsable`.
+ *
+ * The safety held: `UnsafeMethodError` fires inside the client and nothing
+ * reaches the wire. The diagnosis did not.
+ * `failureCode` looks for a transport code on an error this project threw
+ * itself, finds none, and the reason falls through to `TRANSPORT` — so a canary
+ * on `POST /login` produced "the platform did not answer at all: check the
+ * address, the port and that the deployment is up" about a deployment that was
+ * up, while the mistake was in the operator's own file. The preview, from the
+ * same configuration, printed the endpoint as skipped for its method and in the
+ * same summary counted three canary requests against it.
+ *
+ * Found by adversarial review, 21 August 2026 (V-5). See ADR-0042.
+ */
+export class UnsafeCanaryError extends Error {
+  readonly accountId: string;
+  readonly endpointId: string;
+  readonly method: string;
+
+  constructor(accountId: string, endpointId: string, method: string) {
+    super(
+      `The canary of account "${accountId}" points at "${endpointId}", whose ` +
+        `method is ${method}. Without --unsafe-methods a run issues ` +
+        `${SAFE_METHODS.join(" and ")} only, so this is a request the run would ` +
+        `never make — and an account whose canary is never made is one nothing ` +
+        `confirms the credentials of. Name a canary on a ` +
+        `${SAFE_METHODS.join(" or ")} endpoint: the one this account needs its ` +
+        `credentials to read is the one worth naming here. With --unsafe-methods ` +
+        `the run issues this one instead, up to three times — twice with ` +
+        `credentials and once without.`,
+    );
+    this.name = "UnsafeCanaryError";
+    this.accountId = accountId;
+    this.endpointId = endpointId;
+    this.method = method;
   }
 }
 
@@ -506,9 +802,23 @@ export class TemplatedCanaryError extends Error {
  * first against a deployment they do not own. Found by the audit of 14 August
  * 2026 (G-1).
  *
+ * Because it is called from both, every message raised here has to be true of
+ * both: the preview has sent nothing, so nothing here may say that a request was
+ * made or that a platform answered. That is what the message the fifth check
+ * replaces got wrong from the other direction — it was a sentence about the
+ * platform, printed about a file.
+ *
+ * The checks that read the endpoint list alone come first, and the one needing
+ * the policy last. Between them they now cover every reason `planEndpoints` has
+ * for not probing an endpoint, except `escapes-target` — which no endpoint
+ * source can produce, since `isUsablePathTemplate` refuses at the door every
+ * path that would reach it, and which `joinUrl` names truthfully before any
+ * request for the library door that can.
+ *
  * @throws {UnknownCanaryEndpointError}
  * @throws {TemplatedCanaryError}
  * @throws {ExcludedCanaryError}
+ * @throws {UnsafeCanaryError}
  * @throws {DeniedCanaryError}
  */
 export function assertCanariesUsable(options: {
@@ -521,12 +831,23 @@ export function assertCanariesUsable(options: {
   }[];
   readonly exclude?: readonly string[];
   /**
-   * The resolved policy, for the fourth check. Optional so that a caller with
-   * nothing to compare against still gets the first three.
+   * Whether the run may issue methods outside `SAFE_METHODS`.
+   *
+   * Absent means no, which is the tool's default everywhere else and the answer
+   * that has to be the default here: a caller who forgets the flag gets the
+   * strict reading, never a canary quietly cleared for a method the run will
+   * not send.
+   */
+  readonly allowUnsafeMethods?: boolean;
+  /**
+   * The resolved policy, for the last check. Optional so that a caller with
+   * nothing to compare against still gets the four that read the endpoint list
+   * alone.
    */
   readonly policy?: ResolvedAccessPolicy;
 }): void {
   const byId = new Map(options.endpoints.map((endpoint) => [endpoint.id, endpoint]));
+  const safe = new Set<string>(SAFE_METHODS);
   for (const canary of options.canaries) {
     const endpoint = byId.get(canary.endpointId);
     if (endpoint === undefined) {
@@ -537,6 +858,22 @@ export function assertCanariesUsable(options: {
     }
     if ((options.exclude ?? []).includes(canary.endpointId)) {
       throw new ExcludedCanaryError(canary.accountId, canary.endpointId);
+    }
+    // A canary on a method this run does not issue.
+    //
+    // The same shape as the exclusion above — a canary aimed at something the
+    // run will not probe — and it is checked here for the same reason: the
+    // client refuses the method, so the run learns about it as a request that
+    // produced no status, and a failure with no transport code reads as
+    // `TRANSPORT`. That is a sentence about the address, the port and the
+    // liveness of a deployment, printed about a configuration.
+    //
+    // Ahead of the policy check, because it is the more fundamental of the two:
+    // an operator who resolves a policy contradiction on this canary would meet
+    // this one next, while resolving this one leaves them with a canary that can
+    // actually be sent.
+    if (options.allowUnsafeMethods !== true && !safe.has(endpoint.method)) {
+      throw new UnsafeCanaryError(canary.accountId, canary.endpointId, endpoint.method);
     }
     // A canary the policy denies is a contradiction inside the declaration.
     //
@@ -567,9 +904,30 @@ export async function probeCanaries(options: {
   readonly credentials: CredentialProvider;
   readonly client: HttpClient;
   readonly exclude?: readonly string[];
+  /**
+   * Whether the run may issue methods outside `SAFE_METHODS`.
+   *
+   * Passed straight to `assertCanariesUsable`, and absent means no. A client
+   * built without the permission refuses the request itself, and what came back
+   * from that was a canary with no status and no transport code — which the
+   * summary read as a platform that never answered. Checked here so a consumer
+   * of the library reaching `probeCanaries` directly gets the same sentence the
+   * CLI does.
+   */
+  readonly allowUnsafeMethods?: boolean;
   /** The accounts — to know the tenant and pick its base address. */
   readonly accounts?: readonly Account[];
   readonly tenantBaseUrls?: ReadonlyMap<TenantId, string>;
+  /**
+   * Whether to send the control request that shows the canary distinguishes.
+   *
+   * True where it is not given. The caller sets it false for the pass that
+   * follows the walk: what the control establishes is a property of the
+   * endpoint, and that does not change while the walk runs — a second one would
+   * be a request spent on a platform that is not ours to spend requests on. See
+   * ADR-0040.
+   */
+  readonly controlRequests?: boolean;
 }): Promise<readonly CanaryResult[]> {
   const byId = new Map(options.endpoints.map((endpoint) => [endpoint.id, endpoint]));
   // A canary must knock on the host of its own brand: on a platform spread
@@ -586,10 +944,13 @@ export async function probeCanaries(options: {
   );
   const results: CanaryResult[] = [];
 
-  // The same three checks the dry run makes, from the same function. Before a
-  // request rather than during the loop: a canary that cannot be probed is a
-  // mistake in the configuration, and half a run's worth of requests is a poor
-  // way to learn about one.
+  // The same checks the dry run makes, from the same function. Before a request
+  // rather than during the loop: a canary that cannot be probed is a mistake in
+  // the configuration, and half a run's worth of requests is a poor way to learn
+  // about one.
+  //
+  // `options` is handed over whole, which is what carries `allowUnsafeMethods`
+  // and `exclude` through without a second list of field names to keep in step.
   assertCanariesUsable(options);
 
   for (const canary of options.canaries) {
@@ -625,11 +986,47 @@ export async function probeCanaries(options: {
       failure = terminalCause(error)?.name ?? failureCode(error) ?? "TRANSPORT";
     }
 
+    const authenticated = status >= 200 && status < 300;
+
+    // The control request: the same endpoint, with no credentials at all.
+    //
+    // A canary answers "these credentials work". A 2xx alone does not say that —
+    // it says the endpoint answered. `/health`, `/version`, `/api/status` answer
+    // 2xx to anybody, and they are the most natural thing an operator reaches for
+    // when asked to name an endpoint the account can reach. With one of those
+    // nominated, a dead token passed the canary, every cell of the account came
+    // back 401, the policy declared it denied, and the report said `match: true`
+    // on all of them with exit 0 — the state ADR-0033 was written to end, reached
+    // by a fourth road. Found by adversarial review, 21 August 2026 (V-2).
+    //
+    // Sent only where the credentialed request succeeded: where it did not, the
+    // run is stopping anyway and this would be a request spent on a platform that
+    // is not ours to spend requests on. One per account, not per pass — what it
+    // establishes is a property of the endpoint, and that does not change while
+    // the walk runs.
+    let anonymousStatus: number | undefined;
+    if (authenticated && options.controlRequests !== false) {
+      try {
+        const response = await options.client.send({
+          method: endpoint.method,
+          url: canaryUrl,
+          headers: safeHeaders([]),
+        });
+        anonymousStatus = response.status;
+      } catch {
+        // The endpoint refused an unauthenticated request loudly enough to fail
+        // the request itself. That is the canary distinguishing, which is what
+        // was being asked; a failure here says nothing about the credentials.
+        anonymousStatus = undefined;
+      }
+    }
+
     results.push({
       accountId: canary.accountId,
       endpointId: canary.endpointId,
       status,
-      authenticated: status >= 200 && status < 300,
+      authenticated,
+      ...(anonymousStatus === undefined ? {} : { anonymousStatus }),
       ...(failure === undefined ? {} : { failure }),
     });
   }
@@ -709,8 +1106,6 @@ export function planEndpoints(options: {
 export async function collectObservations(options: CollectOptions): Promise<CollectResult> {
   const { probeable, skipped } = planEndpoints(options);
 
-  const observations: AccessObservation[] = [];
-  const failures: ProbeFailure[] = [];
   let truncated = false;
 
   // An endpoint without parameters is probed once; one with parameters — once
@@ -729,21 +1124,43 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     }
   }
 
-  // Every cell of the run, laid out before the first request.
-  //
-  // The walk used to be two nested loops with `await client.send` in the middle,
-  // so exactly one request was ever in flight and `--concurrency` changed
-  // nothing — 615 requests at 20 ms latency took 13 766 ms at 1 and 13 754 ms at
-  // 128, while the report printed the number as if it had been honoured. A flat
-  // list is what a pool of workers can be handed. Found by the audit of
-  // 14 August 2026.
-  const tasks: Array<{
+  /**
+   * One account, and which cells of the matrix it walks.
+   *
+   * The walk used to lay out one task object per cell before the first request —
+   * the account, the endpoint, the resource, and the two values derived from the
+   * account, held from before the first request until after the last. Everything
+   * in that object except the cell is a property of the account, and there are as
+   * many accounts as an operator wrote down.
+   *
+   * So the account's half is held once per account and the cell's half once per
+   * `endpoint × resource` pair, and a cell of the walk is a pair of indices into
+   * the two lists. That is the first of the two full copies of the matrix the
+   * walk carried beside the observations it returns. See ADR-0053.
+   */
+  interface Walker {
     readonly account: Account;
-    readonly endpoint: Endpoint;
-    readonly resource?: Resource;
     readonly credentialAccountId: string;
     readonly attributes?: ContextAttributes;
-  }> = [];
+    /**
+     * The cells this account walks, by index into `cells`, when it does not walk
+     * all of them.
+     *
+     * `undefined` is the ordinary account — every cell, and no list to hold. An
+     * account under conditions exists only on the endpoints the conditions were
+     * declared on, and ADR-0019 makes that declaration mandatory precisely so
+     * that conditions do not multiply the matrix by the whole surface: the list
+     * is short, and there is one per such account rather than one per cell.
+     */
+    readonly cellIndices?: readonly number[];
+    /** Where this account's cells begin in the flat numbering of the walk. */
+    readonly offset: number;
+    /** How many cells this account walks. */
+    readonly count: number;
+  }
+
+  const walkers: Walker[] = [];
+  let total = 0;
   for (const account of options.accounts) {
     const attributes = options.contextAttributes?.get(account.id);
     // Conditions do not change the account: it presents itself, and what changes
@@ -751,18 +1168,125 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     // needed by the relation to the resource and by the report, and three
     // different "take the original account" would drift apart silently.
     const credentialAccountId = principalOf(account);
-    for (const { endpoint, resource } of cells) {
-      // An account under conditions exists only on the declared endpoints.
-      if (account.endpointIds !== undefined && !account.endpointIds.includes(endpoint.id)) {
+    // Built once per account, for the same reason as in `describeMatrix`: asked
+    // with `includes` for every cell, this list is walked once per cell, and it
+    // is as long as the endpoints the conditions were declared on.
+    const declaredOn = account.endpointIds === undefined ? undefined : new Set(account.endpointIds);
+    let cellIndices: number[] | undefined;
+    if (declaredOn !== undefined) {
+      cellIndices = [];
+      for (const [index, cell] of cells.entries()) {
+        // An account under conditions exists only on the declared endpoints.
+        if (declaredOn.has(cell.endpoint.id)) {
+          cellIndices.push(index);
+        }
+      }
+    }
+    const count = cellIndices?.length ?? cells.length;
+    walkers.push({
+      account,
+      credentialAccountId,
+      ...(attributes === undefined ? {} : { attributes }),
+      ...(cellIndices === undefined ? {} : { cellIndices }),
+      offset: total,
+      count,
+    });
+    total += count;
+  }
+
+  /**
+   * The observations, in cell order, with a hole wherever a cell was not walked.
+   *
+   * The array the walk returns, written into directly at the index the cell has.
+   * It used to be filled at the end out of a second array of per-cell results —
+   * the other full copy of the matrix the walk carried, alive beside this one for
+   * as long as the drain took. A result is now a value one worker holds for the
+   * length of one cell.
+   *
+   * Holes are the cells a stop or a terminal error left unreached; they are
+   * closed up in one pass at the end, in place, so the compaction does not
+   * allocate a second array either.
+   */
+  const observations = new Array<AccessObservation>(total);
+  /**
+   * The failures, by the index of the cell that produced them.
+   *
+   * A map rather than a second array of the matrix's length: a run where every
+   * cell fails is possible, and a run where none does is the ordinary one, so the
+   * cost should follow the failures rather than the cells. Drained in index order
+   * together with the observations, which is what keeps `failures[]` in the order
+   * the cells were laid out.
+   */
+  const failuresByIndex = new Map<number, ProbeFailure>();
+
+  /**
+   * The cells a previous run already walked, put where this walk would have put
+   * them.
+   *
+   * Resolved from the record's own coordinate rather than by walking the matrix
+   * and asking after every cell of it: that loop minted a key string per cell,
+   * before the first request, on every run — including the overwhelmingly common
+   * one that resumes nothing.
+   *
+   * A record that fits no cell of this matrix is refused rather than ignored: the
+   * walk being resumed is then not the walk that was interrupted. Refused here,
+   * after the shape of the matrix is known so the answer is exact, and before the
+   * first request of the walk so it costs nothing.
+   */
+  if (options.resumed !== undefined && options.resumed.length > 0) {
+    // First wins in both of the maps below, which is what the loop over the task
+    // list did: it took the earliest cell whose key matched. Neither list should
+    // hold a duplicate — `buildAccessMatrix` refuses one — but that runs after the
+    // walk, and "the earliest" is a rule while "whichever the map happened to
+    // keep" is not.
+    const walkerOf = new Map<string, Walker>();
+    for (const walker of walkers) {
+      if (!walkerOf.has(walker.account.id)) {
+        walkerOf.set(walker.account.id, walker);
+      }
+    }
+    const cellAt = new Map<string, number>();
+    for (const [index, cell] of cells.entries()) {
+      const key = `${cell.endpoint.id}\u0000${cell.resource?.id ?? ""}`;
+      if (!cellAt.has(key)) {
+        cellAt.set(key, index);
+      }
+    }
+    // Where a cell sits inside an account that walks only some of them. Built on
+    // demand and only for such accounts: for every other one the position in the
+    // account is the position in `cells`.
+    const positionsIn = new Map<Walker, ReadonlyMap<number, number>>();
+    // A set, because its size goes into the message: two records naming one
+    // absent cell are one cell this matrix does not contain.
+    const missing = new Set<string>();
+    for (const record of options.resumed) {
+      const walker = walkerOf.get(record.accountId);
+      const cellIndex = cellAt.get(`${record.endpointId}\u0000${record.resourceId ?? ""}`);
+      if (walker === undefined || cellIndex === undefined) {
+        missing.add(cellKey(record));
         continue;
       }
-      tasks.push({
-        account,
-        endpoint,
-        ...(resource === undefined ? {} : { resource }),
-        credentialAccountId,
-        ...(attributes === undefined ? {} : { attributes }),
-      });
+      let position: number | undefined = cellIndex;
+      if (walker.cellIndices !== undefined) {
+        let positions = positionsIn.get(walker);
+        if (positions === undefined) {
+          positions = new Map(walker.cellIndices.map((at, index) => [at, index]));
+          positionsIn.set(walker, positions);
+        }
+        position = positions.get(cellIndex);
+      }
+      if (position === undefined) {
+        missing.add(cellKey(record));
+        continue;
+      }
+      const index = walker.offset + position;
+      observations[index] = record.observation;
+      if (record.failure !== undefined) {
+        failuresByIndex.set(index, record.failure);
+      }
+    }
+    if (missing.size > 0) {
+      throw new ResumeDoesNotFitError([...missing]);
     }
   }
 
@@ -787,15 +1311,22 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
   const changed = new Set<string>();
   const SAFE = new Set<string>(SAFE_METHODS);
 
-  /** What one cell produced. A cell can yield a failure and an observation both. */
+  /**
+   * What one cell produced. A cell can yield a failure and an observation both.
+   *
+   * One of these is alive per worker for the length of one cell. There used to be
+   * one per cell of the matrix, in an array that outlived the walk — see
+   * `observations` above and ADR-0053.
+   */
   interface CellResult {
     readonly failure?: ProbeFailure;
     readonly observation?: AccessObservation;
     readonly truncated?: true;
   }
 
-  async function probe(task: (typeof tasks)[number]): Promise<CellResult> {
-    const { account, endpoint, resource, credentialAccountId, attributes } = task;
+  async function probe(walker: Walker, cell: (typeof cells)[number]): Promise<CellResult> {
+    const { account, credentialAccountId, attributes } = walker;
+    const { endpoint, resource } = cell;
     const startedAt = Date.now();
     const tenantId = resource?.tenantId ?? account.tenantId;
     const baseUrl = baseUrlForTenant(tenantId, options.tenantBaseUrls, options.baseUrl);
@@ -804,6 +1335,23 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     // because the template was checked before substitution.
     let url: string;
     try {
+      // Both query channels, before either of them reaches the address.
+      // `resources[].query` is the twin of `contexts[].query` and was left at the
+      // configuration door when the conditions moved to the seam: through the
+      // library door it put `?_method=DELETE` on the wire with
+      // `allowUnsafeMethods: false` and printed a credential into
+      // `observations[].url`. Found by adversarial review on 21 August 2026 (V-1),
+      // one day after ADR-0037 moved the other half.
+      //
+      // The resource's id stands where a context's id stands in the message: it
+      // is what the operator has to go and edit.
+      if (resource?.query !== undefined) {
+        assertAttributesKeepTheBasis(
+          { kind: "resource", id: resource.id },
+          { headers: {}, query: resource.query },
+          { allowUnsafeMethods: options.allowUnsafeMethods === true },
+        );
+      }
       const path = resource === undefined ? endpoint.path : substitute(endpoint.path, resource);
       url = withQuery(joinUrl(baseUrl, path), resource, attributes?.query);
     } catch (cause) {
@@ -847,24 +1395,34 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       ...(endpoint.responseMustDifferByTenant === true ? DIGEST_SIGNALS : []),
       ...(endpoint.signals ?? []),
     ];
-    // The headers are taken for every request rather than once per account:
-    // the signature depends on the method and the address, and a value hoisted
-    // out of the loop would silently sign every cell with the first request.
-    // See ADR-0018.
+
+    // The condition attributes go in **first** and the credential ones over
+    // them. This used to be the other way round, with a comment calling the
+    // order "the second line of the same defence" — and it was the opening, not
+    // the defence: a later spread wins, so `authorization` declared as an
+    // attribute replaced the account's own header and the run went out as
+    // somebody else while the report named the original account. The first line
+    // it leaned on — "that is checked when the configuration is parsed" — holds
+    // for the configuration door and for no other.
     //
-    // The condition attributes are added **after** the credential ones: they
-    // cannot replace a credential header — that is checked when the
-    // configuration is parsed — and the order here is the second line of the
-    // same defence, not a matter of style.
+    // The headers are taken for every request rather than once per account: the
+    // signature depends on the method and the address, and a value hoisted out
+    // of the loop would silently sign every cell with the first request. See
+    // ADR-0018.
+    if (attributes !== undefined) {
+      assertAttributesKeepTheBasis({ kind: "context", id: attributes.contextId }, attributes, {
+        allowUnsafeMethods: options.allowUnsafeMethods === true,
+      });
+    }
     const request = {
       method: endpoint.method,
       url,
       headers: {
+        ...attributes?.headers,
         ...options.credentials.headersFor(credentialAccountId, {
           method: endpoint.method,
           url,
         }),
-        ...attributes?.headers,
       },
       ...(specs.length === 0 ? {} : { signals: specs }),
     };
@@ -877,25 +1435,48 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     let stopped: true | undefined;
     let selfInflicted = false;
     try {
-      const response = await options.client.send(request);
+      // The stop travels to the client as well as to the loop: a request
+      // already on the wire is dropped rather than waited out, so an operator
+      // who was asked to stop touching a platform has stopped touching it.
+      const response = await options.client.send(request, options.abort);
       status = response.status;
       headers = response.headers;
       signals = response.signals;
       if (!SAFE.has(endpoint.method)) {
         if (status >= 200 && status < 300) {
           changed.add(objectKey);
-        } else if (status === 404 && changed.has(objectKey)) {
+          // 410 beside 404 since ADR-0046, and it had to move with it. A
+          // platform that soft-deletes answers "gone" rather than "not found",
+          // and while 410 was an `error` the guard had nothing to guard — an
+          // unreadable status is already no conclusion. Now that it folds into a
+          // denial the way 404 does, a 410 this run caused itself would read as
+          // protection observed.
+        } else if ((status === 404 || status === 410) && changed.has(objectKey)) {
           selfInflicted = true;
           failure = {
             accountId: account.id,
             endpointId: endpoint.id,
             ...(resource === undefined ? {} : { resourceId: resource.id }),
             reason:
-              `404 after this run already changed the object with ${endpoint.method} ` +
-              `${endpoint.id}. Nothing follows about access: the object is missing ` +
-              `because we removed it, not because this account was refused.`,
+              `${status} after this run already changed the object with ` +
+              `${endpoint.method} ${endpoint.id}. Nothing follows about access: the ` +
+              `object is missing because we removed it, not because this account was ` +
+              `refused.`,
           };
         }
+      }
+      // A status the tool does not read leaves a row saying so. Without it the
+      // commonest `error` in a run was the one with no explanation — the exact
+      // case `ProbeFailure` above exists against. Not where a failure is already
+      // set: the self-inflicted branch has a more specific thing to say about
+      // the same cell.
+      if (failure === undefined && classifyStatus(status) === "error") {
+        failure = {
+          accountId: account.id,
+          endpointId: endpoint.id,
+          ...(resource === undefined ? {} : { resourceId: resource.id }),
+          reason: unreadableStatusReason(status),
+        };
       }
     } catch (cause) {
       const terminal = terminalCause(cause);
@@ -959,8 +1540,18 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
   // the circuit breaker's "consecutive": failures interleave now, so it means
   // "this many with no success in between", and up to `concurrency - 1`
   // requests are already in flight when it trips.
-  const results = new Array<CellResult>(tasks.length);
   let next = 0;
+  /**
+   * Which account the next cell belongs to, and how far into it the walk is.
+   *
+   * The cursor stands in for the task list: the pair `(walkers[cursor],
+   * cells[…])` is what an entry of that list held, and the flat index `next` is
+   * where the entry sat. Advanced only by `take`, which does not await, so a
+   * worker holds the three values it returns until its own first `await` — the
+   * same argument `next` itself rests on, and the same one thread.
+   */
+  let cursor = 0;
+  let within = 0;
   /**
    * Set by the first terminal error, and after it no worker takes another cell.
    *
@@ -980,52 +1571,156 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
    * they finish. That is bounded by the limit the operator agreed to.
    */
   let stop = false;
+  /** Whether the stop was asked for from outside, rather than earned by the run. */
+  const aborted = (): boolean => options.abort?.aborted === true;
+
+  /**
+   * The next cell of the walk, or `undefined` when there are none left.
+   *
+   * Nothing awaits in here, so the claim on a cell and the advance of the cursor
+   * cannot interleave with another worker's — one thread, and no suspension
+   * point between the two. That is the same argument the flat `next++` rested on
+   * before the cursor replaced the list it indexed into.
+   */
+  function take(): { index: number; walker: Walker; cell: (typeof cells)[number] } | undefined {
+    for (;;) {
+      const walker = walkers[cursor];
+      if (walker === undefined) {
+        return undefined;
+      }
+      if (within >= walker.count) {
+        cursor += 1;
+        within = 0;
+        continue;
+      }
+      const cell = cells[walker.cellIndices?.[within] ?? within];
+      const index = next;
+      within += 1;
+      next += 1;
+      // Unreachable: `count` is the length of `cellIndices` or of `cells`, and
+      // both are read at an index below it. Answered rather than asserted —
+      // `noNonNullAssertion` is on, and a `!` here would be the one place in the
+      // walk where the checker was told to stop looking.
+      if (cell === undefined) {
+        continue;
+      }
+      return { index, walker, cell };
+    }
+  }
+
   const workers = Array.from(
-    // `next++` needs no lock — nothing awaits between the read and the
-    // increment, and there is one thread.
-    { length: Math.max(1, Math.min(options.concurrency ?? 1, tasks.length)) },
+    { length: Math.max(1, Math.min(options.concurrency ?? 1, total)) },
     async () => {
       for (;;) {
-        if (stop) {
+        if (stop || aborted()) {
           return;
         }
-        const index = next;
-        next += 1;
-        if (index >= tasks.length) {
+        const taken = take();
+        if (taken === undefined) {
           return;
         }
-        const task = tasks[index];
-        if (task === undefined) {
+        const { index, walker, cell } = taken;
+        // A cell taken from the stream: already answered by the run that was
+        // interrupted, and not a request this one gets to spend.
+        if (observations[index] !== undefined) {
+          continue;
+        }
+        const result = await probe(walker, cell);
+        // A cell the stop caught mid-flight is not a cell that was walked. It
+        // is neither kept nor recorded: recorded, `--resume` would skip it, and
+        // a request the platform never answered would be filed as an answer.
+        if (aborted()) {
           return;
         }
-        const result = await probe(task);
-        results[index] = result;
+        if (result.observation !== undefined) {
+          observations[index] = result.observation;
+        }
+        if (result.failure !== undefined) {
+          failuresByIndex.set(index, result.failure);
+        }
         if (result.truncated === true) {
+          // A terminal condition — an exhausted budget, a tripped breaker — is
+          // not an answer either, and it is deliberately not recorded: the cell
+          // has to be probed again by whoever resumes.
+          truncated = true;
           stop = true;
+          return;
+        }
+        if (options.record !== undefined && result.observation !== undefined) {
+          await options.record({
+            accountId: walker.account.id,
+            endpointId: cell.endpoint.id,
+            ...(cell.resource === undefined ? {} : { resourceId: cell.resource.id }),
+            observation: result.observation,
+            ...(result.failure === undefined ? {} : { failure: result.failure }),
+          });
         }
       }
     },
   );
-  await Promise.all(workers);
+  const walk = Promise.all(workers);
+  if (options.abort === undefined) {
+    await walk;
+  } else {
+    // Raced rather than awaited: a request outstanding against a platform that
+    // has stopped answering would otherwise hold the whole run for the client's
+    // timeout, and the operator pressing Ctrl-C is asking for the opposite of
+    // waiting. Whatever those workers do afterwards is discarded by the guard
+    // above them.
+    await Promise.race([walk, stopped(options.abort)]);
+  }
 
   // Drained in the order the cells were laid out, not the order they came back
   // in. Two runs of the same matrix have to produce the same file, or a diff
   // between two reports is unreadable and `configDigest` promises more than it
   // delivers.
-  for (const result of results) {
-    if (result === undefined) {
+  //
+  // In place: the observations are already in that order, at the index of their
+  // cell, and what this pass does is close up the holes a stop or a terminal
+  // error left. Copying them into a second array instead would put two copies of
+  // the matrix in memory at the last step of the walk, which is the thing this
+  // arrangement exists to avoid.
+  const failures: ProbeFailure[] = [];
+  let unreached = false;
+  let kept = 0;
+  for (let index = 0; index < total; index += 1) {
+    const failure = failuresByIndex.get(index);
+    if (failure !== undefined) {
+      failures.push(failure);
+    }
+    const observation = observations[index];
+    if (observation === undefined) {
+      unreached = true;
       continue;
     }
-    if (result.failure !== undefined) {
-      failures.push(result.failure);
-    }
-    if (result.observation !== undefined) {
-      observations.push(result.observation);
-    }
-    if (result.truncated === true) {
-      truncated = true;
-    }
+    observations[kept] = observation;
+    kept += 1;
+  }
+  observations.length = kept;
+  // A stop from outside that left a cell unwalked is truncation in the sense the
+  // word already has here: the tail was never probed, and there are no findings
+  // in it because nothing looked. Asked together with `unreached` rather than on
+  // its own — a signal arriving after the last cell came back interrupts
+  // nothing, and a report calling that walk incomplete would be lying in the
+  // direction that costs a rerun.
+  if (unreached && aborted()) {
+    truncated = true;
   }
 
   return { observations, skipped, failures, probed: probeable, truncated };
+}
+
+/**
+ * A promise that settles when the stop is asked for.
+ *
+ * Resolves rather than rejects: an interruption is a decision, not a failure,
+ * and the caller of `collectObservations` has a report to finish writing.
+ */
+function stopped(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((settle) => {
+    signal.addEventListener("abort", () => settle(), { once: true });
+  });
 }

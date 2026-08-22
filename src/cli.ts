@@ -8,15 +8,20 @@
  * redirects live in the HTTP client and hold whatever the CLI passes in.
  */
 
-import { constants } from "node:fs";
-import { access, readFile, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { constants, createWriteStream } from "node:fs";
+import { access, chmod, readFile, rename, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { constants as signalNumbers } from "node:os";
 import { dirname, resolve } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { styleText } from "node:util";
 import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { createCredentialProvider } from "./adapters/credentials.js";
 import { createEndpointListParser } from "./adapters/endpoint-list.js";
-import { createHttpClient } from "./adapters/http.js";
+import type { RunIdentity } from "./adapters/http.js";
+import { createHttpClient, runIdentity } from "./adapters/http.js";
 import { createOpenApiParser } from "./adapters/openapi.js";
 import type { SpecParser } from "./adapters/ports.js";
 import { createPostmanCollectionParser } from "./adapters/postman.js";
@@ -46,24 +51,51 @@ import {
   toAccounts,
 } from "./io/config.js";
 import { findUnauthenticated } from "./report/authenticity.js";
-import type { CanaryOutcome } from "./report/build.js";
+import type { CanaryOutcome, RunReport } from "./report/build.js";
 import { buildReport, runVerdict, WARNINGS } from "./report/build.js";
+import type { ComparisonTone } from "./report/compare.js";
+import { compareRuns, renderComparison, toComparableRun } from "./report/compare.js";
+import type { ObservationStream } from "./report/write.js";
+import {
+  declarationDigest,
+  OBSERVATION_STREAM_FORMAT,
+  observationStreamPath,
+  openObservationStream,
+  readObservationStream,
+  reportChunks,
+} from "./report/write.js";
+import type { CellRecord } from "./runner.js";
 import {
   assertCanariesUsable,
   collectObservations,
   planEndpoints,
   probeCanaries,
+  UndiscerningCanaryError,
 } from "./runner.js";
 
 // The version is read from package.json rather than duplicated in a constant:
 // once they drift apart, the duplicate makes the CLI lie about its own version
 // in run reports.
+//
+// `homepage` for the same reason, since 21 August 2026: it goes into the header
+// the run names itself with, and the one thing an on-call engineer reading it at
+// three in the morning wants is somewhere to go. A URL written out a second time
+// here would be the project's address as of whenever this line was last touched.
 const requireFromHere = createRequire(import.meta.url);
-const { version } = requireFromHere("../package.json") as { readonly version: string };
+const { version, homepage } = requireFromHere("../package.json") as {
+  readonly version: string;
+  readonly homepage: string;
+};
 
 function paint(text: string, format: Parameters<typeof styleText>[0]): string {
   // Without a TTY, escape sequences only litter redirected output.
-  return process.stderr.isTTY === true ? styleText(format, text) : text;
+  // The stream is named, and that is the whole fix: `styleText` without it
+  // validates `process.stdout`, while the decision above is made on
+  // `process.stderr`. In the ordinary invocation — `barbican run -c … > report.json`
+  // from a terminal — stderr is a TTY and stdout is not, so every colour this
+  // file argues about was dropped on the floor. Found by the audit of
+  // 20 August 2026 (H-3, L-4).
+  return process.stderr.isTTY === true ? styleText(format, text, { stream: process.stderr }) : text;
 }
 
 /**
@@ -160,6 +192,10 @@ const WARNING_STYLE: Readonly<Record<keyof typeof WARNINGS, "red" | "yellow">> =
   // or the verdict.
   unnamedTarget: "yellow",
   findingsCapped: "yellow",
+  // Yellow and not red: the findings on this screen stand, and what is unproved
+  // is everything about the endpoints no request reached. That is a reservation
+  // about the reach of the run, which is what yellow says here.
+  endpointsNotProbed: "yellow",
 };
 
 type WarningKey = keyof typeof WARNINGS;
@@ -219,14 +255,17 @@ function escalationLine(
   verdict: { readonly code: number },
   report: {
     readonly warnings: readonly string[];
-    readonly coverage: { readonly resourcesNotFound: readonly string[] };
+    readonly coverage: {
+      readonly resourcesNotFound: readonly string[];
+      readonly notProbed: Readonly<Record<string, number>>;
+    };
   },
 ): string {
   if (escalations > 0) {
     return paint(`Privilege escalation: ${escalations}`, "red");
   }
   const claim = "No privilege escalation found";
-  // Four conditions, and the first version had two. Adversarial review of
+  // Five conditions, and the first version had two. Adversarial review of
   // 19 August 2026 built a run where every declared resource answered 404 to
   // everybody: no findings, verdict 0, and the green line printed unqualified
   // over a matrix whose whole isolation half had never been tested — with
@@ -235,10 +274,26 @@ function escalationLine(
   //
   // So the counters are not enough: they say nothing was found, not that anything
   // was looked at. A run earns the bare sentence only when the report itself has
-  // no reservation left — no warning, and no resource that answered 404 to
-  // everyone, which is the shape "tested and agreed" takes when nothing was there
-  // to test.
-  const unreserved = report.warnings.length === 0 && report.coverage.resourcesNotFound.length === 0;
+  // no reservation left — no warning, no resource that answered 404 to everyone,
+  // and no endpoint the walk never reached.
+  //
+  // The last of those is the audit of 21 August 2026 (B-4), and the four
+  // conditions before it could not see the run it built: eleven endpoints, nine
+  // of them templated with no `resources` declared, so the walk covered two. No
+  // request went to the nine, so they left no finding to be counted and nothing
+  // in `resourcesNotFound` — which is about objects that were asked for and were
+  // not there — and the bare green sentence printed over the object half of the
+  // surface, where BOLA and IDOR live.
+  //
+  // `warnings` alone would carry it now that `endpointsNotProbed` exists. The
+  // fact is named here as well, in the same shape `resourcesNotFound` already
+  // sits in: this list is the screen's own account of what it has a reservation
+  // about, and a headline whose only qualification is the report remembering to
+  // warn is a headline `warningsFor` can clear by accident.
+  const unreserved =
+    report.warnings.length === 0 &&
+    report.coverage.resourcesNotFound.length === 0 &&
+    Object.keys(report.coverage.notProbed).length === 0;
   if (summary.findings === 0 && verdict.code === 0 && unreserved) {
     return paint(claim, "green");
   }
@@ -257,27 +312,38 @@ function escalationLine(
   // Nothing found, and the run still cannot support the conclusion. Exit code 0
   // is possible here — a clean walk over resources that were not there — so the
   // sentence names what is unresolved rather than the code alone.
+  const unproved =
+    Object.keys(report.coverage.notProbed).length > 0
+      ? "endpoints no request went to"
+      : report.coverage.resourcesNotFound.length > 0
+        ? "resources nothing answered for"
+        : "a reservation about this run";
   const because =
     verdict.code === 0
-      ? `the lines above carry ${report.coverage.resourcesNotFound.length > 0 ? "resources nothing answered for" : "a reservation about this run"}`
+      ? `the lines above carry ${unproved}`
       : `this run ends with exit code ${verdict.code}, and the last line says why`;
   return paint(`${claim}, and nothing else either — but nothing was proved: ${because}.`, "yellow");
 }
 
 /**
- * Whether a canary is owed at all.
+ * The accounts a canary is owed for, by name.
  *
- * An anonymous run — "check that nobody at all can get in here" — has nothing to
- * authenticate, and `runVerdict` excludes it from the rule that makes a run
- * without canaries exit 2. The same predicate the report calls `!anonymous`,
- * which is `tokenEnv` being set. Asked here so that the screen's warning fires on
- * exactly the runs the file's does: a warning printed under a wider condition
- * than the one it describes is the same disagreement in a subtler form, and the
- * sentence it prints ends "which is why a run without a canary ends with exit
- * code 2" — untrue of a run with nothing to authenticate.
+ * An anonymous account — "check that nobody at all can get in here" — has nothing
+ * to authenticate, and `runVerdict` excludes it from the rule that ends such a
+ * run with exit 2. The same predicate the report calls `!anonymous`, which is
+ * `tokenEnv` being set. Asked here so that the screen's warning fires on exactly
+ * the runs the file's does: a warning printed under a wider condition than the
+ * one it describes is the same disagreement in a subtler form.
+ *
+ * Names and not a count, because the rule became per account on 19 August: a run
+ * where one account of four has a canary is not a run with canaries, and "not one
+ * account declares a canary" was false about it while the exit code was still 2.
+ * The preview's job is to say which line of the configuration to add.
  */
-function needsCanary(config: RunConfig): boolean {
-  return config.accounts.some((account) => account.tokenEnv !== undefined);
+function accountsOwedACanary(config: RunConfig): readonly string[] {
+  return config.accounts
+    .filter((account) => account.tokenEnv !== undefined && account.canary === undefined)
+    .map((account) => account.id);
 }
 
 /**
@@ -363,10 +429,54 @@ async function assertReportPathIsWritable(path: string): Promise<void> {
   }
 }
 
+/**
+ * The digits an operator typed, and not everything `Number()` is willing to read.
+ *
+ * A limit is not merely a number here: `--rps` divides a second by it, and
+ * `--max-requests` is the ceiling on traffic against somebody else's deployment.
+ * Written as `Number(raw)` guarded by `Number.isInteger`, the flags accepted
+ * `1e23` — an integer by both tests, and a `minimumGapMs` of 1e-20, which leaves
+ * the sliding window admitting every request the instant it arrives. That is the
+ * "no limits" mode the project says must not exist (ADR-0005 and the throttle's
+ * own comment), reached by a form of writing rather than by a decision.
+ * `0x10`, `0b101`, `5.0` and `" 5 "` passed the same way: each a limit the
+ * command line did not say and the report then recorded as declared.
+ *
+ * So what is refused is the **notation**, not the magnitude. Decimal digits, and
+ * a value `Number.isSafeInteger` vouches for. No ceiling is invented on top of
+ * that: an operator raising a limit deliberately is doing their job, and
+ * `--rps 100000` remains theirs to ask for. Above 2^53 the refusal is not about
+ * taste either — integers stop being exact there, so the number enforced would
+ * not be the number written.
+ *
+ * Found by the audit of 20 August 2026 (C-4/H-8).
+ */
+const DECIMAL_DIGITS = /^[0-9]+$/;
+
 function positiveInteger(raw: string): number {
+  if (!DECIMAL_DIGITS.test(raw)) {
+    throw new InvalidArgumentError(
+      "a positive integer in decimal digits is expected. Exponent, hex and binary " +
+        "notation, a decimal point and surrounding spaces are refused rather than " +
+        "read: Number() turns them into limits nobody typed, and --rps 1e23 is the " +
+        "no-limits mode this tool must not have",
+    );
+  }
   const value = Number(raw);
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new InvalidArgumentError("a positive integer is expected");
+  // A negative number cannot arrive — the grammar above has no sign — so this is
+  // zero, and zero reads as "no limits" exactly the way the throttle refuses it.
+  if (value <= 0) {
+    throw new InvalidArgumentError(
+      "a positive integer is expected: zero is not a limit, it is the absence of " +
+        "one, and this tool has no mode without limits",
+    );
+  }
+  if (!Number.isSafeInteger(value)) {
+    throw new InvalidArgumentError(
+      "a positive integer is expected, and this one is past 9007199254740991, " +
+        "where integers stop being exact — the limit enforced would not be the " +
+        "limit written",
+    );
   }
   return value;
 }
@@ -379,10 +489,22 @@ interface RunFlags {
   readonly report?: string;
   readonly unsafeMethods?: boolean;
   readonly dryRun?: boolean;
+  /**
+   * Whether the run names itself on the wire. On unless `--no-identify` is given.
+   *
+   * commander fills this in for every run, so the value is never really absent;
+   * it is optional here because `describePlan` and the tests build a `RunFlags`
+   * by hand, and a default that has to be repeated in three places is a default
+   * that will disagree with itself. `flags.identify !== false` is the reading
+   * everywhere.
+   */
+  readonly identify?: boolean;
   readonly checks?: string;
   readonly concurrency?: number;
   readonly rps?: number;
   readonly maxRequests?: number;
+  /** Continue the walk the stream beside `--report` was left in the middle of. */
+  readonly resume?: boolean;
 }
 
 /**
@@ -406,6 +528,9 @@ function describePlan(
   checks: readonly Check[],
   limits: ThrottleLimits | undefined,
   contextValues: Parameters<typeof toAccounts>[1],
+  identity: RunIdentity | undefined,
+  /** Cells a stream beside `--report` already holds, and which `--resume` will not probe. */
+  alreadyWalked: number,
 ): number {
   const tenantBaseUrls = new Map(
     (config.tenants ?? [])
@@ -470,9 +595,20 @@ function describePlan(
   }, 0);
 
   const withCanary = config.accounts.filter((account) => account.canary !== undefined).length;
-  const needCanary = needsCanary(config);
+  const withoutCanary = accountsOwedACanary(config);
   const budget = limits?.maxRequests;
-  const wanted = cells + withCanary;
+  // Twice: the canaries are probed before the walk and again after it
+  // (`probeCanaries` is called at both ends). Counting them once made the
+  // preview call a ceiling sufficient that stops the second pass — and a run
+  // whose authentication is never confirmed a second time reads as clean. The
+  // rule this line stands on is three lines below: a number about traffic that
+  // ignores the ceiling on traffic is worse than no number.
+  //
+  // The cells a resumed run will not probe again come off it for the same
+  // reason. A preview that counted them would overstate the traffic by exactly
+  // the amount the feature exists to save.
+  const remaining = Math.max(cells - alreadyWalked, 0);
+  const wanted = remaining + withCanary * 3;
 
   process.stderr.write(
     `${[
@@ -481,7 +617,15 @@ function describePlan(
       `Endpoints (${endpoints.length}):`,
       ...rows,
       `Matrix rows: ${accounts.length} (declared accounts ${config.accounts.length})`,
-      `Cells a run would probe: ${cells}, plus ${withCanary} canary requests`,
+      `Cells a run would probe: ${remaining}, plus ${withCanary * 3} canary requests ` +
+        `(${withCanary} accounts, probed before the walk and again after it, plus ` +
+        `one request each with no credentials to show the canary tells them apart)`,
+      // What --resume takes off the bill, named rather than left to be worked
+      // out from a number that shrank.
+      alreadyWalked === 0
+        ? undefined
+        : `Of the ${cells} cells in this matrix, ${alreadyWalked} are already in the ` +
+          `stream and would not be probed again.`,
       // The budget is on the same command line and used to be left out of the
       // arithmetic: the preview promised 144 cells where the run made one
       // request and stopped. A number about traffic that ignores the ceiling on
@@ -498,13 +642,18 @@ function describePlan(
       // not mention. Without a canary the run cannot confirm it authenticated at
       // all and ends with exit 2 whatever the platform answered — after the whole
       // matrix has been walked.
-      withCanary === 0 && needCanary
+      withoutCanary.length > 0
         ? paint(
-            `Not one account declares a canary. The run will walk the whole matrix ` +
-              `and then exit 2: nothing would confirm the accounts were ` +
-              `authenticated. Declare "canary: <endpointId>" on each account that ` +
-              `has credentials.`,
-            "red",
+            `No canary is declared for: ${withoutCanary.join(", ")}. The run will walk ` +
+              `the whole matrix and then exit 2: nothing would confirm those accounts ` +
+              `were authenticated, and every cell walked under one of them would say ` +
+              `what an unauthenticated request says. Declare ` +
+              `"canary: <endpointId>" on each account that has credentials.`,
+            // The same colour the finished run's warning gets. They said the same
+            // thing in two colours until 19 August, and a reader who sees red on
+            // the preview and yellow on the run reads them as two different
+            // conditions.
+            WARNING_STYLE.noCanary,
           )
         : undefined,
       // A pipeline that publishes the report after a dry run publishes
@@ -524,15 +673,82 @@ function describePlan(
       checks.length === 0
         ? paint("Checks: none will run — nothing will be compared by body.", "yellow")
         : `Checks: ${checks.map((check) => check.id).join(", ")}`,
+      // What the platform's access log will hold, before the first line of it
+      // exists. "What exactly are you going to touch" and "how will I recognise
+      // it in my own records" are the same question asked by the same person,
+      // and the second one is answerable here for free.
+      identity === undefined
+        ? paint(
+            `The run will not name itself on the wire: --no-identify was given, so ` +
+              `the requests are indistinguishable from an attack in the platform's ` +
+              `logs. Agree with the owner how they are to be recognised.`,
+            "yellow",
+          )
+        : `Named on the wire as: ${identity.value} (a fresh run= identifier each ` +
+          `run, and the report carries the same one)`,
       `The identifiers above are what policy, resources, contexts and canaries refer to.`,
-    ].join("\n")}\n`,
+      // The same filter the run's summary applies twenty lines below. Without it
+      // every warning this preview decided not to print left a blank line in the
+      // middle of the plan — three of them on an ordinary configuration.
+    ]
+      .filter((line): line is string => line !== undefined)
+      .join("\n")}\n`,
   );
 
   return 0;
 }
 
+/**
+ * Writes chunks to a stream, respecting backpressure.
+ *
+ * `Readable.from` plus `pipeline` rather than a loop of `write()`: the loop has
+ * to wait for `drain` itself, and getting that wrong on a 60 MB report means
+ * either an unbounded buffer or a truncated file.
+ */
+async function writeChunks(destination: NodeJS.WritableStream, chunks: Iterable<string>) {
+  await pipeline(Readable.from(chunks), destination, { end: destination !== process.stdout });
+}
+
+/**
+ * The report on disk, written through a temporary file beside it.
+ *
+ * Two properties, and the second is new because the first made it matter. The
+ * file is written in chunks (see `src/report/write.ts`), so it is no longer
+ * bounded by the largest string node can hold — and a write spread over time is
+ * a write that can be interrupted halfway, which would have left a truncated
+ * document where a good report used to be. The rename is atomic, so the path
+ * either holds the previous run or this one.
+ *
+ * 0o600 twice over: on the temporary file, and again on the destination after
+ * the rename. `mode` on an open applies to a file being **created**, so a report
+ * written a second time into the same path used to keep whatever permissions it
+ * had — the audit of 20 August 2026 (L-10). The file carries every request
+ * address, every response header and the identifiers of accounts, resources and
+ * tenants; the project keeps tokens and bodies out of it by construction and
+ * then wrote it world-readable on a shared build agent.
+ */
+async function writeReportFile(path: string, report: object): Promise<void> {
+  const staging = `${path}.partial`;
+  // Removed first, then created exclusively. Without `wx` the open follows a
+  // symlink sitting at the staging path — the report, with every address and
+  // every account identifier in it, lands wherever the link points, and `mode`
+  // is ignored because nothing is being created. Unlinking a symlink removes
+  // the link and not its target, so the pair is safe where the second half
+  // alone is not. An interrupted run leaves a staging file behind, and this is
+  // also how the next run gets past it. Found by adversarial review, 21 August
+  // 2026 (V-7).
+  await rm(staging, { force: true });
+  await writeChunks(
+    createWriteStream(staging, { encoding: "utf8", flags: "wx", mode: 0o600 }),
+    reportChunks(report),
+  );
+  await rename(staging, path);
+  await chmod(path, 0o600);
+}
+
 async function run(flags: RunFlags): Promise<number> {
-  const config = parseRunConfig(await readNamedFile("--config", flags.config));
+  const configText = await readNamedFile("--config", flags.config);
+  const config = parseRunConfig(configText);
 
   /**
    * The warnings already said before the walk, so the summary does not repeat them.
@@ -557,6 +773,55 @@ async function run(flags: RunFlags): Promise<number> {
     sayEarly("unnamedTarget");
   }
 
+  /**
+   * Where the report goes when the command line did not say.
+   *
+   * It goes to stdout, and in the invocation this tool is written for — a step
+   * in a pipeline — stdout is the build log: readable by everyone who can see
+   * the build, kept for as long as the build is kept, and copied into whatever
+   * collects logs. The same document written with `--report` is created `0600`
+   * through a staging file, deliberately, because it holds every request
+   * address, every account, tenant and resource identifier and a list of the
+   * places this platform's authorization does not hold. The stronger of the two
+   * paths was the one an operator had to ask for, and nothing anywhere said so.
+   *
+   * A warning and not a refusal: `barbican run … > report.json` is a legitimate
+   * and common way to run this, and so is piping it into `jq`. What is not
+   * legitimate is not knowing.
+   *
+   * Said before the walk for the same reason `assertReportPathIsWritable` is
+   * checked there — this is the point at which the answer can still be changed
+   * without spending somebody else's traffic twice. Not on `--dry-run`, which
+   * produces no report to misplace.
+   */
+  if (flags.report === undefined && flags.dryRun !== true) {
+    process.stderr.write(
+      `${paint("The report has nowhere to go but stdout:", "yellow")} no --report was ` +
+        `given. On a pipeline that is the build log — every request address, every ` +
+        `account and resource identifier, and a map of where this platform's ` +
+        `authorization does not hold, kept as long as the build is and readable by ` +
+        `everyone who can see it. The same document under --report is written 0600. ` +
+        `Redirect it or name a path.\n` +
+        // The second half of the same sentence, and the one that costs traffic
+        // rather than confidentiality. The stream lives beside the report, so
+        // without a path there is nowhere to put it: nothing this walk observes
+        // reaches disk until the last response is in, and anything that ends the
+        // process before then — Ctrl-C, the OOM killer, a cancelled job — takes
+        // every request with it. See ADR-0047.
+        `${paint("Nothing is written to disk until the walk is over:", "yellow")} the ` +
+        `observation stream lives beside --report, so there is none. A run ` +
+        `interrupted or killed leaves no partial report and cannot be resumed — ` +
+        `every request it made is spent again.\n`,
+    );
+  }
+  if (flags.resume === true && flags.report === undefined) {
+    throw new Error(
+      "--resume needs --report: the stream a run is resumed from lives beside the " +
+        "report, and without a path there is no stream to continue. Name the same " +
+        "--report the interrupted run was given.",
+    );
+  }
+
   // Exactly one endpoint source: two would silently diverge, and none would give
   // a report with no findings, indistinguishable from a successful one.
   // The flag travels with the path: below this point only the path is left, and a
@@ -576,7 +841,8 @@ async function run(flags: RunFlags): Promise<number> {
         "--endpoints (a hand-written list) or --postman (a Postman collection).",
     );
   }
-  const parsed = await source.create().parse(await readNamedFile(source.flag, source.path));
+  const sourceText = await readNamedFile(source.flag, source.path);
+  const parsed = await source.create().parse(sourceText);
   // References are checked after the spec is parsed: before that there are no
   // endpoints yet.
   assertReferencesResolve(config, parsed);
@@ -604,6 +870,100 @@ async function run(flags: RunFlags): Promise<number> {
   if (flags.report !== undefined) {
     await assertReportPathIsWritable(flags.report);
   }
+
+  /**
+   * The gate on resuming, and everything that has to be true before a request.
+   *
+   * A resumed run presents itself as one walk: one `runId`, one `configDigest`,
+   * one verdict over cells gathered by two processes. That is only honest while
+   * the declaration is the same one, so the digest is compared here — before the
+   * canaries, before the walk, before anything is sent. Resuming into a changed
+   * declaration and calling the result one run is the worst thing this feature
+   * could do, and it is the one thing it refuses outright.
+   */
+  const streamPath = flags.report === undefined ? undefined : observationStreamPath(flags.report);
+  const declaration = declarationDigest({
+    version,
+    config: configText,
+    sourceFlag: source.flag,
+    source: sourceText,
+    unsafeMethods: flags.unsafeMethods === true,
+    identify: flags.identify !== false,
+    contextValues,
+  });
+  let carried: readonly CellRecord[] = [];
+  let carriedFrom: { readonly runId: string; readonly startedAt: string } | undefined;
+  if (flags.resume === true && streamPath !== undefined) {
+    const existing = await stat(streamPath).catch(() => undefined);
+    if (existing === undefined) {
+      throw new Error(
+        `--resume was given and there is no stream at "${streamPath}". A completed run ` +
+          `removes it, so either this walk already finished — read the report — or the ` +
+          `path is not the one the interrupted run was given. Resuming from nothing ` +
+          `would silently spend the whole matrix again, which is the cost this flag ` +
+          `exists to avoid.`,
+      );
+    }
+    const stream = await readObservationStream(streamPath);
+    if (stream.header.declaration !== declaration) {
+      throw new Error(
+        `--resume refuses: the declaration has changed since "${streamPath}" was ` +
+          `written (${stream.header.declaration} then, ${declaration} now). The ` +
+          `configuration, the endpoint document, a value a condition takes from the ` +
+          `environment, or --unsafe-methods or --no-identify — one of them is not what ` +
+          `it was. Cells walked under one declaration and cells walked under another ` +
+          `are not one run, and a report that presented them as one would carry a ` +
+          `single digest and a single verdict over both. Start a fresh run, or restore ` +
+          `what changed.`,
+      );
+    }
+    if (stream.header.version !== version) {
+      throw new Error(
+        `--resume refuses: "${streamPath}" was written by barbican ` +
+          `${String(stream.header.version)} and this is ${version}. What a status means, ` +
+          `which cells exist and how a verdict is reached are all this build's to ` +
+          `decide, and half a matrix decided by another build is not a run this one can ` +
+          `answer for. Start a fresh run.`,
+      );
+    }
+    carried = stream.records;
+    carriedFrom = { runId: stream.header.runId, startedAt: stream.header.startedAt };
+    if (Number.isNaN(Date.parse(carriedFrom.startedAt))) {
+      throw new Error(
+        `The observation stream "${streamPath}" carries no readable start time, and a ` +
+          `resumed run reports the start of the walk it continues. Start a fresh run.`,
+      );
+    }
+    process.stderr.write(
+      `${paint("Resuming:", "green")} ${carried.length} cells are already in ` +
+        `${streamPath} and will not be probed again${
+          stream.incomplete ? ", and its last line was half-written — that run was killed" : ""
+        }. The report will carry the interrupted run's identifier and start time.\n`,
+    );
+  }
+
+  /**
+   * The run's identifier, minted here rather than by the report.
+   *
+   * `buildReport` mints one too, and it runs after the last response has come
+   * back — the wrong end of a run for a value that has to be on the **first**
+   * request. So the CLI decides it before anything is sent and the report
+   * carries the CLI's; `buildReport` keeps its own for a consumer of the library
+   * assembling a report without having gone through this command. Where a run
+   * happened, the identifier the platform saw is the one the artifact is filed
+   * under, because a second identifier would let the owner of the target filter
+   * the traffic out of their graphs and still not know which report it produced.
+   *
+   * A resumed run adopts the interrupted one's rather than minting a second.
+   * Both halves of the walk then carry one identifier on the wire, and the one
+   * report they produce is filed under it — which is the whole of what ADR-0045
+   * bought. Two identifiers would leave the owner of the platform with two
+   * populations of traffic and one document, and no way to join them.
+   *
+   * See ADR-0045.
+   */
+  const runId = carriedFrom?.runId ?? randomUUID();
+  const identity = flags.identify === false ? undefined : runIdentity({ version, runId, homepage });
 
   // The registry is created explicitly and locally: there is no global state in
   // the core (ADR-0003). Assembled here, before the first request, and not next
@@ -634,7 +994,14 @@ async function run(flags: RunFlags): Promise<number> {
         : [{ accountId: account.id, endpointId: account.canary, roleId: account.role }],
     ),
     ...(config.exclude === undefined ? {} : { exclude: config.exclude }),
-    // The fourth check needs the expanded policy: a canary the policy denies is a
+    // The method check needs the flag, and the flag lives on the command line
+    // rather than in the configuration: a canary on `POST /login` is a mistake
+    // only while this run refuses write methods. Without it the preview printed
+    // the endpoint as skipped for its method and counted three canary requests
+    // against it in the same summary, and the run reached the platform's silence
+    // for a reason that was never the platform's.
+    allowUnsafeMethods: flags.unsafeMethods === true,
+    // The last check needs the expanded policy: a canary the policy denies is a
     // contradiction the run would otherwise report as a platform defect.
     policy,
   });
@@ -644,7 +1011,16 @@ async function run(flags: RunFlags): Promise<number> {
   // would do — on someone else's deployment the question "what exactly will you
   // touch" deserves an answer before the first request, not after.
   if (flags.dryRun === true) {
-    return describePlan(config, endpoints, flags, selected, throttle.limits, contextValues);
+    return describePlan(
+      config,
+      endpoints,
+      flags,
+      selected,
+      throttle.limits,
+      contextValues,
+      identity,
+      carried.length,
+    );
   }
 
   const credentials = createCredentialProvider(
@@ -657,6 +1033,9 @@ async function run(flags: RunFlags): Promise<number> {
     allowedHosts: config.target.allowedHosts,
     throttle,
     allowUnsafeMethods: flags.unsafeMethods === true,
+    // Into the client and not into each request the walk builds: the client is
+    // the one seam every request of a run passes through, canaries included.
+    ...(identity === undefined ? {} : { identity }),
     ...(config.bodySignals?.maxBodyBytes === undefined
       ? {}
       : {
@@ -685,11 +1064,14 @@ async function run(flags: RunFlags): Promise<number> {
   // The report's own type rather than a structural copy: a copy drifts, and a
   // field it has not heard of is dropped in silence.
   let canaryOutcomes: readonly CanaryOutcome[] = [];
-  if (canaries.length === 0) {
-    if (needsCanary(config)) {
-      sayEarly("noCanary");
-    }
-  } else {
+  // Said before the walk when **any** credentialed account lacks a canary, not
+  // only when the run has none at all: the condition here is the one the verdict
+  // will apply, and a warning that fires on less than the verdict does is a
+  // warning that lets a run end with an exit code nothing on screen predicted.
+  if (accountsOwedACanary(config).length > 0) {
+    sayEarly("noCanary");
+  }
+  if (canaries.length > 0) {
     const results = await probeCanaries({
       baseUrl: config.target.baseUrl,
       endpoints,
@@ -697,6 +1079,7 @@ async function run(flags: RunFlags): Promise<number> {
       credentials,
       client,
       exclude: config.exclude,
+      allowUnsafeMethods: flags.unsafeMethods === true,
       // Canaries check authentication, not conditions: an account under conditions
       // presents the same credentials, so a second pass over it would confirm
       // nothing new while doubling the requests.
@@ -746,9 +1129,108 @@ async function run(flags: RunFlags): Promise<number> {
 
       throw new Error(`The canaries did not pass, the run stopped:\n${details}\n${why}`);
     }
+
+    // A canary that passed, on an endpoint that answers everybody, confirms
+    // nothing — and confirming is its whole job. Checked after the failures
+    // above, because a canary that did not pass has a more specific thing wrong
+    // with it, and before the walk, because the answer does not change once the
+    // walk starts and the traffic is somebody else's to pay for.
+    const undiscerning = results.find(
+      (result) => result.anonymousStatus !== undefined && result.anonymousStatus < 300,
+    );
+    if (undiscerning !== undefined) {
+      throw new UndiscerningCanaryError(
+        undiscerning.accountId,
+        undiscerning.endpointId,
+        undiscerning.anonymousStatus ?? 0,
+      );
+    }
   }
 
-  const startedAt = new Date();
+  // The start of the walk this report is about — the interrupted run's where
+  // there is one. A resumed report whose `startedAt` named the second process
+  // would put a duration next to observations timed hours before it.
+  const startedAt =
+    carriedFrom === undefined ? new Date() : new Date(Date.parse(carriedFrom.startedAt));
+
+  /**
+   * The walk on disk, opened before the first cell of it.
+   *
+   * Not before the canaries: a run stopped there has nothing to resume, and a
+   * stream holding a header alone is a file the operator did not ask for. After
+   * them, and from here on every finished cell is on disk within milliseconds of
+   * the response.
+   */
+  let stream: ObservationStream | undefined;
+  if (streamPath !== undefined) {
+    const replaced = flags.resume !== true && (await stat(streamPath).catch(() => undefined));
+    stream = await openObservationStream(
+      streamPath,
+      {
+        format: OBSERVATION_STREAM_FORMAT,
+        tool: "barbican",
+        version,
+        declaration,
+        runId,
+        startedAt: startedAt.toISOString(),
+      },
+      carriedFrom === undefined
+        ? []
+        : [
+            ...carried.map((record) => ({ kind: "cell", ...record })),
+            // A note that this file spans more than one process, for whoever
+            // reads it afterwards. Ignored on the way back in — only `cell`
+            // lines are.
+            { kind: "resumed", at: new Date().toISOString(), cells: carried.length },
+          ],
+    );
+    if (replaced !== undefined && replaced !== false) {
+      process.stderr.write(
+        `${paint("A stream from an earlier run was replaced:", "yellow")} ${streamPath} ` +
+          `held ${replaced.size} bytes and --resume was not given, so that run can no ` +
+          `longer be continued.\n`,
+      );
+    }
+    process.stderr.write(
+      `Streaming the walk to ${streamPath}: a run interrupted or killed leaves a ` +
+        `partial report and can be continued with --resume. The file is removed when ` +
+        `the walk completes.\n`,
+    );
+  }
+
+  /**
+   * The stop an operator or a scheduler asks for, and what is left on disk after.
+   *
+   * SIGINT is Ctrl-C — often because the owner of the platform asked for it —
+   * and SIGTERM is how CI kills a job that ran past its timeout. Both used to
+   * end the process where it stood, and everything the walk had observed went
+   * with them: node's default is the right exit status and the wrong amount of
+   * work saved.
+   *
+   * The handler does not change the status. It stops the walk, lets the report
+   * be assembled from what was observed, and then re-raises the signal with the
+   * default disposition restored — so a shell and a pipeline still see 130 and
+   * 143, which is the contract `tests/invariants/cli-surface.test.ts` holds. A
+   * second signal is taken as impatience and goes straight through.
+   */
+  const walking = new AbortController();
+  let interruptedBy: NodeJS.Signals | undefined;
+  const onSignal = (signal: NodeJS.Signals): void => {
+    if (interruptedBy !== undefined) {
+      void endBySignal(signal, onSignal);
+      return;
+    }
+    interruptedBy = signal;
+    process.stderr.write(
+      `\n${paint(`Interrupted by ${signal}:`, "red")} the walk stops here. What was ` +
+        `observed is being written out, and the report will say the tail was never ` +
+        `probed — the absence of findings in it means nothing.\n`,
+    );
+    walking.abort();
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+
   const { observations, skipped, failures, probed, truncated } = await collectObservations({
     baseUrl: config.target.baseUrl,
     endpoints,
@@ -760,6 +1242,15 @@ async function run(flags: RunFlags): Promise<number> {
     resources: config.resources,
     tenantBaseUrls,
     contextAttributes,
+    abort: walking.signal,
+    ...(carried.length === 0 ? {} : { resumed: carried }),
+    ...(stream === undefined
+      ? {}
+      : {
+          // The stream swallows its own failures: a disk that fills must cost
+          // the safety net and not the walk, whose traffic is already spent.
+          record: (record: CellRecord) => stream?.append({ kind: "cell", ...record }),
+        }),
     // From the throttle's own merge of defaults and flags, so the walk and the
     // limiter cannot end up with two different numbers for the same limit. A
     // port implementation that declares no limits gets a walk of one: the walk
@@ -767,6 +1258,15 @@ async function run(flags: RunFlags): Promise<number> {
     ...(throttle.limits === undefined ? {} : { concurrency: throttle.limits.concurrency }),
   });
   const finishedAt = new Date();
+  await stream?.close();
+  if (stream?.failure !== undefined) {
+    process.stderr.write(
+      `${paint("The walk could not be streamed to disk:", "yellow")} ${stream.failure}. ` +
+        `The run itself was not affected and the report below is complete for what was ` +
+        `walked — but ${streamPath ?? "the stream"} is not, so this run cannot be ` +
+        `resumed from it.\n`,
+    );
+  }
 
   /**
    * The canaries again, now that the walk is over.
@@ -785,6 +1285,7 @@ async function run(flags: RunFlags): Promise<number> {
    * and the budget that ended the walk would end these requests too.
    */
   const staleCredentials: string[] = [];
+  const unverifiedAfterWalk: string[] = [];
   if (canaries.length > 0 && !truncated) {
     const after = await probeCanaries({
       baseUrl: config.target.baseUrl,
@@ -793,8 +1294,14 @@ async function run(flags: RunFlags): Promise<number> {
       credentials,
       client,
       exclude: config.exclude,
+      allowUnsafeMethods: flags.unsafeMethods === true,
       accounts: accounts.filter((account) => account.contextId === undefined),
       tenantBaseUrls,
+      // The control request belongs to the first pass: whether the endpoint
+      // distinguishes is a property of the endpoint, and the walk does not change
+      // it. Asking again spends a request on somebody else’s platform to learn
+      // what is already known.
+      controlRequests: false,
     });
     const passedBefore = new Set(
       canaryOutcomes.filter((one) => one.authenticated).map((one) => one.accountId),
@@ -802,10 +1309,36 @@ async function run(flags: RunFlags): Promise<number> {
     for (const result of after) {
       // A terminal failure is our own ceiling, not a dead token: saying the
       // credentials went stale there would send the reader after the wrong thing.
+      // It is not nothing either, and silence here is what the audit of 20 August
+      // found: a ceiling of 14 requests, which the preview itself called enough,
+      // ate the whole second pass and the run came back 0 with a dead token.
       const stopped = TERMINAL_FAILURES.has(result.failure ?? "");
-      if (passedBefore.has(result.accountId) && !result.authenticated && !stopped) {
+      if (!passedBefore.has(result.accountId)) {
+        continue;
+      }
+      if (stopped) {
+        unverifiedAfterWalk.push(result.accountId);
+      } else if (result.status === 0) {
+        // Nothing came back at all, so nothing here is about the credentials.
+        // The first pass tells these three apart — our own ceiling, a platform
+        // that did not answer, a refusal — and the second told only two: a
+        // deployment that died after the walk was reported as "the credentials
+        // went stale", sending the reader after a token while the stand was
+        // down. The walk itself is untouched in that case, which is why this is
+        // the same reservation as a ceiling and not a finding about access.
+        // Found by adversarial review, 21 August 2026 (V-6).
+        unverifiedAfterWalk.push(result.accountId);
+      } else if (!result.authenticated) {
         staleCredentials.push(result.accountId);
       }
+    }
+    if (unverifiedAfterWalk.length > 0) {
+      process.stderr.write(
+        `${paint("Authentication was not confirmed a second time:", "red")} ` +
+          `${unverifiedAfterWalk.join(", ")}. The canaries could not be probed ` +
+          `again — the run hit its own ceiling, or the platform stopped answering ` +
+          `— so nothing says the tokens still worked at the end of the walk.\n`,
+      );
     }
     if (staleCredentials.length > 0) {
       process.stderr.write(
@@ -859,7 +1392,18 @@ async function run(flags: RunFlags): Promise<number> {
   // Each check reports its own reach. It used to be one function exported from
   // one check and called by name here, with its type imported into the report
   // layer — the arrangement ADR-0003 exists to prevent.
-  const byCheck = selected.flatMap((check) => check.coverage?.(context) ?? []);
+  // The same isolation `runChecks` gives `run`: a `coverage` that throws would
+  // otherwise discard a finished walk at the step that only counts what it
+  // looked at. Silence here rather than a finding: the finding for a broken
+  // check is already made by `runChecks` a few lines below, and saying it twice
+  // would print one breakage as two.
+  const byCheck = selected.flatMap((check) => {
+    try {
+      return check.coverage?.(context) ?? [];
+    } catch {
+      return [];
+    }
+  });
   // Through `runChecks`, which settles each finding's severity from the check
   // that made it. Calling `run` directly here is what let the severity be
   // declared twice — once on the check and once as a literal inside it.
@@ -873,7 +1417,7 @@ async function run(flags: RunFlags): Promise<number> {
   );
   const unauthenticated = suspicions.map((s) => s.accountId);
 
-  const report = buildReport({
+  const built = buildReport({
     // The same rows the matrix has: a finding refers to an account under
     // conditions, and that account must be in the account list, or the reference
     // dangles.
@@ -888,6 +1432,7 @@ async function run(flags: RunFlags): Promise<number> {
     unauthenticated,
     canariesChecked,
     staleCredentials,
+    unverifiedAfterWalk,
     canaries: canaryOutcomes,
     truncated,
     unsafeMethods: flags.unsafeMethods === true,
@@ -905,22 +1450,34 @@ async function run(flags: RunFlags): Promise<number> {
     finishedAt,
   });
 
-  const json = `${JSON.stringify(report, null, 2)}\n`;
+  /**
+   * The identifier the platform saw, in the document the platform's owner gets.
+   *
+   * `buildReport` mints a `runId` of its own, and it has to: a report without
+   * one cannot be told from the next report. But it runs at the end of the walk,
+   * and the value has to exist before the first request or it cannot be on the
+   * wire at all. So the run's own identifier wins here — which is the whole of
+   * what makes marking the traffic useful, since a filter in a SIEM has to lead
+   * back to *this* file. See ADR-0045.
+   */
+  const report: RunReport = { ...built, runId };
+
+  let reportWritten = false;
   if (flags.report === undefined) {
-    process.stdout.write(json);
+    await writeChunks(process.stdout, reportChunks(report));
   } else {
     try {
-      // 0o600, not the umask's answer. The file carries every request address,
-      // every response header and the identifiers of accounts, resources and
-      // tenants. The project keeps tokens and bodies out of it by construction
-      // and then wrote it world-readable on a shared build agent.
-      await writeFile(flags.report, json, { encoding: "utf8", mode: 0o600 });
+      await writeReportFile(flags.report, report);
+      reportWritten = true;
     } catch (cause) {
       // The path was checked before the first request, so getting here means the
       // directory went away underneath us or the disk filled. The run is already
       // paid for in traffic against someone else's deployment: losing the result
       // now would mean spending it twice.
-      process.stdout.write(json);
+      //
+      // A second generator: the first one was consumed by the attempt above, and
+      // a generator does not rewind.
+      await writeChunks(process.stdout, reportChunks(report));
       process.stderr.write(
         `${paint("The report could not be written:", "red")} ${
           cause instanceof Error ? cause.message : String(cause)
@@ -930,14 +1487,40 @@ async function run(flags: RunFlags): Promise<number> {
     }
   }
 
+  /**
+   * The stream outlives only a walk that did not finish.
+   *
+   * A complete walk has the report, which is the artifact; leaving the stream
+   * beside it would be a second copy of the same data, at the same sensitivity,
+   * that nobody asked for and nothing would ever delete. An incomplete one keeps
+   * it, because it is the only thing that makes the traffic already spent worth
+   * anything.
+   *
+   * The failed-write branch above keeps it too: the report went to stdout, and a
+   * pipeline that loses stdout still has this.
+   */
+  if (streamPath !== undefined && !truncated && reportWritten) {
+    await rm(streamPath, { force: true }).catch(() => undefined);
+  }
+
   const { summary } = report;
   const verdict = runVerdict(report);
   const escalations = summary.byKind["privilege-escalation"] ?? 0;
   if (truncated) {
     process.stderr.write(
-      `${paint("The run was cut short:", "red")} the request budget ran out or the ` +
-        `circuit breaker tripped. The tail of the matrix was never tested — the absence ` +
-        `of findings there means nothing.\n`,
+      `${paint("The run was cut short:", "red")} ${
+        interruptedBy === undefined
+          ? "the request budget ran out or the circuit breaker tripped"
+          : `${interruptedBy} stopped the walk`
+      }. The tail of the matrix was never tested — the absence ` +
+        `of findings there means nothing.\n${
+          streamPath === undefined
+            ? `Nothing was streamed to disk, so the cells that were walked cannot be ` +
+              `carried into another run: give --report next time.\n`
+            : `The ${observations.length} cells that were walked are in ${streamPath}. ` +
+              `Continue where this stopped, without spending them again:\n  barbican run ` +
+              `--config ${flags.config} --report ${flags.report ?? ""} --resume …\n`
+        }`,
     );
   }
   if (unauthenticated.length > 0) {
@@ -1018,7 +1601,19 @@ async function run(flags: RunFlags): Promise<number> {
       // the type system cannot see that, and an unstyled warning must still be
       // printed rather than swallowed.
       .map((text) => paint(text, WARNING_STYLE_BY_TEXT.get(text) ?? "yellow")),
-    flags.report === undefined ? undefined : `Report: ${flags.report}`,
+    // What the platform's own records will show this run as. The report has no
+    // field for it, so this line is the only account of whether the run
+    // announced itself — and the run identifier is worth repeating where the
+    // operator is looking, since the report it is also written in may have gone
+    // past on stdout.
+    identity === undefined
+      ? paint(
+          "This run did not name itself on the wire: --no-identify was given, and " +
+            "the platform's logs cannot tell it from an attack.",
+          "yellow",
+        )
+      : `Named on the wire as: ${identity.value}`,
+    flags.report === undefined ? "Report: printed to stdout" : `Report: ${flags.report}`,
     // The last line, and the one CI acts on. Without it the reader is left to
     // reconcile "Distinct defects: at least 1" with a zero exit code by himself,
     // and the honest conclusion from that pair is that the exit code is unreliable.
@@ -1026,7 +1621,127 @@ async function run(flags: RunFlags): Promise<number> {
   ].filter((line): line is string => line !== undefined);
 
   process.stderr.write(`${lines.join("\n")}\n`);
+
+  // A run stopped by a signal ends the way a signal ends a process, and the
+  // report it now leaves behind does not change that: 130 and 143 are what a
+  // shell and a pipeline read, and the verdict's own code would be a different
+  // statement in the same field.
+  if (interruptedBy !== undefined) {
+    return await endBySignal(interruptedBy, onSignal);
+  }
+  process.off("SIGINT", onSignal);
+  process.off("SIGTERM", onSignal);
   return verdict.code;
+}
+
+/**
+ * Ends the process the way the signal would have, now that the work is saved.
+ *
+ * The handler is removed first, which restores the default disposition, and the
+ * signal is then sent again — so `child_process` reports `signal: "SIGINT"` and
+ * a shell turns that into 130, exactly as it did when nothing here handled the
+ * signal at all. `process.exit(130)` would be a different fact in the same
+ * field: an exit code says the program decided, a signal says it was stopped.
+ *
+ * stderr is drained before the raise. It is a pipe under CI and a pipe is
+ * written asynchronously, so the summary this run just produced would otherwise
+ * be cut off by its own exit.
+ *
+ * The wait afterwards never returns on any platform this runs on — the kernel
+ * delivers a signal a process sends itself before the call comes back. The
+ * number below it is the answer if some platform disagrees, and it is the same
+ * number a shell would have printed.
+ */
+async function endBySignal(
+  signal: NodeJS.Signals,
+  handler: NodeJS.SignalsListener,
+): Promise<number> {
+  process.off("SIGINT", handler);
+  process.off("SIGTERM", handler);
+  await new Promise<void>((settle) => {
+    process.stderr.write("", () => settle());
+  });
+  process.kill(process.pid, signal);
+  await new Promise<void>((settle) => {
+    setTimeout(settle, 1_000);
+  });
+  return 128 + (signalNumbers.signals[signal] ?? 0);
+}
+
+/**
+ * How the comparison's own tones reach a terminal.
+ *
+ * A `Record` over `ComparisonTone` and not a lookup with a default, for the
+ * reason `WARNING_STYLE` above is one: a tone added to the report layer without
+ * a colour here does not compile, so it cannot reach the screen unpainted.
+ * Green appears exactly once, on the tone whose name is `good` — a comparison
+ * screen that made a caveat look like a clearance would be `escalationLine`'s
+ * defect in a new place.
+ */
+const COMPARISON_STYLE: Readonly<Record<ComparisonTone, Parameters<typeof paint>[1] | undefined>> =
+  {
+    plain: undefined,
+    good: "green",
+    warn: "yellow",
+    bad: "red",
+  };
+
+/**
+ * A report file, read and parsed, with the argument that named it.
+ *
+ * `readNamedFile` next door names the four flags a run takes; a comparison
+ * takes two positional paths, and "EISDIR: illegal operation on a directory"
+ * says which of them no better here than it did there.
+ *
+ * @throws {Error} naming which of the two arguments failed
+ */
+async function readReport(role: string, path: string): Promise<unknown> {
+  const text = await readFile(path, "utf8").catch((cause: unknown) => {
+    throw new Error(
+      `the ${role} report cannot be read from "${path}": ${
+        cause instanceof Error ? cause.message : String(cause)
+      }. A comparison takes two paths, and the system error names neither`,
+    );
+  });
+  try {
+    return JSON.parse(text) as unknown;
+  } catch (cause) {
+    throw new Error(
+      `the ${role} report at "${path}" is not JSON: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }. This takes the file \`run --report\` writes, not the stream beside it ` +
+        `(${OBSERVATION_STREAM_FORMAT} is one JSON document per line)`,
+    );
+  }
+}
+
+/**
+ * Two saved reports, read against each other.
+ *
+ * The summary goes to stderr and `--json` to stdout, which is the split `run`
+ * already uses: the artifact is redirectable and the screen is not mixed into
+ * it. Both are produced from one `compareRuns`, so the file and the terminal
+ * cannot come to different conclusions — the mistake `WARNINGS` spent four days
+ * being.
+ */
+async function diff(beforePath: string, afterPath: string, asJson: boolean): Promise<number> {
+  const [before, after] = await Promise.all([
+    readReport("first", beforePath).then((one) => toComparableRun(one, beforePath)),
+    readReport("second", afterPath).then((one) => toComparableRun(one, afterPath)),
+  ]);
+  const comparison = compareRuns(before, after);
+  if (asJson) {
+    process.stdout.write(`${JSON.stringify(comparison, null, 2)}\n`);
+  }
+  process.stderr.write(
+    `${renderComparison(comparison)
+      .map((line) => {
+        const style = COMPARISON_STYLE[line.tone];
+        return style === undefined ? line.text : paint(line.text, style);
+      })
+      .join("\n")}\n`,
+  );
+  return comparison.verdict.code;
 }
 
 /**
@@ -1073,7 +1788,18 @@ program
   .option("-r, --report <path>", "where to write the JSON report (stdout by default)")
   .option("--checks <ids>", "run only these checks, comma separated (all by default)")
   .option("--unsafe-methods", "allow methods that change state")
+  // A negated flag, because the answer is yes by default. The party the marking
+  // is for is the owner of the platform, who cannot otherwise tell this run from
+  // the intrusion it is shaped like; the party helped by silence is the operator
+  // measuring what an unannounced sweep looks like, and that is a deliberate
+  // exercise which can say so. The same side the tool takes on write methods and
+  // on a mandatory scope. See ADR-0045.
+  .option("--no-identify", "do not name the run on the wire (a marked run may be met differently)")
   .option("--dry-run", "print what would be probed and stop, sending nothing")
+  // Beside --report rather than taking a path of its own: the stream lives next
+  // to the report and is named after it, so a second path here could only ever
+  // be a way to point the two at different runs.
+  .option("--resume", "continue the walk left in the stream beside --report")
   .option("--concurrency <n>", "concurrent requests", positiveInteger)
   .option("--rps <n>", "requests per second", positiveInteger)
   .option("--max-requests <n>", "per-run request budget", positiveInteger)
@@ -1083,6 +1809,26 @@ program
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`${paint("Run aborted:", "red")} ${message}\n`);
+      process.exitCode = 2;
+    }
+  });
+
+program
+  .command("diff")
+  .description("Compare two saved reports: what changed, and whether it was the platform")
+  .argument("<before>", "the earlier report, written by `run --report`")
+  .argument("<after>", "the later one")
+  .option("--json", "write the comparison to stdout as JSON instead of a summary")
+  .action(async (before: string, after: string, flags: { readonly json?: boolean }) => {
+    try {
+      process.exitCode = await diff(before, after, flags.json === true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // 2 and not 64, and the line is the same one `run` draws: what the
+      // argument parser rejects is a usage error, and everything after that —
+      // a path that is not there, a file that is not JSON, a document that is
+      // not a report — is a conclusion the tool refuses to draw.
+      process.stderr.write(`${paint("Comparison aborted:", "red")} ${message}\n`);
       process.exitCode = 2;
     }
   });

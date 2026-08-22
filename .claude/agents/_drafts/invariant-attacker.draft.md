@@ -57,8 +57,21 @@ Read `CLAUDE.md` and `docs/adr/0004`, `0005` — the claimed guarantees are ther
 6. **GET and HEAD only without the flag.** Look for a mismatch between the gates.
 7. **Trustworthiness of the verdict.** Separately and without fail: find a way to get
    a report with no findings, having checked nothing. An empty spec, a deployment that is down,
-   an exhausted budget, a policy with no declared access. This is the most dangerous
-   class: "nothing was checked" must not look like "everything is clean".
+   an exhausted budget, a policy with no declared access, an account whose credentials
+   nothing confirmed. This is the most dangerous class: "nothing was checked" must not
+   look like "everything is clean". Ask it **per account and per cell**, not per run:
+   a rule quantified over the run passes while one account of four is unproven, which
+   is how a dead token survived the check written for dead tokens (ADR-0033).
+8. **The doors and the seam.** A grammar for a string from outside is written once
+   (ADR-0024) and applied where the value is used (ADR-0032). Look for the call site
+   that does not go through it: a fourth source of endpoints, a second place that builds
+   an address, a field that reaches the wire without passing the check its twin passes.
+   The library is a door — `collectObservations` takes `Endpoint[]` from the caller,
+   and `exports` in `package.json` says who else may knock.
+9. **The guard against your own normalization.** Where the tool splits, decodes or
+   trims a string, ask what the consumer of that string does differently: the URL parser
+   reads `\` as a separator and removes tab, newline and carriage return before parsing.
+   Two readings of one string are a break waiting to be found.
 
 ## Report
 
