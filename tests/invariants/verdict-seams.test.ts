@@ -473,6 +473,13 @@ tenants: [tenant-a, tenant-b]
         paths.endpointsPath,
         "--report",
         paths.reportPath,
+        // The rate is incidental here — these tests count requests and read
+        // verdicts — and at the conservative default of five a second a matrix
+        // of eighteen cells takes longer than vitest waits. Left at the default,
+        // this file failed on a loaded CI runner and passed on a quiet laptop,
+        // which is the worst way for a test to be wrong.
+        "--rps",
+        "500",
       );
 
       // Two accounts, one canary each, and not one request more. The matrix
@@ -513,6 +520,13 @@ tenants: [tenant-a, tenant-b]
         paths.endpointsPath,
         "--report",
         paths.reportPath,
+        // The rate is incidental here — these tests count requests and read
+        // verdicts — and at the conservative default of five a second a matrix
+        // of eighteen cells takes longer than vitest waits. Left at the default,
+        // this file failed on a loaded CI runner and passed on a quiet laptop,
+        // which is the worst way for a test to be wrong.
+        "--rps",
+        "500",
       );
 
       // Two canaries, eighteen cells, two canaries again.
@@ -570,8 +584,27 @@ tenants: [tenant-a]
         paths.endpointsPath,
         "--report",
         paths.reportPath,
+        // The rate is incidental here — these tests count requests and read
+        // verdicts — and at the conservative default of five a second a matrix
+        // of eighteen cells takes longer than vitest waits. Left at the default,
+        // this file failed on a loaded CI runner and passed on a quiet laptop,
+        // which is the worst way for a test to be wrong.
+        "--rps",
+        "500",
       );
-      const report = JSON.parse(await readFile(paths.reportPath, "utf8")) as ReportFile;
+      // Read through a message rather than through ENOENT. When this failed on
+      // CI the whole diagnosis was "no such file", which says the run wrote no
+      // report and nothing about why — and the why is on stderr, which the
+      // helper already has in hand.
+      let report: ReportFile;
+      try {
+        report = JSON.parse(await readFile(paths.reportPath, "utf8")) as ReportFile;
+      } catch (cause) {
+        throw new Error(
+          `the run wrote no report (exit ${result.exitCode}). Its stderr was:\n${result.stderr}`,
+          { cause },
+        );
+      }
       return { ...result, report };
     } finally {
       delete process.env.SEAM_TOKEN_ALICE;
