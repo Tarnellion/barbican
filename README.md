@@ -528,6 +528,24 @@ again and says so; a declaration that covered nothing is reported as
 `matched: 0`; and `not-observed` and `probe-error` cannot be accepted at all,
 because a run may not buy its way out of saying it reached nothing.
 
+**The walk holds one copy of the matrix instead of three**
+([ADR-0053](docs/adr/0053-the-walk-holds-one-copy-of-the-matrix.md)). The
+measurement that named three materialisations of the matrix in a run counted the
+walk as one of them; the walk was three by itself — a task per cell laid out
+before the first request, a result per cell filled during it, and the
+observations drained out of that at the end, all alive together when the last cell
+came back. It also minted a key string per cell before the first request to
+resolve `--resume`, on every run, including the ones resuming nothing. The task
+list is now a cursor over the accounts and the `endpoint × resource` pairs, a
+worker writes its observation straight into the array the walk returns, and the
+holes an interrupted run leaves are closed up in place. Measured on the same
+ladder as before: the walk's peak resident set is down by up to 22% at 576 000
+cells and the reduction grows with the matrix, and the walk now retains 1.010
+copies of what it hands back where it retained 1.478. **The peak of the whole run
+is unchanged** — it is reached while the report is being built, where the three
+materialisations still stand; the ADR says which they are, what each costs and
+what moving them would take.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.

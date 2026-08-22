@@ -242,4 +242,146 @@ describe("a resumed walk", () => {
     // And nothing was sent while finding out.
     expect(seen).toEqual([]);
   });
+
+  /**
+   * The failure comes back with the observation it belonged to.
+   *
+   * `summary.failures` is built from `failures[]`. A resumed walk that brought
+   * back the observations and dropped the failures would report a smaller number
+   * over the same matrix than the walk that was interrupted — one walk, two
+   * documents, which is the thing `--resume` exists not to produce.
+   */
+  it("brings back the failure a resumed cell carried, in cell order", async () => {
+    const straight = fakeClient((request) => (request.url.endsWith("/v1/me") ? 500 : 403));
+    const complete = await collectObservations({ ...base, client: straight.client });
+    expect(complete.failures).toHaveLength(2);
+
+    const already: CellRecord[] = complete.observations.map((observation) => {
+      const failure = complete.failures.find(
+        (one) =>
+          one.accountId === observation.accountId && one.endpointId === observation.endpointId,
+      );
+      return {
+        accountId: observation.accountId,
+        endpointId: observation.endpointId,
+        observation,
+        ...(failure === undefined ? {} : { failure }),
+      };
+    });
+
+    const resumedClient = fakeClient();
+    const resumed = await collectObservations({
+      ...base,
+      client: resumedClient.client,
+      resumed: already,
+    });
+
+    expect(resumedClient.seen).toEqual([]);
+    expect(resumed.failures).toEqual(complete.failures);
+  });
+
+  /**
+   * An account under conditions walks only the endpoints the conditions were
+   * declared on, so its cells are not at the same offsets as anybody else's.
+   *
+   * Which is what a resumed record has to be placed by. Placing it by the cell's
+   * position in the whole matrix instead would put an account's observation in
+   * another account's row on every run that has a condition in it — silently, and
+   * in the one artifact the operator reads.
+   */
+  it("places a resumed cell of an account under conditions at its own index", async () => {
+    const withContext: readonly Account[] = [
+      ...accounts,
+      // Declared on one endpoint of the three, in the middle of the list: an
+      // offset that is neither the first nor the last is the only one that tells
+      // a correct placement from an accidental one.
+      {
+        id: "player-a@geo-blocked",
+        roleId: "player",
+        tenantId: "tenant-a",
+        contextId: "geo-blocked",
+        baseAccountId: "player-a",
+        endpointIds: ["profile.me"],
+      },
+    ];
+    const options = { ...base, accounts: withContext };
+
+    const straight = fakeClient();
+    const complete = await collectObservations({ ...options, client: straight.client });
+    // Six cells for the two ordinary accounts, one for the account under
+    // conditions.
+    expect(complete.observations).toHaveLength(7);
+
+    const conditioned = complete.observations.at(-1);
+    expect(conditioned?.accountId).toBe("player-a@geo-blocked");
+
+    const resumedClient = fakeClient();
+    const resumed = await collectObservations({
+      ...options,
+      client: resumedClient.client,
+      resumed:
+        conditioned === undefined
+          ? []
+          : [
+              {
+                accountId: conditioned.accountId,
+                endpointId: conditioned.endpointId,
+                observation: conditioned,
+              },
+            ],
+    });
+
+    // Six requests, not seven: the conditioned cell was the one already walked.
+    expect(resumedClient.seen).toHaveLength(6);
+    expect(resumed.observations.map((one) => `${one.accountId}/${one.endpointId}`)).toEqual(
+      complete.observations.map((one) => `${one.accountId}/${one.endpointId}`),
+    );
+    expect(resumed.observations.at(-1)).toEqual(conditioned);
+  });
+
+  /**
+   * A record naming a cell the account under conditions does not walk.
+   *
+   * The account exists and the endpoint exists, so neither of the two coarse
+   * lookups refuses it — and the pair is still not a cell of this matrix. Left
+   * unrefused it would be written at the index of a different cell.
+   */
+  it("refuses a record for an endpoint the conditioned account was not declared on", async () => {
+    const withContext: readonly Account[] = [
+      {
+        id: "player-a@geo-blocked",
+        roleId: "player",
+        tenantId: "tenant-a",
+        contextId: "geo-blocked",
+        baseAccountId: "player-a",
+        endpointIds: ["profile.me"],
+      },
+    ];
+    const { client, seen } = fakeClient();
+
+    await expect(
+      collectObservations({
+        ...base,
+        accounts: withContext,
+        client,
+        resumed: [
+          {
+            accountId: "player-a@geo-blocked",
+            endpointId: "orders.list",
+            observation: {
+              accountId: "player-a@geo-blocked",
+              endpointId: "orders.list",
+              status: 403,
+              headers: {},
+              outcome: "denied",
+              durationMs: 1,
+              at: new Date(0).toISOString(),
+            },
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(ResumeDoesNotFitError);
+
+    expect(seen).toEqual([]);
+  });
 });

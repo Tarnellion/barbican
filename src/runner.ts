@@ -1106,8 +1106,6 @@ export function planEndpoints(options: {
 export async function collectObservations(options: CollectOptions): Promise<CollectResult> {
   const { probeable, skipped } = planEndpoints(options);
 
-  const observations: AccessObservation[] = [];
-  const failures: ProbeFailure[] = [];
   let truncated = false;
 
   // An endpoint without parameters is probed once; one with parameters — once
@@ -1126,25 +1124,43 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     }
   }
 
-  // Every cell of the run, laid out before the first request.
-  //
-  // The walk used to be two nested loops with `await client.send` in the middle,
-  // so exactly one request was ever in flight and `--concurrency` changed
-  // nothing — 615 requests at 20 ms latency took 13 766 ms at 1 and 13 754 ms at
-  // 128, while the report printed the number as if it had been honoured. A flat
-  // list is what a pool of workers can be handed. Found by the audit of
-  // 14 August 2026.
-  const tasks: Array<{
+  /**
+   * One account, and which cells of the matrix it walks.
+   *
+   * The walk used to lay out one task object per cell before the first request —
+   * the account, the endpoint, the resource, and the two values derived from the
+   * account, held from before the first request until after the last. Everything
+   * in that object except the cell is a property of the account, and there are as
+   * many accounts as an operator wrote down.
+   *
+   * So the account's half is held once per account and the cell's half once per
+   * `endpoint × resource` pair, and a cell of the walk is a pair of indices into
+   * the two lists. That is the first of the two full copies of the matrix the
+   * walk carried beside the observations it returns. See ADR-0053.
+   */
+  interface Walker {
     readonly account: Account;
-    readonly endpoint: Endpoint;
-    readonly resource?: Resource;
     readonly credentialAccountId: string;
     readonly attributes?: ContextAttributes;
-  }> = [];
-  // The cells a previous run already walked, keyed by the cell they belong to.
-  // Consumed as the task list is built, so that what is left over at the end is
-  // exactly the records this matrix has no place for.
-  const alreadyWalked = new Map((options.resumed ?? []).map((one) => [cellKey(one), one]));
+    /**
+     * The cells this account walks, by index into `cells`, when it does not walk
+     * all of them.
+     *
+     * `undefined` is the ordinary account — every cell, and no list to hold. An
+     * account under conditions exists only on the endpoints the conditions were
+     * declared on, and ADR-0019 makes that declaration mandatory precisely so
+     * that conditions do not multiply the matrix by the whole surface: the list
+     * is short, and there is one per such account rather than one per cell.
+     */
+    readonly cellIndices?: readonly number[];
+    /** Where this account's cells begin in the flat numbering of the walk. */
+    readonly offset: number;
+    /** How many cells this account walks. */
+    readonly count: number;
+  }
+
+  const walkers: Walker[] = [];
+  let total = 0;
   for (const account of options.accounts) {
     const attributes = options.contextAttributes?.get(account.id);
     // Conditions do not change the account: it presents itself, and what changes
@@ -1153,47 +1169,125 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     // different "take the original account" would drift apart silently.
     const credentialAccountId = principalOf(account);
     // Built once per account, for the same reason as in `describeMatrix`: asked
-    // with `includes` inside the loop below, this list is walked once per cell,
-    // and it is as long as the endpoints the conditions were declared on.
+    // with `includes` for every cell, this list is walked once per cell, and it
+    // is as long as the endpoints the conditions were declared on.
     const declaredOn = account.endpointIds === undefined ? undefined : new Set(account.endpointIds);
-    for (const { endpoint, resource } of cells) {
-      // An account under conditions exists only on the declared endpoints.
-      if (declaredOn !== undefined && !declaredOn.has(endpoint.id)) {
-        continue;
+    let cellIndices: number[] | undefined;
+    if (declaredOn !== undefined) {
+      cellIndices = [];
+      for (const [index, cell] of cells.entries()) {
+        // An account under conditions exists only on the declared endpoints.
+        if (declaredOn.has(cell.endpoint.id)) {
+          cellIndices.push(index);
+        }
       }
-      tasks.push({
-        account,
-        endpoint,
-        ...(resource === undefined ? {} : { resource }),
-        credentialAccountId,
-        ...(attributes === undefined ? {} : { attributes }),
-      });
     }
+    const count = cellIndices?.length ?? cells.length;
+    walkers.push({
+      account,
+      credentialAccountId,
+      ...(attributes === undefined ? {} : { attributes }),
+      ...(cellIndices === undefined ? {} : { cellIndices }),
+      offset: total,
+      count,
+    });
+    total += count;
   }
 
   /**
-   * Which task each record of the stream belongs to, and what is left over.
+   * The observations, in cell order, with a hole wherever a cell was not walked.
    *
-   * Consumed rather than merely looked up: a record that fits no cell of this
-   * matrix means the walk being resumed is not the walk that was interrupted,
-   * and that is refused here — after the task list exists, so the answer is
-   * exact, and before the first request of the walk, so it costs nothing.
+   * The array the walk returns, written into directly at the index the cell has.
+   * It used to be filled at the end out of a second array of per-cell results —
+   * the other full copy of the matrix the walk carried, alive beside this one for
+   * as long as the drain took. A result is now a value one worker holds for the
+   * length of one cell.
+   *
+   * Holes are the cells a stop or a terminal error left unreached; they are
+   * closed up in one pass at the end, in place, so the compaction does not
+   * allocate a second array either.
    */
-  const takenFromStream = new Map<number, CellRecord>();
-  for (const [index, task] of tasks.entries()) {
-    const key = cellKey({
-      accountId: task.account.id,
-      endpointId: task.endpoint.id,
-      ...(task.resource === undefined ? {} : { resourceId: task.resource.id }),
-    });
-    const record = alreadyWalked.get(key);
-    if (record !== undefined) {
-      takenFromStream.set(index, record);
-      alreadyWalked.delete(key);
+  const observations = new Array<AccessObservation>(total);
+  /**
+   * The failures, by the index of the cell that produced them.
+   *
+   * A map rather than a second array of the matrix's length: a run where every
+   * cell fails is possible, and a run where none does is the ordinary one, so the
+   * cost should follow the failures rather than the cells. Drained in index order
+   * together with the observations, which is what keeps `failures[]` in the order
+   * the cells were laid out.
+   */
+  const failuresByIndex = new Map<number, ProbeFailure>();
+
+  /**
+   * The cells a previous run already walked, put where this walk would have put
+   * them.
+   *
+   * Resolved from the record's own coordinate rather than by walking the matrix
+   * and asking after every cell of it: that loop minted a key string per cell,
+   * before the first request, on every run — including the overwhelmingly common
+   * one that resumes nothing.
+   *
+   * A record that fits no cell of this matrix is refused rather than ignored: the
+   * walk being resumed is then not the walk that was interrupted. Refused here,
+   * after the shape of the matrix is known so the answer is exact, and before the
+   * first request of the walk so it costs nothing.
+   */
+  if (options.resumed !== undefined && options.resumed.length > 0) {
+    // First wins in both of the maps below, which is what the loop over the task
+    // list did: it took the earliest cell whose key matched. Neither list should
+    // hold a duplicate — `buildAccessMatrix` refuses one — but that runs after the
+    // walk, and "the earliest" is a rule while "whichever the map happened to
+    // keep" is not.
+    const walkerOf = new Map<string, Walker>();
+    for (const walker of walkers) {
+      if (!walkerOf.has(walker.account.id)) {
+        walkerOf.set(walker.account.id, walker);
+      }
     }
-  }
-  if (alreadyWalked.size > 0) {
-    throw new ResumeDoesNotFitError([...alreadyWalked.keys()]);
+    const cellAt = new Map<string, number>();
+    for (const [index, cell] of cells.entries()) {
+      const key = `${cell.endpoint.id}\u0000${cell.resource?.id ?? ""}`;
+      if (!cellAt.has(key)) {
+        cellAt.set(key, index);
+      }
+    }
+    // Where a cell sits inside an account that walks only some of them. Built on
+    // demand and only for such accounts: for every other one the position in the
+    // account is the position in `cells`.
+    const positionsIn = new Map<Walker, ReadonlyMap<number, number>>();
+    // A set, because its size goes into the message: two records naming one
+    // absent cell are one cell this matrix does not contain.
+    const missing = new Set<string>();
+    for (const record of options.resumed) {
+      const walker = walkerOf.get(record.accountId);
+      const cellIndex = cellAt.get(`${record.endpointId}\u0000${record.resourceId ?? ""}`);
+      if (walker === undefined || cellIndex === undefined) {
+        missing.add(cellKey(record));
+        continue;
+      }
+      let position: number | undefined = cellIndex;
+      if (walker.cellIndices !== undefined) {
+        let positions = positionsIn.get(walker);
+        if (positions === undefined) {
+          positions = new Map(walker.cellIndices.map((at, index) => [at, index]));
+          positionsIn.set(walker, positions);
+        }
+        position = positions.get(cellIndex);
+      }
+      if (position === undefined) {
+        missing.add(cellKey(record));
+        continue;
+      }
+      const index = walker.offset + position;
+      observations[index] = record.observation;
+      if (record.failure !== undefined) {
+        failuresByIndex.set(index, record.failure);
+      }
+    }
+    if (missing.size > 0) {
+      throw new ResumeDoesNotFitError([...missing]);
+    }
   }
 
   /**
@@ -1217,15 +1311,22 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
   const changed = new Set<string>();
   const SAFE = new Set<string>(SAFE_METHODS);
 
-  /** What one cell produced. A cell can yield a failure and an observation both. */
+  /**
+   * What one cell produced. A cell can yield a failure and an observation both.
+   *
+   * One of these is alive per worker for the length of one cell. There used to be
+   * one per cell of the matrix, in an array that outlived the walk — see
+   * `observations` above and ADR-0053.
+   */
   interface CellResult {
     readonly failure?: ProbeFailure;
     readonly observation?: AccessObservation;
     readonly truncated?: true;
   }
 
-  async function probe(task: (typeof tasks)[number]): Promise<CellResult> {
-    const { account, endpoint, resource, credentialAccountId, attributes } = task;
+  async function probe(walker: Walker, cell: (typeof cells)[number]): Promise<CellResult> {
+    const { account, credentialAccountId, attributes } = walker;
+    const { endpoint, resource } = cell;
     const startedAt = Date.now();
     const tenantId = resource?.tenantId ?? account.tenantId;
     const baseUrl = baseUrlForTenant(tenantId, options.tenantBaseUrls, options.baseUrl);
@@ -1439,18 +1540,18 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
   // the circuit breaker's "consecutive": failures interleave now, so it means
   // "this many with no success in between", and up to `concurrency - 1`
   // requests are already in flight when it trips.
-  const results = new Array<CellResult>(tasks.length);
-  // The cells a previous run walked, put where this walk would have put them
-  // rather than appended after the ones probed now. The report drains its
-  // observations in cell order so that two runs over one matrix give one
-  // document; a resumed walk that reordered them would break exactly that.
-  for (const [index, record] of takenFromStream) {
-    results[index] = {
-      observation: record.observation,
-      ...(record.failure === undefined ? {} : { failure: record.failure }),
-    };
-  }
   let next = 0;
+  /**
+   * Which account the next cell belongs to, and how far into it the walk is.
+   *
+   * The cursor stands in for the task list: the pair `(walkers[cursor],
+   * cells[…])` is what an entry of that list held, and the flat index `next` is
+   * where the entry sat. Advanced only by `take`, which does not await, so a
+   * worker holds the three values it returns until its own first `await` — the
+   * same argument `next` itself rests on, and the same one thread.
+   */
+  let cursor = 0;
+  let within = 0;
   /**
    * Set by the first terminal error, and after it no worker takes another cell.
    *
@@ -1472,49 +1573,84 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
   let stop = false;
   /** Whether the stop was asked for from outside, rather than earned by the run. */
   const aborted = (): boolean => options.abort?.aborted === true;
+
+  /**
+   * The next cell of the walk, or `undefined` when there are none left.
+   *
+   * Nothing awaits in here, so the claim on a cell and the advance of the cursor
+   * cannot interleave with another worker's — one thread, and no suspension
+   * point between the two. That is the same argument the flat `next++` rested on
+   * before the cursor replaced the list it indexed into.
+   */
+  function take(): { index: number; walker: Walker; cell: (typeof cells)[number] } | undefined {
+    for (;;) {
+      const walker = walkers[cursor];
+      if (walker === undefined) {
+        return undefined;
+      }
+      if (within >= walker.count) {
+        cursor += 1;
+        within = 0;
+        continue;
+      }
+      const cell = cells[walker.cellIndices?.[within] ?? within];
+      const index = next;
+      within += 1;
+      next += 1;
+      // Unreachable: `count` is the length of `cellIndices` or of `cells`, and
+      // both are read at an index below it. Answered rather than asserted —
+      // `noNonNullAssertion` is on, and a `!` here would be the one place in the
+      // walk where the checker was told to stop looking.
+      if (cell === undefined) {
+        continue;
+      }
+      return { index, walker, cell };
+    }
+  }
+
   const workers = Array.from(
-    // `next++` needs no lock — nothing awaits between the read and the
-    // increment, and there is one thread.
-    { length: Math.max(1, Math.min(options.concurrency ?? 1, tasks.length)) },
+    { length: Math.max(1, Math.min(options.concurrency ?? 1, total)) },
     async () => {
       for (;;) {
         if (stop || aborted()) {
           return;
         }
-        const index = next;
-        next += 1;
-        if (index >= tasks.length) {
+        const taken = take();
+        if (taken === undefined) {
           return;
         }
+        const { index, walker, cell } = taken;
         // A cell taken from the stream: already answered by the run that was
         // interrupted, and not a request this one gets to spend.
-        if (results[index] !== undefined) {
+        if (observations[index] !== undefined) {
           continue;
         }
-        const task = tasks[index];
-        if (task === undefined) {
-          return;
-        }
-        const result = await probe(task);
+        const result = await probe(walker, cell);
         // A cell the stop caught mid-flight is not a cell that was walked. It
         // is neither kept nor recorded: recorded, `--resume` would skip it, and
         // a request the platform never answered would be filed as an answer.
         if (aborted()) {
           return;
         }
-        results[index] = result;
+        if (result.observation !== undefined) {
+          observations[index] = result.observation;
+        }
+        if (result.failure !== undefined) {
+          failuresByIndex.set(index, result.failure);
+        }
         if (result.truncated === true) {
           // A terminal condition — an exhausted budget, a tripped breaker — is
           // not an answer either, and it is deliberately not recorded: the cell
           // has to be probed again by whoever resumes.
+          truncated = true;
           stop = true;
           return;
         }
         if (options.record !== undefined && result.observation !== undefined) {
           await options.record({
-            accountId: task.account.id,
-            endpointId: task.endpoint.id,
-            ...(task.resource === undefined ? {} : { resourceId: task.resource.id }),
+            accountId: walker.account.id,
+            endpointId: cell.endpoint.id,
+            ...(cell.resource === undefined ? {} : { resourceId: cell.resource.id }),
             observation: result.observation,
             ...(result.failure === undefined ? {} : { failure: result.failure }),
           });
@@ -1538,22 +1674,29 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
   // in. Two runs of the same matrix have to produce the same file, or a diff
   // between two reports is unreadable and `configDigest` promises more than it
   // delivers.
+  //
+  // In place: the observations are already in that order, at the index of their
+  // cell, and what this pass does is close up the holes a stop or a terminal
+  // error left. Copying them into a second array instead would put two copies of
+  // the matrix in memory at the last step of the walk, which is the thing this
+  // arrangement exists to avoid.
+  const failures: ProbeFailure[] = [];
   let unreached = false;
-  for (const result of results) {
-    if (result === undefined) {
+  let kept = 0;
+  for (let index = 0; index < total; index += 1) {
+    const failure = failuresByIndex.get(index);
+    if (failure !== undefined) {
+      failures.push(failure);
+    }
+    const observation = observations[index];
+    if (observation === undefined) {
       unreached = true;
       continue;
     }
-    if (result.failure !== undefined) {
-      failures.push(result.failure);
-    }
-    if (result.observation !== undefined) {
-      observations.push(result.observation);
-    }
-    if (result.truncated === true) {
-      truncated = true;
-    }
+    observations[kept] = observation;
+    kept += 1;
   }
+  observations.length = kept;
   // A stop from outside that left a cell unwalked is truncation in the sense the
   // word already has here: the tail was never probed, and there are no findings
   // in it because nothing looked. Asked together with `unreached` rather than on
