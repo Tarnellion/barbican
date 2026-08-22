@@ -198,6 +198,13 @@ describe("what stops a clause from being reported as exercised", () => {
     const cells = everyCell(report)?.matrixCells;
 
     expect(cells?.inconclusive["not-observed"]).toBeGreaterThan(0);
+    // And it stays out of the number that says the clause was exercised.
+    // Asserting only that the cell landed under a reason leaves the inflation
+    // this row exists to prevent free to happen beside it — a cell counted as
+    // both inconclusive and upheld satisfies the line above. Found by the
+    // mutation that did exactly that.
+    expect(cells?.conclusive).toBe(report.coverage.cellsObserved);
+    expect(cells?.upheld).toBe(report.coverage.cellsMatched);
   });
 
   /**
