@@ -20,7 +20,7 @@
  */
 
 import { readdirSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import configuration from "../../vitest.config.js";
@@ -77,7 +77,13 @@ function sources(directory: string = resolve(ROOT, "src")): readonly string[] {
     if (entry.isDirectory()) {
       return sources(path);
     }
-    return entry.name.endsWith(".ts") ? [relative(ROOT, path)] : [];
+    // Spelled with `/` whatever the platform separates with: the two lists this
+    // guard reads are globs written in the configuration by hand, and on Windows
+    // `relative` answers `src\\cli\\run.ts`, which matches none of them. The
+    // gate then reported every file as unmeasured and every threshold as naming
+    // nothing — the two failures inverted, on the one platform nobody develops
+    // on. Found by CI on 23 August 2026.
+    return entry.name.endsWith(".ts") ? [relative(ROOT, path).split(sep).join("/")] : [];
   });
 }
 

@@ -43,8 +43,12 @@ describe("a file the command line named", () => {
    * wrong without being told which.
    */
   it("names the flag and the path when it cannot be read", async () => {
+    // A substring, not a `RegExp`: a Windows temporary directory is
+    // `C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\…`, and every separator in it is
+    // an escape once the string becomes a pattern. The assertion then looked for
+    // `\\U` and `\\A` and failed against a message that was word for word right.
     await expect(readNamedFile("--spec", directory)).rejects.toThrow(
-      new RegExp(`--spec cannot be read from "${directory}"`),
+      `--spec cannot be read from "${directory}"`,
     );
   });
 });
