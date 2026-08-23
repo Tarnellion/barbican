@@ -105,7 +105,7 @@ order the `if` blocks were in — which is behaviour, because it decides which
 sentence a path breaking two rules at once gets.
 
 Behaviour, and held as behaviour — but not by the first version of this gate. See
-the amendment of 23 August 2026 below: every witness in the witness list breaks
+the first amendment of 23 August 2026 below: every witness in the witness list breaks
 exactly one rule, which is the property that makes "which rule fired" readable
 from outside the module and also the property that made permuting the table
 invisible to all of them.
@@ -138,7 +138,7 @@ One sentence stood here in the first version of this ADR — "The gate holds it 
 that subset, and to being the only file in the tree that words the refusal" — and
 both of its claims were false when written: the gate checked one string, and it
 read five file names of the sixty-five in the tree. What holds them now is
-described in the amendment of 23 August 2026 below.
+described in the two amendments of 23 August 2026 below.
 
 ### `TERMINAL_ERROR_NAMES` is exported and the CLI imports it
 
@@ -198,8 +198,9 @@ denial", and the function that folds it is the honest thing to ask.
   the only place a predicate and a sentence exist, and
   `tests/invariants/written-once.test.ts` demands a witness per rule, refused by
   both entry points, with that rule's sentence. "A rule" means an entry with an
-  `id` that is a double-quoted literal and a `refuses` key; the amendment below
-  says what that does and does not reach.
+  `id` that is a literal this gate can read, quoted or bare, and the count of
+  entries is structural; the two amendments below say what that does and does not
+  reach.
 - `src/adapters/postman.ts` loses a branch v8 never reached; its statement
   coverage goes up rather than down.
 - `src/cli/canaries.ts` imports one submodule of the runner directly. That is a
@@ -214,7 +215,7 @@ denial", and the function that folds it is the honest thing to ask.
 - A third `not-found` status now costs two: the classifier, and the list spelled
   out in the gate, which is where the decision is made visible.
 
-## Amendment, 23 August 2026: the gate was walked around
+## First amendment, 23 August 2026: the gate was walked around
 
 Adversarial review the same day this ADR was accepted went at the gate rather
 than at the code. Four of its assertions were walked around with `pnpm run check`
@@ -320,16 +321,21 @@ Held two ways now, and the first is the strong one:
   right way round here: this block's entire justification is that it says nothing
   the grammar does not;
 - **as behaviour, over a corpus.** For every path in a corpus, if the endpoint
-  list refuses it with this sentence then `isUsablePathTemplate` must refuse it
-  too. One-way on purpose — the grammar refuses far more than the copy does, and
-  the copy is not meant to have an opinion about a query string or a `..`. The
-  corpus is a corpus; it is there because the source-text half cannot see a
-  widening made inside `isAddress` and mirrored here, and this half can.
+  list refuses it then `isUsablePathTemplate` must refuse it too. One-way on
+  purpose — the grammar refuses far more than the copy does, and the copy is not
+  meant to have an opinion about a query string or a `..`. The corpus is a
+  corpus; it is there because the source-text half cannot see a widening made
+  inside `isAddress` and mirrored here, and this half can. As the first amendment
+  left it, this half asked only about the refusals worded the way *this* copy
+  words them, which is a population selected by the thing on trial; the second
+  amendment below is where that was found and changed.
 
-### Limits: what this gate does not catch
+### Limits, as the first amendment left them
 
-Attacked before being trusted, per the rule in CLAUDE.md. These got through and
-are left open, with the reason:
+Attacked before being trusted, per the rule in CLAUDE.md. These got through the
+first round and were left open, with the reason. Two of them turned out to be
+understatements — the second amendment below says which, and its own limits
+section is the current one:
 
 - **A copy that words the refusal differently.** "points at another host" in a
   second file is green. Both file-scanning assertions match an exact substring,
@@ -353,3 +359,202 @@ are left open, with the reason:
   it rather than returning an empty list — and `declared()`, `retried()` and the
   endpoint-list extraction each carry that guard-on-the-guard. A rewrite that
   happens to still match while meaning something else is not covered.
+
+## Second amendment, 23 August 2026: the seam could decide something of its own
+
+A second adversarial review, the same day and against the amended tree, went at
+the address half of the gate again. Four walk-arounds across three of its
+assertions were demonstrated with `pnpm run check` green, and two more against
+the sibling gate for the `{name}` grammar, which the amendment of 23 August 2026
+on ADR-0060 answers.
+
+Three places were wrong about them, in the two ways this repository keeps
+finding — a sentence that claims more than the check under it, and a limits list
+presented as complete:
+
+- the gate's own doc comment said "**And neither entry point decides anything of
+  its own**" over an assertion that held neither of them to it. The heading below
+  is that sentence.
+- `README.md` said "**That gate could be walked around, and the ways in are
+  closed**". Two doors were open when that was written. It now says four of the
+  ways in are closed and carries the second round beside the first.
+- the "Limits" section of the first amendment above is presented as the result of
+  attacking the gate before trusting it, and it named none of the four. One of
+  its bullets came close — "a copy that words the refusal differently … is green"
+  — and was true of the two assertions it was written about, the ones that scan
+  files for a substring. What nobody noticed is that the same copy also walked
+  past the corpus assertion one screen below, whose *name* promises it does not.
+  A limit written about one assertion does not cover another that claims the
+  opposite.
+
+The four are closed; what is not closed is written under "Limits" at the end of
+this amendment, and that list — not the one in the first — is the current one.
+
+Nothing in `src/` behaves differently before or after this amendment.
+
+### "And neither entry point decides anything of its own" was false of both
+
+The assertion under that sentence was two substring checks: the seam contains
+`ADDRESS_RULES.every` and does not contain `&&` — the shape of the conjunction
+the table replaced — and the door contains `ADDRESS_RULES.find` and words a
+refusal once. A conjunction is not the only way to reach a verdict without
+asking the table:
+
+```ts
+export function isAddressablePath(value: string): boolean {
+  return value.startsWith("/internal") ? true : ADDRESS_RULES.every((rule) => !rule.refuses(value));
+}
+```
+
+is green, and so is `if (value.startsWith("/internal")) return value;` written
+above the `find` in `pathTemplate`. Each is a back door into `joinUrl`, which is
+the one place an address is built and the only grammar between a consumer of the
+library and the wire (ADR-0032). A gate that names the spellings it refuses is
+the wrong shape here: the list of spellings has no end.
+
+The other direction does. The three exported functions of this grammar —
+`isAddressablePath`, `isUsablePathTemplate` and `pathTemplate` — are six
+statements between them, they have not changed behaviour since they were written,
+and there is exactly one text each of them is allowed to be. So the text is what
+the gate holds — comments stripped, whitespace flattened, compared for equality.
+Every edit is red, including a behaviourally identical one, which is the same
+trade the endpoint list's disjunct already makes one assertion further down and
+for the same reason: a body that may say only this cannot reach a verdict the
+table did not give it.
+
+The third was not in the review's findings and is pinned with the other two: a
+carve-out in `isUsablePathTemplate` passes every witness in the list, because a
+witness only asks that the function refuses the paths it is handed, and that
+function is in the published surface — a consumer guarding with it would be told
+a path is usable by the same tool that would refuse it at the wire.
+
+It stops at the three. The four predicates the table names, and the `decodePathish`
+the door runs before consulting them, are a longer text that is legitimately
+edited — three times in the week before this was written — and a pinned blob that
+large is regenerated rather than read, which is a gate that costs and holds
+nothing. A back door written inside a predicate is therefore open; it is the first
+entry under "Limits".
+
+### The endpoint list's corpus was selected by the wording it was judging
+
+`turns away nothing at the endpoint list that the grammar would admit` asked the
+grammar only about the refusals whose message contained `addresses another host`.
+So a second, differently worded `if` in the same file was outside the population
+the test drew from:
+
+```ts
+if (path.includes("@")) {
+  throw new InvalidEndpointError(index, "path", `path "${path}" points at another host`);
+}
+```
+
+turns away `/v1/u@example.com/orders`, which `isUsablePathTemplate` admits, with
+the whole suite green and the test's name saying otherwise. This is the same
+defect as the link gate that collected its population on `[ADR-NNNN]` — a
+condition on the very thing being judged — and one document later.
+
+**The decision is that the adapter must not refuse what the grammar admits.** Two
+doors that disagree about one string is what ADR-0032 is about, and this door has
+no seam under it: whatever it turns away, nothing downstream is ever asked. So
+the population is now every refusal of the entry, whatever words it uses, and the
+corpus is grown with the shapes a widened copy would plausibly reach for. The
+corpus is paths and only paths — the adapter's rules about the shape of an
+*entry*, that an id is not empty and that a path starts with a slash, are not
+what this holds, because they are not about the address.
+
+### An entry the gate cannot name is now an entry it can count
+
+A fifth rule spelled with quoted keys —
+`{ "id": "bang", "refuses": …, "because": … }` — was read as no keys at all by
+regexes looking for a bare `id:` and a bare `refuses:`. Both counts came back
+zero together, so the count-against-count guard the first amendment added had
+nothing to say. What actually stopped that entry from reaching a commit was
+Biome's `quoteProperties: asNeeded`, which unquotes the key on format. That is
+the formatter holding a security invariant, and a gate credited with what the
+formatter holds is exactly the pairing this repository keeps finding.
+
+Two changes. The id regex reads a quoted key as well as a bare one. And the
+number of entries is counted as **structure** — one brace at the top level of the
+table is one rule, whatever its keys are called — so
+`{ ["id"]: "bang", ["refuses"]: … }`, which no key regex reads either, is five
+entries against four readable ids and a red test. The compiler is what guarantees
+an entry has the three fields; the gate's question is only how many entries there
+are and which of them it can name.
+
+### What was run
+
+Twelve mutations, each applied by a harness that refuses to run when a
+replacement does not land exactly as many times as declared — shown once against
+a deliberately wrong needle, which printed
+`REFUSED: the needle applies 0 time(s) in src/io/untrusted.ts, 1 intended` and
+ran nothing — and each restored from a byte copy whose SHA-256 was compared after
+the restore. "Green before" means the whole gate file passed with the mutation in
+the tree; the two rows marked "green before, run afterwards" were not in the
+review's list and were run against the previous revision of the gate on purpose,
+rather than being asserted from the shape of the code.
+
+| mutation | before this amendment | caught after it by |
+| --- | --- | --- |
+| a ternary in `isAddressablePath` | green | the pinned seam text |
+| an early `return` in `pathTemplate` | green | the pinned door text |
+| a carve-out in `isUsablePathTemplate` | green, run afterwards | the pinned text of the boolean door |
+| a second, differently worded refusal in the endpoint list | green | the corpus, over every refusal |
+| a fifth rule with quoted keys | green | the id regex, and the witness list |
+| a fifth rule with computed keys | green, run afterwards | the structural entry count |
+| a brace written `\u007b` in a fourth copy of the `{name}` grammar | green | the brace table (ADR-0060) |
+| `const Expression = RegExp` and `new Expression(…)` | green | the mention table (ADR-0060) |
+| `refuses: (path) => isAddress(path) && !path.startsWith("/internal")` | green | **nothing. Not caught.** 118 files, 1776 passed, 1 skipped |
+| the backslash removed from the address grammar | — | 8 tests in 3 files |
+| `joinUrl` no longer asking `isAddressablePath` | — | 4 tests in 3 files, one of them the query string handed straight to `collectObservations` |
+| `navigates` returning false | — | 6 tests in 2 files |
+
+The ninth row is the standing limit, run rather than reasoned about: an
+exemption written into an entry of the table passes the whole suite, before this
+amendment and after it. It is the first bullet under "Limits" below.
+
+The last three are the invariant itself rather than the gate, and they are here
+because a gate can be strengthened until it holds only itself: `pnpm run check`
+was green for each of the first eight before this amendment, and the tool would
+still have refused a backslash, a `..` and a query string at the wire.
+
+### Limits: what this gate does not catch
+
+The current list. It supersedes the one in the first amendment, which stands
+above as the record of that round.
+
+- **A back door written inside a predicate.** Measured, not reasoned about:
+  `refuses: (path) => isAddress(path) && !path.startsWith("/internal")` in the
+  table's third entry passes **the whole suite** — 118 files, 1776 passed, 1
+  skipped. Every witness stays refused, because each breaks exactly one rule and
+  none of them starts with `/internal`, while the grammar admits a path it used
+  to refuse. The same goes for the same conjunct written inside `isAddress`
+  itself, and for `decodePathish`, which the door calls before it consults the
+  table. The three entry points are pinned; the four predicates and the decoding
+  are not, and pinning those is the blob nobody reads. This is the widest thing
+  on this list.
+- **A widening with no rule added.** The first amendment's version of this entry
+  said `|| value.includes("@")` inside `isAddress` is green and called the
+  direction "strictness". Half right: a *disjunct* added is strictness, and a
+  *conjunct* added is the entry above. Both are invisible for the same reason —
+  no entry in the table, so no witness demanded and no sentence reviewed.
+- **A copy that words the refusal differently.** Both file-scanning assertions
+  match an exact substring, so "points at another host" in a second file is still
+  invisible to *them*. What is no longer invisible is that copy's effect at the
+  endpoint list, which the corpus now reads. A class name assembled at runtime,
+  `"Circuit" + "OpenError"`, is unchanged and uncaught.
+- **The corpus is a corpus.** The endpoint list is held to admitting the paths in
+  it. A refusal of some shape nobody wrote down is not caught.
+- **Scope is `src/`.** A refusal worded in `tools/`, `polygon/` or `tests/` is
+  invisible to the two file-scanning assertions. Nothing under those paths is on
+  the path a request takes.
+- **The order is held, not justified.** Unchanged from the first amendment: the
+  pairs make a permutation red, and nothing here says the current order is the
+  right one.
+- **The source-reading halves are text, not a parse.** The comment stripper the
+  pinned bodies go through is two regular expressions; a `//` inside a string in
+  either body would cut the text short, which fails the comparison rather than
+  passing it. The direction is deliberate and it is the only guarantee offered.
+- **And a scan of source text is not a sandbox.** It catches what a person writes
+  by accident or for convenience. Someone writing in order to defeat it has the
+  whole language, and this document names the ways in that are known rather than
+  claiming there are none.

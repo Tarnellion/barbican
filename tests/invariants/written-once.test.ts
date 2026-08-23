@@ -38,19 +38,27 @@
  *   a copy that words the same refusal differently, or builds the class name by
  *   concatenation, is a copy this file cannot see;
  * - the ids of `ADDRESS_RULES` are read with a regex that no longer needs `id` on
- *   a line of its own, the count of ids is held equal to the count of entries, so
- *   a rule whose id is not a plain double-quoted literal fails rather than
- *   passing unwitnessed, and a spread into the table is refused rather than
- *   followed. A disjunct added inside an existing predicate such as `isAddress`
- *   still changes what the grammar refuses with no witness demanded of it;
+ *   a line of its own and reads a quoted key as well as a bare one, the count of
+ *   ids is held equal to the count of entries, so a rule whose id is not a plain
+ *   double-quoted literal fails rather than passing unwitnessed, and a spread
+ *   into the table is refused rather than followed. A disjunct added inside an
+ *   existing predicate such as `isAddress` still changes what the grammar
+ *   refuses with no witness demanded of it;
+ * - the three exported functions of the grammar are each held to being **one
+ *   exact text**, comments out and whitespace flattened. That replaced a pair of
+ *   substring checks which a ternary at the seam and an early `return` at the
+ *   door both walked past. A back door written inside one of the four predicates,
+ *   or inside `decodePathish`, is not covered, and that is the standing limit of
+ *   the address half of this file;
  * - the order of `ADDRESS_RULES` is behaviour and is held by witness pairs, one
  *   per adjacent pair of the table. Order is held over the pairs listed; nothing
  *   here says the order is the *right* one, only that changing it is a red test;
  * - the endpoint list's live copy of the scheme-relative refusal is held to being
  *   one of `isAddress`'s own disjuncts, character for character, and separately
- *   over a corpus of shapes. The corpus is a corpus. What makes the pair strong
- *   is the first half: any textual change to that condition is red, including one
- *   that is behaviourally identical.
+ *   over a corpus of shapes — where the population is every refusal the adapter
+ *   produces, not the ones worded the way the copy words it. The corpus is a
+ *   corpus. What makes the pair strong is the first half: any textual change to
+ *   that condition is red, including one that is behaviourally identical.
  *
  * See ADR-0061.
  */
@@ -120,6 +128,26 @@ function bodyOf(source: string, signature: string): string {
 }
 
 /**
+ * The code of a fragment: comments taken out, whitespace flattened to one space.
+ *
+ * For the assertion below that holds three bodies to one exact text each. The
+ * flattening is what lets the source be reformatted or rewrapped without a false
+ * red; the comments come out because they are where the *why* is written, and
+ * this is a claim about what the code does.
+ *
+ * Two regexes and not a parser. A `//` inside a string in the fragment would cut
+ * the text short — which fails the comparison that reads it rather than passing
+ * it, the direction every scan in this file is built to fail in.
+ */
+function codeOf(fragment: string): string {
+  return fragment
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\n]*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * The address grammar: one table, two entry points.
  *
  * The gate is the witness list. Every rule in `ADDRESS_RULES` must have a path
@@ -130,12 +158,14 @@ function bodyOf(source: string, signature: string): string {
  * they share the list, and a permutation of the table is caught rather than
  * silently changing which sentence a path breaking two rules is answered with.
  *
- * "A rule added to the table" means an entry with a `refuses` key and an `id`
- * that is a double-quoted literal. An entry that is neither — an id computed
- * from a constant, or a whole array spread in — fails rather than passing
- * unwitnessed. What is invisible here is a disjunct added inside an existing
+ * "A rule added to the table" means a brace at the top level of it, whatever the
+ * entry's keys are called — an id this gate cannot read is an entry it counts and
+ * cannot name, which fails, and a whole array spread in is refused rather than
+ * followed. What is invisible here is an exemption written *inside* an existing
  * predicate, which changes what the grammar refuses without adding a rule to the
- * table at all.
+ * table at all: `refuses: (path) => isAddress(path) && !path.startsWith("/internal")`
+ * passes this file and the whole suite with it. The second amendment of ADR-0061
+ * is where that is measured and left open.
  */
 describe("the address grammar is one list", () => {
   const source = sourceOf("src/io/untrusted.ts");
@@ -212,16 +242,31 @@ describe("the address grammar is one list", () => {
    * of its own. Biome at `lineWidth: 100` leaves a short entry written on one
    * line exactly as it found it, so a fifth rule spelled
    * `{ id: "bang", refuses: …, because: … },` had no id as far as this gate could
-   * see, no witness was demanded for it, and the suite stayed green. The count of
-   * `refuses` keys is compared to the count of ids for the same reason: an entry
-   * whose id is a constant or a template literal would otherwise be an entry this
-   * gate cannot name and therefore does not ask about.
+   * see, no witness was demanded for it, and the suite stayed green.
+   *
+   * How many entries there are is counted as **structure** and not as keys: one
+   * brace at the top level of the table is one rule, whatever its keys are called
+   * and however they are spelled. Counting `refuses:` keys instead read
+   * `{ ["id"]: "bang", ["refuses"]: … }` as no keys at all — and two counts that
+   * agree at zero pass. The compiler is what guarantees each entry *has* the
+   * three fields, since `AddressRule` says so; what this gate has to answer is
+   * how many entries there are and which of them it can name.
    *
    * A spread is refused outright rather than followed. `...MORE_RULES` in the
    * table is entries this gate cannot count, let alone name, and following one
    * would mean parsing the module — so the table is held to being written out.
    * The red test says so, and the fix is to write the entry where the other four
    * are.
+   *
+   * The key may be quoted. `{ "id": "bang", "refuses": … }` was a fifth rule
+   * neither regex could see when they read a bare `id:` and a bare `refuses:`,
+   * and what stopped it reaching a commit was Biome's `quoteProperties:
+   * asNeeded`, which unquotes the key on format — that is, the formatter, not
+   * this gate. A gate credited with what the formatter holds is the pairing this
+   * repository keeps finding, so both regexes read either spelling now. The
+   * value stays double-quoted on purpose: an id spelled `'bang'` is an id this
+   * gate cannot read, and the count below is what makes that red rather than
+   * silent.
    */
   const declared = (): readonly string[] => {
     const table = /const ADDRESS_RULES[^=]*=\s*\[([\s\S]*?)\n\];/.exec(source);
@@ -235,13 +280,26 @@ describe("the address grammar is one list", () => {
         "a spread is rules this gate cannot count, and an uncounted rule is one no " +
         "witness is demanded for.",
     ).not.toContain("...");
-    const ids = [...body.matchAll(/(?:^|[\s{])id:\s*"([^"]+)"/g)].map((match) => match[1] ?? "");
-    const entries = [...body.matchAll(/(?:^|[\s{])refuses:/g)].length;
+    const ids = [...body.matchAll(/(?:^|[\s{])["']?id["']?:\s*"([^"]+)"/g)].map(
+      (match) => match[1] ?? "",
+    );
+    let depth = 0;
+    let entries = 0;
+    for (const character of body) {
+      if (character === "{") {
+        if (depth === 0) entries += 1;
+        depth += 1;
+      } else if (character === "}") {
+        depth -= 1;
+      }
+    }
     expect(
       ids,
       `${entries} entr${entries === 1 ? "y" : "ies"} in ADDRESS_RULES and ${ids.length} ` +
         `id${ids.length === 1 ? "" : "s"} this gate can read. An entry whose id is not a ` +
-        `plain double-quoted literal is an entry no witness is demanded for.`,
+        `plain double-quoted literal is an entry no witness is demanded for. A brace ` +
+        `inside a message would land here too, and the fix is the same: write the id ` +
+        `where this gate reads it.`,
     ).toHaveLength(entries);
     return ids;
   };
@@ -329,24 +387,65 @@ describe("the address grammar is one list", () => {
   });
 
   /**
-   * And neither entry point decides anything of its own.
+   * And neither entry point states anything of its own.
    *
-   * The witness test above cannot see a fifth `if` written beside the table:
-   * such a rule has no id, so nothing demands a witness for it. This is what
-   * does — one `every` on one side, one throw on the other.
+   * The witness test above cannot see a rule written *beside* the table rather
+   * than into it: such a rule has no id, so nothing demands a witness for it.
+   * This is the assertion that refuses one.
+   *
+   * It used to be `expect(seam).toContain("ADDRESS_RULES.every")` and
+   * `expect(seam).not.toContain("&&")` — the shape of the conjunction the table
+   * replaced. A conjunction is not the only way to reach a verdict without
+   * asking the table, and the second adversarial review of 23 August 2026
+   * demonstrated two others with the whole suite green:
+   * `return value.startsWith("/internal") ? true : ADDRESS_RULES.every(…)` at
+   * the seam, and `if (value.startsWith("/internal")) return value;` above the
+   * `find` at the door. Each is a back door into the one place an address is
+   * built, which is the whole subject of ADR-0032, and the sentence this comment
+   * opened with claimed to refuse them.
+   *
+   * A ban on a list of spellings is the wrong shape of check for that — the list
+   * of spellings is never finished. The other direction is finished: the three
+   * exported functions of this grammar are six statements between them, they are
+   * the most load-bearing lines in the repository, and there is exactly one text
+   * each of them is allowed to be. So the text is what this holds. Every edit is
+   * red, including a behaviourally identical one — the same trade, for the same
+   * reason, as the endpoint list's disjunct further down: a body that may say
+   * only this cannot reach a verdict the table did not give it.
+   *
+   * It stops at the three. The four predicates the table names, and the decoding
+   * the door runs before it consults them, are a longer text that is legitimately
+   * edited — three times in the week before this was written — and pinning those
+   * would be a blob regenerated rather than read. A back door written *inside* a
+   * predicate is therefore still open, and it was run rather than reasoned about:
+   * `refuses: (path) => isAddress(path) && !path.startsWith("/internal")` passes
+   * the whole suite. The second amendment of ADR-0061 says so in its own words.
    */
-  it("asks the table and nothing besides", () => {
-    const seam = bodyOf(source, "export function isAddressablePath");
-    expect(seam).toContain("ADDRESS_RULES.every");
-    // The conjunction this replaced. Its return was five predicates joined by
-    // `&&`, and that is the shape a sixth would be appended to.
-    expect(seam).not.toContain("&&");
+  it("is derived from the table, and states nothing of its own", () => {
+    expect(codeOf(bodyOf(source, "export function isAddressablePath"))).toBe(
+      "export function isAddressablePath(value: string): boolean " +
+        "{ return ADDRESS_RULES.every((rule) => !rule.refuses(value));",
+    );
 
-    const door = bodyOf(source, "export function pathTemplate");
-    expect(door).toContain("ADDRESS_RULES.find");
-    // Exactly one place a refusal is worded, so a new message cannot be written
-    // anywhere but into the table.
-    expect([...door.matchAll(/new UnusablePathTemplateError\(/g)]).toHaveLength(1);
+    // The boolean door. Not a third grammar — the seam over the decoded string —
+    // and a carve-out written here would pass every witness above, because a
+    // witness only asks that this function refuses the paths it is given.
+    expect(codeOf(bodyOf(source, "export function isUsablePathTemplate"))).toBe(
+      "export function isUsablePathTemplate(value: string): boolean " +
+        "{ return isAddressablePath(decodePathish(value));",
+    );
+
+    // The door's four: decode once for every rule at once, find the first that
+    // refuses, throw that rule's own sentence, return what came in. No branch
+    // ahead of the `find`, and exactly one place a refusal is worded.
+    expect(codeOf(bodyOf(source, "export function pathTemplate"))).toBe(
+      "export function pathTemplate(value: string): string " +
+        "{ const decoded = decodePathish(value); " +
+        "const broken = ADDRESS_RULES.find((rule) => rule.refuses(decoded)); " +
+        "if (broken !== undefined) { " +
+        "throw new UnusablePathTemplateError(value, broken.because(value)); } " +
+        "return value;",
+    );
   });
 });
 
@@ -480,7 +579,25 @@ describe("a scheme-relative path is refused once, and by the grammar", () => {
    * The implication is one-way on purpose: the grammar refuses far more than the
    * copy does — a query string, a backslash, `..` — and the copy is not supposed
    * to have an opinion about any of that. What must never happen is the other
-   * direction, a path the copy turns away and the grammar would have let through.
+   * direction, a path this adapter turns away and the grammar would have let
+   * through. Two doors that disagree about the same string is what ADR-0032 is
+   * about, and the adapter is the door with no seam under it: whatever it
+   * refuses, nothing downstream will ever be asked about.
+   *
+   * **What this used to ask.** It read only the refusals whose message contained
+   * `addresses another host`, and asked the grammar about those. So the
+   * population was selected by the wording, and a second `if` in the adapter
+   * worded `points at another host` was outside it: that copy turned away
+   * `/v1/u@example.com/orders`, which `isUsablePathTemplate` admits, with the
+   * whole suite green and this test's name saying otherwise. The same defect as
+   * the link gate that collected on `[ADR-NNNN]` — a condition on the very thing
+   * being judged. The population is now **every** refusal of the entry, whatever
+   * words it uses.
+   *
+   * The corpus is paths, and only paths: every entry in it is well formed except
+   * possibly in its address, so the adapter's rules about the shape of an entry —
+   * an id that is not empty, a path that starts with a slash — are not what this
+   * catches. Those are about the entry; this is about the address.
    *
    * A corpus, not a proof. It is here because the source-text assertion above
    * cannot see a widening made in `isAddress` and mirrored here, and this one
@@ -500,22 +617,32 @@ describe("a scheme-relative path is refused once, and by the grammar", () => {
       "/v1/a:b/c",
       "/v1/reports;jsessionid=1/x",
       "/v1/%40/x",
+      "/v1/orders/{orderId}/items/{itemId}",
+      "/v1/a~b/c",
+      "/v1/a+b/c",
+      "/v1/a,b/c",
     ];
 
-    let fired = 0;
+    let refused = 0;
+    let admitted = 0;
     for (const path of CORPUS) {
-      if (!(await refusalOfEntry(path)).includes(WORDING)) {
+      const refusal = await refusalOfEntry(path);
+      if (refusal === "") {
+        admitted += 1;
         continue;
       }
-      fired += 1;
+      refused += 1;
       expect(
         isUsablePathTemplate(path),
-        `${path}: the endpoint list's copy refuses what the grammar admits`,
+        `${path}: the endpoint list turns away what the grammar admits — "${refusal}"`,
       ).toBe(false);
     }
 
-    // A loop that refused nothing would pass by having asked nothing.
-    expect(fired).toBeGreaterThan(0);
+    // A loop that refused nothing would pass by having asked nothing, and one
+    // that refused everything would be an adapter with no agreement left to
+    // check.
+    expect(refused).toBeGreaterThan(0);
+    expect(admitted).toBeGreaterThan(0);
   });
 
   it("agrees with the grammar at the endpoint list, which refuses it first", async () => {
