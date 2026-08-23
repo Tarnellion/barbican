@@ -362,9 +362,9 @@ export function createSignalExtractor(options: SignalExtractorOptions = {}): Sig
           // differently then cannot produce one number by accident, and a
           // scoped digest is never the whole-body digest of the same text.
           hash
-            .update(" scope ")
+            .update("\u0000scope\u0000")
             .update(spec.path ?? "")
-            .update(" ")
+            .update("\u0000")
             .update(text);
         }
 

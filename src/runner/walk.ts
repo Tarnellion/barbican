@@ -26,6 +26,7 @@ import {
   resourceApplies,
   SAFE_METHODS,
 } from "../core/index.js";
+import { cellKey, objectKey } from "../core/keys.js";
 import { assertAttributesKeepTheBasis } from "../io/config.js";
 import { baseUrlForTenant, joinUrl, substitute, withQuery } from "./address.js";
 import type { ProbeFailure } from "./outcome.js";
@@ -33,7 +34,7 @@ import { classifyStatus, reasonOf, terminalCause, unreadableStatusReason } from 
 import type { SkippedEndpoint } from "./plan.js";
 import { planEndpoints } from "./plan.js";
 import type { CellRecord } from "./stream.js";
-import { cellKey, ResumeDoesNotFitError } from "./stream.js";
+import { ResumeDoesNotFitError } from "./stream.js";
 
 /**
  * What is computed over the body of a marked endpoint.
@@ -322,7 +323,7 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     }
     const cellAt = new Map<string, number>();
     for (const [index, cell] of cells.entries()) {
-      const key = `${cell.endpoint.id}\u0000${cell.resource?.id ?? ""}`;
+      const key = objectKey({ endpointId: cell.endpoint.id, resourceId: cell.resource?.id });
       if (!cellAt.has(key)) {
         cellAt.set(key, index);
       }
@@ -336,7 +337,7 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
     const missing = new Set<string>();
     for (const record of options.resumed) {
       const walker = walkerOf.get(record.accountId);
-      const cellIndex = cellAt.get(`${record.endpointId}\u0000${record.resourceId ?? ""}`);
+      const cellIndex = cellAt.get(objectKey(record));
       if (walker === undefined || cellIndex === undefined) {
         missing.add(cellKey(record));
         continue;
@@ -502,7 +503,7 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       ...(specs.length === 0 ? {} : { signals: specs }),
     };
 
-    const objectKey = `${endpoint.id}\u0000${resource?.id ?? ""}`;
+    const object = objectKey({ endpointId: endpoint.id, resourceId: resource?.id });
     let status: number;
     let headers: Readonly<Record<string, string>>;
     let signals: Readonly<Record<string, SignalValue>> | undefined;
@@ -519,14 +520,14 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       signals = response.signals;
       if (!SAFE.has(endpoint.method)) {
         if (status >= 200 && status < 300) {
-          changed.add(objectKey);
+          changed.add(object);
           // 410 beside 404 since ADR-0046, and it had to move with it. A
           // platform that soft-deletes answers "gone" rather than "not found",
           // and while 410 was an `error` the guard had nothing to guard — an
           // unreadable status is already no conclusion. Now that it folds into a
           // denial the way 404 does, a 410 this run caused itself would read as
           // protection observed.
-        } else if ((status === 404 || status === 410) && changed.has(objectKey)) {
+        } else if ((status === 404 || status === 410) && changed.has(object)) {
           selfInflicted = true;
           failure = {
             accountId: account.id,

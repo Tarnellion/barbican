@@ -285,6 +285,19 @@ code sat in one long file.
 - `relatedRequestOf` dropped `resourceId` from the cell key, so a finding could
   name a different cell than the one that produced it.
 
+**The key a verdict and a finding meet on is built in one place.** `cellKey` was
+written out twice, character for character — once in the runner, once in the
+report — under a comment warning that a key written by hand in several places is
+a key that stops agreeing with itself. It is `src/core/keys.ts` now, with the
+endpoint × resource key the walk builds beside it under a name of its own, and
+a test refuses the next copy:
+[ADR-0059](docs/adr/0059-one-key-one-source.md). That test found two more keys on
+its first run — written with the separator as a raw byte, which makes a file
+binary to `grep`, so every search of this repository for it had been answering
+"no matches" over the two files that used it. Nothing a consumer can observe
+changes: the same 227 exported names, and the same bytes over all 29 combinations
+of the reference platform.
+
 ### What changed in 0.5.0
 
 The largest release so far, and most of it came out of an adversarial audit of

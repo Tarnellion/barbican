@@ -1,10 +1,13 @@
 /**
  * One finished cell on its way out of the walk, and on its way back into one.
  *
- * The record, the key that says which cell it belongs to, and the refusal when a
- * record belongs to no cell of the matrix being walked. `src/report/write.ts`
- * puts these on disk and `src/cli/stream.ts` reads them back; ADR-0047 is the
- * whole of it.
+ * The record and the refusal when a record belongs to no cell of the matrix
+ * being walked. `src/report/write.ts` puts these on disk and `src/cli/stream.ts`
+ * reads them back; ADR-0047 is the whole of it.
+ *
+ * The key that says which cell a record belongs to was here too, in a copy of
+ * the one in `src/report/findings.ts`. It is `cellKey` in `src/core/keys.ts`
+ * now, once — see ADR-0059.
  */
 
 import type { AccessObservation } from "../core/index.js";
@@ -29,15 +32,6 @@ export interface CellRecord {
   readonly resourceId?: string;
   readonly observation: AccessObservation;
   readonly failure?: ProbeFailure;
-}
-
-/** The cell a record belongs to: account × endpoint × resource, and nothing else. */
-export function cellKey(cell: {
-  readonly accountId: string;
-  readonly endpointId: string;
-  readonly resourceId?: string;
-}): string {
-  return `${cell.accountId}\u0000${cell.endpointId}\u0000${cell.resourceId ?? ""}`;
 }
 
 /**

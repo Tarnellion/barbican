@@ -8,7 +8,8 @@
  * carrying the result back onto the observations and onto the judged cells are
  * one job done in one order. Splitting that order apart would put `cellKey` on
  * two sides of a seam, and the comment on it records what happens when the key
- * is written in more than one place.
+ * is written in more than one place. That comment is in `src/core/keys.ts` since
+ * ADR-0059, with the function: this file held the second copy of both.
  *
  * What is not here: who took part and what was reached (`sections.ts`), and what
  * the run concluded (`verdict.ts`).
@@ -33,6 +34,7 @@ import {
   matchingAcceptance,
   SEVERITY_ORDER,
 } from "../core/index.js";
+import { cellKey, KEY_SEPARATOR } from "../core/keys.js";
 import { byCodeUnits } from "../core/order.js";
 import type { JudgedCell } from "../core/standards/coverage.js";
 import type { RequestContextConfig } from "../io/config.js";
@@ -87,21 +89,6 @@ export function countBySeverity(
  * Joined on the triple 'account × endpoint × resource' — the same key a cell is
  * identified by everywhere in the project.
  */
-/**
- * The key of a matrix cell: account, endpoint, resource.
- *
- * Written out by hand in five places, and the sixth had to agree with all five
- * for a verdict and a finding to meet on the same cell. A separator that cannot
- * occur in an identifier, so that `a|b` and `a` + `|b` are different keys.
- */
-function cellKey(of: {
-  readonly accountId: string;
-  readonly endpointId: string;
-  readonly resourceId?: string;
-}): string {
-  return `${of.accountId}\u0000${of.endpointId}\u0000${of.resourceId ?? ""}`;
-}
-
 export function mergeFindings(
   diffs: readonly AccessDiff[],
   checks: readonly ResolvedFinding[],
@@ -739,7 +726,13 @@ export function capRows(findings: readonly ReportFinding[]): {
     // them; the account and the severity were passed because the parameter used
     // to demand a whole finding, and it asks for `DefectCoordinates` since
     // ADR-0048 — the same shape an acceptance is written against.
-    const signature = `${finding.kind}\u0000${defectSignature({
+    //
+    // Signature and kind, which is the pair `acceptanceKeyOf` joins as well, in
+    // the other order. Two spellings of one coordinate, and they are left as two
+    // because this map never leaves this function while that key is written by an
+    // operator into the configuration; `KEY_SEPARATOR` is at least the one
+    // constant, so neither can glue two different defects into one budget.
+    const signature = `${finding.kind}${KEY_SEPARATOR}${defectSignature({
       endpointId: finding.endpointId,
       ...(finding.relation === undefined ? {} : { relation: finding.relation }),
       ...(finding.contextId === undefined ? {} : { contextId: finding.contextId }),

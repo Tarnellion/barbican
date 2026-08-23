@@ -21,6 +21,7 @@
 
 import type { DefectCoordinates } from "./defects.js";
 import { defectSignature } from "./defects.js";
+import { KEY_SEPARATOR } from "./keys.js";
 
 /**
  * One accepted finding, in the core's own vocabulary.
@@ -63,9 +64,6 @@ export interface Acceptance extends DefectCoordinates {
   readonly ticket?: string | undefined;
 }
 
-/** The separator between the defect signature and the kind. See `defects.ts`. */
-const KIND_SEPARATOR = "\u0000";
-
 /**
  * The key an acceptance and a finding meet on.
  *
@@ -82,13 +80,13 @@ const KIND_SEPARATOR = "\u0000";
  * how two answers drift apart.
  */
 export function acceptanceKeyOf(of: DefectCoordinates, kind: string): string {
-  // The separator the signature already uses, written as an escape rather than
-  // as the byte itself: a raw NUL in the source makes the file binary to
-  // `grep`, and "no matches" here would read as "this code does not exist".
+  // The separator the signature already uses, and now literally the same
+  // constant: `KEY_SEPARATOR` in `./keys.js`, where the reason it is written as
+  // an escape rather than as the byte itself is written down once.
   // A space stood here first and is precisely what the signature's own reason
   // forbids — an endpoint id ending in a space, with no conditions, glues to
   // the same string as its neighbour with the kind read as part of the context.
-  return `${defectSignature(of)}${KIND_SEPARATOR}${kind}`;
+  return `${defectSignature(of)}${KEY_SEPARATOR}${kind}`;
 }
 
 /**
