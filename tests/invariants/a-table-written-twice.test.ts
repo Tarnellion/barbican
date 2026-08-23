@@ -42,7 +42,10 @@
  * - A table or a list **built** rather than written: `Object.fromEntries`, a
  *   `Map` filled in a loop, a name assembled from pieces (`"x-" + "method"`), a
  *   name decoded or computed at run time. The shapes read here are the shapes a
- *   person types, which are also the shapes each of the reviewers typed.
+ *   person types, which are also the shapes each of the reviewers typed. A
+ *   header member written out is read in all three quotations and in any case,
+ *   because those are spellings a formatter produces rather than ones somebody
+ *   chooses; assembling the string is not.
  * - A date grammar spelled some other way — `\d\d\d\d-\d\d-\d\d`, or `indexOf`
  *   and `slice` over the hyphens. `[0-9]` is folded to `\d` before the scan
  *   because that substitution is the one a linter suggests; nothing else is.
@@ -274,6 +277,9 @@ describe("the forbidden-header lists are written in one place", () => {
     ],
   ]);
 
+  /** The three ways a string literal is written. Built, so this file holds none. */
+  const QUOTES: readonly string[] = ['"', "'", String.fromCharCode(96)];
+
   /**
    * The scan has to be reading a list rather than an empty one it could not
    * parse: an `entriesOf` that matched nothing would agree with every file in
@@ -296,8 +302,12 @@ describe("the forbidden-header lists are written in one place", () => {
       // today, so folding costs nothing and closes the cheapest evasion there
       // is.
       const code = codeOf(path).toLowerCase();
-      const written = MEMBERS.filter(
-        (member) => code.includes(`"${member}"`) || code.includes(`'${member}'`),
+      // All three ways a string literal is written, for the same reason. The
+      // counts are the same with the third as without it, so it costs nothing
+      // either; the six backtick spellings in this tree are prose inside doc
+      // comments, which `codeOf` has already dropped.
+      const written = MEMBERS.filter((member) =>
+        QUOTES.some((quote) => code.includes(`${quote}${member}${quote}`)),
       );
       if (written.length > 0) {
         carried.set(path, written.length);
