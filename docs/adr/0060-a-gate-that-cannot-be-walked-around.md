@@ -69,16 +69,22 @@ there is no material for a caller to copy.
 Four modules glued a key by hand with the constant, and each builds a **different**
 key. They call `joinKey` now:
 
-| module | key |
-| --- | --- |
-| `src/core/defects.ts` | endpoint, relation, conditions — a defect signature |
-| `src/core/accepted.ts` | signature and kind — the acceptance index |
-| `src/io/config/parse.ts` | citable defect and kind — the duplicate-acceptance refusal |
-| `src/report/findings.ts` | kind and signature — the per-defect evidence budget |
+| module | calls | key |
+| --- | --- | --- |
+| `src/core/defects.ts` | 1 | endpoint, relation, conditions — a defect signature |
+| `src/core/accepted.ts` | 1 | signature and kind — the acceptance index |
+| `src/io/config/parse.ts` | 1 | citable defect and kind — the duplicate-acceptance refusal |
+| `src/report/findings.ts` | 1 | kind and signature — the per-defect evidence budget |
 
-That table is in the gate. A fifth caller fails it, whatever the function is
+That table is in the gate, and a fifth caller fails it whatever the function is
 called — which is the sentence ADR-0059 wrote about its third assertion, made
 true by a different mechanism.
+
+The **count** is what makes it true of a module already on the list. Without it,
+the reviewer's `keyOfCell` moved one file over into `src/report/findings.ts`
+would sit inside an allowance granted for a different key and be invisible again.
+One entry is one key; a module that comes to need two has to convince a reader
+first.
 
 `joinKey("", "")` returns the separator, and that is not a hole: an expression
 that reads the character out of the one implementation moves when the one

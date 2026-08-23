@@ -70,10 +70,9 @@ const KEY_SEPARATOR = "\u0000";
  * the same pair of coordinates in two orders. What it does mean is that neither
  * of them can glue two different defects into one entry.
  *
- * Variadic rather than an array so that a caller cannot pass one accidentally:
- * `joinKey(parts)` where `parts` is a `string[]` is a type error, and
- * `[a, b].join(separator)` — the form three of the callers used — has no way in
- * here at all.
+ * Variadic rather than taking an array, so that a caller cannot hand one over by
+ * accident: an array argument is a type error here, and `[a, b].join(separator)`
+ * — the form three of the callers used — has no way in at all.
  */
 export function joinKey(...parts: readonly string[]): string {
   return parts.join(KEY_SEPARATOR);

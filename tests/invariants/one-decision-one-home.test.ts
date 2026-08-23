@@ -104,21 +104,37 @@ const SEPARATOR_HOMES: ReadonlyMap<string, number> = new Map([
 ]);
 
 /**
- * The modules that may name `joinKey`, and the key each of them builds.
+ * The modules that may call `joinKey`, how often, and the key each one builds.
  *
  * This is the list ADR-0059's third assertion was meant to be. Every entry here
  * is a **different** key — a different tuple of coordinates, for a different
  * index — and that is what a sixth entry has to persuade a reader of, rather
  * than a matcher. A copy of one of these five, under any name at all, has
  * nowhere else to get the character from.
+ *
+ * The **count** is what makes that true of a module already on the list. Without
+ * it, a second key builder inside `findings.ts` — the reviewer's `keyOfCell`,
+ * moved one file over — would be borrowing an allowance granted for something
+ * else. One entry here is one key; a module that needs two needs a reader.
  */
-const JOIN_KEY_CALLERS: ReadonlyMap<string, string> = new Map([
-  [KEYS, "the owner: the cell key and the object key"],
-  ["src/core/defects.ts", "endpoint, relation, conditions — a defect signature"],
-  ["src/core/accepted.ts", "signature and kind — the acceptance index"],
-  ["src/io/config/parse.ts", "citable defect and kind — the duplicate-acceptance refusal"],
-  ["src/report/findings.ts", "kind and signature — the per-defect evidence budget"],
-]);
+const JOIN_KEY_CALLERS: ReadonlyMap<string, { readonly calls: number; readonly key: string }> =
+  new Map([
+    // Three: the declaration, and the two keys built out of it.
+    [KEYS, { calls: 3, key: "the owner: the cell key and the object key" }],
+    ["src/core/defects.ts", { calls: 1, key: "endpoint, relation, conditions — a signature" }],
+    ["src/core/accepted.ts", { calls: 1, key: "signature and kind — the acceptance index" }],
+    [
+      "src/io/config/parse.ts",
+      { calls: 1, key: "citable defect and kind — the duplicate-acceptance refusal" },
+    ],
+    [
+      "src/report/findings.ts",
+      { calls: 1, key: "kind and signature — the per-defect evidence budget" },
+    ],
+  ]);
+
+/** A call of `joinKey`, and its declaration, which is the same shape in the text. */
+const A_JOIN = /\bjoinKey\s*\(/g;
 
 /**
  * The modules that may write a brace-delimited grammar, and how many each holds.
@@ -626,18 +642,22 @@ describe("one decision, one home", () => {
     ).toEqual([]);
   });
 
-  it("lets five modules name joinKey, each for a key of its own", () => {
-    const elsewhere = sources.filter(
-      (path) => !JOIN_KEY_CALLERS.has(path) && /\bjoinKey\b/.test(sourceOf(path)),
-    );
+  it("lets five modules call joinKey, each for one key of its own", () => {
+    const wrong = sources
+      .map((path) => ({
+        path,
+        calls: sourceOf(path).match(A_JOIN)?.length ?? 0,
+      }))
+      .filter((file) => file.calls !== (JOIN_KEY_CALLERS.get(file.path)?.calls ?? 0))
+      .map((file) => `${file.path} (${file.calls})`);
 
     expect(
-      elsewhere,
-      `joinKey is named in ${elsewhere.join(", ")}, which is not one of the modules ` +
-        `that builds a key. Each of the five listed in this file builds a different ` +
-        `tuple of coordinates; a sixth has to be a sixth key, and a copy of one of ` +
-        `the five is exactly what this gate exists for — whatever it calls itself. ` +
-        `See ADR-0060.`,
+      wrong,
+      `joinKey is called somewhere that builds no key of its own, or a module on ` +
+        `the list builds a second one: ${wrong.join(", ")}. Each of the five ` +
+        `entries in this file is a different tuple of coordinates and one key; a ` +
+        `sixth entry, or a second key inside one of the five, is exactly what this ` +
+        `gate exists for — whatever the function calls itself. See ADR-0060.`,
     ).toEqual([]);
   });
 
