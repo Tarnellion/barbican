@@ -47,6 +47,15 @@ const BOLA: ResolvedFinding = {
   evidence: { bodyDigestsEqual: true },
 };
 
+/**
+ * The same leak, told as the pair it is: alice was served carol's order.
+ *
+ * `relatedAccountId` is the other side, and `relatedRequest` is what a reader
+ * reproduces that side with. The finding still names `order-b` — one object, two
+ * accounts asking for it.
+ */
+const PAIRED: ResolvedFinding = { ...BOLA, relatedAccountId: "carol" };
+
 function build(finding: ResolvedFinding) {
   const options: BuildReportOptions = {
     version: "test",
@@ -87,6 +96,67 @@ function build(finding: ResolvedFinding) {
     truncated: false,
     findings: [],
     checks: [finding],
+    policy: { fallback: "allowed", rules: [] },
+    startedAt: new Date(0),
+    finishedAt: new Date(1),
+  };
+  return buildReport(options);
+}
+
+/**
+ * The other side of the pair, declared and observed.
+ *
+ * A second account and a second object, because the question is which of carol's
+ * cells `relatedRequest` is taken from — and with one cell each there is nothing
+ * to take the wrong one from.
+ */
+const PAIR_CONFIG = parseRunConfig(`
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts:
+  - { id: alice, role: r, tenant: t-a, tokenEnv: T_A }
+  - { id: carol, role: r, tenant: t-b, tokenEnv: T_C }
+policy:
+  fallback: allowed
+  rules: []
+resources:
+  - { id: order-a, tenant: t-a, params: { orderId: "1001" } }
+  - { id: order-b, tenant: t-b, params: { orderId: "2001" } }
+`);
+
+function observed(accountId: string, resourceId: string | undefined, url: string) {
+  return {
+    accountId,
+    endpointId: "orders.read",
+    ...(resourceId === undefined ? {} : { resourceId }),
+    status: 200,
+    outcome: "allowed" as const,
+    headers: {},
+    durationMs: 1,
+    url,
+    method: "GET" as const,
+  };
+}
+
+/**
+ * A paired finding, with the other side observed on more than one cell.
+ *
+ * `others` is carol's half of the walk. The finding is about `order-b`, so
+ * `relatedRequest` has to be carol's request for `order-b` — not for `order-a`,
+ * and not the one that names no object at all.
+ */
+function buildPaired(others: readonly ReturnType<typeof observed>[]) {
+  const options: BuildReportOptions = {
+    version: "test",
+    config: PAIR_CONFIG,
+    endpoints: [{ id: "orders.read", method: "GET", path: "/orders/{orderId}" }],
+    observations: [observed("alice", "order-b", "https://a.test/orders/2001"), ...others],
+    skipped: [],
+    failures: [],
+    unauthenticated: [],
+    canariesChecked: 2,
+    truncated: false,
+    findings: [],
+    checks: [PAIRED],
     policy: { fallback: "allowed", rules: [] },
     startedAt: new Date(0),
     finishedAt: new Date(1),
@@ -143,5 +213,82 @@ describe("a check finding about a resource", () => {
     const report = build(endpointLevel);
 
     expect(report.findings[0]?.resourceId).toBeUndefined();
+  });
+});
+
+/**
+ * The fourth place the whole cell has to be named, and the one left out.
+ *
+ * `withRequest` joins on account × endpoint × resource, and the comment beside
+ * the check mapping lists who needs the third coordinate so that "`withVerdicts`
+ * and `withRequest` find the observation instead of missing it".
+ * `relatedRequestOf` — the other side of a paired finding — is not on that list
+ * and was built without it: the key it asked `byCell` for named the account and
+ * the endpoint and left the resource empty.
+ *
+ * Latent, and only just: the one check in the registry today pairs observations
+ * that name no resource (`pairsOn` filters on `resourceId === undefined`), so
+ * the key it produced happened to be the right one. The first object-level check
+ * with a `relatedAccountId` — a BOLA read against a body, which is the obvious
+ * first check of Module 2 — is where it stops being right.
+ *
+ * Fourth time this class is closed. ADR-0022 closed it for the walk, ADR-0039
+ * for the finding's own coordinate, `relatedAccountId` for the field the other
+ * side travels in; this is the one lookup none of the three reached.
+ */
+describe("the other side of a paired finding about a resource", () => {
+  it("is the other account's request for the same object", () => {
+    const report = buildPaired([observed("carol", "order-b", "https://a.test/orders/2001")]);
+
+    expect(report.findings[0]?.relatedRequest?.url).toBe("https://a.test/orders/2001");
+    expect(report.findings[0]?.relatedRequest?.as).toBe("carol");
+  });
+
+  /**
+   * And not some other cell of the same account on the same endpoint.
+   *
+   * Three of carol's cells are in the list: her own object, the one the finding
+   * is about, and one naming no object. A key that stops at the endpoint matches
+   * the last of those, so the reader is handed an address that reproduces
+   * nothing — the pair the check compared is not the pair the report prints.
+   */
+  it("is not a request from another cell of the same account and endpoint", () => {
+    const report = buildPaired([
+      observed("carol", "order-a", "https://a.test/orders/1001"),
+      observed("carol", "order-b", "https://a.test/orders/2001"),
+      observed("carol", undefined, "https://a.test/orders/9999"),
+    ]);
+
+    expect(report.findings[0]?.relatedRequest?.url).toBe("https://a.test/orders/2001");
+  });
+
+  /**
+   * A paired finding that names no object keeps working the way it always did:
+   * the resource is absent from the key because it is absent from the finding,
+   * which is not the same as being dropped from it.
+   */
+  it("still finds the other side of an endpoint-level pair", () => {
+    const { resourceId: _resource, relation: _relation, ...endpointLevel } = PAIRED;
+    const options: BuildReportOptions = {
+      version: "test",
+      config: PAIR_CONFIG,
+      endpoints: [{ id: "orders.read", method: "GET", path: "/orders" }],
+      observations: [
+        observed("alice", undefined, "https://a.test/orders"),
+        observed("carol", undefined, "https://a.test/orders"),
+      ],
+      skipped: [],
+      failures: [],
+      unauthenticated: [],
+      canariesChecked: 2,
+      truncated: false,
+      findings: [],
+      checks: [endpointLevel],
+      policy: { fallback: "allowed", rules: [] },
+      startedAt: new Date(0),
+      finishedAt: new Date(1),
+    };
+
+    expect(buildReport(options).findings[0]?.relatedRequest?.as).toBe("carol");
   });
 });
