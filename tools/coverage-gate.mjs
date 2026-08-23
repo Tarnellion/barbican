@@ -809,11 +809,26 @@ export function vitestEntry(root = ROOT) {
  * this whole file exists about. Refusing before the first test costs nothing and
  * exits 1.
  *
+ * An unrecognised shape is refused rather than read as "not measuring". Vitest
+ * hands a `TestProject` whose `config.coverage.enabled` is a boolean on both
+ * paths — checked, with and without `--coverage` — and if a later version stops
+ * saying so, this seam would otherwise become a function that returns and a
+ * guarantee nobody notices the loss of.
+ *
  * @param {{ config?: { coverage?: { enabled?: boolean } } }} [project] vitest's `TestProject`
  * @returns {void}
  */
 export function setup(project) {
-  if (project?.config?.coverage?.enabled !== true) {
+  const enabled = project?.config?.coverage?.enabled;
+  if (typeof enabled !== "boolean") {
+    throw new Error(
+      `this globalSetup was not told whether the run is measuring coverage: ` +
+        `project.config.coverage.enabled is ${JSON.stringify(enabled)} and not a boolean. ` +
+        `Until that is worked out, every coverage run would pass here unexamined, which is ` +
+        `the state ADR-0063's second amendment was written from.`,
+    );
+  }
+  if (!enabled) {
     return;
   }
   if (process.env[GATE_VARIABLE] !== undefined) {
@@ -856,7 +871,22 @@ function gate(extra) {
     // nothing here to answer for. A signal leaves `status` null.
     return ran.status ?? 1;
   }
-  const faults = faultsOnDisk();
+  /** @type {readonly string[]} */
+  let faults;
+  try {
+    faults = faultsOnDisk();
+  } catch (error) {
+    // `shippedSources` throws rather than guess, and a thrown guard reads as a
+    // crashed tool unless somebody prints it. Reachable only in theory — the
+    // suite loads the same function and would have failed first — but a gate
+    // whose last word is a stack trace is a gate somebody reads as broken
+    // rather than as firing.
+    process.stderr.write(
+      `  ${error instanceof Error ? error.message : String(error)}\n\n` +
+        `The coverage gate could not say what this package ships. See ADR-0063.\n`,
+    );
+    return 1;
+  }
   for (const fault of faults) {
     process.stderr.write(`  ${fault}\n`);
   }

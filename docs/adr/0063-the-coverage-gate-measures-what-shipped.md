@@ -455,23 +455,25 @@ totals are held to the floor from outside the configuration. Nothing is added to
 ### The mutations of the second amendment
 
 The three holes above, plus the ways round the first guard re-attempted against
-the second. Eleven applied, each through a harness that counts the needle before
+the second. Twelve applied, each through a harness that counts the needle before
 it edits anything and refuses when the count is not the intended one — shown
 first on a deliberately wrong needle, which was refused before anything ran —
 and each restored from a byte copy whose digest is compared after the run.
 
 | mutation                                                            | result                                    |
 | --------------------------------------------------------------------- | ------------------------------------------- |
-| a deliberately wrong needle                                            | refused: 0 applications, not 1; nothing run |
+| a deliberately wrong needle                                            | refused: 0 applications, not 1; nothing edited and nothing run |
 | `test:coverage` changed to `vitest run --coverage`                     | 1 red                                       |
 | the same, run through the script itself                                | exit 1 before the first test, from `setup`  |
 | `globalSetup` deleted from `vitest.config.ts`                          | 1 red                                       |
 | both of those in one edit                                              | 2 red                                       |
-| `src/core/leak.mts` imported by `src/core/keys.ts`                     | 3 red                                       |
+| the `setup` export renamed                                             | the suite does not start: `invalid globalSetup file` |
+| the refusal inside `setup` made a no-op                                | 2 red                                       |
+| `src/core/leak.mts` imported by `src/core/keys.ts`                     | 1 red, 2 faults                             |
 | `MEASURED_EXTENSIONS` put back to `[".ts"]`                            | 2 red                                       |
-| a global threshold of 10 on all four metrics                           | 1 red, naming all four                      |
-| `src/core/**/*.ts` replaced by a global at the floor                   | 2 red, 18 faults — every non-barrel file under `src/core/` |
-| `coverage.exclude: ["src/cli/**"]`                                     | 3 red                                       |
+| a global threshold of 10 on all four metrics                           | 2 red, naming all four                      |
+| `src/core/**/*.ts` replaced by a global at the floor                   | 1 red, 18 faults — every non-barrel file under `src/core/` |
+| `coverage.exclude: ["src/cli/**"]`                                     | 2 red                                       |
 | a blanket `src/**/*.ts` at 10                                          | 2 red                                       |
 
 ## Alternatives
@@ -530,8 +532,8 @@ On the tree that amendment was committed from: 3 025/3 080 statements,
 re-measured rather than having reasoned: nothing it touches is a source file.
 On the tree it is committed from, the same 3 025/3 080 statements,
 2 121/2 241 branches, 631/640 functions and 2 945/2 998 lines over 65 files —
-and 118 test files, 1 790 passing, 1 skipped, the fifteen new cases being the
-wiring, the extensions and the global threshold.
+and 118 test files, 1 791 passing, 1 skipped. `coverage-gate.test.ts` goes from
+25 cases to 41: the wiring, the extensions and the global threshold.
 
 **`tests/cli/` is a directory now**, alongside the two entry-point suites that
 already existed and stay where they are: `tests/cli.test.ts` (what the operator's
@@ -643,7 +645,15 @@ from it:
    which is limit 1 again, in another place: `--config` pointing somewhere else,
    or a `VITEST_*` variable, is outside every one of these. What has changed is
    the number of edits it takes and how loudly each one fails, not that the door
-   has no hinges.
+   has no hinges. One of those edits was measured, and the first reading of the
+   measurement was wrong: renaming the `setup` export looked as though vitest
+   accepted a `globalSetup` module exporting nothing usable, because the run it
+   was tried on matched no test file and vitest exits before initialising
+   `globalSetup` when there is nothing to run. Against a run with test files it
+   says `invalid globalSetup file … Must export setup, teardown or have a
+   default export` and the suite does not start. **A filtered run that matches
+   no test file therefore skips this seam entirely** — and runs no tests either,
+   which is why that is a note and not a hole.
 10. **"What the package ships" is bound to one build.** The compiler is asked
     about `tsconfig.build.json`, which is the build `pnpm run build` runs and the
     tarball carries. A second build, a bundler, or an entry added to `files`

@@ -586,9 +586,22 @@ describe("a coverage run the gate did not start", () => {
       expect(() => {
         setup({ config: { coverage: { enabled: false } } });
       }).not.toThrow();
-      expect(() => {
-        setup(undefined);
-      }).not.toThrow();
+    });
+  });
+
+  /**
+   * And a shape it does not recognise is refused rather than read as "not
+   * measuring". This is the seam dying quietly: a vitest that stopped saying
+   * whether coverage is on would turn `setup` into a function that returns, and
+   * nothing else in this file would notice.
+   */
+  it("refuses a project it cannot read", () => {
+    withoutTheVariable(() => {
+      for (const shape of [undefined, {}, { config: {} }, { config: { coverage: {} } }]) {
+        expect(() => {
+          setup(shape);
+        }).toThrow(/not told whether the run is measuring coverage/);
+      }
     });
   });
 });
