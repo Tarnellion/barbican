@@ -71,7 +71,18 @@ before moving one of them:
 | pack, install from the tarball, drive the CLI | asks about the artifact, which only `pack` produces              |
 | the CLI on the declared Node floor           | needs a second Node version installed beside this one             |
 
-The one thing on that list a laptop can run unaided is the oracle:
+**And the largest difference is not a step at all: it is how many times the four
+run.** `check` runs them once, on the contributor's machine. CI runs the same
+four on `ubuntu-latest` with Node 22, 24 and 26 — the maintenance LTS, the
+current LTS, and the open end of what `engines` claims — and once on
+`windows-latest` with Node 22. Windows is there because the gate could not run
+there at all: `build` is the last step of `check` and it ended in `chmod`, which
+Windows has no command for, and while every job in the file was `ubuntu-latest`
+nothing would ever have said so (audit of 14 August 2026, K-7). A green `check`
+on one machine is therefore evidence about one of four configurations, and this
+repository has already been bitten by the difference.
+
+The one thing on the table above a laptop can run unaided is the oracle:
 `node polygon/verify.mjs`. Run it after anything that touches `src/runner/`,
 `src/core/` or the report. `node tools/report-bytes.mjs` is the same run reduced
 to one digest per combination, for comparing a refactor against the revision

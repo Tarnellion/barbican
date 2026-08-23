@@ -14,7 +14,17 @@
 
 That sentence was true of a file that no longer exists in the shape it describes.
 ADR-0056 cut `src/cli.ts` into `src/cli/`, and the `include` list gained no path
-under it. Nine modules — 2 090 lines — were measured by nothing for four days:
+under it. Nine modules — 2 090 lines — were measured by nothing for **three
+hours**: the split is commit `339fd42`, 23 August 2026 at 10:45, and the commit
+that put them back under measurement is `c1dc60d`, the same day at 13:45. By the
+two ADRs' own dates it is one day, ADR-0056 being dated the 22nd and this the
+23rd — and ADR-0056's date is itself a day ahead of its commit. The first
+version of this section said four days, and the amendment of 23 August 2026 is
+where that was found; nothing in the repository supports the number. Three hours
+is the honest one, and it is enough: what matters is that the state was reached
+by omission and left by accident, not how long it lasted.
+
+The nine:
 
 | module        | what it is                                                        |
 | ------------- | ----------------------------------------------------------------- |
@@ -32,9 +42,10 @@ None of them is argument parsing. `compare.ts` was executed by no test in this
 process at all — its only exercise was `polygon/verify.mjs`, a CI job of its own.
 
 **This is the second time a split moved code out of a gate's sight, and the first
-time it was not noticed.** ADR-0057 cut `src/runner.ts` into a directory a day
-later and added `src/runner/**/*.ts` to the same list, with a comment three lines
-below the `cli` gap saying why:
+time it was not noticed.** ADR-0057 cut `src/runner.ts` into a directory
+forty-two minutes later — `8e12a1e` at 11:27 against `339fd42` at 10:45 — and
+added `src/runner/**/*.ts` to the same list, with a comment three lines below the
+`cli` gap saying why:
 
 > Naming only `src/runner.ts` after ADR-0057 would measure a file of re-exports
 > and leave the walk, the address seam and the canaries unmeasured — which is the
@@ -71,78 +82,182 @@ be outlived by a move. Everything the package ships is now measured, `src/cli.ts
 and `src/index.ts` included — both of which were outside it before, the barrel
 silently and the entry point by an exemption.
 
-### `tests/invariants/coverage-gate.test.ts` holds the other half
+### A guard that answers for the whole configuration, and for the run
 
 `include` alone is not the gate: a file measured against no threshold appears in
 the report, contributes to no number anyone checks, and can fall to zero without
-failing a build. The test reads both lists out of `vitest.config.ts` and asserts
-four things:
+failing a build. The first version of `tests/invariants/coverage-gate.test.ts`
+read `include` and `thresholds` out of `vitest.config.ts` and asserted four
+things — that the lists were readable, that every source file was matched by
+`include`, that every source file was matched by some threshold key, and that
+every threshold key matched some file.
 
-1. the configuration is readable and the tree is not empty — a guard that reads
-   nothing passes everything;
-2. every source file is matched by `include`;
-3. every source file is matched by at least one threshold key;
-4. every threshold key matches at least one file — vitest checks an empty set of
-   files against its numbers and finds no fault with it, which is how a
-   re-pointed threshold becomes decoration.
+**That was a guard on two keys of a dozen, and a review of 23 August 2026 walked
+around it four ways, each with the whole run exiting 0.** The four are recorded
+here because the shape they share is the finding:
 
-It implements two glob shapes — a literal path, and a directory followed by the
-recursive `.ts` pattern — and **throws** on a third rather than approximating it.
-Reaching for picomatch, which is what vitest matches with, would make an
-unfamiliar pattern quietly match nothing, and quietly matching nothing is the
-defect one level up.
+| walked around by                                       | what it did                                                        |
+| ------------------------------------------------------ | ------------------------------------------------------------------ |
+| `coverage.exclude: ["src/cli/**"]`                       | the same nine modules leave the report; three thresholds are then checked against an empty set of files and pass |
+| `all: false`                                             | **nothing** — `coverage.all` was removed in vitest 4, and the run measured the same 3021/3076 statements with it as without |
+| `{ statements: 0, branches: 0, functions: 0, lines: 0 }` | keeps the shape the guard read and stops being a gate               |
+| `"src/**/*.ts": { statements: 10, … }`                   | answers for every file at once, so "each file has some threshold" stays true while the numbers stop meaning anything |
+
+None of them touches a number a reader would recognise as a threshold. So the
+rules move into `tools/coverage-gate.mjs` and gain two halves the first version
+did not have.
+
+**The option names are an allowlist.** Only `provider`, `include`, `reporter`
+and `thresholds` may appear; `exclude`, `all`, `excludeAfterRemap`,
+`reportsDirectory`, `clean` and whatever vitest adds next fail by name, with a
+message asking what the new option does to the set of measured files. This is
+the ADR-0005 addendum argument in another place: the names that will ever take a
+file out of measurement cannot be enumerated, and the ones that are needed can.
+Vitest 4's own option list was read for this (`coverage.all` and
+`coverage.extensions` are gone; `excludeAfterRemap`, `thresholds.autoUpdate`,
+`thresholds.perFile` and `thresholds['100']` are the ones that change what a
+threshold means), and every one of them is refused by being absent from four
+names rather than present in a list of forbidden ones.
+
+**Every group declares all four metrics, and none of them is under the floor
+without a reason.** Vitest does not let a per-glob group inherit the global
+figures, so a group that names only `lines` leaves three metrics ungated — that
+is refused. The project floor, 95/90/95/95, lives in `tools/coverage-gate.mjs`
+and not in the file it holds up; a number below it must be named in `ALLOWANCES`
+at exactly that value with a reason beside it, and the table is exact in both
+directions.
+
+**And the run is answered for after it happens.** `pnpm run test:coverage` is now
+`node tools/coverage-gate.mjs --clean && vitest run --coverage && node
+tools/coverage-gate.mjs`. The last step reads `coverage/coverage-summary.json`
+and asks what no reading of a configuration can: is every file the package ships
+in it, is anything in it that the package does not ship, and are the four totals
+above the floor. That half is what makes the exclusion caught rather than
+argued about — it does not care which option removed the file, and it holds the
+floor even with every threshold in the configuration deleted. It is a separate
+step and not a test because the summary is written after the last test finishes.
+
+The glob vocabulary is still two shapes — a literal path, and a directory
+followed by the recursive `.ts` pattern — and still **throws** on a third rather
+than approximating it. Reaching for picomatch, which is what vitest matches
+with, would make an unfamiliar pattern quietly match nothing, and quietly
+matching nothing is the defect one level up.
+
+### Two of the thresholds were measuring nothing
+
+`src/index.ts` and `src/runner.ts` are re-export barrels. They carry **no
+statements at all**, and v8 reports 100 % of zero — so the two lines that gated
+them passed for the same reason an empty set of files passes, which is the exact
+defect the fourth assertion above was written against, one level down. The
+earlier version of this table recorded `src/index.ts` as "achieved
+100/100/100/100"; it was 0/0.
+
+Both lines are removed. The two files are named in `BARRELS` instead, a list the
+outcome half requires to be **precisely** the set of entries the summary reports
+with zero statements — so the day either of them carries code, it is a file
+answered for by no threshold and both halves say so. What `src/index.ts` actually
+promises is held by `tests/public-surface.test.ts`, which counts the exported
+names.
+
+### The next split is asked for in advance
+
+`thresholds` still names two literal files, and `src/cli/run.ts` is one of them.
+Cut it into `src/cli/run/` — barrel plus `main.ts`, which is what the four splits
+of that morning did to four other files — and the threshold measures the barrel
+at 100 % while the signal path it was written about drifts into the
+`src/cli/**/*.ts` aggregate. The first version of this guard passed 4/4 on that
+tree. So: a threshold naming a literal file that has a directory of the same name
+beside it must be joined by a threshold naming the directory. That is the shape
+`src/runner.ts` already had, turned from a comment into a check.
 
 ### The thresholds say what is true, module by module
 
-Nothing already in the file was lowered. What is new:
+Nothing already in the file was lowered.
 
-| key                  | statements | branches | functions | lines | achieved                  |
-| -------------------- | ---------: | -------: | --------: | ----: | ------------------------- |
-| `src/index.ts`       |         95 |       90 |        95 |    95 | 100 / 100 / 100 / 100     |
-| `src/cli.ts`         |         89 |       50 |        95 |    89 | 89.28 / 50 / 100 / 89.28  |
-| `src/cli/**/*.ts`    |         94 |       85 |        92 |    94 | 94.60 / 88.64 / 93.90 / 94.63 |
-| `src/cli/run.ts`     |         84 |       84 |        70 |    85 | 84.95 / 84.81 / 70.58 / 85.45 |
+| key                  | statements | branches | functions | lines | achieved                        |
+| -------------------- | ---------: | -------: | --------: | ----: | ------------------------------- |
+| `src/cli.ts`         |         89 |       50 |        95 |    89 | 89.28 / 50 / 100 / 89.28        |
+| `src/cli/**/*.ts`    |         94 |       85 |        92 |    94 | 94.65 / 90.26 / 93.83 / 94.70   |
+| `src/cli/run.ts`     |         84 |       84 |        70 |    85 | 84.95 / 87.01 / 70.58 / 85.45   |
 
 Eight of the nine modules behind the entry point are at **100 %** of their
 statements, functions and lines. The two figures below the project's 95/90/95/95
 are each one thing, named rather than averaged away:
 
-- **`src/cli/run.ts`** is the signal path and nothing else. `onSignal`,
-  `endBySignal` and the two promises inside it are 5 of the module's 17 functions
-  and 15 of its 113 statements, and they are the whole of the gap. A process
-  killed by a signal has no exit code to read from inside itself, and
-  `endBySignal` restores the default disposition and re-raises — inside a vitest
-  worker that ends the worker, not the test. The path is held from outside by
-  `tests/invariants/cli-surface.test.ts`, which spawns the built binary for
-  exactly this reason. The module has a threshold of its own so that a drop
-  inside it cannot hide behind the eight files at 100 % it would otherwise be
-  averaged with.
+- **`src/cli/run.ts`** is the signal path and one line that is not. `onSignal`,
+  `endBySignal` and the three callbacks inside it are 5 of the module's 17
+  functions, 16 of its 17 uncovered statements and 5 of its 10 unreached
+  branches. A process killed by a signal has no exit code to read from inside
+  itself, and `endBySignal` restores the default disposition and re-raises —
+  inside a vitest worker that ends the worker, not the test. The path is held
+  from outside by `tests/invariants/cli-surface.test.ts`, which spawns the built
+  binary for exactly this reason. The seventeenth uncovered statement is the
+  `return []` in the `catch` around `check.coverage?.(context)`, and it has
+  nothing to do with signals: the registry is built inside `run` itself
+  (ADR-0003 — "a registry assembled for a particular run"), so no test can put a
+  check into it whose `coverage` throws. The earlier version of this paragraph
+  said "15 of its 113 statements, and they are the whole of the gap"; both
+  halves were wrong. The module has a threshold of its own so that a drop inside
+  it cannot hide behind the eight files at 100 % it would otherwise be averaged
+  with.
 - **`src/cli.ts`** executes every one of its functions and five of its ten
   branches. The other five cannot be reached without breaking the code around
-  them: three are `error instanceof Error ? … : String(error)`, and two are the
-  escape hatch under `parseAsync` for something that is not a `CommanderError`,
-  which both action handlers already catch. A branch figure of 50 on a
+  them: **two** are the `: String(error)` arm of
+  `error instanceof Error ? … : String(error)` in the two action handlers, and
+  **three** are the escape hatch under `parseAsync` for something that is not a
+  `CommanderError` — its `else`, and both arms of the same conditional inside it,
+  which is unreached because the whole block is. The earlier version of this
+  paragraph had the two numbers the other way round. A branch figure of 50 on a
   ten-branch file is what honesty costs here; the alternative was to leave the
   file out, which is how this started.
 
 The branch figure for `src/cli/**` is 85 for the same reason in bulk: this layer
 is where the `?? fallback` for a value the type system cannot rule out lives — a
-skip reason with no wording, a filesystem error that is not an `Error`, a
-`Record` lookup that the compiler cannot prove total. Thirty-one branches in the
-layer are unreached: nineteen outside `run.ts`, and every one of those nineteen
-is of that shape; twelve inside it, of which four are the signal path and the
-other eight the same defensive shape again. Taking any of them needs something
-the code above it already rules out — a schema that stopped applying a default, a
-filesystem error that is not an `Error`.
+skip reason the core added and this layer has no wording for, a filesystem error
+that is not an `Error`, a `Record` lookup the compiler cannot prove total.
+Twenty-six branches in the layer are unreached: sixteen outside `run.ts` and ten
+inside it, of which five are the signal path and five are that same defensive
+shape.
+
+**Of the sixteen outside `run.ts`, fourteen are of that shape and two are not.**
+The two are input cases no test declares rather than fallbacks nothing can
+reach: the `exclude` arm of the plan `--dry-run` builds, and the "no skips at
+all" arm of the summary line in `screen.ts`. The earlier version of this
+paragraph said "every one of those nineteen is of that shape", and it was
+counting a larger number for a worse reason — **at least five of the branches it
+described as defensive fallbacks were dead code**, unreachable not because the
+code above ruled them out but because nothing could ever take them:
+
+| deleted                                        | why it could not be reached                                     |
+| ---------------------------------------------- | ---------------------------------------------------------------- |
+| `tenant.baseUrl ?? ""` in `preview.ts`          | the `.filter` two lines above had already excluded `undefined`    |
+| `tenant.baseUrl ?? ""` in `run.ts`              | the same five lines, copied                                       |
+| `account.canary ?? ""` in `canaries.ts`         | the same shape again, in the canary list                          |
+| `cost.get(endpoint.id) ?? 1` in `preview.ts`    | the map is built from the very list being looked up in            |
+| `streamPath ?? "the stream"` in `run.ts`        | the stream exists only when the path does                         |
+
+Each was there because `.filter` does not narrow a type and `Map.get` returns
+`T | undefined`, and each read to a reviewer as a policy — about tenants with no
+base address, about endpoints the cost model does not know, about a stream with
+no file. There are no such things. The filters now narrow, the cost map is
+filled as it is asked, and the message that names the stream is written where
+the compiler can see the path is there. That is five fewer branches and five
+fewer sentences that were not true.
 
 ### The tests that were owed
 
-95 tests in `tests/cli/`, one file per module, written against what each module
-decides rather than against the screen it prints. Eight mutations were made to
-confirm they hold, each restored from a byte copy and each run through a harness
-that refuses to run the suite when the replacement does not apply the intended
-number of times — confirmed against a deliberately wrong needle, which was
-refused before anything ran:
+95 tests in nine files under `tests/cli/`, written against what each module
+decides rather than against the screen it prints. **Nine files and nine modules,
+but not one file per module**: there is no `version.test.ts` — `src/cli/version.ts`
+is two statements, and it is covered because `src/cli.ts` and `src/cli/run.ts`
+both import it — and the ninth file is `entry.test.ts`, which is about
+`src/cli.ts`, the module that did not move. The earlier version of this paragraph
+said "one file per module", which was a description of the intention.
+
+Nine mutations were made to confirm the tests hold, each restored from a byte
+copy and each run through a harness that refuses to run the suite when the
+replacement does not apply the intended number of times — confirmed against a
+deliberately wrong needle, which was refused before anything ran:
 
 | mutation                                                              | result   |
 | --------------------------------------------------------------------- | -------- |
@@ -153,17 +268,51 @@ refused before anything ran:
 | a mistyped flag leaves with commander's own code again (C-3/H-5)       | 2 red    |
 | the truncation block stops offering the stream to the next run         | 4 red    |
 | the coverage-gate test stops reading the thresholds                    | 1 red    |
+| `### Unreleased` is moved back between `0.4.0` and `0.5.0`             | 1 red    |
 | the report's second `chmod` after the rename is removed                | survived |
+
+The table had eight rows and the sentence above it said eight; nine were applied,
+and the README ordering one was the row that was left out. Its absence is the
+same class of thing as everything else in this amendment: a count written beside
+a list, agreeing with nothing.
 
 The survivor is recorded under Consequences: it is a redundant line, not a
 missing test.
 
+### The mutations of the amendment
+
+The four ways around the first guard, re-attempted against the second, plus the
+three things the second guard added:
+
+| mutation                                                                | result   |
+| ------------------------------------------------------------------------ | -------- |
+| `coverage.exclude: ["src/cli/**"]`                                        | 2 red    |
+| `all: false`                                                              | 2 red    |
+| `src/cli/**/*.ts` zeroed                                                  | 1 red    |
+| a blanket `src/**/*.ts` at 10                                             | 2 red    |
+| `exclude` allowed **and** applied — the outcome half alone                | 9 files named |
+| `src/cli/run/main.ts` created beside `src/cli/run.ts`                     | 1 red    |
+| `### Unreleased` moved to the end of the document, under `## License`     | 1 red    |
+| `Object.fromEntries` in `report-bytes.mjs` put back to `out[key] = …`     | 1 red    |
+
+The fifth is the one worth reading. The exclusion was given on the command line,
+where `vitest.config.ts` never sees it and the configuration half of the guard
+has nothing to read — and the outcome half named all nine modules anyway. That
+is the whole argument for having two halves, and it is also the honest boundary
+of the first: **what it reads is the file, not the resolved configuration**, so a
+`--coverage.*` flag or a `VITEST_*` environment variable is outside it.
+
 ## Alternatives
 
 **Add `src/cli/**/*.ts` to the list and stop there.** The literal instruction, and
-it fixes this instance while leaving the mechanism that produced it. Four splits
-landed in three days (ADR-0054 through ADR-0057); the fifth will not be
-accompanied by a reminder either.
+it fixes this instance while leaving the mechanism that produced it. The four
+splits ADR-0054 through ADR-0057 describe landed **within forty-seven minutes of
+each other**, all four on 23 August 2026 — `7531bff` at 10:41, `339fd42` at
+10:45, `b75afa8` at 10:47, `8e12a1e` at 11:27 — and the fifth will not be
+accompanied by a reminder either. The first version of this paragraph said
+"three days", which is the span of the four ADRs' dates only if one of them is
+misread: they are dated 23, 23, 22 and 23 August, and the 22nd is ADR-0056's date
+running a day ahead of its own commit.
 
 **Keep the exemption for the printing modules and gate the rest.** The original
 argument — argument parsing and printing are checked by running the binary — is
@@ -192,9 +341,18 @@ project's own rule is that these numbers are a gate and not a report.
 ## Consequences
 
 **The overall figures move because the denominator did**, not because anything
-regressed. Before: 2 684/2 722 statements over 51 files. After: 3 009/3 065
-statements, 2 138/2 265 branches, 617/626 functions, 2 931/2 985 lines over 61
-files. 108 test files, 1 628 passing, 1 skipped.
+regressed. Before the gate was widened: 2 684/2 722 statements over 51 files.
+
+This paragraph then said "3 009/3 065 statements … over 61 files. 108 test files,
+1 628 passing, 1 skipped", and **`src/` held 62 `.ts` files at the commit that
+carried the sentence** — `git ls-tree -r 038f470 -- src` counts them. The 108 is
+right. The rest was taken from a run somewhere before the last commit of that
+pass and never re-counted, which is the same shape of defect as everything else
+this amendment corrects, one turn of the wheel later.
+
+On the tree this amendment is committed from: 3 025/3 080 statements,
+2 121/2 241 branches, 631/640 functions, 2 945/2 998 lines over 65 files;
+115 test files, 1 733 passing, 1 skipped.
 
 **`tests/cli/` is a directory now**, alongside the two entry-point suites that
 already existed and stay where they are: `tests/cli.test.ts` (what the operator's
@@ -226,3 +384,71 @@ decision that was wrong.
 not know fails the suite with a message naming the pattern. That is a nuisance
 exactly once per new shape, and the alternative is the failure mode this whole
 ADR is about.
+
+**Two guards of the same family were corrected in the same pass**, because the
+review that found the four ways round this one found them too. Neither is a
+decision of its own and neither gets an ADR; the reasoning lives in the file
+that does the work.
+
+- `tests/docs/release-readme.test.ts` read the **relative** order of the
+  changelog headings and not their place in the document, so moving
+  `### Unreleased` below `## License` passed all seven of its cases and a
+  release would have renamed a heading underneath the licence. It now asks for
+  membership: the changelog headings must be an unbroken run in the document's
+  own sequence, with `### Unreleased` last of it. `headingsOf` in
+  `tests/docs/markdown.ts` is what reads them, and it cuts fenced blocks out
+  first — this README carries `# the tag must match package.json's version`
+  inside the snippet under "Releasing".
+- `tools/report-bytes.mjs` had no test at all, and its whole guarantee is one
+  pure function and a **denylist**. The denylist stays — the inverse list is the
+  report schema in full, which already exists once as
+  `tests/report/report-shape.json` — but its silent direction is closed: every
+  entry carries its reason, the table is held exact in both directions, and the
+  manifest now carries a census of how many values each name masked, so a name
+  added later changes the manifest even when every digest agrees.
+  `tests/tools/report-bytes.test.ts` also caught the tool doing to itself what
+  it exists to have caught in the report: `out[key] = …` on an object literal
+  walks into the `__proto__` setter, so a set of request conditions called
+  `__proto__` disappeared from the normalised document.
+
+## What this does not hold
+
+The gate is stronger and it is not closed. What a reader should not conclude
+from it:
+
+1. **The configuration half reads the file, not the resolved configuration.** It
+   imports `vitest.config.ts` and asks about that object. A `--coverage.exclude`
+   on the command line, a `VITEST_*` environment variable, or a different file
+   passed with `--config` never reaches it. That is not hypothetical: it is
+   mutation five in the table above, and the outcome half is what caught it.
+2. **The outcome half checks presence and the four project totals, not
+   per-group numbers.** A per-group threshold lowered from the command line
+   (`--coverage.thresholds…`) is refused by neither half as long as the totals
+   stay above 95/90/95/95.
+3. **Nothing here makes the gate unlowerable.** The floor and the allowances
+   live in `tools/coverage-gate.mjs`, and someone who edits both that and
+   `vitest.config.ts` has lowered it. What changed is that it takes two files
+   and a written reason instead of one line, and that the reason has to be
+   exactly as specific as the number.
+4. **There is no per-file floor.** Thresholds are per group; a single file can
+   fall a long way inside a directory that stays above its number. `src/cli.ts`
+   and `src/cli/run.ts` have lines of their own for that reason and no other
+   file does — which is a judgement about where the risk is, not a guarantee.
+   Branch coverage in particular is gated only per group, because per-file
+   branch percentages on small files are dominated by single two-branch
+   expressions: `src/core/path-parameters.ts` reads 50 % on one unreached arm.
+5. **Coverage is a floor on execution and not on assertion.** A module at 100 %
+   is a module every line of which ran during the suite. Nothing here says a
+   test looked at what it did. The mutation tables are the only evidence in this
+   ADR that goes further, and they cover the cases somebody thought of.
+6. **The evidence can be missing rather than wrong.** Vitest does not write a
+   coverage report when a test fails (`reportOnFailure` is false by default), so
+   after a red run the outcome half finds no summary. It fails saying so, which
+   is the right answer, but it means the two halves are not independent
+   observers of the same run: the second only ever sees a run the first agreed
+   with.
+7. **`all: false` was never a bypass.** It is refused because the reason it is
+   harmless is a fact about vitest 4 and not about the option's name. If a
+   future version reintroduces something like it, this guard refuses it until
+   somebody adds it to `KNOWN_COVERAGE_OPTIONS` — and that somebody is who the
+   guard depends on.

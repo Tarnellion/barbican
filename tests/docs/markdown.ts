@@ -28,6 +28,36 @@ export function read(path: string): string {
 }
 
 /**
+ * Every heading of a document, in the order it reads, and nothing else.
+ *
+ * Fenced blocks are cut out first. `README.md` carries `# the tag must match
+ * package.json's version` inside the shell snippet under "Releasing", and a
+ * guard that reads position among headings would have counted it as one — which
+ * is how a check about where a section sits comes to depend on a comment in an
+ * example.
+ *
+ * Whole lines are returned rather than levels and text: what the callers ask is
+ * whether a particular heading sits where they expect, and comparing the line
+ * they already know keeps them from re-deriving the spelling.
+ */
+export function headingsOf(text: string): readonly string[] {
+  let fenced = false;
+  /** @see https://spec.commonmark.org/0.31.2/#fenced-code-blocks */
+  const fence = /^\s{0,3}(?:`{3,}|~{3,})/;
+  const found: string[] = [];
+  for (const line of text.split("\n")) {
+    if (fence.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (!fenced && /^#{1,6} /.test(line)) {
+      found.push(line.trimEnd());
+    }
+  }
+  return found;
+}
+
+/**
  * Everything under a heading, up to the next heading of the same level or higher.
  *
  * The level is taken from the heading that was found rather than fixed, because
