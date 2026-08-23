@@ -285,6 +285,28 @@ code sat in one long file.
 - `relatedRequestOf` dropped `resourceId` from the cell key, so a finding could
   name a different cell than the one that produced it.
 
+**Three rules that were written more than once are written once**
+([ADR-0061](docs/adr/0061-a-rule-is-written-in-one-place-and-read-in-two.md)).
+Nothing a consumer can observe changes — no message, no exit code, no report
+field — and each of the three could have changed something later.
+
+- **The address grammar** was two lists seven lines apart: a conjunction of
+  predicates for the seam, the same predicates re-listed as `if` blocks with the
+  sentences an operator reads. A rule added to the second alone would never reach
+  `joinUrl`, which is the only grammar between a consumer of the library and the
+  wire. It is one table of (predicate, sentence) now; the messages are unchanged,
+  and a rule with no witness in the gate is a red test.
+- **The refusal of a scheme-relative `//host/x`** stood in three places under a
+  comment saying it stood in one. The copy in the Postman parser had been
+  unreachable since the grammar took the rule over — behind a call that throws on
+  exactly that input, at zero hits from 1 529 tests — while its comment claimed
+  it was holding the scope. It is gone. The endpoint list's copy is reachable,
+  answers first, and stays, held to being a strict subset of the grammar.
+- **Two sets that must agree** now have one source each: the names of the errors
+  that end a walk, which the runner and the CLI read from opposite ends, and the
+  statuses that mean "not found", which the self-inflicted-404 guard had written
+  out a second time in a file that already calls `classifyStatus`.
+
 ### What changed in 0.5.0
 
 The largest release so far, and most of it came out of an adversarial audit of
