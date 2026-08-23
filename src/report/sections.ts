@@ -20,6 +20,7 @@ import { principalOf } from "../core/index.js";
 import { byCodeUnits } from "../core/order.js";
 import type { ClauseReservation } from "../core/standards/coverage.js";
 import type { AccountConfig, RequestContextConfig, RunConfig, RunTarget } from "../io/config.js";
+import { lookup, openRecord } from "../io/untrusted.js";
 import type { SkippedEndpoint } from "../runner.js";
 import type {
   BuildReportOptions,
@@ -32,6 +33,17 @@ import type {
 import { nothingLeftUnnamed } from "./shape.js";
 import { unconfirmedCredentials } from "./verdict.js";
 
+/**
+ * Why endpoints were not probed, counted.
+ *
+ * A plain literal, where `countByContext` at the foot of this file needs
+ * `openRecord`. The difference is the key space and not the shape of the loop:
+ * `SkippedEndpoint["reason"]` is a closed union of four names this tool wrote
+ * down, so `__proto__` cannot be one of them and there is nothing here for
+ * ADR-0024 to guard. The moment a reason takes any part of its text from a
+ * configuration or a response, this becomes the same record as the one below and
+ * moves to `openRecord` with it. See ADR-0058.
+ */
 export function countByReason(
   skipped: readonly SkippedEndpoint[],
 ): Readonly<Record<string, number>> {
@@ -296,9 +308,25 @@ export function resourcesNeverFound(observations: readonly AccessObservation[]):
     .sort(byCodeUnits);
 }
 
-/** How many cells were observed under each set of conditions, untested included. */
+/**
+ * How many cells were observed under each set of conditions, untested included.
+ *
+ * Over a key space the tool does not own. A condition's id is `z.string().min(1)`
+ * and nothing narrower — the label is the operator's to pick — so this is one of
+ * the records ADR-0024 is about, and it was the one still built out of a plain
+ * object literal. `counts["__proto__"] = 0` is a no-op, and the increment below
+ * would read `Object.prototype`, add one to it and assign the resulting string
+ * into the same no-op: a declared set of conditions vanished from the field
+ * whose whole promise is that none of them is passed over in silence, which is
+ * the reading `docs/report.md` gives a missing key — "nobody declared this".
+ *
+ * `countByKind` and `summary.accepted.byKind` in `findings.ts` are the same
+ * shape and were already guarded; two records of one kind guarded differently is
+ * exactly what that rule exists against. `openRecord` and `lookup` are the
+ * grammar, written once in `src/io/untrusted.ts`. See ADR-0058.
+ */
 export function countByContext(options: BuildReportOptions): Readonly<Record<string, number>> {
-  const counts: Record<string, number> = {};
+  const counts = openRecord<number>();
   for (const context of options.config.contexts) {
     counts[context.id] = 0;
   }
@@ -310,7 +338,7 @@ export function countByContext(options: BuildReportOptions): Readonly<Record<str
   for (const observation of options.observations) {
     const contextId = contextOf.get(observation.accountId);
     if (contextId !== undefined) {
-      counts[contextId] = (counts[contextId] ?? 0) + 1;
+      counts[contextId] = (lookup(counts, contextId) ?? 0) + 1;
     }
   }
   return counts;
