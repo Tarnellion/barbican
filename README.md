@@ -757,14 +757,32 @@ security invariants name as the dangerous one: a sentence telling the next reade
 not to look, over a check that no longer looks either. Nothing a consumer can
 observe changes here either: the same 227 exported names, and the same bytes over
 all 29 combinations of the reference platform.
+
 **Twenty-four doc comments now describe the symbol they stand on**
 ([ADR-0062](docs/adr/0062-a-comment-describes-the-symbol-under-it.md)). One of
 them described a security guarantee that had moved: above `sanitizeLocation` it
 said the `location` header's path reaches the report, when since 17 August only
 the origin does. Nothing a consumer runs changes; what changes is what the source
 tells a reader about it. Two gates hold the checkable parts — a doc block
-standing over another doc block, and an `[ADR-NNNN]` label that does not match
-the document it links.
+standing over another doc block, and an ADR link whose label names a different
+decision from the one it opens.
+
+**Both of those gates were walked around, and the ADR now says what they miss.**
+The link gate collected on `[ADR-NNNN]`, which is a condition on the very label
+it exists to judge: nine ordinary spellings — emphasis marks, a code span, a word
+in front of the number, `ADR 0041`, `ADR-41`, the filename as the label — were
+never collected and so were never judged, while the gate's own header said
+nothing is passed over. The population is now the link and the label is what is
+on trial. The comment gate was walked around by one `//` line between the two
+blocks, by putting the pair at the top of a file, and by the extension list; and
+its JSDoc exemption was justified with a claim the same branch's diff refuted —
+`src/runner/canaries.ts` had exactly the excused shape with the upper block
+describing a different function. The exemption is two narrower rules now, module
+headers are counted against a named list of seven files instead of being skipped,
+and [ADR-0062](docs/adr/0062-a-comment-describes-the-symbol-under-it.md) carries
+a measured list of what neither gate catches — starting with the 965 ADR
+citations that are prose rather than links.
+
 **Three rules that were written more than once are written once**
 ([ADR-0061](docs/adr/0061-a-rule-is-written-in-one-place-and-read-in-two.md)).
 Nothing a consumer can observe changes — no message, no exit code, no report
