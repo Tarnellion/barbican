@@ -13,9 +13,9 @@
  *    untouched. Nine modules left the report; three thresholds were then checked
  *    against an empty set of files and passed.
  * 2. `all: false`. This one turned out **not** to be a bypass: `coverage.all` was
- *    removed in vitest 4, and the run produced the same 3021/3076 statements as
- *    without it. It is held here anyway, as an option name the configuration has
- *    no meaning for.
+ *    removed in vitest 4, and on the tree it was tried on (7a13899) the run
+ *    produced the same 3021/3076 statements with it as without. It is held here
+ *    anyway, as an option name the configuration has no meaning for.
  * 3. Zeroing the numbers of a group — `{ statements: 0, branches: 0, ... }` —
  *    which keeps the shape the old guard read and stops being a gate.
  * 4. A blanket `"src/**\/*.ts": { statements: 10, ... }`, which answers for every

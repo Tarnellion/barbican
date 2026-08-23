@@ -99,7 +99,7 @@ here because the shape they share is the finding:
 | walked around by                                       | what it did                                                        |
 | ------------------------------------------------------ | ------------------------------------------------------------------ |
 | `coverage.exclude: ["src/cli/**"]`                       | the same nine modules leave the report; three thresholds are then checked against an empty set of files and pass |
-| `all: false`                                             | **nothing** — `coverage.all` was removed in vitest 4, and the run measured the same 3021/3076 statements with it as without |
+| `all: false`                                             | **nothing** — `coverage.all` was removed in vitest 4, and on the tree it was tried on (7a13899) the run measured the same 3021/3076 statements with it as without |
 | `{ statements: 0, branches: 0, functions: 0, lines: 0 }` | keeps the shape the guard read and stops being a gate               |
 | `"src/**/*.ts": { statements: 10, … }`                   | answers for every file at once, so "each file has some threshold" stays true while the numbers stop meaning anything |
 

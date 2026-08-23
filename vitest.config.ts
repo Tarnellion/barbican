@@ -77,18 +77,20 @@ export default defineConfig({
         // the difference is made of. The branch figure is lower again because
         // this is the layer where the `?? fallback` for a value the type system
         // cannot rule out lives — a skip reason the core added and this layer has
-        // no wording for, a filesystem error that is not an `Error`. Nineteen of
-        // the layer's unreached branches sit outside `run.ts`; they are of that
-        // shape, and the ones that were not — a `?? ""` after a filter that had
-        // already excluded `undefined`, a `?? 1` on a lookup in a map built from
-        // the very list being looked up in — were deleted rather than described,
-        // on 23 August 2026.
+        // no wording for, a filesystem error that is not an `Error`. Sixteen of
+        // the layer's twenty-six unreached branches sit outside `run.ts`, and
+        // fourteen of those sixteen are of that shape; the other two are input
+        // cases no test declares rather than fallbacks nothing can reach. The
+        // ones that were neither — a `?? ""` after a filter that had already
+        // excluded `undefined`, twice, and a `?? 1` on a lookup in a map built
+        // from the very list being looked up in — were deleted rather than
+        // described, on 23 August 2026. See ADR-0063.
         "src/cli/**/*.ts": { statements: 94, branches: 85, functions: 92, lines: 94 },
         // Named on its own so that a drop inside it cannot hide behind the eight
         // files at 100 % it is averaged with. Almost the whole of the gap between
         // this line and the project's 95/90/95/95 is the signal path — `onSignal`,
-        // `endBySignal` and the two promises inside it: 5 of 17 functions, 16 of
-        // the 17 uncovered statements and 5 of the 12 unreached branches. A
+        // `endBySignal` and the three callbacks inside it: 5 of 17 functions, 16
+        // of the 17 uncovered statements and 5 of the 10 unreached branches. A
         // process killed by a signal has no exit code to read from inside itself,
         // and re-raising one in a vitest worker takes the worker with it, so that
         // path is held from outside, by `tests/invariants/cli-surface.test.ts`.

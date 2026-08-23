@@ -120,7 +120,8 @@ describe("the configuration the coverage gate is made of", () => {
 
   /**
    * `coverage.all` was removed in vitest 4 and setting it changed no number —
-   * the run measured the same 3021/3076 statements with and without it. It is
+   * the run measured the same 3021/3076 statements with and without it, on the
+   * tree it was tried on (7a13899). It is
    * refused anyway, because the reason it is harmless is a fact about this
    * version of vitest and not about the option's name.
    */
