@@ -119,3 +119,13 @@ classes are one paragraph each, and the argument for splitting them off is that
 they are read in the terminal rather than in the file. The argument against is
 that an error that fires where nobody can see the reason is exactly what this
 repository keeps finding, and the reason is in the class.
+
+> **Note, 23 August 2026.** A reader following that pointer finds nothing there:
+> `parse.ts` is 659 lines and contains the string `Error` not once. This split
+> distributed the error classes to the modules that throw them — five in
+> `schema.ts`, five in `environment.ts`, four each in `contexts.ts`,
+> `references.ts` and `basis.ts` — so the paragraph describes the file as it was
+> before the decision above, not after it. The decision stands; the pointer does
+> not. Whether nineteen paragraphs of error prose want a module of their own is
+> now a question about `schema.ts` and `environment.ts`, and nobody has asked
+> it.

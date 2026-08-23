@@ -149,6 +149,37 @@ describe("what main carries beyond the newest release", () => {
   });
 
   /**
+   * And it sits where the rename will leave a correct document.
+   *
+   * The release is a rename and nothing else, so the section has to occupy the
+   * position the new version's section belongs in: last of the run, because the
+   * "What changed" sections ascend. Between 19 and 23 August 2026 it sat between
+   * `0.4.0` and `0.5.0` — one heading above the version its own first line says
+   * it is ahead of — and renaming it there would have filed `0.6.0` before
+   * `0.5.0`. Every guard in this file read the section's contents and none read
+   * where it was, which is the same shape as everything else here: the check
+   * asks the question that was asked last time.
+   */
+  it("is the last of the sections that describe a version", () => {
+    const headings = README.split("\n").filter(
+      (line) => line === "### Unreleased" || line.startsWith("### What changed in "),
+    );
+
+    // A guard that matched no heading would agree with any README, and the
+    // ascending order is the premise the position rests on.
+    expect(headings.length).toBeGreaterThan(1);
+    const versions = headings
+      .filter((line) => line !== "### Unreleased")
+      .map((line) => line.replace("### What changed in ", ""));
+    expect(versions).toEqual(
+      [...versions].sort((a, b) => a.localeCompare(b, "en", { numeric: true })),
+    );
+    if (headings.includes("### Unreleased")) {
+      expect(headings.at(-1)).toBe("### Unreleased");
+    }
+  });
+
+  /**
    * And once it is tagged, the renamed section still says something.
    *
    * This assertion used to be `README` contains `### What changed in <version>`,

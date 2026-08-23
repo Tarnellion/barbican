@@ -234,141 +234,6 @@ naming every declared endpoint.
 whitespace**, `Retry-After` can no longer shorten the backoff below the tool's own
 formula, and `--dry-run` no longer refuses configurations that run.
 
-### Unreleased
-
-On `main`, not on npm. `0.5.0` is what `npm install barbican` gives you, and the
-work below changes nothing a consumer can observe.
-
-**The modules that were half the source are split by what they do.**
-`report/build`, `io/config`, `cli` and `runner` were 3012, 2832, 1872 and 1726
-lines, and each held four or five separate jobs. Each is now a directory of
-modules behind the path it always had, so every import in this repository and in
-a consumer's code is the import it was.
-
-Each cut is made at a seam a decision already named, not at the table of
-contents. The runner is cut at the address, because
-[ADR-0032](docs/adr/0032-the-grammar-sits-at-the-seam.md) is a decision
-about a *place* — the grammar lives in `joinUrl` because that is the one place an
-address is built, and a cut that put `substitute` on the other side of a module
-boundary would rebuild the state that ADR was written from. The report is cut at
-the cell key, for the same kind of reason.
-
-The guarantee is checked rather than claimed: the exported names and their count
-are unchanged, the report is the same bytes over all 29 combinations of the
-reference platform, the oracle answers as it did, and the coverage gate was
-re-pointed at the new paths so it still measures code rather than re-exports.
-
-**A gate that only ran after the push now runs before it.** Cutting `cli.ts`
-into modules turned a file-local `paint` into an exported one, and its parameter
-type — derived from `styleText` — carried `import … from "node:util"` into a
-shipped declaration. The published types are supposed to name nothing but
-themselves, because a type from outside is a promise about somebody else's
-versioning; the check for it existed only as a shell line in CI, so it reported
-the leak after the work was pushed rather than preventing it. It is now
-`tools/no-dependency-in-declarations.mjs`, run at the end of `pnpm run build`,
-and CI calls that same file. The palette is written out as `Ink` and still
-checked against Node's own by the compiler — a colour Node stops accepting fails
-the build in this repository rather than in a consumer's.
-
-**Three defects the refactoring uncovered are fixed.** They are the reason a
-refactor is worth reading rather than skimming — each was invisible while the
-code sat in one long file.
-
-- The content digest validated no file the CLI had ever written. The run's own
-  identifier was substituted into the report *after* the hash was taken, so
-  `checkContentDigest` answered `false` for every artifact on disk while the test
-  suite stayed green against a report in memory. A guarantee has to be checked
-  where the artifact goes —
-  [ADR-0058](docs/adr/0058-a-guarantee-holds-where-the-artifact-goes.md).
-- A set of request conditions named `__proto__` vanished from
-  `coverage.contextsProbed`: the report said it had not been probed when it had.
-- `relatedRequestOf` dropped `resourceId` from the cell key, so a finding could
-  name a different cell than the one that produced it.
-
-**The key a verdict and a finding meet on is built in one place.** `cellKey` was
-written out twice, character for character — once in the runner, once in the
-report — under a comment warning that a key written by hand in several places is
-a key that stops agreeing with itself. It is `src/core/keys.ts` now, with the
-endpoint × resource key the walk builds beside it under a name of its own, and
-a test refuses the next copy:
-[ADR-0059](docs/adr/0059-one-key-one-source.md). That test found two more keys on
-its first run — written with the separator as a raw byte, which makes a file
-binary to `grep`, so every search of this repository for it had been answering
-"no matches" over the two files that used it. Nothing a consumer can observe
-changes: the same 227 exported names, and the same bytes over all 29 combinations
-of the reference platform.
-
-**The `{name}` in a path template is read by one rule again.** It was written
-three times: twice in `src/runner/address.ts`, where a comment admitted the two
-were one grammar in two spellings, and a third time in `src/core/matrix.ts`,
-character for character the second, in another layer with nothing pointing at
-it. The two in the runner decide what a run walks and the one in the core
-decides which cells exist, so a difference between them is a run that probes a
-cell the matrix does not contain. All three now call
-`src/core/path-parameters.ts`. The core rather than `src/io/untrusted.ts`,
-because `untrusted.ts` already imports from the core and a grammar the core
-reads cannot live above it — see the note of 23 August on
-[ADR-0024](docs/adr/0024-strings-from-outside.md), which is the rule being
-applied rather than a new one. Nothing a consumer can observe changes; the
-exported names and their count are unchanged, and the oracle answers as it did
-over all 29 combinations.
-
-The tidying has a trap in it, and the tests hold it: one shared `RegExp` with
-the `g` flag would have been the obvious way to write that module and is a
-defect, because `lastIndex` survives between calls — a presence test leaves it
-past the first parameter, and the scan that follows reads only the second.
-
-**Both of those gates could be walked around, and now they cannot.** An
-adversarial reviewer put a second cell key under a different name past the first
-one, and a second spelling of the separator — the same character written
-`\x00` instead of the four-digit escape — past it as well, both with
-`pnpm run check` green. The `{name}` grammar had no gate at all: a fourth copy in
-the runner passed everything. The answer is not more patterns.
-`KEY_SEPARATOR` is no longer exported, so a copy elsewhere has to write the
-character out itself, and the single test that replaces both — one owner, one
-exact allowance table per decision, and sources tokenised so that every spelling
-of a character is read as the one character it is — refuses that.
-[ADR-0060](docs/adr/0060-a-gate-that-cannot-be-walked-around.md) lists the seven
-evasions tried against the new gate and what each of them does.
-
-The same review found the record wrong in two places, and both are corrected:
-ADR-0059 said ADR-0057 rendered a key with a space, where in fact ADR-0057 held
-the **raw NUL byte** — the byte that makes a file binary to `grep`, so the search
-that went looking for it answered "no matches" and the silence was written up as
-a rendering choice. That byte was still in the repository, which is why the gate
-now reads every tracked file rather than `src/` alone. Nothing a consumer can
-observe changes here either: the same 227 exported names, and the same bytes over
-all 29 combinations of the reference platform.
-**Twenty-four doc comments now describe the symbol they stand on**
-([ADR-0062](docs/adr/0062-a-comment-describes-the-symbol-under-it.md)). One of
-them described a security guarantee that had moved: above `sanitizeLocation` it
-said the `location` header's path reaches the report, when since 17 August only
-the origin does. Nothing a consumer runs changes; what changes is what the source
-tells a reader about it. Two gates hold the checkable parts — a doc block
-standing over another doc block, and an `[ADR-NNNN]` label that does not match
-the document it links.
-**Three rules that were written more than once are written once**
-([ADR-0061](docs/adr/0061-a-rule-is-written-in-one-place-and-read-in-two.md)).
-Nothing a consumer can observe changes — no message, no exit code, no report
-field — and each of the three could have changed something later.
-
-- **The address grammar** was two lists seven lines apart: a conjunction of
-  predicates for the seam, the same predicates re-listed as `if` blocks with the
-  sentences an operator reads. A rule added to the second alone would never reach
-  `joinUrl`, which is the only grammar between a consumer of the library and the
-  wire. It is one table of (predicate, sentence) now; the messages are unchanged,
-  and a rule with no witness in the gate is a red test.
-- **The refusal of a scheme-relative `//host/x`** stood in three places under a
-  comment saying it stood in one. The copy in the Postman parser had been
-  unreachable since the grammar took the rule over — behind a call that throws on
-  exactly that input, at zero hits from 1 529 tests — while its comment claimed
-  it was holding the scope. It is gone. The endpoint list's copy is reachable,
-  answers first, and stays, held to being a strict subset of the grammar.
-- **Two sets that must agree** now have one source each: the names of the errors
-  that end a walk, which the runner and the CLI read from opposite ends, and the
-  statuses that mean "not found", which the self-inflicted-404 guard had written
-  out a second time in a file that already calls `classifyStatus`.
-
 ### What changed in 0.5.0
 
 The largest release so far, and most of it came out of an adversarial audit of
@@ -753,6 +618,153 @@ refusals this tool cannot recognise. **Nothing in it is a percentage** — a
 percentage hides its denominator, and claiming a clause covered over a surface
 the tool could not see is the same class of lie as a falsely clean run.
 
+### Unreleased
+
+On `main`, not on npm. `0.5.0` is what `npm install barbican` gives you, and the
+work below changes nothing a consumer can observe.
+
+**The modules that were half the source are split by what they do.**
+`report/build`, `io/config`, `cli` and `runner` were 3012, 2832, 1872 and 1726
+lines, holding five, seven, nine and six separate jobs. Each is now a directory of
+modules behind the path it always had, so every import in this repository and in
+a consumer's code is the import it was.
+
+Each cut is made at a seam a decision already named, not at the table of
+contents. The runner is cut at the address, because
+[ADR-0032](docs/adr/0032-the-grammar-sits-at-the-seam.md) is a decision
+about a *place* — the grammar lives in `joinUrl` because that is the one place an
+address is built, and a cut that put `substitute` on the other side of a module
+boundary would rebuild the state that ADR was written from. The report is cut at
+the cell key, for the same kind of reason.
+
+The guarantee is checked rather than claimed: the exported names and their count
+are unchanged, the report is the same bytes over all 29 combinations of the
+reference platform, the oracle answers as it did, and the coverage gate was
+re-pointed at the new paths so it still measures code rather than re-exports.
+
+**A gate that only ran after the push now runs before it.** Cutting `cli.ts`
+into modules turned a file-local `paint` into an exported one, and its parameter
+type — derived from `styleText` — carried `import … from "node:util"` into a
+shipped declaration. The published types are supposed to name nothing but
+themselves, because a type from outside is a promise about somebody else's
+versioning; the check for it existed only as a shell line in CI, so it reported
+the leak after the work was pushed rather than preventing it. It is now
+`tools/no-dependency-in-declarations.mjs`, run at the end of `pnpm run build`,
+and CI calls that same file. The palette is written out as `Ink` and still
+checked against Node's own by the compiler — a colour Node stops accepting fails
+the build in this repository rather than in a consumer's.
+
+**The coverage gate measures every module the package ships**
+([ADR-0063](docs/adr/0063-the-coverage-gate-measures-what-shipped.md)). It did
+not: `include` was a list of five directories, and the nine modules the `cli`
+cut produced were named by none of them — the run orchestration, the second
+canary pass and the gate on `--resume` among them — under an exemption written
+about a file that was "argument parsing and printing". The list is now one
+pattern over `src/`, and a test reads it and the thresholds out of the
+configuration so that neither can lose a file to a move again. Eight of the nine
+modules are brought to 100 % of their statements, functions and lines; the ninth
+is named on a line of its own for the part of it only a spawned process can
+observe.
+
+**Three defects the refactoring uncovered are fixed.** They are the reason a
+refactor is worth reading rather than skimming — each was invisible while the
+code sat in one long file.
+
+- The content digest validated no file the CLI had ever written. The run's own
+  identifier was substituted into the report *after* the hash was taken, so
+  `checkContentDigest` answered `false` for every artifact on disk while the test
+  suite stayed green against a report in memory. A guarantee has to be checked
+  where the artifact goes —
+  [ADR-0058](docs/adr/0058-a-guarantee-holds-where-the-artifact-goes.md).
+- A set of request conditions named `__proto__` vanished from
+  `coverage.contextsProbed`: the report said it had not been probed when it had.
+- `relatedRequestOf` dropped `resourceId` from the cell key, so a finding could
+  name a different cell than the one that produced it.
+
+**The key a verdict and a finding meet on is built in one place.** `cellKey` was
+written out twice, character for character — once in the runner, once in the
+report — under a comment warning that a key written by hand in several places is
+a key that stops agreeing with itself. It is `src/core/keys.ts` now, with the
+endpoint × resource key the walk builds beside it under a name of its own, and
+a test refuses the next copy:
+[ADR-0059](docs/adr/0059-one-key-one-source.md). That test found two more keys on
+its first run — written with the separator as a raw byte, which makes a file
+binary to `grep`, so every search of this repository for it had been answering
+"no matches" over the two files that used it. Nothing a consumer can observe
+changes: the same 227 exported names, and the same bytes over all 29 combinations
+of the reference platform.
+
+**The `{name}` in a path template is read by one rule again.** It was written
+three times: twice in `src/runner/address.ts`, where a comment admitted the two
+were one grammar in two spellings, and a third time in `src/core/matrix.ts`,
+character for character the second, in another layer with nothing pointing at
+it. The two in the runner decide what a run walks and the one in the core
+decides which cells exist, so a difference between them is a run that probes a
+cell the matrix does not contain. All three now call
+`src/core/path-parameters.ts`. The core rather than `src/io/untrusted.ts`,
+because `untrusted.ts` already imports from the core and a grammar the core
+reads cannot live above it — see the note of 23 August on
+[ADR-0024](docs/adr/0024-strings-from-outside.md), which is the rule being
+applied rather than a new one. Nothing a consumer can observe changes; the
+exported names and their count are unchanged, and the oracle answers as it did
+over all 29 combinations.
+
+The tidying has a trap in it, and the tests hold it: one shared `RegExp` with
+the `g` flag would have been the obvious way to write that module and is a
+defect, because `lastIndex` survives between calls — a presence test leaves it
+past the first parameter, and the scan that follows reads only the second.
+
+**Both of those gates could be walked around, and now they cannot.** An
+adversarial reviewer put a second cell key under a different name past the first
+one, and a second spelling of the separator — the same character written
+`\x00` instead of the four-digit escape — past it as well, both with
+`pnpm run check` green. The `{name}` grammar had no gate at all: a fourth copy in
+the runner passed everything. The answer is not more patterns.
+`KEY_SEPARATOR` is no longer exported, so a copy elsewhere has to write the
+character out itself, and the single test that replaces both — one owner, one
+exact allowance table per decision, and sources tokenised so that every spelling
+of a character is read as the one character it is — refuses that.
+[ADR-0060](docs/adr/0060-a-gate-that-cannot-be-walked-around.md) lists the seven
+evasions tried against the new gate and what each of them does.
+
+The same review found the record wrong in two places, and both are corrected:
+ADR-0059 said ADR-0057 rendered a key with a space, where in fact ADR-0057 held
+the **raw NUL byte** — the byte that makes a file binary to `grep`, so the search
+that went looking for it answered "no matches" and the silence was written up as
+a rendering choice. That byte was still in the repository, which is why the gate
+now reads every tracked file rather than `src/` alone. Nothing a consumer can
+observe changes here either: the same 227 exported names, and the same bytes over
+all 29 combinations of the reference platform.
+**Twenty-four doc comments now describe the symbol they stand on**
+([ADR-0062](docs/adr/0062-a-comment-describes-the-symbol-under-it.md)). One of
+them described a security guarantee that had moved: above `sanitizeLocation` it
+said the `location` header's path reaches the report, when since 17 August only
+the origin does. Nothing a consumer runs changes; what changes is what the source
+tells a reader about it. Two gates hold the checkable parts — a doc block
+standing over another doc block, and an `[ADR-NNNN]` label that does not match
+the document it links.
+**Three rules that were written more than once are written once**
+([ADR-0061](docs/adr/0061-a-rule-is-written-in-one-place-and-read-in-two.md)).
+Nothing a consumer can observe changes — no message, no exit code, no report
+field — and each of the three could have changed something later.
+
+- **The address grammar** was two lists seven lines apart: a conjunction of
+  predicates for the seam, the same predicates re-listed as `if` blocks with the
+  sentences an operator reads. A rule added to the second alone would never reach
+  `joinUrl`, which is the only grammar between a consumer of the library and the
+  wire. It is one table of (predicate, sentence) now; the messages are unchanged,
+  and a rule with no witness in the gate is a red test.
+- **The refusal of a scheme-relative `//host/x`** stood in three places under a
+  comment saying it stood in one. The copy in the Postman parser had been
+  unreachable since the grammar took the rule over — behind a call that throws on
+  exactly that input, at zero hits from 1 529 tests — while its comment claimed
+  it was holding the scope. It is gone. The endpoint list's copy is reachable,
+  answers first, and stays, held to being a strict subset of the grammar.
+- **Two sets that must agree** now have one source each: the names of the errors
+  that end a walk, which the runner and the CLI read from opposite ends, and the
+  statuses that mean "not found", which the self-inflicted-404 guard had written
+  out a second time in a file that already calls `classifyStatus`.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.
@@ -991,6 +1003,11 @@ A release is three edits and a tag, in one commit:
    `### What changed in <version>`. It has been written as the changes landed —
    that is [ADR-0034](docs/adr/0034-what-main-carries-beyond-the-release.md), and
    the reason is that reconstructing it from the log at tag time failed twice.
+   The section is the **last** of the "What changed" run, because the rename is
+   the whole edit: sitting anywhere else it would file the new version among the
+   old ones. It spent the four days before 23 August 2026 between `0.4.0` and
+   `0.5.0`, one heading above a version it says it is ahead of, and the guard
+   below now reads the order as well as the contents.
 2. Set that version in `package.json`. Between releases it names the last version
    this tree shipped, so this is where it moves.
 3. Read the renamed section as a consumer of the previous version would.

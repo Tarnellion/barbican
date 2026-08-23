@@ -97,6 +97,18 @@ would be spread over files that cannot enforce them.
   name and `src/cli` is not among them, so the split neither adds coverage nor
   removes any: the numbers are the same 2683/2721 statements before and after.
 
+  > **Note, 23 August 2026.** True as arithmetic and misleading as a
+  > conclusion, and this is the sentence that let it stand: the nine modules
+  > were unmeasured before the split because they were one file carrying an
+  > exemption written about argument parsing, and unmeasured after it because
+  > the list named no path under `src/cli/`. Among them were the run
+  > orchestration, the second canary pass and the gate on `--resume`, none of
+  > which is argument parsing. ADR-0057 added a path for its own split a day
+  > later, with a comment three lines below this gap calling the alternative
+  > "the gate being lowered by a move, not by a decision". Closed by
+  > [ADR-0063](0063-the-coverage-gate-measures-what-shipped.md), which also
+  > replaces the list with a pattern so that the next split cannot repeat it.
+
 ### commander, checked rather than remembered
 
 Two things about commander 15 were verified against its documentation and its
