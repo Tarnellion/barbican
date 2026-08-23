@@ -109,6 +109,18 @@ const VALUE_PRESERVED_HEADERS: ReadonlySet<string> = new Set([
  * to print.
  */
 function sanitizeLocation(value: string): string {
+  // The stricter of this file's two address rules, and deliberately not the
+  // same rule as `safeUrl` below. What the two sanitise differs in who wrote
+  // it: **this address came from the platform**, in a `location` header, and
+  // the tool has never seen it before — so every part after the origin is
+  // content somebody else composed and this project has audited nothing about.
+  // `safeUrl` sanitises an address the tool built itself out of its own
+  // configuration, and keeps the path for that reason.
+  //
+  // Two rules, then, and not one that drifted: the fix of 17 August 2026 — that
+  // a path carries secrets too — belongs here and would be wrong there. Written
+  // down on both sides on 23 August 2026, because a reader comparing them can
+  // otherwise only conclude that one of them was missed. See ADR-0064.
   try {
     const url = new URL(value, "https://placeholder.invalid");
     const origin = url.origin === "https://placeholder.invalid" ? "" : url.origin;
@@ -225,11 +237,27 @@ export class CircuitOpenError extends Error {
  * from userinfo in there.
  */
 function safeUrl(url: string): string {
+  // The looser of this file's two address rules, and justified rather than
+  // overlooked. `sanitizeLocation` above drops the path of a `location` the
+  // platform composed; **this address is one the tool built itself** —
+  // `baseUrl` from the declaration, joined in `joinUrl` to a path template
+  // `isAddressablePath` admitted — and the same address is already printed
+  // whole in `observations[].url`. Dropping the path here would not keep a
+  // secret out of the report; it would only make `failures[].reason` less
+  // useful than the row beside it, about the same request.
+  //
+  // What is stripped is what the tool did **not** choose: userinfo, and the
+  // query, whose values come from `resources[].query` and `contexts[].query`
+  // and are the operator's own text.
+  //
+  // The mark is the constant and not a second `"[REDACTED]"` written out by
+  // hand — it was one until 23 August 2026, which is two spellings of the string
+  // a reader greps the report for. See ADR-0064.
   try {
     const parsed = new URL(url);
     parsed.username = "";
     parsed.password = "";
-    const query = parsed.search === "" ? "" : "?[REDACTED]";
+    const query = parsed.search === "" ? "" : `?${REDACTED}`;
     return `${parsed.origin}${parsed.pathname}${query}`;
   } catch {
     return REDACTED;

@@ -5,6 +5,7 @@
  * creates the registry explicitly and passes it on.
  */
 
+import type { DiffKind } from "../types.js";
 import type { Check, CheckContext, CheckRun, ResolvedFinding } from "./types.js";
 
 export class DuplicateCheckIdError extends Error {
@@ -18,13 +19,6 @@ export class DuplicateCheckIdError extends Error {
 }
 
 /**
- * A check named on the command line that nobody registered.
- *
- * An error and not a warning: running the other checks quietly would leave the
- * typo's only trace in `checksRun` — an entry missing that nobody was looking
- * for — and the run would read as "checked, and clean here".
- */
-/**
  * The kinds of matrix discrepancy, which a check may not take for its id.
  *
  * `summary.byKind` is one key space for both: a check id lands in it beside
@@ -35,13 +29,38 @@ export class DuplicateCheckIdError extends Error {
  * `digest` is reserved when a configuration is parsed: a collision that can be
  * refused should not be left to be noticed. Found by the audit of 14 August
  * 2026 (B-4).
+ *
+ * A `Record<DiffKind, true>` and not a `readonly string[]`. The list was the
+ * members of `DiffKind` written out a second time, as strings, so the compiler
+ * promised nothing in either direction: a fifth kind added to the union would
+ * not be reserved — and the first thing that goes wrong is a plugin taking that
+ * name, which is the exact defect B-4 was about, now with the type system
+ * watching it happen. A mapped type over the union is the one spelling that
+ * fails **both** ways: a missing key does not compile, and a key that is not a
+ * `DiffKind` does not compile either, so the table cannot reserve a name the
+ * matrix does not use. `satisfies readonly DiffKind[]` on the array would have
+ * held only the second half. The same shape as `EMPTY_BY_KIND` in
+ * `src/report/findings.ts`, which counts the same union and for the same reason.
+ * See ADR-0064.
  */
-const RESERVED_CHECK_IDS: readonly string[] = [
-  "privilege-escalation",
-  "unexpected-denial",
-  "not-observed",
-  "probe-error",
-];
+const RESERVED_CHECK_ID_TABLE: Readonly<Record<DiffKind, true>> = {
+  "privilege-escalation": true,
+  "unexpected-denial": true,
+  "not-observed": true,
+  "probe-error": true,
+};
+
+/**
+ * The same table as a list, which is how it is read.
+ *
+ * `RESERVED_CHECK_ID_TABLE[check.id]` would be indexing an object literal with a
+ * string this tool did not choose, and such an index answers for `constructor`
+ * and `toString` — a check named `constructor` would be refused as a matrix
+ * kind, with a message naming four ids that do not include it. That is the shape
+ * ADR-0024 has `lookup()` for, and the core may not import `src/io`; a list and
+ * `.includes` is the spelling that needs neither.
+ */
+const RESERVED_CHECK_IDS: readonly string[] = Object.keys(RESERVED_CHECK_ID_TABLE);
 
 export class ReservedCheckIdError extends Error {
   override readonly name = "ReservedCheckIdError";
@@ -58,6 +77,17 @@ export class ReservedCheckIdError extends Error {
   }
 }
 
+/**
+ * A check named on the command line that nobody registered.
+ *
+ * An error and not a warning: running the other checks quietly would leave the
+ * typo's only trace in `checksRun` — an entry missing that nobody was looking
+ * for — and the run would read as "checked, and clean here".
+ *
+ * This block sat above `RESERVED_CHECK_IDS`, four declarations away from the
+ * class it describes, so the constant carried two doc comments and the class
+ * carried none. Moved back on 23 August 2026.
+ */
 export class UnknownCheckError extends Error {
   override readonly name = "UnknownCheckError";
   readonly checkId: string;

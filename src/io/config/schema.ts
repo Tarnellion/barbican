@@ -18,6 +18,12 @@
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { parseSignalPath } from "../../adapters/signals.js";
+// The date grammar is reached for directly rather than through
+// `../../core/index.js`: it is deliberately off the barrel and so off the
+// package's public surface, the same standing `../../core/order.js` has. See the
+// header of `src/core/calendar.ts` for why one grammar and why it lives in the
+// core.
+import { CALENDAR_DATE, isCalendarDate } from "../../core/calendar.js";
 import { ANY, HTTP_METHODS, RESOURCE_RELATIONS } from "../../core/index.js";
 import type {
   AccountConfig,
@@ -244,29 +250,6 @@ const authSchema = z.discriminatedUnion("kind", [
  * value lives only in the environment.
  */
 const contextValueSchema = z.union([z.string(), z.strictObject({ env: z.string().min(1) })]);
-
-/**
- * Whether `YYYY-MM-DD` names a day that exists.
- *
- * The regular expression above admits `2026-11-31` and `2026-13-01`; `Date.UTC`
- * rolls both over into a different day without complaint, which would leave the
- * file saying one date and the run honouring another. Building the date and
- * reading the three fields back is the check — a calendar written here would be
- * a second implementation of one somebody else already ships.
- */
-function isCalendarDate(value: string): boolean {
-  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (parts === null) {
-    return false;
-  }
-  const [year, month, day] = [Number(parts[1]), Number(parts[2]), Number(parts[3])];
-  const built = new Date(Date.UTC(year, month - 1, day));
-  return (
-    built.getUTCFullYear() === year &&
-    built.getUTCMonth() === month - 1 &&
-    built.getUTCDate() === day
-  );
-}
 
 /**
  * The validator a run configuration is parsed with. Not exported.
@@ -561,8 +544,15 @@ const configSchema = z.strictObject({
          */
         until: z
           .string()
+          // The same `RegExp` object the expiry arithmetic parses with, and the
+          // same one `isCalendarDate` on the next line matches — one grammar,
+          // asked twice for two different messages. It was three expressions in
+          // two spellings until 23 August 2026; loosening this one alone would
+          // have admitted a string that `acceptanceExpiresAt` cannot read, and
+          // an unreadable deadline is an acceptance that never lapses or one
+          // that lapsed on the day it was written. See ADR-0064.
           .regex(
-            /^\d{4}-\d{2}-\d{2}$/,
+            CALENDAR_DATE,
             'the deadline is a date in the form YYYY-MM-DD, for example "2026-11-30". ' +
               "It is the last day the acceptance holds, in UTC — not the machine's " +
               "zone, so that the verdict does not depend on which runner picked the " +

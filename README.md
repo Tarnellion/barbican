@@ -285,6 +285,29 @@ code sat in one long file.
 - `relatedRequestOf` dropped `resourceId` from the cell key, so a finding could
   name a different cell than the one that produced it.
 
+**Six facts written down twice are now written down once**
+([ADR-0064](docs/adr/0064-a-table-written-twice-is-made-to-agree.md)). None of
+them was broken — every copy agreed, which is the reason to open them rather than
+the reason to leave them: this repository has twice written an ADR after a
+duplicate that had agreed for months stopped agreeing, and both times the failure
+was a report that said `match: true`. The reserved check ids are now a mapped type
+over `DiffKind`, so a fifth kind of matrix discrepancy that nobody reserves does
+not compile; the severity ranks are one table the console and the report both
+read, so a re-ranking cannot sort them differently; the `YYYY-MM-DD` grammar is
+one expression instead of three in two spellings; and the two-layer header rule is
+composed in one function instead of being copied expression for expression into
+two. What a canary costs in requests is no longer the literal `3` in the
+`--dry-run` arithmetic but a constant the implementation is measured against — a
+test drives both canary passes through a counting client and fails if they and the
+preview disagree. The two URL-redaction rules in the HTTP adapter turned out to be
+two justified rules rather than one that drifted, and each now says so in its own
+body.
+
+Two things changed behaviour, both in the safe direction: an acceptance whose
+`until` names a day that does not exist — `2026-11-31` — used to roll over into
+the next day through the library door and now reads as lapsed, and the same
+deadline string is refused by one grammar wherever it arrives.
+
 ### What changed in 0.5.0
 
 The largest release so far, and most of it came out of an adversarial audit of

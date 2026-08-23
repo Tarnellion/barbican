@@ -13,6 +13,11 @@ import type { Check, Endpoint } from "../core/index.js";
 import { resourceApplies } from "../core/index.js";
 import type { RunConfig } from "../io/config.js";
 import { toAccounts } from "../io/config.js";
+// Deep, past `../runner.js`, and on purpose: the barrel is a hand-written list
+// of what the package promises a consumer (see its own header), and this number
+// is how the tool bills its own traffic. `src/report/*` reaches for
+// `../core/order.js` the same way and for the same reason.
+import { CANARY_REQUESTS_PER_ACCOUNT } from "../runner/canaries.js";
 import { planEndpoints } from "../runner.js";
 import { accountsOwedACanary } from "./canaries.js";
 import type { RunFlags } from "./flags.js";
@@ -115,11 +120,20 @@ export function describePlan(
   // rule this line stands on is three lines below: a number about traffic that
   // ignores the ceiling on traffic is worse than no number.
   //
+  // `CANARY_REQUESTS_PER_ACCOUNT` and not the literal `3` it was until
+  // 23 August 2026. The paragraph above states the cost of getting the number
+  // wrong, and nothing whatsoever linked it to the code that decides it: two
+  // calls to `probeCanaries` in `./canaries.ts`, one of them with
+  // `controlRequests: false`. `tests/runner/canary-cost.test.ts` counts the
+  // requests both passes really issue and fails when they and this arithmetic
+  // disagree. See ADR-0064.
+  //
   // The cells a resumed run will not probe again come off it for the same
   // reason. A preview that counted them would overstate the traffic by exactly
   // the amount the feature exists to save.
   const remaining = Math.max(cells - alreadyWalked, 0);
-  const wanted = remaining + withCanary * 3;
+  const canaryRequests = withCanary * CANARY_REQUESTS_PER_ACCOUNT;
+  const wanted = remaining + canaryRequests;
 
   process.stderr.write(
     `${[
@@ -128,7 +142,7 @@ export function describePlan(
       `Endpoints (${endpoints.length}):`,
       ...rows,
       `Matrix rows: ${accounts.length} (declared accounts ${config.accounts.length})`,
-      `Cells a run would probe: ${remaining}, plus ${withCanary * 3} canary requests ` +
+      `Cells a run would probe: ${remaining}, plus ${canaryRequests} canary requests ` +
         `(${withCanary} accounts, probed before the walk and again after it, plus ` +
         `one request each with no credentials to show the canary tells them apart)`,
       // What --resume takes off the bill, named rather than left to be worked

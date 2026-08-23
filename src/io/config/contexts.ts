@@ -22,11 +22,10 @@ import type { Account, ExpectedAccessPolicy } from "../../core/index.js";
 import { describePolicyRule } from "../../core/index.js";
 import { isHeaderName, isHeaderValue, safeHeaders } from "../untrusted.js";
 import {
-  FORBIDDEN_CONTEXT_HEADERS,
-  FORBIDDEN_HEADER_PREFIXES,
-  FORBIDDEN_QUERY_KEYS,
   ForbiddenContextHeaderError,
   ForbiddenContextQueryError,
+  forbiddenHeaderReason,
+  forbiddenQueryKeyReason,
 } from "./basis.js";
 import { MissingContextValueError } from "./environment.js";
 import type {
@@ -158,12 +157,19 @@ export function normalizeContexts(
             "a run would die with an opaque request failure",
         );
       }
-      const forbidden =
-        FORBIDDEN_CONTEXT_HEADERS.get(lower) ??
-        FORBIDDEN_HEADER_PREFIXES.find(([prefix]) => lower.startsWith(prefix))?.[1];
+      // The two layers are composed in `./basis.js` and not here. They were
+      // composed in both, expression for expression, and the rule they compose
+      // is on record as having been wrong when it had one layer instead of two
+      // (ADR-0019) — so the thing most likely to happen to it next is a third
+      // layer, added to whichever copy the author had open. See ADR-0064.
+      const forbidden = forbiddenHeaderReason(name);
       if (forbidden !== undefined) {
         throw new ForbiddenContextHeaderError(context.id, name, forbidden);
       }
+      // This one stays at the door, and it is not part of that composition: it
+      // needs the declared authentication schemes, which exist in a parsed
+      // configuration and nowhere else. The seam's copy of the rule cannot ask
+      // it, which is the reason the door keeps checks of its own at all.
       if (inUse.has(lower)) {
         throw new ForbiddenContextHeaderError(
           context.id,
@@ -175,14 +181,9 @@ export function normalizeContexts(
     }
 
     for (const [key, value] of Object.entries(context.query ?? {})) {
-      const lower = key.toLowerCase();
-      if (FORBIDDEN_QUERY_KEYS.has(lower)) {
-        throw new ForbiddenContextQueryError(
-          context.id,
-          key,
-          "credentials are presented through this: the platform would serve the " +
-            "request as a different account while the report names the original one",
-        );
+      const credentials = forbiddenQueryKeyReason(key);
+      if (credentials !== undefined) {
+        throw new ForbiddenContextQueryError(context.id, key, credentials);
       }
       // A resource's key rewritten by conditions is the quietest substitution of
       // all: the verdict is computed for the declared resource while a different

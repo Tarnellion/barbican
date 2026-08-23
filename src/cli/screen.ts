@@ -15,6 +15,7 @@
 import { styleText } from "node:util";
 import type { RunIdentity } from "../adapters/http.js";
 import type { Severity } from "../core/index.js";
+import { SEVERITY_ORDER } from "../core/index.js";
 import type { AuthenticitySuspicion } from "../report/authenticity.js";
 import type { RunReport, RunVerdict } from "../report/build.js";
 import { WARNINGS } from "../report/build.js";
@@ -89,25 +90,25 @@ function skipBreakdown(report: {
 }
 
 /**
- * The order the screen prints severity levels in, worst first.
+ * One severity line, built from the core's table rather than from a list beside it.
  *
  * A `Record<Severity, …>` and not a list of names: both severity lines used to
  * spell out four levels by hand, and `info` — the level a registry check may
  * report — was on neither, while the report counted it and the run's verdict
  * knew about it. A finding existed that the operator's screen said nothing
- * about. A list that misses a level compiles; this table does not, so the next
+ * about. A list that misses a level compiles; the table does not, so the next
  * level added to `Severity` cannot reach the report without reaching the screen.
  * Found by the audit of 14 August 2026 (B-16).
+ *
+ * The table itself is `SEVERITY_ORDER` in `src/core/defects.ts`, imported and
+ * not copied since 23 August 2026. It stood here as its own private duplicate,
+ * identical byte for byte, and the type that held B-16 shut holds nothing at all
+ * against the two copies being ranked **differently** — the console would then
+ * print the levels in one order while the report file sorted its findings in
+ * another. There was no reason for the copy: the CLI already imports `Severity`
+ * from the same module, and the report layer already imports the table itself.
+ * See ADR-0064.
  */
-const SEVERITY_ORDER: Readonly<Record<Severity, number>> = {
-  critical: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-  info: 4,
-};
-
-/** One severity line, built from the table above rather than from a list beside it. */
 function bySeverityLine(label: string, counts: Readonly<Record<Severity, number>>): string {
   const levels = (Object.keys(SEVERITY_ORDER) as readonly Severity[])
     .slice()
