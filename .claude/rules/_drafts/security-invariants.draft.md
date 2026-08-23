@@ -35,7 +35,9 @@ to break unnoticed while caught up in a task.
   the run exits 2. Weakening this to "the run has a canary" is exactly the state
   ADR-0033 was written from: an account with a dead token, denied everywhere by the
   policy, reads as tested and clean.
-- **`minimumReleaseAge`, `strictDepBuilds`, the empty `allowBuilds`.** An install that failed
+- **`minimumReleaseAge`, `strictDepBuilds`, an `allowBuilds` that permits nothing.** It is not
+  an empty map: it holds `lefthook: false`, an explicit refusal with the reasoning beside it,
+  and the effect is the same. An install that failed
   because of a lifecycle script is not an obstacle but the protection firing. The right reaction is
   to read the script and perform the needed action with an explicit command, not to add the package
   to the allowlist.

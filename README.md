@@ -625,9 +625,13 @@ work below changes nothing a consumer can observe.
 
 **The modules that were half the source are split by what they do.**
 `report/build`, `io/config`, `cli` and `runner` were 3012, 2832, 1872 and 1726
-lines, holding five, seven, nine and six separate jobs. Each is now a directory of
-modules behind the path it always had, so every import in this repository and in
-a consumer's code is the import it was.
+lines, and the four cuts produced five, seven, nine and six modules. That is
+also the number of jobs the file held for `io/config` and `runner`, which came
+out of it as barrels of re-exports and nothing else; the other two kept a job of
+their own, `build.ts` the assembly of a report and `cli.ts` the command line, so
+those two files held six and ten. Each is now a directory of modules behind the
+path it always had, so every import in this repository and in a consumer's code
+is the import it was.
 
 Each cut is made at a seam a decision already named, not at the table of
 contents. The runner is cut at the address, because
@@ -665,6 +669,17 @@ configuration so that neither can lose a file to a move again. Eight of the nine
 modules are brought to 100 % of their statements, functions and lines; the ninth
 is named on a line of its own for the part of it only a spawned process can
 observe.
+
+That test read two keys of a dozen, and a review walked around it four ways with
+the whole run green — an `exclude` that took the same nine modules back out, a
+group whose numbers were zeroed, a blanket threshold that answered for every
+file at once. The rules moved into `tools/coverage-gate.mjs` and now answer for
+the whole option set: the names are an allowlist, a number below the project
+floor has to be written down with its reason, and `pnpm run test:coverage` reads
+the summary the run leaves behind — so a file the package ships that was not
+measured is named whatever removed it. Four unreachable fallbacks in `src/cli/`
+were deleted rather than described while that was being counted; the behaviour
+they described could not happen.
 
 **Three defects the refactoring uncovered are fixed.** They are the reason a
 refactor is worth reading rather than skimming — each was invisible while the
@@ -1100,9 +1115,10 @@ A release is three edits and a tag, in one commit:
    the reason is that reconstructing it from the log at tag time failed twice.
    The section is the **last** of the "What changed" run, because the rename is
    the whole edit: sitting anywhere else it would file the new version among the
-   old ones. It spent the four days before 23 August 2026 between `0.4.0` and
-   `0.5.0`, one heading above a version it says it is ahead of, and the guard
-   below now reads the order as well as the contents.
+   old ones. It spent three hours on 23 August 2026 between `0.4.0` and `0.5.0`,
+   one heading above a version it says it is ahead of, and the guard below now
+   reads where the section sits — both that it is the last of the run and that
+   the run has nothing else in the middle of it — as well as what is under it.
 2. Set that version in `package.json`. Between releases it names the last version
    this tree shipped, so this is where it moves.
 3. Read the renamed section as a consumer of the previous version would.

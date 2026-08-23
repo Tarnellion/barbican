@@ -35,6 +35,7 @@ import {
   expandPolicy,
   runChecks,
 } from "../core/index.js";
+import type { TenantConfig } from "../io/config.js";
 import {
   applyBodySignals,
   assertContextsCannotWrite,
@@ -324,10 +325,16 @@ export async function run(flags: RunFlags): Promise<number> {
   // Brands are often spread across subdomains; the address is chosen by the
   // resource's tenant, because what we ask for is someone else's data, and it
   // lives on someone else's host.
+  //
+  // The filter narrows, for the reason spelled out beside the same map in
+  // `preview.ts`: a plain predicate narrows nothing, and the `?? ""` the second
+  // step then needed was a fallback no tenant could reach.
   const tenantBaseUrls = new Map(
     (config.tenants ?? [])
-      .filter((tenant) => tenant.baseUrl !== undefined)
-      .map((tenant) => [tenant.id, tenant.baseUrl ?? ""]),
+      .filter((tenant): tenant is TenantConfig & { readonly baseUrl: string } => {
+        return tenant.baseUrl !== undefined;
+      })
+      .map((tenant) => [tenant.id, tenant.baseUrl]),
   );
 
   /** One bundle for both passes: they knock on the same doors with the same keys. */
@@ -433,12 +440,16 @@ export async function run(flags: RunFlags): Promise<number> {
   });
   const finishedAt = new Date();
   await stream?.close();
-  if (stream?.failure !== undefined) {
+  // `streamPath !== undefined` first, although `stream` exists only when it is:
+  // the compiler cannot see that, and asking it here is what lets the message
+  // name the file. Written as `streamPath ?? "the stream"` it carried a wording
+  // for a case that cannot happen, and a reader had to work out that it could
+  // not.
+  if (streamPath !== undefined && stream?.failure !== undefined) {
     process.stderr.write(
       `${paint("The walk could not be streamed to disk:", "yellow")} ${stream.failure}. ` +
         `The run itself was not affected and the report below is complete for what was ` +
-        `walked — but ${streamPath ?? "the stream"} is not, so this run cannot be ` +
-        `resumed from it.\n`,
+        `walked — but ${streamPath} is not, so this run cannot be resumed from it.\n`,
     );
   }
 

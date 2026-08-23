@@ -22,11 +22,15 @@ Four independent layers, fixed in `pnpm-workspace.yaml` and `.npmrc`:
    Compromised versions are usually withdrawn within hours, so a week-long delay intercepts
    the main class of attacks. Emergency patches are let in one at a time through
    `minimumReleaseAgeExclude`.
-2. **Lifecycle scripts forbidden.** `strictDepBuilds: true` with an empty `allowBuilds`:
-   installation fails if a dependency has build scripts, and demands an explicit decision.
-   `lefthook` was examined separately — its `postinstall` only runs `lefthook install` and
-   does not touch the network, so instead of allowing the script the same step was moved
-   into an explicit `pnpm run hooks:install` command.
+2. **Lifecycle scripts forbidden.** `strictDepBuilds: true` and an `allowBuilds` that permits
+   nothing: installation fails if a dependency has build scripts, and demands an explicit
+   decision. `lefthook` was examined separately — its `postinstall` only runs
+   `lefthook install` and does not touch the network, so instead of allowing the script the
+   same step was moved into an explicit `pnpm run hooks:install` command. The map holds
+   `lefthook: false` rather than nothing at all: an explicit refusal with the reasoning
+   beside it, which has the same effect as an empty map and, unlike one, says why. This
+   paragraph called the map empty until 23 August 2026, by which time it had not been for
+   some while.
 3. **Deterministic installation.** The lockfile in the repository, `--frozen-lockfile` in CI.
 4. **Exact versions.** `save-exact` and `savePrefix: ''` — ranges get around the intent of
    the lockfile on re-resolution.

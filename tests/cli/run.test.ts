@@ -3,8 +3,10 @@
  * first request.
  *
  * `src/cli/run.ts` is the sequence and little else — nearly every comment in it
- * is about a line's **position** — and it spent the four days after ADR-0056
- * outside the coverage gate on an exemption written about argument parsing. What
+ * is about a line's **position** — and it spent the three hours after the commit
+ * that created it outside the coverage gate, on an exemption written about
+ * argument parsing (ADR-0063; the ADR said four days and nothing supports it,
+ * and this header repeated the number). What
  * that left unheld is the part of the module that is not parsing: the two
  * refusals a mistyped command line earns before any traffic is spent, the
  * removal of the stream once the report is safely on disk, and the branch that

@@ -16,7 +16,7 @@
 
 import type { CredentialProvider, HttpClient } from "../adapters/ports.js";
 import type { Account, Endpoint, TenantId } from "../core/index.js";
-import type { RunConfig } from "../io/config.js";
+import type { AccountConfig, RunConfig } from "../io/config.js";
 import type { CanaryOutcome } from "../report/build.js";
 // A canary failure that is the run's own doing rather than the platform's. The
 // names come from the client's errors and reach here through
@@ -61,9 +61,15 @@ export function accountsOwedACanary(config: RunConfig): readonly string[] {
 export function declaredCanaries(
   config: RunConfig,
 ): readonly { readonly accountId: string; readonly endpointId: string }[] {
+  // The filter narrows. Written as a plain predicate it narrowed nothing, and
+  // the `?? ""` the map then needed was a fallback no account could reach — an
+  // endpoint id of the empty string is not a thing this function can produce,
+  // and a reader had to work that out.
   return config.accounts
-    .filter((account) => account.canary !== undefined)
-    .map((account) => ({ accountId: account.id, endpointId: account.canary ?? "" }));
+    .filter((account): account is AccountConfig & { readonly canary: string } => {
+      return account.canary !== undefined;
+    })
+    .map((account) => ({ accountId: account.id, endpointId: account.canary }));
 }
 
 /** Everything both passes need, because both send the same requests to the same places. */

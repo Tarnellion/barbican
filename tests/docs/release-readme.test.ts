@@ -19,6 +19,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { NOTES_MINIMUM, sectionOf, whyNotDescribed } from "../../tools/release-gate.mjs";
+import { headingsOf } from "./markdown.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -153,29 +154,46 @@ describe("what main carries beyond the newest release", () => {
    *
    * The release is a rename and nothing else, so the section has to occupy the
    * position the new version's section belongs in: last of the run, because the
-   * "What changed" sections ascend. Between 19 and 23 August 2026 it sat between
-   * `0.4.0` and `0.5.0` — one heading above the version its own first line says
-   * it is ahead of — and renaming it there would have filed `0.6.0` before
-   * `0.5.0`. Every guard in this file read the section's contents and none read
-   * where it was, which is the same shape as everything else here: the check
-   * asks the question that was asked last time.
+   * "What changed" sections ascend. It sat between `0.4.0` and `0.5.0` for the
+   * three hours between the commit that created it (`a13280e`, 23 August 2026
+   * 10:53) and the one that moved it (`bea20d6`, the same day at 14:07) — one
+   * heading above the version its own first line says it is ahead of — and
+   * renaming it there would have filed `0.6.0` before `0.5.0`. Every guard in
+   * this file read the section's contents and none read where it was, which is
+   * the same shape as everything else here: the check asks the question that
+   * was asked last time.
+   *
+   * The first version of this assertion read only the **relative** order of the
+   * headings it collected, so moving `### Unreleased` to the very end of the
+   * document — under `## License` — passed all seven tests in this file, and
+   * the release would then have renamed a heading sitting underneath the
+   * licence. Position among a filtered list is not position in a document. What
+   * is asked here now is membership: the changelog headings have to be a
+   * contiguous run in the document's own sequence of headings, and
+   * `### Unreleased` has to be the last of that run.
    */
-  it("is the last of the sections that describe a version", () => {
-    const headings = README.split("\n").filter(
-      (line) => line === "### Unreleased" || line.startsWith("### What changed in "),
-    );
+  it("is the last of an unbroken run of sections that describe a version", () => {
+    const headings = headingsOf(README);
+    const isChangelog = (line: string): boolean =>
+      line === "### Unreleased" || line.startsWith("### What changed in ");
+    const run = headings.flatMap((line, at) => (isChangelog(line) ? [at] : []));
 
     // A guard that matched no heading would agree with any README, and the
     // ascending order is the premise the position rests on.
-    expect(headings.length).toBeGreaterThan(1);
-    const versions = headings
+    expect(run.length).toBeGreaterThan(1);
+    // Contiguous: no `## Install`, no `## License`, nothing at all between the
+    // sections that describe versions.
+    expect(run).toEqual(run.map((_at, index) => (run[0] ?? 0) + index));
+
+    const inRun = run.map((at) => headings[at] ?? "");
+    const versions = inRun
       .filter((line) => line !== "### Unreleased")
       .map((line) => line.replace("### What changed in ", ""));
     expect(versions).toEqual(
       [...versions].sort((a, b) => a.localeCompare(b, "en", { numeric: true })),
     );
-    if (headings.includes("### Unreleased")) {
-      expect(headings.at(-1)).toBe("### Unreleased");
+    if (inRun.includes("### Unreleased")) {
+      expect(inRun.at(-1)).toBe("### Unreleased");
     }
   });
 
