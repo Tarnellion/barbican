@@ -78,7 +78,9 @@
  *
  * This is not the section for shapes that are merely awkward to reach. Each of
  * these is a way past this file that is known to work, kept here because a gate
- * that is trusted for more than it holds is worse than no gate:
+ * that is trusted for more than it holds is worse than no gate. What a scan of
+ * source text can hold at all — and why a list like this one is measured rather
+ * than reasoned about — is ADR-0065, once, for every gate of this family:
  *
  * - **A character obtained without writing a zero.** `decodeURIComponent("%00")`
  *   builds the separator out of a string this file reads as `%00`, and a second
@@ -87,10 +89,10 @@
  *   read out of data. The one enumerated needle below reads
  *   `String.fromCharCode` and `String.fromCodePoint` of a **numeric zero written
  *   in a base**, which covers `0`, `0x0`, `0b0` and `0o0` and nothing cleverer.
- *   A scanner cannot close this class and this one does not pretend to; what
- *   holds against it is 1 — the constant has no exported form to borrow, so a
- *   copy is a new implementation of the separator rather than a second reference
- *   to the one implementation, and it will drift when the one moves.
+ *   What holds against the class is 1 — the constant has no exported form to
+ *   borrow, so a copy is a new implementation of the separator rather than a
+ *   second reference to the one implementation, and it will drift when the one
+ *   moves.
  * - **A `{name}` grammar written without a regular expression.** `indexOf` and
  *   `slice` over a brace is a different implementation rather than a copy, and
  *   nothing here reads it.
@@ -102,9 +104,9 @@
  *   is caught, because every mention of the word is counted; `/x/.constructor`,
  *   `Reflect.construct(…)` and a lookup on `globalThis` out of an assembled string
  *   are not. This is the same class as the separator above and has the same
- *   answer: a scanner cannot close it. What holds against it is 1 — the grammar
- *   has no exported form to borrow, so a copy is a second implementation that
- *   will drift when the one moves.
+ *   answer. What holds against it is 1 — the grammar has no exported form to
+ *   borrow, so a copy is a second implementation that will drift when the one
+ *   moves.
  * - **Two keys that glue the *same* coordinates in different orders.** `capRows`
  *   and `acceptanceKeyOf` do exactly that, on purpose; ADR-0059 records it. It is
  *   a question about what is glued, not about how, and no gate of this kind
@@ -1012,6 +1014,12 @@ describe("the scanner this gate reads with", () => {
     // The owner's grammar byte for byte, spelled in escapes.
     expect(hasABraceGrammar(String.raw`\u007b([^\u007d]+)\u007d`)).toBe(true);
     expect(hasABraceGrammar(String.raw`\x7b([^\x7d]+)\x7d`)).toBe(true);
+    // Not a case about escapes, and it was labelled as one. The braced form
+    // writes a brace of its own, so the answer is true before any decoding as
+    // well as after it: measured on 23 August 2026, the scan as it stood before
+    // `decodeEscapes` reached it answers true for this string and false for the
+    // two above. It stays because the braced form should be read at all; the two
+    // above it are what discriminate.
     expect(hasABraceGrammar(String.raw`\u{7b}`)).toBe(true);
     // And a quantifier is still a quantifier however it is spelled.
     expect(hasABraceGrammar(String.raw`\d{4}`)).toBe(false);

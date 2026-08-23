@@ -475,11 +475,16 @@ formatter holds is exactly the pairing this repository keeps finding.
 
 Two changes. The id regex reads a quoted key as well as a bare one. And the
 number of entries is counted as **structure** — one brace at the top level of the
-table is one rule, whatever its keys are called — so
+table is one rule *written out there*, whatever its keys are called — so
 `{ ["id"]: "bang", ["refuses"]: … }`, which no key regex reads either, is five
 entries against four readable ids and a red test. The compiler is what guarantees
 an entry has the three fields; the gate's question is only how many entries there
 are and which of them it can name.
+
+The qualifier is a correction. "One brace at the top level is one rule" says
+nothing about an entry that is not a brace: a fifth rule hoisted into a `const`
+above the table and referenced in it by name keeps the structural count at four
+as well as the id count. It is measured under "Limits" below.
 
 ### What was run
 
@@ -520,18 +525,45 @@ still have refused a backslash, a `..` and a query string at the wire.
 ### Limits: what this gate does not catch
 
 The current list. It supersedes the one in the first amendment, which stands
-above as the record of that round.
+above as the record of that round. Why a gate of this family carries such a list,
+and why every entry in it is written down only after it has been run, is stated
+once in [ADR-0065](0065-what-a-source-scan-can-hold.md) rather than restated
+here.
 
 - **A back door written inside a predicate.** Measured, not reasoned about:
   `refuses: (path) => isAddress(path) && !path.startsWith("/internal")` in the
-  table's third entry passes **the whole suite** — 118 files, 1776 passed, 1
-  skipped. Every witness stays refused, because each breaks exactly one rule and
+  table's third entry passes **the whole suite** — 118 files, 1795 passed, 1
+  skipped, re-run on the tree of 23 August 2026 that carries this list; the row
+  in the table above is the same mutation on the tree of the round before it.
+  Every witness stays refused, because each breaks exactly one rule and
   none of them starts with `/internal`, while the grammar admits a path it used
   to refuse. The same goes for the same conjunct written inside `isAddress`
   itself, and for `decodePathish`, which the door calls before it consults the
   table. The three entry points are pinned; the four predicates and the decoding
-  are not, and pinning those is the blob nobody reads. This is the widest thing
-  on this list.
+  are not, and pinning those is the blob nobody reads.
+- **A back door written into `joinUrl` rather than into the seam function.**
+  The three exported functions of the grammar are held to one exact text each,
+  and `joinUrl` in `src/runner/address.ts` is not one of them, so
+  `if (!path.startsWith("/internal") && !isAddressablePath(path))` there passes
+  the whole suite — 118 files, 1795 passed, 1 skipped, with Biome clean on the
+  file and `tsc --noEmit` at 0. Measured on the same tree, so the door it opens
+  is measured too:
+  `joinUrl("https://api.test/v1/", "/internal/reports?_method=DELETE")` returns
+  `https://api.test/v1/internal/reports?_method=DELETE` — a query string on the
+  wire, which is the thing ADR-0032 put the grammar at this seam to stop. The
+  pinning stops at the three exported functions; the caller that asks them is
+  not pinned at all.
+- **A fifth rule hoisted out of the table and referenced by name.**
+  `const BANG_RULE: AddressRule = { id: "bang", refuses: (path) =>
+  path.includes("!"), because: () => "carries a bang" };` above the table, with
+  `BANG_RULE,` as an entry in it. The structural count of entries stays 4,
+  because a reference is not a brace at the top level of the table; the id count
+  stays 4, because there is no `id:` inside the table for it to read; the two
+  agree, so the count-against-count guard says nothing and no witness is
+  demanded. Measured: 118 files, 1795 passed, 1 skipped, Biome and `tsc` clean.
+  ADR-0065's own Context lists this shape — "a rule hoisted out of the table it
+  is counted in, and referenced by name" — and it is left open here by the
+  criterion that document states.
 - **A widening with no rule added.** The first amendment's version of this entry
   said `|| value.includes("@")` inside `isAddress` is green and called the
   direction "strictness". Half right: a *disjunct* added is strictness, and a
@@ -554,7 +586,3 @@ above as the record of that round.
   pinned bodies go through is two regular expressions; a `//` inside a string in
   either body would cut the text short, which fails the comparison rather than
   passing it. The direction is deliberate and it is the only guarantee offered.
-- **And a scan of source text is not a sandbox.** It catches what a person writes
-  by accident or for convenience. Someone writing in order to defeat it has the
-  whole language, and this document names the ways in that are known rather than
-  claiming there are none.

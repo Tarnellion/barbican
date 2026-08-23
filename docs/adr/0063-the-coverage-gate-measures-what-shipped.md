@@ -177,7 +177,7 @@ Nothing already in the file was lowered.
 | key                  | statements | branches | functions | lines | achieved                        |
 | -------------------- | ---------: | -------: | --------: | ----: | ------------------------------- |
 | `src/cli.ts`         |         89 |       50 |        95 |    89 | 89.28 / 50 / 100 / 89.28        |
-| `src/cli/**/*.ts`    |         94 |       85 |        92 |    94 | 94.65 / 90.26 / 93.83 / 94.70   |
+| `src/cli/**/*.ts`    |         94 |       85 |        92 |    94 | 94.65 / 90.26 / 93.82 / 94.70   |
 | `src/cli/run.ts`     |         84 |       84 |        70 |    85 | 84.95 / 87.01 / 70.58 / 85.45   |
 
 Eight of the nine modules behind the entry point are at **100 %** of their
@@ -398,9 +398,13 @@ run before it and the words "every module the package ships was measured".
 
 So the extensions are a list, `MEASURED_EXTENSIONS`, and anything else under
 `src/` is **refused by name** rather than skipped — the allowlist argument again,
-one directory down. Names beginning with a dot are the one exception and not a
-guessed one: `tsc --listFilesOnly` does not put `src/.hidden.ts` in the program
-either, which was checked.
+one directory down. Names beginning with a dot are the one exception. It was
+measured by hand and not by a test: with `src/.hidden.ts` in the tree,
+`pnpm exec tsc -p tsconfig.build.json --listFilesOnly` lists 65 files under
+`src/` and that is not one of them (23 August 2026). No case in the suite asks
+the compiler that question — the dotted-name case runs `shippedSources` over a
+temporary tree, and the compiler-agreement case runs over the real one, which
+has no such file in it.
 
 The list is an approximation of a definition that already exists, and the
 definition is asked directly: `tests/invariants/coverage-gate.test.ts` runs
@@ -594,8 +598,10 @@ that does the work.
 
 ## What this does not hold
 
-The gate is stronger and it is not closed. What a reader should not conclude
-from it:
+The gate is stronger and it is not closed. Why a gate of this family carries such
+a list, and why nothing goes into it that has not been run, is stated once in
+[ADR-0065](0065-what-a-source-scan-can-hold.md). What a reader should not
+conclude from this one:
 
 1. **The configuration half reads the file, not the resolved configuration.** It
    imports `vitest.config.ts` and asks about that object. A `--coverage.exclude`
@@ -672,3 +678,31 @@ from it:
     `pnpm run test:coverage` to `pnpm run test` takes coverage off the machine
     that runs Windows and three versions of node, and what catches that is an
     assertion that reads `ci.yml`: a file read, with a file read's limits.
+12. **The outcome half can be switched off from inside the gate's own source.**
+    Measured on 23 August 2026: `faults = faultsOnDisk();` in `gate()` changed to
+    `faults = [];` — one line — and `pnpm run test:coverage` exits **0** with 118
+    test files, 1795 passed, 1 skipped, the same 3025/3080 statements and the
+    words `every module the package ships was measured` printed over a half that
+    never ran. Nothing sees it: the cases call `outcomeFaults` themselves, which
+    is the half of the work `faultsOnDisk` wraps, so what is exercised is the
+    function and never the call to it inside `gate()`. This is a
+    different class from the eleven above it, and worth saying so plainly —
+    they are ways of walking *around* the gate, and this is an edit to the gate's
+    own body. ADR-0065's rule is about the first class; a person editing the file
+    that fails the build is not writing by accident. It is here because the list
+    is what a reader trusts the gate on, and "the tool said every module was
+    measured" is exactly what such a reader would take from a green run.
+13. **`test.include` can be narrowed so the configuration half never runs.**
+    Also measured: `include: ["tests/**/*.test.ts"]` in `vitest.config.ts`
+    changed to `include: ["tests/**/!(coverage-gate).test.ts"]` leaves
+    `pnpm run test:coverage` at exit 0 with 117 test files, 1754 passed, 1
+    skipped, and the four totals unmoved — the same 3025/3080 statements,
+    2121/2241 branches, 631/640 functions, 2945/2998 lines — because that suite
+    exercises nothing under `src/`. The outcome half still runs and still agrees,
+    so the run says `every module the package ships was measured`; what has gone
+    is everything the configuration half asserts about `vitest.config.ts`. The
+    spelling matters and the measurement says so: the same narrowing written
+    `["tests/**/*.test.ts", "!tests/invariants/coverage-gate.test.ts"]` is
+    **caught**, and not by the half that was removed — coverage came back
+    `0/0` and the outcome half printed `the coverage summary holds no files at
+    all`. One spelling of an evasion failing is not the class being closed.

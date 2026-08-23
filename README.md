@@ -815,8 +815,8 @@ its JSDoc exemption was justified with a claim the same branch's diff refuted �
 describing a different function. The exemption is two narrower rules now, module
 headers are counted against a named list of seven files instead of being skipped,
 and [ADR-0062](docs/adr/0062-a-comment-describes-the-symbol-under-it.md) carries
-a measured list of what neither gate catches — starting with the 965 ADR
-citations that are prose rather than links.
+a measured list of what neither gate catches — starting with the ADR citations
+that are prose rather than links, 965 of the 1160 counted on 23 August 2026.
 
 **Three rules that were written more than once are written once**
 ([ADR-0061](docs/adr/0061-a-rule-is-written-in-one-place-and-read-in-two.md)).
@@ -828,9 +828,11 @@ field — and each of the three could have changed something later.
   sentences an operator reads. A rule added to the second alone would never reach
   `joinUrl`, which is the only grammar between a consumer of the library and the
   wire. It is one table of (predicate, sentence) now, and the messages are
-  unchanged. An entry added to that table with no witness in the gate is a red
-  test, and so is a permutation of it — the order decides which sentence a path
-  breaking two rules at once is answered with.
+  unchanged. An entry *written into* that table with no witness in the gate is a
+  red test, and so is a permutation of it — the order decides which sentence a
+  path breaking two rules at once is answered with. A rule that is not written
+  into it, but hoisted into a constant above and referenced by name, is not; that
+  is measured further down.
 - **The refusal of a scheme-relative `//host/x`** stood in three places under a
   comment saying it stood in one. The copy in the Postman parser had been
   unreachable since the grammar took the rule over — behind a call that throws on
@@ -868,8 +870,8 @@ amendment in ADR-0061 says what each closure does and ends with the shapes that
 still get through.
 
 **Two doors were still open, and the seam is now held to its own text.** A second
-review, the same day and against that amended tree, walked around four more
-assertions with `pnpm run check` green. The load-bearing one: `And neither entry
+review, the same day and against that amended tree, demonstrated four
+walk-arounds across three of its assertions with `pnpm run check` green. The load-bearing one: `And neither entry
 point decides anything of its own` was held by "the seam does not contain `&&`",
 and a conjunction is not the only way to reach a verdict without asking the
 table — a ternary at the seam and an early `return` at the door both got through,
@@ -891,7 +893,8 @@ count of calls: one decoder for both scans, and every mention of the name
 counted. The second amendment of ADR-0061 and the amendment of ADR-0060 carry the
 mutations, and both end with what is still open — starting with a back door
 written inside one of the four predicates, which was run rather than reasoned
-about and passes the whole suite: 118 files, 1776 passed, 1 skipped.
+about and passes the whole suite: 118 files, 1795 passed, 1 skipped, re-measured
+on the tree this section describes.
 
 **Six facts written down twice are now written down once**
 ([ADR-0064](docs/adr/0064-a-table-written-twice-is-made-to-agree.md)). None of
@@ -974,6 +977,31 @@ does not apply, and a section naming what is still open — starting with the fa
 that a source scan reads what a person writes by accident and not what somebody
 writes to defeat it. Nothing a consumer can observe changes: the same 227
 exported names.
+
+**What a scan of source text can hold is now written once**
+([ADR-0065](docs/adr/0065-what-a-source-scan-can-hold.md)). Five of the ADRs
+above had grown their own version of the same paragraph, and a sentence that
+appears five times is five sentences to keep true — which is how eighty of them
+came to claim more than the code did. ADR-0060 to ADR-0064 point at the one
+document now and keep only the limits that were measured on their own gate. This
+round closes nothing, on purpose: the alternative it rejects is answering the
+next evasion with the next pattern, which is what the five rounds before it did.
+
+**And five more ways past those gates are measured and written down rather than
+closed.** A back door put into `joinUrl` itself instead of into the seam function
+the gate pins — the whole suite green, and
+`joinUrl("https://api.test/v1/", "/internal/reports?_method=DELETE")` returning
+that address with the query string on it. A fifth address rule hoisted into a
+`const` and referenced in the table by name, which moves neither the count of ids
+nor the count of entries. A second forbidden-header composition written out of
+full header names — `x-http-method-override` rather than the `x-http-method` the
+list holds — which carries no member of either layer for the scan to count. The
+coverage gate's outcome half switched off by one line inside its own source,
+after which `pnpm run test:coverage` still exits 0 and still prints that every
+module the package ships was measured. And `test.include` narrowed past
+`coverage-gate.test.ts`, which turns the configuration half off with every
+coverage number where it was. Each was run against the full suite before it was
+written down, and the ADR that owns each gate carries what was run.
 
 ## Example
 

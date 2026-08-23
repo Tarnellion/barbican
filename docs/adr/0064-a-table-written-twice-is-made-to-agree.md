@@ -232,17 +232,19 @@ second composition carrying six *other* members went through green. A scan keyed
 on remembered strings answers about those strings. The severity probe now reads
 the key with the spellings a formatter can produce from the plain one; the header
 scan takes **every** member of both layers out of the owner's own source and
-counts, per file, how many distinct ones are written out, case-folded, exact in
-both directions. A member added to `basis.ts` is covered the moment it is added.
+counts, per file, how many times one is written out — occurrences and not
+distinct members, which is a later correction the test file's own header
+records — case-folded, exact in both directions. A member added to `basis.ts` is
+covered the moment it is added.
 
 What that scan cannot see is listed in its header, and the list is longer than it
 was: a table or a list **built** rather than written — `Object.fromEntries`, a
 loop, a name assembled out of pieces or computed at run time — a grammar spelled
 some other way, anything outside `src/`, a **re-ranking** of the one severity
 table that is left, which nothing anywhere holds, and a second header composition
-carrying no member of either list. A source scan is not a sandbox: it reads what
-a person writes by accident or convenience and not what somebody writes in order
-to defeat it, and everything above is the first kind.
+carrying no member of either list.
+[ADR-0065](0065-what-a-source-scan-can-hold.md) is where what a scan of source
+text can hold at all is stated, once, for every gate of this family.
 
 Four tests hold what no type can: `tests/runner/canary-cost.test.ts` (a change to
 what a canary costs that does not reach the constant),
@@ -341,16 +343,33 @@ and 1778 passing:
 
 ### What is still open
 
+Why this section exists, and why nothing goes into it that has not been run, is
+[ADR-0065](0065-what-a-source-scan-can-hold.md)'s subject rather than this
+document's.
+
 - **The unsafe comparison is of totals, per mode.** It says the preview's number
   and the walk's demand agree; it says nothing about *which* cells were written,
   and nothing about the throttle, the retries or the `--max-requests` ceiling,
   none of which the preview models. Those are the polygon oracle's subject.
-- **A source scan is not a sandbox.** Every gate touched here reads source text.
-  A severity table built in a loop, a forbidden header assembled out of pieces,
-  a transcript in something that is not markdown: none of them is read, and the
-  header of each test file says so. Answering an evasion somebody would only
-  write on purpose with another pattern is how the gates before these ones grew
-  without getting stronger — see [ADR-0060](0060-a-gate-that-says-what-it-holds.md).
+- **What the scans do not read.** A severity table built in a loop, a forbidden
+  header assembled out of pieces, a transcript in something that is not markdown:
+  none of them is read, and the header of each test file says so.
+- **A second header composition written out of full header names.** The scan
+  counts, per file, the occurrences of a member of either layer written as a
+  string literal, and a member is the string the owner writes: `x-http-method`,
+  `x-original-`, `x-forwarded-host`. A composition spelling those out in full —
+  `["x-http-method-override"]`, `["x-method-override"]`, `["x-original-url"]`,
+  `["x-rewrite-url"]`, `["x-forwarded-host-name"]` — contains no member with a
+  quote on both sides of it, so the count for the file stays 0 and the file stays
+  out of the table the assertion compares. Measured on 23 August 2026 in
+  `src/io/config/contexts.ts`, with a real `.find(([p]) => lower.startsWith(p))`
+  under it: 118 test files, 1795 passed, 1 skipped, `tsc --noEmit` at 0 and
+  `pnpm exec biome check` clean on the file. The count per file was
+  `{ credentials.ts: 6, http.ts: 3, basis.ts: 21, schema.ts: 1, sections.ts: 3 }`
+  with the composition in the tree and without it. The second pass above changed
+  this scan from three remembered members to every member of both layers, and
+  from distinct members to occurrences; neither change reaches this shape,
+  because the shape writes no member at all.
 - **The exemption in the transcript gate is still a copy of a number.** It names
   the excused block word for word, so editing that block fails the test rather
   than passing silently — but the words themselves are re-derived by nobody.

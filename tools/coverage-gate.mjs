@@ -264,9 +264,14 @@ export function matches(glob, path) {
  * Throws on anything else it finds there. A file under `src/` is either
  * something `dist/` will carry — and then the gate has to measure it — or
  * something this guard has not reasoned about, and guessing is what let
- * `leak.mts` through. Names beginning with a dot are the one exception, and not
- * a guessed one: `tsc --listFilesOnly` does not put `src/.hidden.ts` in the
- * program either, which is checked rather than assumed.
+ * `leak.mts` through. Names beginning with a dot are the one exception, and it
+ * was measured by hand rather than held by a case: with `src/.hidden.ts` in the
+ * tree, `tsc -p tsconfig.build.json --listFilesOnly` lists 65 files under `src/`
+ * and that is not one of them (23 August 2026). Nothing in the suite asks the
+ * compiler that: in `tests/invariants/coverage-gate.test.ts` the dotted-name case
+ * runs this walk over a temporary tree, and the case that compares the walk with
+ * the compiler runs over the real one, which has no dotted file in it. See
+ * ADR-0063.
  *
  * @param {string} [root]
  * @returns {readonly string[]}

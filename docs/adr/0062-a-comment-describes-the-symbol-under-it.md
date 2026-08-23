@@ -274,6 +274,10 @@ the test now carries that number with the date it was taken.
 
 ### What no gate here catches, said plainly
 
+Both gates read source text, and what that can hold at all is stated once, for
+the whole family, in [ADR-0065](0065-what-a-source-scan-can-hold.md). What
+follows belongs to these two in particular.
+
 **The detached-comment gate.** A block whose subject is the group of declarations
 below it — a section header — has the same layout as a detached one, and only a
 reader can tell them apart; `src/core/checks/clauses.ts` is the standing example.
