@@ -38,6 +38,9 @@
  * - Only markdown. `tests/runner/unsafe-canary.test.ts` carries the same
  *   transcript as ADR-0042 in its header comment; the two are checked against
  *   each other by `tests/docs/detached-comments.test.ts`, not here.
+ * - Only a transcript — a line inside a fenced or indented code block. Prose
+ *   quoting the bill inline, as README's account of this very defect does, is
+ *   the history of a number rather than a copy of it, and is left alone.
  */
 
 import { execFileSync } from "node:child_process";
@@ -75,23 +78,32 @@ function trackedMarkdown(): readonly string[] {
 }
 
 /**
- * Every quotation of the bill in one document, with the words around it that
- * belong to the same transcript.
+ * Every transcript in one document that quotes the bill, with the words around
+ * it that belong to the same transcript.
  *
- * Line-based rather than by code fence: `docs/adr/0042-a-canary-the-run-will-not-send.md`
- * indents its transcript instead of fencing it, and a search that only knew
- * about fences would have reported the repository clean of a copy it could not
- * see. A quotation runs from the `Matrix rows:` line above the bill, where there
- * is one, to the last line before the blank line or fence that ends it — which
- * is what picks up the wrapping `docs/first-run.md` does to stay inside its
- * margin.
+ * A **transcript**, not a mention: only a line inside a fenced block or indented
+ * as a code block is read. Prose saying what the line used to say — this
+ * repository's README does, about the very number that started this — is the
+ * history of the defect and not a copy of the output.
+ *
+ * Both kinds of block, because `docs/adr/0042-a-canary-the-run-will-not-send.md`
+ * indents its transcript instead of fencing it: a search that only knew about
+ * fences would have reported the repository clean of a copy it could not see. A
+ * transcript runs from the `Matrix rows:` line above the bill, where there is
+ * one, to the last line before the blank line or fence that ends it — which is
+ * what picks up the wrapping `docs/first-run.md` does to stay inside its margin.
  */
 function billsQuotedIn(text: string): readonly string[] {
   const lines = text.split("\n");
   const ends = (line: string): boolean => line.trim() === "" || line.trim().startsWith("```");
   const quotations: string[] = [];
+  let fenced = false;
   lines.forEach((line, at) => {
-    if (!line.includes(BILL)) {
+    if (line.trim().startsWith("```")) {
+      fenced = !fenced;
+      return;
+    }
+    if (!line.includes(BILL) || !(fenced || line.startsWith("    "))) {
       return;
     }
     const from = at > 0 && (lines[at - 1] ?? "").trim().startsWith("Matrix rows:") ? at - 1 : at;

@@ -44,7 +44,9 @@ const CANARY_PASSES = 2;
  *
  * What it establishes — that the endpoint tells a credentialed request from an
  * anonymous one — is a property of the endpoint, and the walk does not change
- * it. The second pass therefore passes `controlRequests: false`. See ADR-0040.
+ * it. `confirmAfterWalk` therefore passes `controlRequests: false`, and it is
+ * that call — in `src/cli/canaries.ts`, not this file — that decides there is
+ * one control request per account rather than one per pass. See ADR-0040.
  */
 const CONTROL_REQUESTS_PER_ACCOUNT = 1;
 
