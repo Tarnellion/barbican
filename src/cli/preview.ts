@@ -11,7 +11,7 @@ import type { RunIdentity } from "../adapters/http.js";
 import type { ThrottleLimits } from "../adapters/throttle.js";
 import type { Check, Endpoint } from "../core/index.js";
 import { resourceApplies } from "../core/index.js";
-import type { RunConfig } from "../io/config.js";
+import type { RunConfig, TenantConfig } from "../io/config.js";
 import { toAccounts } from "../io/config.js";
 // Deep, past `../runner.js`, and on purpose: the barrel is a hand-written list
 // of what the package promises a consumer (see its own header), and this number
@@ -48,10 +48,16 @@ export function describePlan(
   /** Cells a stream beside `--report` already holds, and which `--resume` will not probe. */
   alreadyWalked: number,
 ): number {
+  // The filter narrows. Written as a plain predicate it narrowed nothing, so the
+  // step after it needed a `?? ""` for a value the step before had already
+  // excluded — an unreachable fallback that read as a policy about tenants
+  // without a base URL. There is no such policy; there are no such tenants here.
   const tenantBaseUrls = new Map(
     (config.tenants ?? [])
-      .filter((tenant) => tenant.baseUrl !== undefined)
-      .map((tenant) => [tenant.id, tenant.baseUrl ?? ""]),
+      .filter((tenant): tenant is TenantConfig & { readonly baseUrl: string } => {
+        return tenant.baseUrl !== undefined;
+      })
+      .map((tenant) => [tenant.id, tenant.baseUrl]),
   );
   const { probeable, skipped } = planEndpoints({
     endpoints,
@@ -83,16 +89,25 @@ export function describePlan(
   // nine times more than starting the thing it previews is not a pre-flight
   // check, and this is the flag people are told to use first on someone else's
   // deployment.
-  const cost = new Map<string, number>(
-    endpoints.map((endpoint) => [
-      endpoint.id,
-      Math.max(
-        config.resources.filter((resource) => resourceApplies(endpoint, resource)).length,
-        1,
-      ),
-    ]),
-  );
-  const costOf = (endpoint: Endpoint): number => cost.get(endpoint.id) ?? 1;
+  //
+  // Filled as endpoints are asked about rather than up front. Building it from
+  // `endpoints` and then reading it with `cost.get(id) ?? 1` left a fallback no
+  // input could reach — every key looked up had just been put there — and an
+  // unreachable `?? 1` beside a cost model reads as a rule about endpoints the
+  // model does not know, which is not what it was.
+  const cost = new Map<string, number>();
+  const costOf = (endpoint: Endpoint): number => {
+    const known = cost.get(endpoint.id);
+    if (known !== undefined) {
+      return known;
+    }
+    const computed = Math.max(
+      config.resources.filter((resource) => resourceApplies(endpoint, resource)).length,
+      1,
+    );
+    cost.set(endpoint.id, computed);
+    return computed;
+  };
 
   // A row under conditions walks only the endpoints its context names — that is
   // why a context has to name them. An estimate that ignored this overstated the
