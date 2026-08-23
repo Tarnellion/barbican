@@ -53,9 +53,29 @@ pnpm run test:coverage # vitest with coverage and thresholds
 pnpm run build        # tsc -> dist, + the executable bit on cli.js
 pnpm run schema       # regenerate schema/barbican.run.schema.json (needs a build)
 pnpm run deps:behind  # what is behind, and what the cooldown is holding (needs the network)
-pnpm run check        # everything at once, as in CI
+pnpm run check        # lint + typecheck + test:coverage + build. Not everything CI runs
 pnpm run hooks:install # git hooks (lefthook)
 ```
+
+`check` is the contributor's gate and it is four of CI's steps, not all of them.
+CI additionally runs, and each of these is CI-only for a reason worth knowing
+before moving one of them:
+
+| step                                        | why it is not in `check`                                        |
+| ------------------------------------------- | --------------------------------------------------------------- |
+| `node polygon/verify.mjs --check-readme`     | brings the reference platform up 29 times; about two minutes      |
+| `gitleaks git` over the full history         | needs the whole history, which a contributor's clone may not have |
+| `osv-scanner scan source --lockfile`         | needs the network and a downloaded scanner binary                 |
+| `pnpm audit --audit-level moderate`          | needs the network, and its verdict changes without the tree doing |
+| `publint`, `are-the-types-wrong`             | needs the network (`pnpm dlx`), and asks about the tarball        |
+| pack, install from the tarball, drive the CLI | asks about the artifact, which only `pack` produces              |
+| the CLI on the declared Node floor           | needs a second Node version installed beside this one             |
+
+The one thing on that list a laptop can run unaided is the oracle:
+`node polygon/verify.mjs`. Run it after anything that touches `src/runner/`,
+`src/core/` or the report. `node tools/report-bytes.mjs` is the same run reduced
+to one digest per combination, for comparing a refactor against the revision
+before it — also about two minutes, also not in `check`.
 
 ## Repository language
 

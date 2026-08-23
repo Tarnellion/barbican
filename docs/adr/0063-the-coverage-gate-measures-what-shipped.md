@@ -41,8 +41,19 @@ below the `cli` gap saying why:
 > gate being lowered by a move, not by a decision.
 
 The sentence was written above the very list that had already lost nine modules.
-Being right about the class of mistake, in a comment, next to an instance of it,
-is what this ADR treats as the finding: the guard cannot be a sentence.
+
+And the state was not even unnoticed. ADR-0056 records it, under "what was not
+allowed to change, and did not":
+
+> `vitest.config.ts` lists the measured directories by name and `src/cli` is not
+> among them, so the split neither adds coverage nor removes any: the numbers are
+> the same 2683/2721 statements before and after.
+
+True as arithmetic. What it does not ask is whether the reason the file was out
+still applied to the nine files it had become — and it did not, which is the
+whole of this. Being right about the class of mistake, in a comment, next to an
+instance of it, is what this ADR treats as the finding: the guard cannot be a
+sentence.
 
 ## Decision
 
@@ -202,6 +213,14 @@ belt-and-braces on a security property, unreachable by any test that does not
 lie about the filesystem underneath Node. Removing it is a change to how the
 report is protected and belongs to whoever wants to argue for it, not to a
 coverage pass.
+
+**Two ADRs carry a dated note rather than an edit.** ADR-0056's coverage bullet
+above, because a reader meets it as "the gate is unaffected"; and ADR-0055's
+closing pointer at "`parse.ts` at 660 lines, nineteen of its error classes",
+which sends a reader to a file that contains the string `Error` not once — that
+split distributed the classes to the five modules that throw them. Neither
+decision is rewritten. A pointer that now misdirects is a different thing from a
+decision that was wrong.
 
 **The guard's glob vocabulary is deliberately small.** A pattern shape it does
 not know fails the suite with a message naming the pattern. That is a nuisance

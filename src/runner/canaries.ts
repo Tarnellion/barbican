@@ -3,11 +3,21 @@
  * anything.
  *
  * Two halves that have to agree: what can be checked without sending anything —
- * called from here and from `--dry-run`, so every message must be true of both —
- * and the pass that does send. The five reasons a canary is refused up front
- * mirror, one for one, the reasons `planEndpoints` has for not probing an
- * endpoint; that mirror is named in the comments below, and adding a reason
- * there means adding a check here.
+ * `assertCanariesUsable`, called once above the `--dry-run` branch so that the
+ * preview and the walk refuse the same declarations and every message is true of
+ * both — and the pass that does send.
+ *
+ * A canary is refused up front for five reasons, and the relation to
+ * `planEndpoints` is a partial mirror rather than a one-for-one one. Three of the
+ * four reasons the plan has for not probing an endpoint have a refusal here —
+ * `excluded`, `unsafe-method`, `path-parameters` — and adding a reason there
+ * means asking whether one belongs here. The fourth, `escapes-target`, has none,
+ * because no endpoint source can produce it (see `assertCanariesUsable`). The
+ * remaining two refusals answer to nothing in the plan: an endpoint the
+ * declaration does not name, and a canary the policy denies the account's role.
+ * The header said "one for one" until 23 August 2026, contradicted a hundred
+ * lines below by `UnsafeCanaryError`'s own comment, which counts the mirror
+ * correctly.
  */
 
 import type { CredentialProvider, HttpClient } from "../adapters/ports.js";

@@ -234,57 +234,6 @@ naming every declared endpoint.
 whitespace**, `Retry-After` can no longer shorten the backoff below the tool's own
 formula, and `--dry-run` no longer refuses configurations that run.
 
-### Unreleased
-
-On `main`, not on npm. `0.5.0` is what `npm install barbican` gives you, and the
-work below changes nothing a consumer can observe.
-
-**The modules that were half the source are split by what they do.**
-`report/build`, `io/config`, `cli` and `runner` were 3012, 2832, 1872 and 1726
-lines, and each held four or five separate jobs. Each is now a directory of
-modules behind the path it always had, so every import in this repository and in
-a consumer's code is the import it was.
-
-Each cut is made at a seam a decision already named, not at the table of
-contents. The runner is cut at the address, because
-[ADR-0032](docs/adr/0032-the-grammar-sits-at-the-seam.md) is a decision
-about a *place* — the grammar lives in `joinUrl` because that is the one place an
-address is built, and a cut that put `substitute` on the other side of a module
-boundary would rebuild the state that ADR was written from. The report is cut at
-the cell key, for the same kind of reason.
-
-The guarantee is checked rather than claimed: the exported names and their count
-are unchanged, the report is the same bytes over all 29 combinations of the
-reference platform, the oracle answers as it did, and the coverage gate was
-re-pointed at the new paths so it still measures code rather than re-exports.
-
-**A gate that only ran after the push now runs before it.** Cutting `cli.ts`
-into modules turned a file-local `paint` into an exported one, and its parameter
-type — derived from `styleText` — carried `import … from "node:util"` into a
-shipped declaration. The published types are supposed to name nothing but
-themselves, because a type from outside is a promise about somebody else's
-versioning; the check for it existed only as a shell line in CI, so it reported
-the leak after the work was pushed rather than preventing it. It is now
-`tools/no-dependency-in-declarations.mjs`, run at the end of `pnpm run build`,
-and CI calls that same file. The palette is written out as `Ink` and still
-checked against Node's own by the compiler — a colour Node stops accepting fails
-the build in this repository rather than in a consumer's.
-
-**Three defects the refactoring uncovered are fixed.** They are the reason a
-refactor is worth reading rather than skimming — each was invisible while the
-code sat in one long file.
-
-- The content digest validated no file the CLI had ever written. The run's own
-  identifier was substituted into the report *after* the hash was taken, so
-  `checkContentDigest` answered `false` for every artifact on disk while the test
-  suite stayed green against a report in memory. A guarantee has to be checked
-  where the artifact goes —
-  [ADR-0058](docs/adr/0058-a-guarantee-holds-where-the-artifact-goes.md).
-- A set of request conditions named `__proto__` vanished from
-  `coverage.contextsProbed`: the report said it had not been probed when it had.
-- `relatedRequestOf` dropped `resourceId` from the cell key, so a finding could
-  name a different cell than the one that produced it.
-
 ### What changed in 0.5.0
 
 The largest release so far, and most of it came out of an adversarial audit of
@@ -669,6 +618,77 @@ refusals this tool cannot recognise. **Nothing in it is a percentage** — a
 percentage hides its denominator, and claiming a clause covered over a surface
 the tool could not see is the same class of lie as a falsely clean run.
 
+### Unreleased
+
+On `main`, not on npm. `0.5.0` is what `npm install barbican` gives you, and the
+work below changes nothing a consumer can observe.
+
+**The modules that were half the source are split by what they do.**
+`report/build`, `io/config`, `cli` and `runner` were 3012, 2832, 1872 and 1726
+lines, holding five, seven, nine and six separate jobs. Each is now a directory
+of modules behind the path it always had, so every import in this repository and
+in a consumer's code is the import it was.
+
+Each cut is made at a seam a decision already named, not at the table of
+contents. The runner is cut at the address, because
+[ADR-0032](docs/adr/0032-the-grammar-sits-at-the-seam.md) is a decision
+about a *place* — the grammar lives in `joinUrl` because that is the one place an
+address is built, and a cut that put `substitute` on the other side of a module
+boundary would rebuild the state that ADR was written from. The report is cut at
+the cell key, for the same kind of reason.
+
+What a run checks, and what it does not: the exported names and their count are
+unchanged, and the oracle finds the same defects with the same exit codes over
+all 29 combinations of the reference platform. That is a statement about
+detection, not about the document. The byte-for-byte comparison of the reports —
+the thing that would have caught most of what these three days found — was made
+by hand at the time of each cut and repeated by nothing. It is now a command:
+`node tools/report-bytes.mjs --write before.manifest` on one revision and
+`--baseline before.manifest` on the next reduces each of the 29 reports to a
+digest over the document with the run identifier, the clocks and the per-run
+digest salt named rather than valued. It is not in `pnpm run check`: it brings
+the platform up 29 times and takes about two minutes, against seventeen seconds
+for the whole test suite.
+
+**The coverage gate measures every module the package ships**
+([ADR-0063](docs/adr/0063-the-coverage-gate-measures-what-shipped.md)). It did
+not: `include` was a list of five directories, and the nine modules the `cli`
+cut produced were named by none of them — the run orchestration, the second
+canary pass and the gate on `--resume` among them — under an exemption written
+about a file that was "argument parsing and printing". The list is now one
+pattern over `src/`, and a test reads it and the thresholds out of the
+configuration so that neither can lose a file to a move again. Eight of the nine
+modules are brought to 100 % of their statements, functions and lines; the ninth
+is named on a line of its own for the part of it only a spawned process can
+observe.
+
+**A gate that only ran after the push now runs before it.** Cutting `cli.ts`
+into modules turned a file-local `paint` into an exported one, and its parameter
+type — derived from `styleText` — carried `import … from "node:util"` into a
+shipped declaration. The published types are supposed to name nothing but
+themselves, because a type from outside is a promise about somebody else's
+versioning; the check for it existed only as a shell line in CI, so it reported
+the leak after the work was pushed rather than preventing it. It is now
+`tools/no-dependency-in-declarations.mjs`, run at the end of `pnpm run build`,
+and CI calls that same file. The palette is written out as `Ink` and still
+checked against Node's own by the compiler — a colour Node stops accepting fails
+the build in this repository rather than in a consumer's.
+
+**Three defects the refactoring uncovered are fixed.** They are the reason a
+refactor is worth reading rather than skimming — each was invisible while the
+code sat in one long file.
+
+- The content digest validated no file the CLI had ever written. The run's own
+  identifier was substituted into the report *after* the hash was taken, so
+  `checkContentDigest` answered `false` for every artifact on disk while the test
+  suite stayed green against a report in memory. A guarantee has to be checked
+  where the artifact goes —
+  [ADR-0058](docs/adr/0058-a-guarantee-holds-where-the-artifact-goes.md).
+- A set of request conditions named `__proto__` vanished from
+  `coverage.contextsProbed`: the report said it had not been probed when it had.
+- `relatedRequestOf` dropped `resourceId` from the cell key, so a finding could
+  name a different cell than the one that produced it.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.
@@ -907,6 +927,11 @@ A release is three edits and a tag, in one commit:
    `### What changed in <version>`. It has been written as the changes landed —
    that is [ADR-0034](docs/adr/0034-what-main-carries-beyond-the-release.md), and
    the reason is that reconstructing it from the log at tag time failed twice.
+   The section is the **last** of the "What changed" run, because the rename is
+   the whole edit: sitting anywhere else it would file the new version among the
+   old ones. It spent the four days before 23 August 2026 between `0.4.0` and
+   `0.5.0`, one heading above a version it says it is ahead of, and the guard
+   below now reads the order as well as the contents.
 2. Set that version in `package.json`. Between releases it names the last version
    this tree shipped, so this is where it moves.
 3. Read the renamed section as a consumer of the previous version would.

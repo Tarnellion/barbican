@@ -13,8 +13,15 @@ minimumReleaseAgeExclude: []
 # allowBuilds. Nothing may run silently.
 strictDepBuilds: true
 
-# An explicit allowlist of packages permitted to run build scripts.
-# Empty by default, and it should stay that way.
+# An explicit allowlist of packages permitted to run build scripts. Nothing is
+# permitted, and nothing should be.
+#
+# The one entry is a refusal written down rather than an absence: `lefthook:
+# false` has the same effect as no map at all, and it carries the reasoning to
+# the place a reader meets the question. The comment here said "empty by default,
+# and it should stay that way" while the map was not empty, which invites the
+# next reader to tidy the refusal away — and then the only record of why the
+# package is refused is in the git log.
 #
 # lefthook: its postinstall does exactly one thing — runs `lefthook install -f`,
 # that is, writes hooks into .git/hooks. It does not touch the network (get-exe.js
