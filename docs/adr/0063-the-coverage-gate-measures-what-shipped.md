@@ -281,8 +281,9 @@ missing test.
 
 ### The mutations of the amendment
 
-The four ways around the first guard, re-attempted against the second, plus the
-three things the second guard added:
+The four ways around the first guard, re-attempted against the second, plus what
+the second guard added. Eleven in all, through the same harness and the same
+refusal on a deliberately wrong needle, which was refused before anything ran:
 
 | mutation                                                                | result   |
 | ------------------------------------------------------------------------ | -------- |
@@ -290,17 +291,22 @@ three things the second guard added:
 | `all: false`                                                              | 2 red    |
 | `src/cli/**/*.ts` zeroed                                                  | 1 red    |
 | a blanket `src/**/*.ts` at 10                                             | 2 red    |
-| `exclude` allowed **and** applied — the outcome half alone                | 9 files named |
+| three metrics dropped from `src/core/**/*.ts`                             | 1 red    |
+| the outcome half unwired from `test:coverage`                             | 1 red    |
+| `src/index.ts` removed from `BARRELS`                                     | 4 red    |
+| an exclusion given on the **command line**, where the configuration half cannot see it | 9 files named by the outcome half |
 | `src/cli/run/main.ts` created beside `src/cli/run.ts`                     | 1 red    |
 | `### Unreleased` moved to the end of the document, under `## License`     | 1 red    |
 | `Object.fromEntries` in `report-bytes.mjs` put back to `out[key] = …`     | 1 red    |
 
-The fifth is the one worth reading. The exclusion was given on the command line,
-where `vitest.config.ts` never sees it and the configuration half of the guard
-has nothing to read — and the outcome half named all nine modules anyway. That
-is the whole argument for having two halves, and it is also the honest boundary
-of the first: **what it reads is the file, not the resolved configuration**, so a
-`--coverage.*` flag or a `VITEST_*` environment variable is outside it.
+The eighth is the one worth reading, and it is the only one that is not a file
+edit. `pnpm exec vitest run --coverage --coverage.exclude='src/cli/**'` exits 0
+with the whole suite green, because the configuration half imports
+`vitest.config.ts` and a command-line flag is not in it — and then the outcome
+half named all nine modules. That is the argument for having two halves, and it
+is also the honest boundary of the first: **what it reads is the file, not the
+resolved configuration**, so a `--coverage.*` flag or a `VITEST_*` environment
+variable is outside it.
 
 ## Alternatives
 
