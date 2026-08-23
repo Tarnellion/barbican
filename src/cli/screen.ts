@@ -20,7 +20,25 @@ import type { RunReport, RunVerdict } from "../report/build.js";
 import { WARNINGS } from "../report/build.js";
 import type { ComparisonTone } from "../report/compare.js";
 
-export function paint(text: string, format: Parameters<typeof styleText>[0]): string {
+/**
+ * The three colours this tool paints with.
+ *
+ * Written out rather than derived from `styleText`'s own parameter, because a
+ * derived type puts `import … from "node:util"` into the emitted declaration,
+ * and a shipped `.d.ts` that names anything but a relative path is a promise
+ * about somebody else's versioning — the reason `configSchema` stopped being
+ * exported (CI, "No dependency in the published types"). Here that promise
+ * would be about `@types/node`, which a consumer picks and this package does
+ * not depend on. The subset relation is not taken on trust: `styleText` is
+ * called with this type below, so a palette Node stops accepting fails the
+ * build in this repository rather than in a consumer's. The same three names
+ * were already written out by hand in `WARNING_STYLE`; now they are written
+ * once. Cutting `cli.ts` into modules is what made this visible — `paint` was
+ * a file-local function, and a file-local function emits no declaration.
+ */
+export type Ink = "red" | "yellow" | "green";
+
+export function paint(text: string, format: Ink): string {
   // Without a TTY, escape sequences only litter redirected output.
   // The stream is named, and that is the whole fix: `styleText` without it
   // validates `process.stdout`, while the decision above is made on
@@ -118,7 +136,7 @@ function bySeverityLine(label: string, counts: Readonly<Record<Severity, number>
  * Green appears nowhere in it. A warning is never good news, and the one thing
  * this screen must not do is make a caveat look like a clearance.
  */
-export const WARNING_STYLE: Readonly<Record<keyof typeof WARNINGS, "red" | "yellow">> = {
+export const WARNING_STYLE: Readonly<Record<keyof typeof WARNINGS, Ink>> = {
   // Both put every finding on the screen in doubt: one says the run may have
   // been talking to nobody, the other that a refusal was never seen.
   nothingRefused: "red",
@@ -148,7 +166,7 @@ export function warningLine(key: WarningKey): string {
  * `WARNING_STYLE` rather than written out again: a second table is the defect
  * this whole change is about.
  */
-const WARNING_STYLE_BY_TEXT: ReadonlyMap<string, "red" | "yellow"> = new Map(
+const WARNING_STYLE_BY_TEXT: ReadonlyMap<string, Ink> = new Map(
   (Object.keys(WARNING_STYLE) as readonly WarningKey[]).map((key) => [
     WARNINGS[key],
     WARNING_STYLE[key],
@@ -437,9 +455,7 @@ export function writeRunSummary(screen: RunScreen): void {
  * screen that made a caveat look like a clearance would be `escalationLine`'s
  * defect in a new place.
  */
-export const COMPARISON_STYLE: Readonly<
-  Record<ComparisonTone, Parameters<typeof paint>[1] | undefined>
-> = {
+export const COMPARISON_STYLE: Readonly<Record<ComparisonTone, Ink | undefined>> = {
   plain: undefined,
   good: "green",
   warn: "yellow",

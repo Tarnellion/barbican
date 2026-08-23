@@ -355,30 +355,12 @@ jobs:
           tarball="$(ls "$RUNNER_TEMP"/pack/*.tgz)"
           pnpm dlx @arethetypeswrong/cli@0.18.5 --profile esm-only "$tarball"
 
-      # The published types depend on nothing but themselves.
-      #
-      # `configSchema` used to be exported, which put 100 lines of
-      # `z.ZodObject<…>` into `config.d.ts` — naming `z.core.$strip`, zod's
-      # internal namespace. A zod major would then have changed the package's own
-      # types and broken every consumer's build, for a value none of them has a
-      # use for. A dependency in a public type is a version of that dependency
-      # the package has promised to keep. Found by the audit of 14 August 2026
-      # (E-6).
-      #
-      # Checked on the built declarations rather than in a unit test, because
-      # this is a property of the artifact: `pnpm run test` runs before
-      # `pnpm run build`, so there is nothing to read at that point. A relative
-      # import is the package talking to itself; anything else is a promise.
+      # The published types depend on nothing but themselves. The reasoning, and
+      # the check itself, are in the tool — `pnpm run build` runs it too, so a
+      # leak fails on the machine that wrote it rather than after the push. It
+      # stays a step here because this job builds the artifact as it ships.
       - name: No dependency in the published types
-        run: |
-          set -euo pipefail
-          leaks="$(grep -rhoE '^(import|export) .* from "[^.][^"]*"' dist --include='*.d.ts' | sort -u || true)"
-          if [ -n "$leaks" ]; then
-            echo "A shipped declaration names a package rather than a relative path:"
-            echo "$leaks"
-            exit 1
-          fi
-          echo "no dependency appears in any shipped .d.ts"
+        run: node tools/no-dependency-in-declarations.mjs
 
       # The part no static check can answer: does the thing run once installed.
       # Not from this repository — from an empty directory, the way a user gets it.

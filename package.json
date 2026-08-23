@@ -59,7 +59,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "build": "tsc -p tsconfig.build.json && node tools/executable-bit.mjs",
+    "build": "tsc -p tsconfig.build.json && node tools/executable-bit.mjs && node tools/no-dependency-in-declarations.mjs",
     "schema": "node dist/cli.js schema > schema/barbican.run.schema.json && biome check --write schema",
     "deps:behind": "node tools/dependency-cooldown.mjs",
     "check": "pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run build",

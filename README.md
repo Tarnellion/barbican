@@ -258,6 +258,18 @@ are unchanged, the report is the same bytes over all 29 combinations of the
 reference platform, the oracle answers as it did, and the coverage gate was
 re-pointed at the new paths so it still measures code rather than re-exports.
 
+**A gate that only ran after the push now runs before it.** Cutting `cli.ts`
+into modules turned a file-local `paint` into an exported one, and its parameter
+type — derived from `styleText` — carried `import … from "node:util"` into a
+shipped declaration. The published types are supposed to name nothing but
+themselves, because a type from outside is a promise about somebody else's
+versioning; the check for it existed only as a shell line in CI, so it reported
+the leak after the work was pushed rather than preventing it. It is now
+`tools/no-dependency-in-declarations.mjs`, run at the end of `pnpm run build`,
+and CI calls that same file. The palette is written out as `Ink` and still
+checked against Node's own by the compiler — a colour Node stops accepting fails
+the build in this repository rather than in a consumer's.
+
 **Three defects the refactoring uncovered are fixed.** They are the reason a
 refactor is worth reading rather than skimming — each was invisible while the
 code sat in one long file.
