@@ -134,10 +134,11 @@ the grammar's `address` rule and cannot go stale into permitting anything: if it
 stopped firing, the `pathTemplate` call eleven lines below would refuse the same
 string with the grammar's own wording.
 
-Two sentences stood here in the first version of this ADR — "The gate holds it to
+One sentence stood here in the first version of this ADR — "The gate holds it to
 that subset, and to being the only file in the tree that words the refusal" — and
-both were false when written. What holds them now is described in the amendment
-of 23 August 2026 below.
+both of its claims were false when written: the gate checked one string, and it
+read five file names of the sixty-five in the tree. What holds them now is
+described in the amendment of 23 August 2026 below.
 
 ### `TERMINAL_ERROR_NAMES` is exported and the CLI imports it
 
@@ -213,7 +214,7 @@ denial", and the function that folds it is the honest thing to ask.
 - A third `not-found` status now costs two: the classifier, and the list spelled
   out in the gate, which is where the decision is made visible.
 
-## Amendment, 23 August 2026: the gate was walked around four ways
+## Amendment, 23 August 2026: the gate was walked around
 
 Adversarial review the same day this ADR was accepted went at the gate rather
 than at the code. Four of its assertions were walked around with `pnpm run check`
