@@ -33,9 +33,21 @@
  *   the response-header denylist into an allowlist (ADR-0005 addendum).
  * - `outcomeFaults` reads `coverage/coverage-summary.json` — what the run
  *   actually measured — and answers for the files that are in it, the files that
- *   are not, and the four totals. That half runs after vitest, from
- *   `pnpm run test:coverage`, because the summary does not exist while the tests
- *   that would read it are running.
+ *   are not, and the four totals. That half runs after vitest, because the
+ *   summary does not exist while the tests that would read it are running.
+ *
+ * **This module is what runs the coverage run.** `pnpm run test:coverage` is one
+ * command — `node tools/coverage-gate.mjs` — and it removes the previous
+ * summary, spawns vitest, and then answers for what the run measured. It was
+ * three commands joined by `&&` until 23 August 2026, and the test that held
+ * them together asked the script string for two substrings that a single
+ * invocation satisfied: deleting `&& node tools/coverage-gate.mjs` left every
+ * test green and the outcome half never ran again. A guard reading a script
+ * string has to answer for everything that string can express, and the cheaper
+ * answer was to stop having a second command to delete. `setup` below is the
+ * other half of that: vitest loads it as a `globalSetup`, and a coverage run
+ * this module did not start is **refused there**, so the wiring is checked by
+ * the run itself rather than by reading `package.json`. See ADR-0063.
  *
  * **What this does not do.** It does not make the gate unlowerable. The numbers
  * in `vitest.config.ts` may still be lowered — but only for a group named in
@@ -47,6 +59,8 @@
  * holds both halves.
  */
 
+import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -74,6 +88,54 @@ export const PROJECT_FLOOR = Object.freeze({
   functions: 95,
   lines: 95,
 });
+
+/**
+ * The extensions under `src/` that `tsc` turns into a file in `dist/`.
+ *
+ * The walk below took `endsWith(".ts")` and the configuration says
+ * `src/**\/*.ts`, and **neither of those reads `.mts` or `.cts`**: the last three
+ * characters of `leak.mts` are `mts`, not `.ts`, and picomatch's `*.ts` wants the
+ * dot as literally as `endsWith` does. A review of 23 August 2026 put
+ * `src/core/leak.mts` in the tree with an uncovered branch and a side-effect
+ * import from `src/core/keys.ts`; `pnpm run build` emitted `dist/core/leak.mjs`,
+ * the package shipped it, and this file exited 0 with the same 3025/3080
+ * statements as the run before and the words "every module the package ships was
+ * measured".
+ *
+ * So the list is the extensions, not the string `.ts` — and anything else under
+ * `src/` is **refused by name** rather than skipped, for the reason the option
+ * allowlist above exists. What the package ships is decided by the compiler, and
+ * `tests/invariants/coverage-gate.test.ts` asks it directly: `tsc
+ * --listFilesOnly` against `tsconfig.build.json`, held to exactly what
+ * {@link shippedSources} returns. That is the binding this list is an
+ * approximation of, and the reason a wrong guess here fails rather than drifts.
+ */
+export const MEASURED_EXTENSIONS = Object.freeze([".ts", ".mts", ".cts"]);
+
+/**
+ * Declaration files: the compiler reads them and emits nothing, so there is
+ * nothing for a coverage report to hold. None exists under `src/` today.
+ */
+const DECLARATION_EXTENSIONS = Object.freeze([".d.ts", ".d.mts", ".d.cts"]);
+
+/**
+ * What {@link ALLOWANCES} would name a global threshold, if one were ever
+ * allowed below the floor.
+ *
+ * Not a glob and never passed to {@link matches}: the four metric names sit at
+ * the top level of `thresholds` beside the globs, and vitest reads them as a
+ * threshold over **every** file.
+ */
+export const GLOBAL_GROUP = "(global)";
+
+/**
+ * What this module puts in the environment of the vitest it starts.
+ *
+ * `setup` looks for it and refuses a coverage run without it. The value is a
+ * fresh uuid rather than `"1"` so that it reads as what it is — a fact about
+ * this one process tree — and not as a switch to put in a shell profile.
+ */
+export const GATE_VARIABLE = "BARBICAN_COVERAGE_GATE";
 
 /**
  * The coverage options this guard has reasoned about.
@@ -167,28 +229,44 @@ export const BARRELS = Object.freeze([
  * approximated. A guard that quietly matches nothing is the defect this whole
  * module exists about, one level up.
  *
+ * Two shapes over three extensions, and the extension is matched as literally as
+ * picomatch matches it: `src/**\/*.ts` does **not** cover `src/leak.mts`, here or
+ * in vitest. A `.mts` under `src/` therefore needs a pattern of its own in both
+ * `include` and `thresholds`, which is the point — it is a decision, taken by
+ * whoever adds the file, rather than a module that quietly joined the package.
+ *
  * @param {string} glob
  * @param {string} path
  * @returns {boolean}
  */
 export function matches(glob, path) {
-  const recursive = "/**/*.ts";
-  if (glob.endsWith(recursive)) {
-    return path.startsWith(`${glob.slice(0, -recursive.length)}/`) && path.endsWith(".ts");
+  for (const extension of MEASURED_EXTENSIONS) {
+    const recursive = `/**/*${extension}`;
+    if (glob.endsWith(recursive)) {
+      return path.startsWith(`${glob.slice(0, -recursive.length)}/`) && path.endsWith(extension);
+    }
   }
-  if (glob.endsWith(".ts") && !glob.includes("*")) {
+  if (!glob.includes("*") && MEASURED_EXTENSIONS.some((extension) => glob.endsWith(extension))) {
     return path === glob;
   }
   throw new Error(
     `the coverage configuration uses a pattern this guard cannot read: "${glob}". ` +
       `Teach it the shape, or use one of the two it knows — a literal path, or a ` +
-      `directory followed by /**/*.ts. Do not delete the case: the reason this ` +
-      `guard exists is that a file left the gate by omission twice.`,
+      `directory followed by /**/*${MEASURED_EXTENSIONS.join(", /**/*")}. Do not delete ` +
+      `the case: the reason this guard exists is that a file left the gate by omission twice.`,
   );
 }
 
 /**
- * Every `.ts` file under `src/`, as the paths the configuration is written in.
+ * Every file under `src/` that the compiler turns into a shipped module, as the
+ * paths the configuration is written in.
+ *
+ * Throws on anything else it finds there. A file under `src/` is either
+ * something `dist/` will carry — and then the gate has to measure it — or
+ * something this guard has not reasoned about, and guessing is what let
+ * `leak.mts` through. Names beginning with a dot are the one exception, and not
+ * a guessed one: `tsc --listFilesOnly` does not put `src/.hidden.ts` in the
+ * program either, which is checked rather than assumed.
  *
  * @param {string} [root]
  * @returns {readonly string[]}
@@ -198,10 +276,28 @@ export function shippedSources(root = ROOT) {
   const walk = (directory) =>
     readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
       const path = resolve(directory, entry.name);
+      // `.DS_Store`, an editor's swap file, a `.hidden.ts` — outside the program
+      // the compiler builds, and so outside what the package ships.
+      if (entry.name.startsWith(".")) {
+        return [];
+      }
       if (entry.isDirectory()) {
         return walk(path);
       }
-      return entry.name.endsWith(".ts") ? [relative(root, path).split("\\").join("/")] : [];
+      const at = relative(root, path).split("\\").join("/");
+      if (DECLARATION_EXTENSIONS.some((extension) => entry.name.endsWith(extension))) {
+        return [];
+      }
+      if (MEASURED_EXTENSIONS.some((extension) => entry.name.endsWith(extension))) {
+        return [at];
+      }
+      throw new Error(
+        `${at} is under src/ and this guard cannot say whether the package ships it. ` +
+          `The extensions it has reasoned about are ${MEASURED_EXTENSIONS.join(", ")} — the ones ` +
+          `tsc emits a module for — and ${DECLARATION_EXTENSIONS.join(", ")}, which emit nothing. ` +
+          `Work out which this is, say so in the commit, and add it to MEASURED_EXTENSIONS in ` +
+          `tools/coverage-gate.mjs or move the file out of src/.`,
+      );
     });
   return walk(resolve(root, "src")).sort();
 }
@@ -294,6 +390,56 @@ export function configurationFaults(coverage, sources) {
 }
 
 /**
+ * One number against {@link PROJECT_FLOOR}, and against the allowance that may
+ * stand below it.
+ *
+ * @param {string} group the name {@link ALLOWANCES} is keyed by
+ * @param {string} where how to name this number in a sentence
+ * @param {string} metric
+ * @param {number} value
+ * @param {Set<string>} used allowances this configuration turned out to need
+ * @param {string} [context] a sentence appended when the number is below the floor
+ * @returns {readonly string[]}
+ */
+function floorFaults(group, where, metric, value, used, context = "") {
+  /** @type {string[]} */
+  const faults = [];
+  /** @type {Record<string, unknown> | undefined} */
+  const allowed = Object.hasOwn(ALLOWANCES, group)
+    ? /** @type {Record<string, Record<string, unknown>>} */ (ALLOWANCES)[group]
+    : undefined;
+  const floor = /** @type {Record<string, number>} */ (PROJECT_FLOOR)[metric] ?? 0;
+  if (value >= floor) {
+    if (allowed !== undefined && typeof allowed[metric] === "number") {
+      faults.push(
+        `ALLOWANCES["${group}"].${metric} is ${allowed[metric]} but the configuration ` +
+          `asks for ${value}, which is not below the floor of ${floor}. Remove the ` +
+          `allowance: it is now permission for nothing.`,
+      );
+      used.add(`${group}.${metric}`);
+    }
+    return faults;
+  }
+  if (allowed === undefined || typeof allowed[metric] !== "number") {
+    faults.push(
+      `${where} is ${value}, below the project floor of ${floor}, and no allowance in ` +
+        `tools/coverage-gate.mjs says why. A threshold under the floor is a decision; write ` +
+        `it down with its reason.${context}`,
+    );
+    return faults;
+  }
+  used.add(`${group}.${metric}`);
+  if (allowed[metric] !== value) {
+    faults.push(
+      `${where} is ${value}; the allowance permits exactly ${allowed[metric]}. Changing ` +
+        `the number means changing both, which is the point: the reason beside the allowance ` +
+        `has to still be true.`,
+    );
+  }
+  return faults;
+}
+
+/**
  * @param {Record<string, unknown>} thresholds
  * @param {readonly string[]} sources
  * @returns {readonly string[]}
@@ -301,8 +447,8 @@ export function configurationFaults(coverage, sources) {
 function thresholdFaults(thresholds, sources) {
   /** @type {string[]} */
   const faults = [];
-  const groups = Object.keys(thresholds);
-  if (groups.length === 0) {
+  const keys = Object.keys(thresholds);
+  if (keys.length === 0) {
     faults.push("coverage.thresholds is empty, so nothing is gated");
     return faults;
   }
@@ -312,13 +458,77 @@ function thresholdFaults(thresholds, sources) {
   /** @type {Set<string>} */
   const allowancesUsed = new Set();
 
+  /**
+   * A key at the top level of `thresholds` is one of three things, and this
+   * guard used to read it as one.
+   *
+   * The four metric names are a **global** threshold. Until 23 August 2026 the
+   * message here said a global "applies only to files no glob matched, and every
+   * file here is matched by one, so it would gate nothing", and that is not what
+   * vitest does. Its own documentation says the opposite — "Unlike Jest, Vitest
+   * counts all files, including those covered by glob-patterns, into the global
+   * coverage thresholds" — and so does the comment in `resolveThresholds`:
+   * "Global threshold is for all files, even if they are included by glob
+   * patterns". Measured rather than read: with `src/**\/*.ts` at 10 and a global
+   * `statements: 99.999`, vitest 4.1.10 answers `ERROR: Coverage for statements
+   * (66.66%) does not meet global threshold (99.999%)`.
+   *
+   * So a global is a real gate, held to the floor like any other — and it is
+   * **not** allowed to answer for a file. That is the dilution: a single
+   * aggregate over `src/` is exactly what the per-directory groups exist to
+   * prevent, a fully covered core masking a drop in another layer, and if it
+   * counted towards "every file is gated by something" the five groups could be
+   * deleted under it. The loop at the end of this function reads `groups`, which
+   * holds the globs and nothing else.
+   *
+   * Everything that is neither — `autoUpdate`, `perFile`, `100`, whatever comes
+   * next — is refused by name.
+   */
+  const globals = keys.filter((key) => METRICS.includes(key));
+  const groups = keys.filter(
+    (key) =>
+      !METRICS.includes(key) && MEASURED_EXTENSIONS.some((extension) => key.endsWith(extension)),
+  );
+  for (const key of keys) {
+    if (globals.includes(key) || groups.includes(key)) {
+      continue;
+    }
+    faults.push(
+      `coverage.thresholds.${key} is neither one of the four metric names nor a pattern ` +
+        `ending in ${MEASURED_EXTENSIONS.join(", ")}. \`autoUpdate\` rewrites these numbers ` +
+        `from whatever the run achieved, \`100\` and \`perFile\` change what a group means, ` +
+        `and a key this guard has not reasoned about is how a threshold stops being one.`,
+    );
+  }
+
+  for (const metric of globals) {
+    const value = thresholds[metric];
+    if (typeof value !== "number") {
+      faults.push(
+        `coverage.thresholds.${metric} is a global threshold and is not a number, so vitest ` +
+          `has nothing to check the whole package against.`,
+      );
+      continue;
+    }
+    faults.push(
+      ...floorFaults(
+        GLOBAL_GROUP,
+        `coverage.thresholds.${metric}`,
+        metric,
+        value,
+        allowancesUsed,
+        ` A global threshold is not decoration: vitest counts every file into it, the ones a ` +
+          `glob already matched included, so this number is what the whole package is held to.`,
+      ),
+    );
+  }
+
   for (const group of groups) {
     const numbers = thresholds[group];
     if (typeof numbers !== "object" || numbers === null) {
       faults.push(
-        `coverage.thresholds.${group} is not a group of four numbers. A global threshold ` +
-          `applies only to files no glob matched, and every file here is matched by one, so ` +
-          `it would gate nothing. Write the numbers on the group instead.`,
+        `coverage.thresholds["${group}"] names files and is not a group of four numbers. ` +
+          `Write the numbers on the group.`,
       );
       continue;
     }
@@ -359,9 +569,12 @@ function thresholdFaults(thresholds, sources) {
     // `src/cli/run.ts` into `src/cli/run/` and this is what asks for the second
     // line, so the signal path keeps a threshold of its own instead of being
     // averaged into the layer.
-    if (!group.includes("*") && group.endsWith(".ts")) {
-      const asDirectory = group.slice(0, -".ts".length);
-      const paired = `${asDirectory}/**/*.ts`;
+    const extension = group.includes("*")
+      ? undefined
+      : MEASURED_EXTENSIONS.find((one) => group.endsWith(one));
+    if (extension !== undefined) {
+      const asDirectory = group.slice(0, -extension.length);
+      const paired = `${asDirectory}/**/*${extension}`;
       if (directories.has(asDirectory) && !groups.includes(paired)) {
         faults.push(
           `coverage.thresholds["${group}"] names a file that now has a directory beside it, ` +
@@ -372,43 +585,20 @@ function thresholdFaults(thresholds, sources) {
       }
     }
 
-    /** @type {Record<string, unknown> | undefined} */
-    const allowed = Object.hasOwn(ALLOWANCES, group)
-      ? /** @type {Record<string, Record<string, unknown>>} */ (ALLOWANCES)[group]
-      : undefined;
     for (const metric of METRICS) {
       const value = declared[metric];
       if (typeof value !== "number") {
         continue;
       }
-      const floor = /** @type {Record<string, number>} */ (PROJECT_FLOOR)[metric] ?? 0;
-      if (value >= floor) {
-        if (allowed !== undefined && typeof allowed[metric] === "number") {
-          faults.push(
-            `ALLOWANCES["${group}"].${metric} is ${allowed[metric]} but the configuration ` +
-              `asks for ${value}, which is not below the floor of ${floor}. Remove the ` +
-              `allowance: it is now permission for nothing.`,
-          );
-          allowancesUsed.add(`${group}.${metric}`);
-        }
-        continue;
-      }
-      if (allowed === undefined || typeof allowed[metric] !== "number") {
-        faults.push(
-          `coverage.thresholds["${group}"].${metric} is ${value}, below the project floor of ` +
-            `${floor}, and no allowance in tools/coverage-gate.mjs says why. A threshold under ` +
-            `the floor is a decision; write it down with its reason.`,
-        );
-        continue;
-      }
-      allowancesUsed.add(`${group}.${metric}`);
-      if (allowed[metric] !== value) {
-        faults.push(
-          `coverage.thresholds["${group}"].${metric} is ${value}; the allowance permits ` +
-            `exactly ${allowed[metric]}. Changing the number means changing both, which is ` +
-            `the point: the reason beside the allowance has to still be true.`,
-        );
-      }
+      faults.push(
+        ...floorFaults(
+          group,
+          `coverage.thresholds["${group}"].${metric}`,
+          metric,
+          value,
+          allowancesUsed,
+        ),
+      );
     }
   }
 
@@ -577,23 +767,110 @@ export function faultsOnDisk(root = ROOT) {
   );
 }
 
-if (isMainModule(import.meta.url)) {
-  if (process.argv.includes("--clean")) {
-    // So that a summary left by an earlier run cannot answer for this one.
-    rmSync(resolve(ROOT, SUMMARY_PATH), { force: true });
-  } else {
-    const faults = faultsOnDisk();
-    for (const fault of faults) {
-      process.stderr.write(`  ${fault}\n`);
-    }
-    if (faults.length > 0) {
-      process.stderr.write(
-        `\nThe coverage run did not measure what this package ships (${faults.length} ` +
-          `${faults.length === 1 ? "fault" : "faults"}). See ADR-0063.\n`,
-      );
-      process.exitCode = 1;
-    } else {
-      process.stdout.write("every module the package ships was measured\n");
-    }
+/**
+ * What vitest's own manifest says to run, resolved rather than spelled out.
+ *
+ * `node_modules/.bin/vitest` is deliberately not what is spawned: npm writes
+ * those as `.cmd` and `.ps1` shims on Windows, there is no `.exe`, and libuv
+ * looks for `.com` and `.exe` only — so a bare name works on the machine that
+ * wrote it and not on `windows-latest`. `process.execPath` plus a path needs
+ * neither a shell nor a per-platform suffix.
+ * `tests/workflows/portable-gate.test.ts` is what holds that rule; the same
+ * reasoning, and the same `bin` lookup, are in `tests/tools/pinned-versions.test.ts`.
+ *
+ * @param {string} [root]
+ * @returns {string}
+ */
+export function vitestEntry(root = ROOT) {
+  const installed = resolve(root, "node_modules", "vitest");
+  const bin = /** @type {{ bin?: string | { vitest?: string } }} */ (
+    JSON.parse(readFileSync(resolve(installed, "package.json"), "utf8"))
+  ).bin;
+  const entry = typeof bin === "string" ? bin : bin?.vitest;
+  if (entry === undefined) {
+    throw new Error("vitest declares no `vitest` entry under `bin`");
   }
+  return resolve(installed, entry);
+}
+
+/**
+ * The `globalSetup` half: a coverage run this module did not start is refused.
+ *
+ * This is the wiring check that is not a reading of `package.json`. Whatever the
+ * script says, a run measuring coverage either has this module as its parent —
+ * in which case the summary it writes will be answered for the moment vitest
+ * exits — or it does not, and then it is a report nobody reads. A test asserting
+ * the shape of a script string cannot tell those apart; this can, because it is
+ * the run.
+ *
+ * It has to be `setup` and not a teardown. A teardown does run after the summary
+ * is written — measured, not assumed — but a throw there is printed as "error
+ * during close" and **the process still exits 0**, which is the failure mode
+ * this whole file exists about. Refusing before the first test costs nothing and
+ * exits 1.
+ *
+ * @param {{ config?: { coverage?: { enabled?: boolean } } }} [project] vitest's `TestProject`
+ * @returns {void}
+ */
+export function setup(project) {
+  if (project?.config?.coverage?.enabled !== true) {
+    return;
+  }
+  if (process.env[GATE_VARIABLE] !== undefined) {
+    return;
+  }
+  throw new Error(
+    `this run is measuring coverage and the coverage gate did not start it, so the summary ` +
+      `it is about to write would be read by nobody and ${SUMMARY_PATH} may be left answering ` +
+      `for a run that never happened. Use \`pnpm run test:coverage\`, which is ` +
+      `\`node tools/coverage-gate.mjs\`: it clears the old summary, runs this same command, ` +
+      `and then holds the result to the floor. See ADR-0063.`,
+  );
+}
+
+/**
+ * Clears the previous summary, runs the suite with coverage, answers for it.
+ *
+ * One command, because a chain of three joined by `&&` is a chain any one of
+ * which can be deleted in an edit nothing reads. Arguments are handed on to
+ * vitest, so `pnpm run test:coverage -- tests/report` still works.
+ *
+ * @param {readonly string[]} extra arguments to hand to vitest
+ * @returns {number} the exit code for the process
+ */
+function gate(extra) {
+  // So that a summary left by an earlier run cannot answer for this one.
+  rmSync(resolve(ROOT, SUMMARY_PATH), { force: true });
+  const ran = spawnSync(process.execPath, [vitestEntry(), "run", "--coverage", ...extra], {
+    cwd: ROOT,
+    stdio: "inherit",
+    env: { ...process.env, [GATE_VARIABLE]: randomUUID() },
+  });
+  if (ran.error !== undefined) {
+    process.stderr.write(`the coverage gate could not start vitest: ${ran.error.message}\n`);
+    return 1;
+  }
+  if (ran.status !== 0) {
+    // Vitest has already said what was wrong, and it writes no coverage report
+    // for a failing run (`reportOnFailure` is false by default), so there is
+    // nothing here to answer for. A signal leaves `status` null.
+    return ran.status ?? 1;
+  }
+  const faults = faultsOnDisk();
+  for (const fault of faults) {
+    process.stderr.write(`  ${fault}\n`);
+  }
+  if (faults.length > 0) {
+    process.stderr.write(
+      `\nThe coverage run did not measure what this package ships (${faults.length} ` +
+        `${faults.length === 1 ? "fault" : "faults"}). See ADR-0063.\n`,
+    );
+    return 1;
+  }
+  process.stdout.write("every module the package ships was measured\n");
+  return 0;
+}
+
+if (isMainModule(import.meta.url)) {
+  process.exitCode = gate(process.argv.slice(2));
 }

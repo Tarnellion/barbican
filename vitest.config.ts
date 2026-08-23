@@ -4,6 +4,15 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    // The coverage gate, on the one seam a `package.json` script cannot be
+    // edited around: `setup` refuses a run that is measuring coverage and was
+    // not started by `tools/coverage-gate.mjs`. Without it, `test:coverage`
+    // could go back to calling vitest directly and the half of the gate that
+    // reads the summary would simply stop running — which is what happened to
+    // the three-command version of that script, with all of its tests green.
+    // Deleting this line is refused by `tests/invariants/coverage-gate.test.ts`.
+    // See ADR-0063.
+    globalSetup: ["./tools/coverage-gate.mjs"],
     coverage: {
       provider: "v8",
       // Everything the package ships, as one pattern rather than a list of the
@@ -24,8 +33,15 @@ export default defineConfig({
       // What this file can still be edited to do, and what stops it, is in
       // `tools/coverage-gate.mjs`: the option names below are an allowlist, the
       // numbers below that answer to a floor kept outside this file, and the
-      // summary the run leaves behind is read afterwards by
-      // `pnpm run test:coverage`. See ADR-0063.
+      // summary the run leaves behind is read the moment vitest exits, by the
+      // same module that started it. See ADR-0063.
+      //
+      // One pattern and not one for every extension: `*.ts` reads `.ts` and
+      // nothing else — `leak.mts` ends in `mts`, and picomatch wants the dot as
+      // literally as `endsWith` does. There is no `.mts` or `.cts` under `src/`,
+      // and the day there is, the gate says so and asks for a pattern here and a
+      // threshold below, which is the decision being taken rather than a module
+      // joining the package unmeasured.
       include: ["src/**/*.ts"],
       reporter: ["text", "json-summary"],
       // The thresholds are set per directory on purpose: a single overall
