@@ -939,12 +939,18 @@ Endpoints (7):
   orders.list    (GET /v1/orders)                    probe
   orders.cancel  (POST /v1/orders/{orderId}/cancel)  skip: a write method, and --unsafe-methods was not given
 Matrix rows: 27 (declared accounts 9)
-Cells a run would probe: 144, plus 8 canary requests
+Cells a run would probe: 144, plus 24 canary requests (8 accounts, probed before
+the walk and again after it, plus one request each with no credentials to show
+the canary tells them apart)
 ```
 
-The skips come from the same function the run uses, so the preview cannot drift
-away from what actually happens. A test proves the silence the hard way: the run
-is made against a platform that is not up, where a single request would fail.
+Two of the seven endpoint rows are shown above; the run prints one for every
+endpoint, unaligned. The skips come from the same function the run uses, so the
+preview cannot drift away from what actually happens. A test proves the silence
+the hard way: the run is made against a platform that is not up, where a single
+request would fail. The two arithmetic lines are re-measured against this
+polygon by `tests/docs/dry-run-transcript.test.ts`, because a transcript pasted
+into a document is a copy of program output that nothing else re-runs.
 
 **It also says what the run will not manage to do**, which until 15 August 2026
 it did not:

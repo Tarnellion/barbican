@@ -102,7 +102,16 @@ export class MethodOverrideInContextError extends Error {
  * The check by **value** — the third layer, and the one that catches a method
  * override under a name nobody has heard of — is not here, because it depends on
  * `--unsafe-methods` and this does not. `WRITE_METHOD_WORDS` is its single
- * source, and both callers ask it in the same breath as this. See ADR-0064.
+ * source, and one of the two callers — `assertAttributesKeepTheBasis` below —
+ * asks it in the same breath as this. The other, `normalizeContexts` in
+ * `./contexts.ts`, cannot: at parse time a value may still be `{ env: NAME }`,
+ * and checking the declaration would pass `x-vendor-verb: { env: VERB }` with
+ * `VERB=DELETE` in the environment. For a context the value is checked once it
+ * is resolved, by `assertContextsCannotWrite` below, called from
+ * `src/cli/run.ts`; for a resource's query, by `normalizeResources` in
+ * `./parse.ts`. This header claimed both callers asked it here until 23 August
+ * 2026, and `WRITE_METHOD_WORDS` does not occur in `./contexts.ts` at all.
+ * See ADR-0064.
  *
  * Lower-cased here rather than by each caller: a caller that forgot would refuse
  * `Authorization` and admit `AUTHORIZATION`, which is the same header.
@@ -253,8 +262,18 @@ export function assertAttributesKeepTheBasis(
  * door with the key hanging on its outside. `authorization` and `cookie` are
  * credentials; `host` takes the request outside the scope while the address stays
  * unchanged; the rest break the exchange itself.
+ *
+ * Module-private since 23 August 2026, with `FORBIDDEN_HEADER_PREFIXES` below.
+ * `forbiddenHeaderReason` is how the two are asked, and while the lists were
+ * exported a second composition of them could be written anywhere by importing
+ * both — which is exactly what an adversarial review did, in `./contexts.ts`,
+ * with `pnpm run check` green. It no longer compiles. A copy that writes the
+ * lists out again instead still does; that shape is read by
+ * `tests/invariants/a-table-written-twice.test.ts`. The same move ADR-0059 made
+ * for the key separator: the raw material does not leave its module, so a copy
+ * cannot borrow the decision. See ADR-0064.
  */
-export const FORBIDDEN_CONTEXT_HEADERS: ReadonlyMap<string, string> = new Map([
+const FORBIDDEN_CONTEXT_HEADERS: ReadonlyMap<string, string> = new Map([
   ["authorization", "these are the account's credentials"],
   ["proxy-authorization", "these are credentials"],
   ["cookie", "these are the account's credentials"],
@@ -283,7 +302,7 @@ export const FORBIDDEN_CONTEXT_HEADERS: ReadonlyMap<string, string> = new Map([
  * purpose — it is the typical attribute of geo conditions; only those
  * `x-forwarded-*` that change the recipient are forbidden.
  */
-export const FORBIDDEN_HEADER_PREFIXES: readonly (readonly [string, string])[] = [
+const FORBIDDEN_HEADER_PREFIXES: readonly (readonly [string, string])[] = [
   ["x-http-method", "a method-override header: the platform will write behind a GET"],
   ["x-method", "a method-override header: the platform will write behind a GET"],
   ["x-original-", "a path-override header: the request would go past the declared path"],

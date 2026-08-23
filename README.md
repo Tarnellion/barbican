@@ -858,13 +858,36 @@ read, so a re-ranking cannot sort them differently; the `YYYY-MM-DD` grammar is
 one expression instead of three in two spellings; and the two-layer header rule is
 composed in one function instead of being copied expression for expression into
 two. What a canary costs in requests is no longer the literal `3` in the
-`--dry-run` arithmetic but a named constant both sides read. A test
-counts what the two canary passes really send and holds the constant to it; the
-preview's own arithmetic is held to the constant and not yet to the
-implementation, so a preview that undercounts is still possible and is listed
-below as unfinished. The two URL-redaction rules in the HTTP adapter turned out to be
-two justified rules rather than one that drifted, and each now says so in its own
-body.
+`--dry-run` arithmetic but a named constant both sides read. One test counts what
+the two canary passes really send and holds the constant to it; a second drives
+one declaration through the preview and then through a real walk against a
+counting client, and fails when the number `--dry-run` bills is not the number of
+requests the run makes. That second one is the link that was missing: holding
+each side to a literal of its own leaves a preview free to undercount, and a
+preview that undercounts is how an operator picks a `--max-requests` ceiling that
+stops the second canary pass. The two URL-redaction rules in the HTTP adapter
+turned out to be two justified rules rather than one that drifted, and each now
+says so in its own body.
+
+**The same number had a seventh copy, in shipped prose.** `docs/guide.md`
+printed `Cells a run would probe: 144, plus 8 canary requests` where the command
+it quotes prints 24 — true the day it was written, and read by the person
+deciding what traffic to allow on somebody else's deployment. A transcript pasted
+into a document is a copy of program output that nothing re-runs, so the two
+arithmetic lines of every such quotation in every tracked markdown file are now
+re-measured against the reference polygon's own preview.
+
+**Three sentences in ADR-0064 credited the compiler with edits it does not
+refuse**, and adversarial review demonstrated each with `npx tsc --noEmit` and
+`npx vitest run` both green: a second severity table restored to `src/cli/screen.ts`,
+a second `YYYY-MM-DD` expression restored to the schema, and the two-layer header
+rule re-inlined into the configuration parser. The ADR now says what the compiler
+does hold — a severity level added to the union, and a copy of the header rule
+that *imports* the two lists, which are module-private since this change — and a
+source scan holds the rest, with its own header naming what it cannot see. Two
+further sentences were false about history and are corrected: this repository is
+twelve days old, so no duplicate in it has "agreed for months", and neither
+ADR-0024 nor ADR-0032 describes a report that said `match: true`.
 
 Three things changed behaviour. Two are in the safe direction: an acceptance whose
 `until` names a day that does not exist — `2026-11-31` — used to roll over into
