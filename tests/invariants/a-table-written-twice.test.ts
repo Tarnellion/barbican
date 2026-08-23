@@ -211,11 +211,23 @@ describe("the forbidden-header lists are written in one place", () => {
    * there is covered by this scan the moment it is added, which a hand-copied
    * list of needles could never be.
    *
-   * Per file, the count is the number of **distinct** members it writes out as a
-   * quoted literal, and it is exact in both directions. Distinct members and not
-   * occurrences, because the question is "does this file carry a piece of the
-   * composition", and a file that names one of these headers twice for one
-   * honest reason is answering it once.
+   * Per file, the count is the number of **occurrences** of a member as a quoted
+   * literal, and it is exact in both directions.
+   *
+   * Occurrences and not distinct members, which is how this scan was first
+   * written. Counting distinct members asks "does this file carry a piece of the
+   * composition", and the owner already carries every piece — so a second, whole
+   * composition written by hand inside `basis.ts` itself added nothing to the
+   * count and passed. That is the one place a second composition is most likely
+   * to appear and the one place it was invisible. Measured, not argued: under
+   * that mutation the distinct count stays 20 and the suite is green, while the
+   * occurrence count goes to 41.
+   *
+   * The price is that an honest second mention now costs a line here. That is
+   * the price this repository already pays for an override in
+   * `pnpm-workspace.yaml` and an expiry in `osv-scanner.toml`: an allowance
+   * carries its count and its reason, and a count that has stopped being true
+   * fails rather than passes.
    */
   const OWNER = "src/io/config/basis.ts";
 
@@ -244,7 +256,16 @@ describe("the forbidden-header lists are written in one place", () => {
    * ones. Every entry but the owner's carries the reason it is not a copy.
    */
   const HOMES: ReadonlyMap<string, { readonly members: number; readonly why: string }> = new Map([
-    [OWNER, { members: 20, why: "the owner: both layers, and nothing else holds either" }],
+    [
+      OWNER,
+      {
+        members: 21,
+        why:
+          "the owner: both layers, and nothing else holds either. " +
+          "Twenty-one and not twenty: `cookie` is written once in the exact layer and " +
+          "once more where the reason for it is composed",
+      },
+    ],
     [
       "src/adapters/http.ts",
       {
@@ -258,17 +279,20 @@ describe("the forbidden-header lists are written in one place", () => {
     [
       "src/adapters/credentials.ts",
       {
-        members: 2,
+        members: 6,
         why:
           "authorization and cookie are the headers the credential provider sets; " +
-          "this is the code the forbidden list exists to protect, not a copy of it",
+          "this is the code the forbidden list exists to protect, not a copy of it. " +
+          "Six occurrences of two members, each written once per scheme it belongs to",
       },
     ],
     [
       "src/report/sections.ts",
       {
-        members: 2,
-        why: "authorization and cookie in the report's redaction of what it prints",
+        members: 3,
+        why:
+          "authorization and cookie in the report's redaction of what it prints, " +
+          "one of the two written twice",
       },
     ],
     [
@@ -306,11 +330,14 @@ describe("the forbidden-header lists are written in one place", () => {
       // counts are the same with the third as without it, so it costs nothing
       // either; the six backtick spellings in this tree are prose inside doc
       // comments, which `codeOf` has already dropped.
-      const written = MEMBERS.filter((member) =>
-        QUOTES.some((quote) => code.includes(`${quote}${member}${quote}`)),
-      );
-      if (written.length > 0) {
-        carried.set(path, written.length);
+      let written = 0;
+      for (const member of MEMBERS) {
+        for (const quote of QUOTES) {
+          written += code.split(`${quote}${member}${quote}`).length - 1;
+        }
+      }
+      if (written > 0) {
+        carried.set(path, written);
       }
     }
 
