@@ -57,6 +57,22 @@
  * to share, `everyParameter()` builds a fresh global one from it for each scan,
  * and nothing this module exports is a `RegExp` for a caller to share.
  * `tests/core/path-parameters.test.ts` holds all three of those.
+ *
+ * ## What keeps the copies from coming back
+ *
+ * Not this comment. The three copies above had a comment over them too, saying
+ * they were one grammar written twice, and a fourth returned to
+ * `src/runner/address.ts` past lint, tsc and 1550 tests on the day they were
+ * collapsed — as did a second spelling inside this very file.
+ * `tests/invariants/one-decision-one-home.test.ts` is the check: no regular
+ * expression outside this module may carry a brace that is not a quantifier,
+ * with two reasoned exceptions counted exactly, and this module holds exactly
+ * one expression. See ADR-0060.
+ *
+ * Handing out no `RegExp` is half of that gate as well as the answer to
+ * `lastIndex`: a caller with nothing to copy has to write the grammar out, and
+ * writing it out is what the gate reads. `src/core/keys.ts` was given the same
+ * shape for the same reason.
  */
 
 /**

@@ -102,6 +102,16 @@ this repository already distrusts.
 
 The first assertion is not decoration. It found two keys that no reader had.
 
+> **Correction, 23 August 2026 (ADR-0060).** The clause on assertion 3 was false
+> when it was written. That assertion matched the literal names `cellKey` and
+> `objectKey`, so a copy called anything else — importing `KEY_SEPARATOR` and
+> rebuilding the same string — walked past all three, and a reviewer walked one
+> past the whole of `pnpm run check` with exit 0. So did
+> `const SEPARATOR = "\x00"`, which is the same character in a spelling
+> assertion 2's six-character needle does not read. ADR-0060 is what makes the
+> sentence true, by removing what it describes: `KEY_SEPARATOR` is no longer
+> exported, so there is no constant to import.
+
 ## What the gate found on its first run
 
 `grep` treats a file containing a NUL byte as binary and prints no matches in it.
@@ -180,7 +190,14 @@ comment back against the declaration it describes.
   left as two because one is a map that never leaves a function and the other is
   a key an operator writes into a configuration file; both take `KEY_SEPARATOR`
   now, so neither can glue two defects into one budget.
-- **ADR-0057 renders the two `walk.ts` keys with a space** — `` `${endpoint.id}
-  ${resource?.id ?? ""}` `` — where the code had the separator. An ADR is a record
-  of a decision on a date and is not edited to match later code; noted here
-  instead.
+- ~~**ADR-0057 renders the two `walk.ts` keys with a space.**~~ **Wrong, and
+  wrong in the way this ADR is about — corrected 23 August 2026, ADR-0060.**
+  ADR-0057 did not render them with a space. It held the **raw NUL byte itself**,
+  and a raw NUL makes a file binary to `grep`, so the search that went looking
+  for the separator in `docs/` answered "no matches" and the silence was read as
+  a space. That is the same misreading, from the same cause, as the two source
+  files this ADR's own gate found on its first run — committed here in the
+  paragraph recording it. The byte is now the escape in ADR-0057, under a
+  correction note there, and the gate reads **every tracked file** rather than
+  `src/` alone, so the next raw byte anywhere in the repository fails a test
+  instead of being written up as a rendering choice.
