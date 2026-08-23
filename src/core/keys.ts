@@ -28,9 +28,11 @@
  * checkable in every spelling of it. See ADR-0060.
  *
  * `joinKey` is what leaves instead — the joining, not the character. The four
- * modules that call it each build a **different** key, they are named in
- * `tests/invariants/one-decision-one-home.test.ts` with the reason each is not a
- * copy of another, and a fifth fails that gate.
+ * modules outside this one that call it each build a **different** key; they are
+ * named in `tests/invariants/one-decision-one-home.test.ts` with the key each
+ * builds, and pinned to **one call apiece**, so that neither a fifth module nor a
+ * second key inside one of the four gets in under an allowance granted for
+ * something else.
  *
  * `src/core/path-parameters.ts` got this right first: the regular expression it
  * owns is deliberately never handed to a caller, so a caller cannot share its
