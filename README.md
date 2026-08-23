@@ -240,14 +240,38 @@ On `main`, not on npm. `0.5.0` is what `npm install barbican` gives you, and the
 work below changes nothing a consumer can observe.
 
 **The modules that were half the source are split by what they do.**
-`report/build`, `io/config` and `cli` were 3012, 2832 and 1872 lines, and each
-held four or five separate jobs — the shape of the report and the verdict over
-it; the schemas and the rules about what a request may carry; the command line
-and the walk it orchestrates. Each is a directory of modules behind the path it
-always had, so every import in this repository and in a consumer's code is the
-import it was. The guarantee is checked rather than claimed: the exported names
-and their count are unchanged, the report is the same bytes over all 29
-combinations of the reference platform, and the oracle answers as it did.
+`report/build`, `io/config`, `cli` and `runner` were 3012, 2832, 1872 and 1726
+lines, and each held four or five separate jobs. Each is now a directory of
+modules behind the path it always had, so every import in this repository and in
+a consumer's code is the import it was.
+
+Each cut is made at a seam a decision already named, not at the table of
+contents. The runner is cut at the address, because
+[ADR-0032](docs/adr/0032-the-grammar-sits-at-the-seam.md) is a decision
+about a *place* — the grammar lives in `joinUrl` because that is the one place an
+address is built, and a cut that put `substitute` on the other side of a module
+boundary would rebuild the state that ADR was written from. The report is cut at
+the cell key, for the same kind of reason.
+
+The guarantee is checked rather than claimed: the exported names and their count
+are unchanged, the report is the same bytes over all 29 combinations of the
+reference platform, the oracle answers as it did, and the coverage gate was
+re-pointed at the new paths so it still measures code rather than re-exports.
+
+**Three defects the refactoring uncovered are fixed.** They are the reason a
+refactor is worth reading rather than skimming — each was invisible while the
+code sat in one long file.
+
+- The content digest validated no file the CLI had ever written. The run's own
+  identifier was substituted into the report *after* the hash was taken, so
+  `checkContentDigest` answered `false` for every artifact on disk while the test
+  suite stayed green against a report in memory. A guarantee has to be checked
+  where the artifact goes —
+  [ADR-0058](docs/adr/0058-a-guarantee-holds-where-the-artifact-goes.md).
+- A set of request conditions named `__proto__` vanished from
+  `coverage.contextsProbed`: the report said it had not been probed when it had.
+- `relatedRequestOf` dropped `resourceId` from the cell key, so a finding could
+  name a different cell than the one that produced it.
 
 ### What changed in 0.5.0
 
