@@ -11,9 +11,9 @@
  * else's, and `src/index.ts` is untouched.
  *
  * Re-exported **by name** rather than with `export *`. The six modules hand each
- * other a good deal more than the package ever promised a consumer —
- * `TEMPLATE_PARAMETER`, `joinUrl`, `substitute`, `withQuery`, `cellKey`,
- * `terminalCause`, `unreadableStatusReason` — and `src/index.ts` does
+ * other a good deal more than the package ever promised a consumer — `joinUrl`,
+ * `substitute`, `withQuery`, `cellKey`, `baseUrlForTenant`, `terminalCause`,
+ * `unreadableStatusReason` — and `src/index.ts` does
  * `export * from "./runner.js"`, so a star here would put every one of them on
  * the published surface, which the next release is then answerable for.
  * `tests/public-surface.test.ts` exists because a surface nobody enumerated is a

@@ -6,7 +6,8 @@
 
 import type { Endpoint, Resource, TenantId } from "../core/index.js";
 import { resourceApplies, SAFE_METHODS } from "../core/index.js";
-import { staysWithinTarget, TEMPLATE_PARAMETER } from "./address.js";
+import { hasPathParameters } from "../core/path-parameters.js";
+import { staysWithinTarget } from "./address.js";
 
 /**
  * An endpoint that was not probed, and why.
@@ -63,7 +64,7 @@ export function planEndpoints(options: {
     } else if (options.allowUnsafeMethods !== true && !safe.has(endpoint.method)) {
       skipped.push({ endpointId: endpoint.id, reason: "unsafe-method" });
     } else if (
-      TEMPLATE_PARAMETER.test(endpoint.path) &&
+      hasPathParameters(endpoint.path) &&
       !(options.resources ?? []).some((resource) => resourceApplies(endpoint, resource))
     ) {
       // There are parameters, but no resource with values for them is declared —

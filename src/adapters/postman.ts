@@ -211,7 +211,8 @@ function locationOf(trail: readonly string[]): string {
  * with them Postman's native `:playerId`, are reduced to `{playerId}`.
  *
  * Leaving `{{playerId}}` as it is was not possible. The core extracts parameters
- * with the expression `/\{([^}]+)\}/`, and on `{{playerId}}` it yields a
+ * with `pathParameterNames` (`src/core/path-parameters.ts` — the grammar, once,
+ * per ADR-0024), and on `{{playerId}}` that yields a
  * parameter named `{playerId` — a name the author never wrote and which no
  * declared resource will cover. Such an endpoint would drop out of the run,
  * while substitution in `runner.substitute` would assemble a garbage path from

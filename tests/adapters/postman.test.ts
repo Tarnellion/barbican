@@ -24,6 +24,7 @@ import {
   PostmanCollectionTooLargeError,
   UnsupportedPostmanSchemaError,
 } from "../../src/adapters/postman.js";
+import { pathParameterNames } from "../../src/core/path-parameters.js";
 
 const parser = createPostmanCollectionParser();
 
@@ -185,9 +186,9 @@ describe("parsing a valid collection", () => {
 });
 
 describe("Postman variables in the path", () => {
-  // The core extracts parameters with /\{([^}]+)\}/: on `{{playerId}}` that
-  // would give a parameter named `{playerId`, which the author never wrote and
-  // which no declared resource covers.
+  // The core extracts parameters with `pathParameterNames`: on `{{playerId}}`
+  // that would give a parameter named `{playerId`, which the author never wrote
+  // and which no declared resource covers.
   it("reduces {{playerId}} to the parameter {playerId}", async () => {
     const collection = JSON.stringify({
       item: [{ name: "Card", request: request("GET", ["v1", "players", "{{playerId}}"]) }],
@@ -209,7 +210,10 @@ describe("Postman variables in the path", () => {
   });
 
   // What is checked is the result as the core sees it: the parameter must be
-  // extracted by the same expression the run and the diff look for it with.
+  // extracted by the same rule the run and the diff look for it with. That used
+  // to be a copy of the expression written out here, which made this test agree
+  // with a spelling rather than with the core; it calls the core's own reader
+  // now (ADR-0024's note of 23 August 2026).
   it("gives a parameter the core's own rule extracts", async () => {
     const collection = JSON.stringify({
       item: [
@@ -221,7 +225,7 @@ describe("Postman variables in the path", () => {
     });
 
     const [endpoint] = await parser.parse(collection);
-    const names = [...(endpoint?.path ?? "").matchAll(/\{([^}]+)\}/g)].map((match) => match[1]);
+    const names = pathParameterNames(endpoint?.path ?? "");
 
     expect(names).toEqual(["tenantId", "betId"]);
   });

@@ -285,6 +285,26 @@ code sat in one long file.
 - `relatedRequestOf` dropped `resourceId` from the cell key, so a finding could
   name a different cell than the one that produced it.
 
+**The `{name}` in a path template is read by one rule again.** It was written
+three times: twice in `src/runner/address.ts`, where a comment admitted the two
+were one grammar in two spellings, and a third time in `src/core/matrix.ts`,
+character for character the second, in another layer with nothing pointing at
+it. The two in the runner decide what a run walks and the one in the core
+decides which cells exist, so a difference between them is a run that probes a
+cell the matrix does not contain. All three now call
+`src/core/path-parameters.ts`. The core rather than `src/io/untrusted.ts`,
+because `untrusted.ts` already imports from the core and a grammar the core
+reads cannot live above it — see the note of 23 August on
+[ADR-0024](docs/adr/0024-strings-from-outside.md), which is the rule being
+applied rather than a new one. Nothing a consumer can observe changes; the
+exported names and their count are unchanged, and the oracle answers as it did
+over all 29 combinations.
+
+The tidying has a trap in it, and the tests hold it: one shared `RegExp` with
+the `g` flag would have been the obvious way to write that module and is a
+defect, because `lastIndex` survives between calls — a presence test leaves it
+past the first parameter, and the scan that follows reads only the second.
+
 ### What changed in 0.5.0
 
 The largest release so far, and most of it came out of an adversarial audit of
