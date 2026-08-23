@@ -3,8 +3,11 @@
 - **Status:** accepted
 - **Date:** 2026-08-23
 
-> **Correction, 23 August 2026 (ADR-0060).** One character of this file has been
-> changed and nothing else. The quoted key under "Noticed and not fixed" held the
+> **Correction, 23 August 2026 (ADR-0060).** One character of the record below
+> has been changed, and this note was added above it; nothing else in the file
+> moved. (The first version of this note said "one character and nothing else"
+> while being nine added lines of its own — a sentence that was not true of the
+> paragraph it stood in.) The quoted key under "Noticed and not fixed" held the
 > separator as the **raw NUL byte**, which makes a whole file binary to `grep`:
 > every search of this repository for the separator answered "no matches" over
 > this ADR, and the fixer of ADR-0059 read that silence as "the ADR renders the
