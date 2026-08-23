@@ -16,13 +16,13 @@
  *
  * Two guards, because the invariant has two halves and neither implies the other:
  * that asking for both answers at once walks once, and that the run asks for them
- * at once. The second is a check on the text of `src/cli.ts` — the same shape as
- * `tests/docs/envelope-limitation.test.ts`, and for the same reason: what cannot
- * be observed in the output has to be guarded where it is written, or the next
- * edit quietly restores it.
+ * at once. The second is a check on the text of the entry point — the same shape
+ * as `tests/docs/envelope-limitation.test.ts`, and for the same reason: what
+ * cannot be observed in the output has to be guarded where it is written, or the
+ * next edit quietly restores it.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -116,7 +116,23 @@ describe("both answers about the matrix", () => {
 });
 
 describe("the run itself", () => {
-  const cli = readFileSync(resolve(ROOT, "src/cli.ts"), "utf8");
+  /**
+   * The whole entry point as one text: `src/cli.ts` and the modules it was split
+   * into on 22 August 2026 (ADR-0056).
+   *
+   * Read off the directory rather than by naming the module the call happens to
+   * live in today. What this guard is about is the run, not a file — and a guard
+   * that has to be re-pointed by hand every time the code moves is a guard that
+   * will one day be left pointing at the wrong file and pass.
+   */
+  const cli = [
+    resolve(ROOT, "src/cli.ts"),
+    ...readdirSync(resolve(ROOT, "src/cli"))
+      .filter((one) => one.endsWith(".ts"))
+      .map((one) => resolve(ROOT, "src/cli", one)),
+  ]
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
 
   it("asks for the verdicts and the discrepancies in one call", () => {
     expect(cli).toContain("describeMatrix(matrix, policy)");
