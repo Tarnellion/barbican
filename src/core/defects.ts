@@ -145,6 +145,17 @@ export interface DefectGroup {
  *
  * Exported because the finding list is ordered by it too, and two orderings of
  * the same five levels would be a duplicate that drifts.
+ *
+ * Three readers now, not two: `src/cli/screen.ts` kept a byte-for-byte copy of
+ * this table until 23 August 2026, with its own reason for being a `Record` and
+ * not a list. The `Record<Severity, number>` type is what catches a level added
+ * to `Severity` — in every copy at once, which is why nothing had gone wrong —
+ * and it is exactly what does not catch a **re-ranking**. If ADR-0014 ever moves
+ * a level up or down, one copy moves with it: the console then prints the five
+ * lines in one order while the report file sorts its rows in another, from the
+ * same run, and the operator reading both is looking at the same findings
+ * ordered two ways with nothing to say which is meant. The ranks are one fact,
+ * so they are written once. See ADR-0064.
  */
 export const SEVERITY_ORDER: Readonly<Record<Severity, number>> = {
   critical: 0,

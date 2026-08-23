@@ -349,6 +349,25 @@ describe("the severity summary on the screen", () => {
         expect(rows).toContain(severity);
         expect(defects).toContain(severity);
       }
+
+      // And in the order the core ranks them, spelled out rather than derived.
+      //
+      // The screen kept a private copy of `SEVERITY_ORDER` until 23 August 2026,
+      // identical to the core's byte for byte. `Record<Severity, number>` catches
+      // a level added to one copy and not the other — B-16 above — and catches a
+      // **re-ranking** in neither: the console would have printed one order while
+      // the report file sorted its findings in another, out of the same run. The
+      // copy is gone (ADR-0064), and this is what makes the coupling visible in
+      // the suite: re-rank the one remaining table and this line moves with the
+      // report's own ordering, so the edit is a decision somebody has to come
+      // here and confirm rather than a divergence nobody sees.
+      //
+      // Written out and not read from `SEVERITY_ORDER`, which would be the table
+      // agreeing with itself — the shape this repository's fixtures rule is
+      // against.
+      const ORDER = "critical .*, high .*, medium .*, low .*, info ";
+      expect(rows).toMatch(new RegExp(`^Rows by severity: ${ORDER}`));
+      expect(defects).toMatch(new RegExp(`^Defects by severity: ${ORDER}`));
     } finally {
       delete process.env.CLI_TEST_TOKEN_ALICE;
       await target.close();

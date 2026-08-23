@@ -748,6 +748,35 @@ the document it links.
 Nothing a consumer can observe changes — no message, no exit code, no report
 field — and each of the three could have changed something later.
 
+**Six facts written down twice are now written down once**
+([ADR-0064](docs/adr/0064-a-table-written-twice-is-made-to-agree.md)). None of
+them was broken — every copy agreed, which is the reason to open them rather than
+the reason to leave them: this repository is twelve days old and has already
+written an ADR after a duplicate stopped agreeing two days after it was made
+([ADR-0032](docs/adr/0032-the-grammar-sits-at-the-seam.md)). The reserved check ids are now a mapped type
+over `DiffKind`, so a fifth kind of matrix discrepancy that nobody reserves does
+not compile; the severity ranks are one table the console and the report both
+read, so a re-ranking cannot sort them differently; the `YYYY-MM-DD` grammar is
+one expression instead of three in two spellings; and the two-layer header rule is
+composed in one function instead of being copied expression for expression into
+two. What a canary costs in requests is no longer the literal `3` in the
+`--dry-run` arithmetic but a named constant both sides read. A test
+counts what the two canary passes really send and holds the constant to it; the
+preview's own arithmetic is held to the constant and not yet to the
+implementation, so a preview that undercounts is still possible and is listed
+below as unfinished. The two URL-redaction rules in the HTTP adapter turned out to be
+two justified rules rather than one that drifted, and each now says so in its own
+body.
+
+Three things changed behaviour. Two are in the safe direction: an acceptance whose
+`until` names a day that does not exist — `2026-11-31` — used to roll over into
+the next day through the library door and now reads as lapsed, and the same
+deadline string is refused by one grammar wherever it arrives. The third is one
+sentence an operator reads: `UnsafeCanaryError` now interpolates the same
+constant the implementation counts by, so it says "up to 3 times" where it used
+to say "up to three times". Spelling the word back would put the number in two
+places again, which is what this entry is about.
+
 - **The address grammar** was two lists seven lines apart: a conjunction of
   predicates for the seam, the same predicates re-listed as `if` blocks with the
   sentences an operator reads. A rule added to the second alone would never reach

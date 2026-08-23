@@ -28,6 +28,51 @@ import { safeHeaders } from "../io/untrusted.js";
 import { baseUrlForTenant, joinUrl } from "./address.js";
 import { failureCode, terminalCause } from "./outcome.js";
 
+/**
+ * Passes over the canaries in one run: one before the walk, one after it.
+ *
+ * The second is `confirmAfterWalk`, and it is the whole of ADR-0033's later
+ * half — a token that dies mid-walk turns every remaining cell into a 401 that
+ * reads as a denial. Declared here rather than in the CLI that makes the two
+ * calls, because the number below is what a reader of this module needs and
+ * `tests/runner/canary-cost.test.ts` is what keeps the two in step.
+ */
+const CANARY_PASSES = 2;
+
+/**
+ * The anonymous control request, sent once per account and not once per pass.
+ *
+ * What it establishes — that the endpoint tells a credentialed request from an
+ * anonymous one — is a property of the endpoint, and the walk does not change
+ * it. The second pass therefore passes `controlRequests: false`. See ADR-0040.
+ */
+const CONTROL_REQUESTS_PER_ACCOUNT = 1;
+
+/**
+ * What one account's canary costs in requests, worst case.
+ *
+ * Written as a sum of its two reasons rather than as `3`, and exported rather
+ * than restated. `--dry-run` bills the operator for canary traffic against a
+ * deployment that is not ours to spend requests on, and it billed them with the
+ * literal `3` in two places in `src/cli/preview.ts` — a number with nothing
+ * linking it to the two calls and one flag that produce it. The comment beside
+ * it named the cost of getting this wrong: counting the passes once made the
+ * preview call a `--max-requests` ceiling sufficient that stops the second pass,
+ * and a run whose authentication is never confirmed a second time reads as
+ * clean.
+ *
+ * Arithmetic in a constant is still arithmetic that can drift from the code it
+ * describes, so it is not left to be believed:
+ * `tests/runner/canary-cost.test.ts` drives both passes through a counting
+ * client and fails if the requests actually issued and this number disagree.
+ * See ADR-0064.
+ *
+ * Deliberately not on the `src/runner.js` barrel. It is how this tool bills its
+ * own traffic, not a promise to a consumer — the same standing as
+ * `src/core/order.ts`.
+ */
+export const CANARY_REQUESTS_PER_ACCOUNT = CANARY_PASSES + CONTROL_REQUESTS_PER_ACCOUNT;
+
 export interface CanaryResult {
   readonly accountId: string;
   readonly endpointId: string;
@@ -174,8 +219,8 @@ export class UnsafeCanaryError extends Error {
         `confirms the credentials of. Name a canary on a ` +
         `${SAFE_METHODS.join(" or ")} endpoint: the one this account needs its ` +
         `credentials to read is the one worth naming here. With --unsafe-methods ` +
-        `the run issues this one instead, up to three times — twice with ` +
-        `credentials and once without.`,
+        `the run issues this one instead, up to ${CANARY_REQUESTS_PER_ACCOUNT} ` +
+        `times — twice with credentials and once without.`,
     );
     this.name = "UnsafeCanaryError";
     this.accountId = accountId;

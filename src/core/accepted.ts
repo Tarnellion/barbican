@@ -19,6 +19,7 @@
  * named.
  */
 
+import { calendarDayOf } from "./calendar.js";
 import type { DefectCoordinates } from "./defects.js";
 import { defectSignature } from "./defects.js";
 import { joinKey } from "./keys.js";
@@ -131,13 +132,23 @@ export function matchingAcceptance(
  * here in some other shape yields `NaN`, and `NaN` compares false, so the
  * acceptance is treated as lapsed. That is the safe direction: a finding
  * reported is recoverable, a finding suppressed by a malformed date is not.
+ *
+ * Both checks are `src/core/calendar.ts` now, and it is the same grammar the
+ * schema validates `accepted[].until` against — one expression rather than the
+ * three in two spellings there were until 23 August 2026 (ADR-0064). Which
+ * closes the gap the paragraph above leaves open: the schema is one of two doors
+ * into this function, and a consumer of the library building an `Acceptance` by
+ * hand comes through the other with nothing between. `2026-11-31` used to reach
+ * `Date.UTC` here and roll over into 1 December, so the acceptance outlived the
+ * date the file named by a day; now it reads as lapsed, which is the direction
+ * this function already chose for everything else it cannot read.
  */
 export function acceptanceExpiresAt(until: string): number {
-  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(until);
-  if (parts === null) {
+  const date = calendarDayOf(until);
+  if (date === undefined) {
     return Number.NaN;
   }
-  return Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]) + 1);
+  return Date.UTC(date.year, date.month - 1, date.day + 1);
 }
 
 /**

@@ -87,6 +87,51 @@ export class MethodOverrideInContextError extends Error {
 }
 
 /**
+ * Why a header name is refused, or nothing where it is not.
+ *
+ * **The composition, and that is what this function is.** The two tables below
+ * are already single-source and were the whole of the fix when they were
+ * written; how they are put together — refused if the exact map names it, **or**
+ * if it starts with a forbidden prefix — was copied expression for expression
+ * into `normalizeContexts` in `./contexts.ts` and into
+ * `assertAttributesKeepTheBasis` below. Two copies of a composition of two
+ * layers, in a rule whose own history is that its first version had one layer
+ * and was wrong for it (ADR-0019). The next layer would be added to one of them.
+ * A shared list of names does not prevent that; a shared function does.
+ *
+ * The check by **value** — the third layer, and the one that catches a method
+ * override under a name nobody has heard of — is not here, because it depends on
+ * `--unsafe-methods` and this does not. `WRITE_METHOD_WORDS` is its single
+ * source, and both callers ask it in the same breath as this. See ADR-0064.
+ *
+ * Lower-cased here rather than by each caller: a caller that forgot would refuse
+ * `Authorization` and admit `AUTHORIZATION`, which is the same header.
+ */
+export function forbiddenHeaderReason(name: string): string | undefined {
+  const lower = name.toLowerCase();
+  return (
+    FORBIDDEN_CONTEXT_HEADERS.get(lower) ??
+    FORBIDDEN_HEADER_PREFIXES.find(([prefix]) => lower.startsWith(prefix))?.[1]
+  );
+}
+
+/**
+ * Why a query key is refused, or nothing where it is not.
+ *
+ * One layer today, and the same argument as above for why it is a function
+ * anyway: the header rule had one layer too, once. The sentence is here as well
+ * as the set — the two callers wrote it out word for word, and a reason that
+ * disagrees with itself between the door and the seam is a reader told two
+ * different things about one refusal.
+ */
+export function forbiddenQueryKeyReason(key: string): string | undefined {
+  return FORBIDDEN_QUERY_KEYS.has(key.toLowerCase())
+    ? "credentials are presented through this: the platform would serve the " +
+        "request as a different account while the report names the original one"
+    : undefined;
+}
+
+/**
  * Rejects context attributes that override the method of the request.
  *
  * The check goes **by value**, not by name, and that is the whole point. Method
@@ -169,10 +214,7 @@ export function assertAttributesKeepTheBasis(
 ): void {
   const { kind, id: contextId } = subject;
   for (const [name, value] of Object.entries(attributes.headers)) {
-    const lower = name.toLowerCase();
-    const forbidden =
-      FORBIDDEN_CONTEXT_HEADERS.get(lower) ??
-      FORBIDDEN_HEADER_PREFIXES.find(([prefix]) => lower.startsWith(prefix))?.[1];
+    const forbidden = forbiddenHeaderReason(name);
     if (forbidden !== undefined) {
       throw new ForbiddenContextHeaderError(contextId, name, forbidden);
     }
@@ -186,10 +228,8 @@ export function assertAttributesKeepTheBasis(
     }
   }
   for (const [key, value] of Object.entries(attributes.query)) {
-    if (FORBIDDEN_QUERY_KEYS.has(key.toLowerCase())) {
-      const why =
-        "credentials are presented through this: the platform would serve the " +
-        "request as a different account while the report names the original one";
+    const why = forbiddenQueryKeyReason(key);
+    if (why !== undefined) {
       throw kind === "resource"
         ? new ForbiddenResourceQueryError(contextId, key, why)
         : new ForbiddenContextQueryError(contextId, key, why);
