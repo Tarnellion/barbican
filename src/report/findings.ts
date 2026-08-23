@@ -34,7 +34,7 @@ import {
   matchingAcceptance,
   SEVERITY_ORDER,
 } from "../core/index.js";
-import { cellKey, KEY_SEPARATOR } from "../core/keys.js";
+import { cellKey, joinKey } from "../core/keys.js";
 import { byCodeUnits } from "../core/order.js";
 import type { JudgedCell } from "../core/standards/coverage.js";
 import type { RequestContextConfig } from "../io/config.js";
@@ -730,13 +730,16 @@ export function capRows(findings: readonly ReportFinding[]): {
     // Signature and kind, which is the pair `acceptanceKeyOf` joins as well, in
     // the other order. Two spellings of one coordinate, and they are left as two
     // because this map never leaves this function while that key is written by an
-    // operator into the configuration; `KEY_SEPARATOR` is at least the one
-    // constant, so neither can glue two different defects into one budget.
-    const signature = `${finding.kind}${KEY_SEPARATOR}${defectSignature({
-      endpointId: finding.endpointId,
-      ...(finding.relation === undefined ? {} : { relation: finding.relation }),
-      ...(finding.contextId === undefined ? {} : { contextId: finding.contextId }),
-    })}`;
+    // operator into the configuration; `joinKey` is at least the one joining, so
+    // neither can glue two different defects into one budget.
+    const signature = joinKey(
+      finding.kind,
+      defectSignature({
+        endpointId: finding.endpointId,
+        ...(finding.relation === undefined ? {} : { relation: finding.relation }),
+        ...(finding.contextId === undefined ? {} : { contextId: finding.contextId }),
+      }),
+    );
     const kept = seen.get(signature) ?? 0;
     if (kept >= MAX_ROWS_PER_DEFECT) {
       omitted += 1;

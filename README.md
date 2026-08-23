@@ -297,6 +297,7 @@ binary to `grep`, so every search of this repository for it had been answering
 "no matches" over the two files that used it. Nothing a consumer can observe
 changes: the same 227 exported names, and the same bytes over all 29 combinations
 of the reference platform.
+
 **The `{name}` in a path template is read by one rule again.** It was written
 three times: twice in `src/runner/address.ts`, where a comment admitted the two
 were one grammar in two spellings, and a third time in `src/core/matrix.ts`,
@@ -316,6 +317,28 @@ The tidying has a trap in it, and the tests hold it: one shared `RegExp` with
 the `g` flag would have been the obvious way to write that module and is a
 defect, because `lastIndex` survives between calls — a presence test leaves it
 past the first parameter, and the scan that follows reads only the second.
+
+**Both of those gates could be walked around, and now they cannot.** An
+adversarial reviewer put a second cell key under a different name past the first
+one, and a second spelling of the separator — the same character written
+`\x00` instead of the four-digit escape — past it as well, both with
+`pnpm run check` green. The `{name}` grammar had no gate at all: a fourth copy in
+the runner passed everything. The answer is not more patterns.
+`KEY_SEPARATOR` is no longer exported, so a copy elsewhere has to write the
+character out itself, and the single test that replaces both — one owner, one
+exact allowance table per decision, and sources tokenised so that every spelling
+of a character is read as the one character it is — refuses that.
+[ADR-0060](docs/adr/0060-a-gate-that-cannot-be-walked-around.md) lists the seven
+evasions tried against the new gate and what each of them does.
+
+The same review found the record wrong in two places, and both are corrected:
+ADR-0059 said ADR-0057 rendered a key with a space, where in fact ADR-0057 held
+the **raw NUL byte** — the byte that makes a file binary to `grep`, so the search
+that went looking for it answered "no matches" and the silence was written up as
+a rendering choice. That byte was still in the repository, which is why the gate
+now reads every tracked file rather than `src/` alone. Nothing a consumer can
+observe changes here either: the same 227 exported names, and the same bytes over
+all 29 combinations of the reference platform.
 
 ### What changed in 0.5.0
 

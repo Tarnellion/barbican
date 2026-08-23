@@ -8,7 +8,7 @@
  * numbers speak of the size of the matrix, not of the number of problems.
  */
 
-import { KEY_SEPARATOR } from "./keys.js";
+import { joinKey } from "./keys.js";
 import { byCodeUnits } from "./order.js";
 import type { ResourceRelation, Severity } from "./types.js";
 
@@ -181,8 +181,9 @@ export function citableDefectKey(of: DefectCoordinates): string {
  */
 export function defectSignature(of: DefectCoordinates): string {
   // A separator that never occurs in identifiers: gluing with a hyphen would
-  // admit a collision of two different signatures into one string.
-  return [of.endpointId, of.relation ?? "", of.contextId ?? ""].join(KEY_SEPARATOR);
+  // admit a collision of two different signatures into one string. `joinKey`
+  // rather than the character, which does not leave `./keys.js` — ADR-0060.
+  return joinKey(of.endpointId, of.relation ?? "", of.contextId ?? "");
 }
 
 const keyOf = defectSignature;

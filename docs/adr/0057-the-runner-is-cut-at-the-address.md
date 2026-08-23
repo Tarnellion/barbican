@@ -3,6 +3,15 @@
 - **Status:** accepted
 - **Date:** 2026-08-23
 
+> **Correction, 23 August 2026 (ADR-0060).** One character of this file has been
+> changed and nothing else. The quoted key under "Noticed and not fixed" held the
+> separator as the **raw NUL byte**, which makes a whole file binary to `grep`:
+> every search of this repository for the separator answered "no matches" over
+> this ADR, and the fixer of ADR-0059 read that silence as "the ADR renders the
+> key with a space" and wrote it down. The byte is now the escape `\u0000`, which
+> is how `walk.ts` spelled it at the time and so is the more faithful quotation.
+> The reasoning is untouched.
+
 ## Context
 
 `src/runner.ts` was 1 726 lines and the last of the four large files this month's
@@ -244,7 +253,7 @@ a move is a change nobody reviewed.
 - **The endpoint × resource key written twice more.** `cellKey` is the
   single-source key for a *cell*, and it carries a comment about being written
   out by hand once. Two other keys of the same shape,
-  `` `${endpoint.id} ${resource?.id ?? ""}` ``, are spelled inline in
+  `` `${endpoint.id}\u0000${resource?.id ?? ""}` ``, are spelled inline in
   `walk.ts` — one placing a resumed record, one naming the object a write has
   already changed. They agree today and nothing makes them.
 - **Two orphaned doc comments of the same kind as the first.** "Checks that the
