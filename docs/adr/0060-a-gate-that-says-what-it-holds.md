@@ -87,10 +87,11 @@ outside the two modules already allowed to construct an expression. The judgemen
 behind that split: 1, 2 and 6 are shapes somebody writes by accident or for
 convenience and were worth real work; 3 was one alternation of a regular
 expression; 5 needed a table and one more reading; 4 is a shape nobody reaches
-for except on purpose,
-and a gate is not a sandbox. What 4 gets instead of a check is a sentence saying
-it works, in three places — here, in the mutation table as a row that says *not
-caught*, and in the header of the test file itself.
+for except on purpose, which is the criterion
+[ADR-0065](0065-what-a-source-scan-can-hold.md) later stated for the whole
+family. What 4 gets instead of a check is a sentence saying it works, in three
+places — here, in the mutation table as a row that says *not caught*, and in the
+header of the test file itself.
 
 ## Decision
 
@@ -165,8 +166,8 @@ are one alternation and were worth adding.
 It stops there, and the stopping place is exact. `decodeURIComponent("%00")` makes
 the same character out of a literal this scanner reads as `%00`, and
 `String.fromCharCode(one - one)` makes it out of no literal at all. Neither is
-caught; neither can be by a scanner of sources. Both are in the mutation table
-below, one of them as the row that says **not caught**.
+caught. Both are in the mutation table below, one of them as the row that says
+**not caught**.
 
 The needle is a courtesy and not what holds. What holds is the unexported
 constant, and it holds differently than a check does: a copy that computes the
@@ -461,13 +462,18 @@ should read this list before the tables above. The same list is in the header of
 `tests/invariants/one-decision-one-home.test.ts`, because the person about to add
 an allowance is reading that file and not this one.
 
+Why a gate of this family has such a list at all, and why the entries in it are
+measured rather than reasoned about, is stated once in
+[ADR-0065](0065-what-a-source-scan-can-hold.md) instead of in each of these
+documents. What is below is this gate's own measurements.
+
 - **A separator obtained without writing a zero.**
   `decodeURIComponent("%00")` — mutation 14, which passes every assertion here.
   So is arithmetic
   (`String.fromCharCode(one - one)`) and a code point taken out of data. A copy
   under an unowned name that glues with such a character passes everything here.
-  No scanner of sources closes this class. What stands against it is the
-  unexported constant: such a copy is a second implementation and will drift.
+  What stands against it is the unexported constant: such a copy is a second
+  implementation and will drift.
 - **A `{name}` grammar written without a regular expression.** `indexOf` and
   `slice` over a brace is a different implementation rather than a copy, and
   nothing here reads it.
@@ -479,9 +485,9 @@ an allowance is reading that file and not this one.
   `Reflect.construct`, a lookup on `globalThis` out of an assembled string. The
   alias `const Expression = RegExp` **is** caught since the amendment of 23 August
   2026, because the count is of mentions rather than of calls; the rest of the
-  class is the separator's class in another spelling, and no scanner of sources
-  closes it. What stands against it is the same thing: the grammar has no exported
-  form to borrow, so a copy is a second implementation and will drift.
+  class is the separator's class in another spelling. What stands against it is
+  the same thing: the grammar has no exported form to borrow, so a copy is a
+  second implementation and will drift.
 - **A ternary whose consequent is a call of an owned name.** It reads as a
   declaration and fails the gate. A false positive rather than a false negative,
   and stated so that the next reader fixes the classifier rather than the

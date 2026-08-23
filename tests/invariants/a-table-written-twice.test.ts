@@ -34,10 +34,9 @@
  *
  * ## What it cannot see
  *
- * A source scan is not a sandbox. It reads what a person writes by accident or
- * by convenience; it cannot read what somebody writes in order to defeat it, and
- * the list below is what stays open on purpose rather than what nobody thought
- * of.
+ * What a scan of source text can hold at all is ADR-0065, stated once for every
+ * gate of this family. The list below is this scan's own, and what stays open on
+ * purpose rather than what nobody thought of.
  *
  * - A table or a list **built** rather than written: `Object.fromEntries`, a
  *   `Map` filled in a loop, a name assembled from pieces (`"x-" + "method"`), a
@@ -61,6 +60,12 @@
  *   has forbidden yet. The first is a caller and not a copy; the second is a new
  *   rule, and a new rule belongs in `basis.ts` by CLAUDE.md rather than by this
  *   file.
+ * - A second header composition written out of **full header names** rather than
+ *   the members. `"x-http-method-override"` carries no member with a quote on
+ *   both sides of it, so it is a second composition that writes no member at all
+ *   — the case above, reached without meaning to reach it. Measured on 23 August
+ *   2026 in `src/io/config/contexts.ts`, with the counts for every file
+ *   unchanged; ADR-0064 carries what was run.
  *
  * See ADR-0064.
  */
@@ -252,8 +257,9 @@ describe("the forbidden-header lists are written in one place", () => {
   const MEMBERS = [...EXACT, ...PREFIXES];
 
   /**
-   * Where a member of either layer may be written out, and how many distinct
-   * ones. Every entry but the owner's carries the reason it is not a copy.
+   * Where a member of either layer may be written out, and how many times in
+   * all — occurrences, as above, not distinct members. Every entry but the
+   * owner's carries the reason it is not a copy.
    */
   const HOMES: ReadonlyMap<string, { readonly members: number; readonly why: string }> = new Map([
     [
@@ -328,8 +334,9 @@ describe("the forbidden-header lists are written in one place", () => {
       const code = codeOf(path).toLowerCase();
       // All three ways a string literal is written, for the same reason. The
       // counts are the same with the third as without it, so it costs nothing
-      // either; the six backtick spellings in this tree are prose inside doc
-      // comments, which `codeOf` has already dropped.
+      // either: counted on 23 August 2026, `src/` holds fourteen backtick
+      // spellings of a member across six files — eleven in doc blocks and three
+      // in line comments — and `codeOf` drops every line they sit on.
       let written = 0;
       for (const member of MEMBERS) {
         for (const quote of QUOTES) {

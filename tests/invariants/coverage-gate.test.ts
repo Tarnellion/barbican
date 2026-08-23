@@ -44,7 +44,11 @@
  * group below the project floor has to be named in `ALLOWANCES` with a reason,
  * and the number in both places has to be the same. Nor does it read the
  * pattern language vitest actually uses; it knows two shapes and throws on a
- * third.
+ * third. And this file is a test, so it runs when `test.include` says it does:
+ * narrowing that pattern past its own path was measured on 23 August 2026 and
+ * leaves the run green with every coverage number where it was. The full list of
+ * what the gate does not hold is in ADR-0063, and why such a list is kept at all
+ * is ADR-0065.
  */
 
 import { execFileSync } from "node:child_process";

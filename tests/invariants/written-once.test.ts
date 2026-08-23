@@ -26,10 +26,12 @@
  * response-header allowlist out of `http.ts` — a gate does not get to widen the
  * surface it is guarding.
  *
- * **What the source-reading half reads, and what it cannot.** Adversarial review
- * of 23 August 2026 walked around four of these assertions and each walk-around
- * is closed below; the closures are worth stating as limits rather than as
- * completeness:
+ * **What the source-reading half reads, and what it cannot.** Two adversarial
+ * reviews of 23 August 2026 went at these assertions — four of them in the
+ * first round, and four walk-arounds across three of them in the second — and
+ * each walk-around is closed below; the closures are worth stating as limits
+ * rather than as completeness. What a scan of source text can hold at all is
+ * ADR-0065, and the measured limits of this half are in ADR-0061:
  *
  * - the two "written in one file" assertions now read **every tracked file under
  *   `src/`**, from `git ls-files`, not a list somebody remembered to update. The
@@ -48,8 +50,14 @@
  *   exact text**, comments out and whitespace flattened. That replaced a pair of
  *   substring checks which a ternary at the seam and an early `return` at the
  *   door both walked past. A back door written inside one of the four predicates,
- *   or inside `decodePathish`, is not covered, and that is the standing limit of
- *   the address half of this file;
+ *   or inside `decodePathish`, is not covered — one of the limits ADR-0061 lists
+ *   for the address half of this file, and not the only one. The pinning stops
+ *   at those three functions, so a back door written into `joinUrl`, which is
+ *   what calls them, is not covered either; and a fifth rule hoisted into a
+ *   named constant and referenced in the table as `BANG_RULE,` is counted by
+ *   neither the id count nor the structural one. Each of those was run against
+ *   the whole suite before it was written down, and ADR-0061 carries the
+ *   numbers;
  * - the order of `ADDRESS_RULES` is behaviour and is held by witness pairs, one
  *   per adjacent pair of the table. Order is held over the pairs listed; nothing
  *   here says the order is the *right* one, only that changing it is a red test;
@@ -161,11 +169,14 @@ function codeOf(fragment: string): string {
  * "A rule added to the table" means a brace at the top level of it, whatever the
  * entry's keys are called — an id this gate cannot read is an entry it counts and
  * cannot name, which fails, and a whole array spread in is refused rather than
- * followed. What is invisible here is an exemption written *inside* an existing
- * predicate, which changes what the grammar refuses without adding a rule to the
- * table at all: `refuses: (path) => isAddress(path) && !path.startsWith("/internal")`
- * passes this file and the whole suite with it. The second amendment of ADR-0061
- * is where that is measured and left open.
+ * followed. Two shapes are invisible here, both measured against the whole suite
+ * and left open in ADR-0061 rather than argued about. An exemption written
+ * *inside* an existing predicate changes what the grammar refuses without adding
+ * a rule to the table at all:
+ * `refuses: (path) => isAddress(path) && !path.startsWith("/internal")` passes
+ * this file and the whole suite with it. And a rule that is not written into the
+ * table is not a brace at the top level of it: a `const` above it, referenced
+ * below as `BANG_RULE,`, leaves both counts at four and is asked for no witness.
  */
 describe("the address grammar is one list", () => {
   const source = sourceOf("src/io/untrusted.ts");
@@ -245,12 +256,17 @@ describe("the address grammar is one list", () => {
    * see, no witness was demanded for it, and the suite stayed green.
    *
    * How many entries there are is counted as **structure** and not as keys: one
-   * brace at the top level of the table is one rule, whatever its keys are called
-   * and however they are spelled. Counting `refuses:` keys instead read
-   * `{ ["id"]: "bang", ["refuses"]: … }` as no keys at all — and two counts that
-   * agree at zero pass. The compiler is what guarantees each entry *has* the
-   * three fields, since `AddressRule` says so; what this gate has to answer is
-   * how many entries there are and which of them it can name.
+   * brace at the top level of the table is one rule written out there, whatever
+   * its keys are called and however they are spelled. Counting `refuses:` keys
+   * instead read `{ ["id"]: "bang", ["refuses"]: … }` as no keys at all — and two
+   * counts that agree at zero pass. The compiler is what guarantees each entry
+   * *has* the three fields, since `AddressRule` says so; what this gate has to
+   * answer is how many entries there are and which of them it can name.
+   *
+   * "Written out there" is the whole of it, and the limit: an entry that is a
+   * reference rather than a brace — a rule hoisted into a `const` above and
+   * written here as `BANG_RULE,` — moves neither count, so the two agree at four
+   * and no witness is demanded. Measured against the whole suite; ADR-0061.
    *
    * A spread is refused outright rather than followed. `...MORE_RULES` in the
    * table is entries this gate cannot count, let alone name, and following one
