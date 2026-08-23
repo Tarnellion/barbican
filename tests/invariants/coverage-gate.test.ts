@@ -45,8 +45,12 @@
  * and the number in both places has to be the same. Nor does it read the
  * pattern language vitest actually uses; it knows two shapes and throws on a
  * third. And this file is a test, so it runs when `test.include` says it does:
- * narrowing that pattern past its own path was measured on 23 August 2026 and
- * leaves the run green with every coverage number where it was. The full list of
+ * narrowing that pattern past its own path was measured on 23 August 2026 in one
+ * spelling — an extglob under `tests` that excludes this file by name — and it
+ * leaves the run green with every coverage number where it was. The other spelling, a negated second
+ * entry, is caught: coverage then arrives as 0/0 and the outcome half says the
+ * summary holds no files at all. One spelling through and one held is what was
+ * measured, and neither generalises to the pattern language as a whole. The full list of
  * what the gate does not hold is in ADR-0063, and why such a list is kept at all
  * is ADR-0065.
  */

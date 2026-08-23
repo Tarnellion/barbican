@@ -93,7 +93,9 @@ things — that the lists were readable, that every source file was matched by
 every threshold key matched some file.
 
 **That was a guard on two keys of a dozen, and a review of 23 August 2026 walked
-around it four ways, each with the whole run exiting 0.** The four are recorded
+around it three ways, each with the whole run exiting 0** — a fourth attempt,
+`all: false`, is refused for a reason of its own and was never a bypass, which
+point 7 below spells out. **The three are recorded
 here because the shape they share is the finding:
 
 | walked around by                                       | what it did                                                        |
@@ -295,7 +297,8 @@ missing test.
 
 ### The mutations of the amendment
 
-The four ways around the first guard, re-attempted against the second, plus what
+The four attempts on the first guard — the three that worked and the one that
+never did — re-attempted against the second, plus what
 the second guard added. Eleven in all, through the same harness and the same
 refusal on a deliberately wrong needle, which was refused before anything ran:
 
@@ -571,7 +574,7 @@ exactly once per new shape, and the alternative is the failure mode this whole
 ADR is about.
 
 **Two guards of the same family were corrected in the same pass**, because the
-review that found the four ways round this one found them too. Neither is a
+review that found the three ways round this one found them too. Neither is a
 decision of its own and neither gets an ADR; the reasoning lives in the file
 that does the work.
 

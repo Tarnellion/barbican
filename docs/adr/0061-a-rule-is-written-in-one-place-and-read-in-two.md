@@ -541,6 +541,15 @@ here.
   itself, and for `decodePathish`, which the door calls before it consults the
   table. The three entry points are pinned; the four predicates and the decoding
   are not, and pinning those is the blob nobody reads.
+
+  `decodePathish` was measured rather than reasoned about, on 24 August 2026,
+  because ADR-0065 asks for that: `if (value.startsWith("/internal")) return
+  "/ok";` at the head of it. **No test of the address grammar failed.** The suite
+  went red in one place only — `tests/invariants/coverage-gate.test.ts`, on a
+  branch nothing exercises — which is what any dead line would have done and is
+  no part of the grammar noticing. A back door written so that some test walks
+  through it would move no coverage number and leave the run green. So the limit
+  is real, and the thing that fired is not the thing that would have to.
 - **A back door written into `joinUrl` rather than into the seam function.**
   The three exported functions of the grammar are held to one exact text each,
   and `joinUrl` in `src/runner/address.ts` is not one of them, so

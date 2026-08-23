@@ -357,7 +357,11 @@ describe("an ADR link names the document it opens", () => {
 
   it("finds ADR links, rather than agreeing with an empty repository", () => {
     // A check that found nothing is green for the same reason a passing one is.
-    // There were 195 on 23 August 2026, across README, docs/ and the ADRs.
+    // A floor and not a census: the population is every tracked non-binary file,
+    // `tasks.md` and `SECURITY.md` and the polygon READMEs among them, and it
+    // grows with every ADR written. An exact figure here would be wrong by the
+    // commit that added it — which is what happened to the one this line used to
+    // carry.
     expect(all.length).toBeGreaterThan(100);
   });
 

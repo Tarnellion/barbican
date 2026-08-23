@@ -298,8 +298,13 @@ about how they were made, not a property of the class. Beyond those two:
   by anything.
 
 **The link gate.** It judges links, and most ADR citations in this repository are
-not links: of 1160 citations in the tracked text, 195 sit inside a link label and
-965 are bare prose that nothing can check. Of the links themselves, three shapes
+not links: roughly five citations in six are bare prose that nothing can check.
+A proportion and not a count, deliberately. The first version of this paragraph
+gave both figures exactly — and the commit that wrote them added seven links and
+twenty-two prose citations of its own, so the numbers were stale before they were
+pushed. A census of the repository, written into the repository, is a sentence
+that invalidates itself; either a test computes it or the prose does not claim
+it. Of the links themselves, three shapes
 are not collected at all — a reference-style link whose target is defined
 elsewhere on the page, a raw `<a href>`, and a label containing a `]` of its own.
 A fourth, an address with a bracket in it, is only half a hole: the label's claim

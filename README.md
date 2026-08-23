@@ -816,7 +816,7 @@ describing a different function. The exemption is two narrower rules now, module
 headers are counted against a named list of seven files instead of being skipped,
 and [ADR-0062](docs/adr/0062-a-comment-describes-the-symbol-under-it.md) carries
 a measured list of what neither gate catches — starting with the ADR citations
-that are prose rather than links, 965 of the 1160 counted on 23 August 2026.
+that are prose rather than links, which is most of them.
 
 **Three rules that were written more than once are written once**
 ([ADR-0061](docs/adr/0061-a-rule-is-written-in-one-place-and-read-in-two.md)).
@@ -998,9 +998,10 @@ full header names — `x-http-method-override` rather than the `x-http-method` t
 list holds — which carries no member of either layer for the scan to count. The
 coverage gate's outcome half switched off by one line inside its own source,
 after which `pnpm run test:coverage` still exits 0 and still prints that every
-module the package ships was measured. And `test.include` narrowed past
-`coverage-gate.test.ts`, which turns the configuration half off with every
-coverage number where it was. Each was run against the full suite before it was
+module the package ships was measured. And one spelling of a narrowed `test.include`
+— `tests/**/!(coverage-gate).test.ts` — which turns the configuration half off
+with every coverage number where it was; a negated second entry is caught
+instead. Each was run against the full suite before it was
 written down, and the ADR that owns each gate carries what was run.
 
 ## Example
