@@ -223,7 +223,7 @@ function explain(drift: Drift): string {
     breaking
       ? "\n\nThis change is INCOMPATIBLE — a path is gone or has changed type, so a" +
         " reader written against the current schema version breaks on the new file." +
-        ` Raise REPORT_SCHEMA_VERSION in src/report/build.ts, write the same value into` +
+        ` Raise REPORT_SCHEMA_VERSION in src/report/shape.ts, write the same value into` +
         ` "schemaVersion" in ${FIXTURE_PATH}, describe the change in the doc comment on` +
         " the constant the way the move from 1 to 2 is described there, and bring the" +
         ` paths above into "shape".`
