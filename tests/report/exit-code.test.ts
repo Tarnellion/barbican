@@ -1183,6 +1183,104 @@ contexts:
   });
 });
 
+/**
+ * `contextsProbed` is keyed by names this tool did not choose.
+ *
+ * A condition's id is whatever the operator wrote: `z.string().min(1)`, and
+ * nothing narrower, because the label is theirs to pick. So the record is one of
+ * the ones ADR-0024 is about, and it was the one built with a plain object
+ * literal — `counts[context.id] = 0` is a no-op for `__proto__`, and the
+ * increment beside it reads `Object.prototype`, adds one to it and assigns the
+ * string back into the same no-op.
+ *
+ * What breaks is the field's own promise: every declared set of conditions has a
+ * key, the zero included, because a condition missing from the record reads as a
+ * condition nobody declared. `countByKind` and `summary.accepted.byKind` in
+ * `findings.ts` were already built with `openRecord`; this one, two files away,
+ * was not. See ADR-0058.
+ *
+ * Exotic on purpose, as it is for `byKind`: the rule exists because the name
+ * cannot be predicted, and a rule nothing measures is one the next edit deletes
+ * for free.
+ */
+describe("the record the conditions coverage lives in", () => {
+  const PROTO = "__proto__";
+  const WEIRDLY_NAMED = parseRunConfig(`
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts: [{ id: u, role: r, tenant: t, tokenEnv: T }]
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [a], context: ${PROTO}, outcome: denied }
+    - { roles: "*", endpoints: [a], context: ordinary, outcome: denied }
+contexts:
+  - { id: ${PROTO}, headers: { cf-ipcountry: AQ }, endpoints: [a] }
+  - { id: ordinary, headers: { cf-ipcountry: NZ }, endpoints: [a] }
+`);
+
+  function build() {
+    return buildReport({
+      version: "test",
+      config: WEIRDLY_NAMED,
+      endpoints: [{ id: "a", method: "GET", path: "/a" }],
+      // One cell walked under the oddly named conditions and none under the
+      // ordinary ones: the two keys have to come out different, which is what
+      // makes this about the record and not about the loop.
+      observations: [
+        {
+          accountId: `u@${PROTO}`,
+          endpointId: "a",
+          status: 451,
+          outcome: "denied",
+          headers: {},
+          durationMs: 1,
+        },
+      ],
+      skipped: [],
+      failures: [],
+      unauthenticated: [],
+      canariesChecked: 0,
+      truncated: false,
+      findings: [],
+      policy: { fallback: "denied", rules: [] },
+      accounts: [
+        { id: "u", roleId: "r", tenantId: "t" },
+        { id: `u@${PROTO}`, roleId: "r", tenantId: "t", contextId: PROTO, baseAccountId: "u" },
+        { id: "u@ordinary", roleId: "r", tenantId: "t", contextId: "ordinary", baseAccountId: "u" },
+      ],
+      startedAt: new Date(0),
+      finishedAt: new Date(1),
+    });
+  }
+
+  /**
+   * Read through a variable key, which is the only way to ask a record about
+   * this name without writing the deprecated accessor the linter refuses.
+   */
+  const countOf = (counts: Readonly<Record<string, number>>, id: string): number | undefined =>
+    Object.hasOwn(counts, id) ? counts[id] : undefined;
+
+  it("carries a set of conditions named __proto__ instead of losing it", () => {
+    const probed = build().coverage.contextsProbed;
+
+    expect(Object.keys(probed).sort()).toEqual([PROTO, "ordinary"]);
+    expect(countOf(probed, PROTO)).toBe(1);
+    expect(countOf(probed, "ordinary")).toBe(0);
+  });
+
+  /**
+   * And the record answers for nothing it was not given. A plain literal
+   * answers `constructor` out of the prototype, so a reader asking about a set
+   * of conditions nobody declared would be handed a function.
+   */
+  it("answers nothing for a name that was never declared", () => {
+    const probed = build().coverage.contextsProbed;
+
+    expect(countOf(probed, "constructor")).toBeUndefined();
+    expect(Object.getPrototypeOf(probed)).toBeNull();
+  });
+});
+
 describe("the configuration fingerprint", () => {
   const withScheme = (scheme: string) =>
     parseRunConfig(`

@@ -14,6 +14,14 @@
  * deliberate one, because whoever changed the row can run the same function —
  * see ADR-0051, which says so in the decision rather than in a footnote.
  *
+ * **And every report here is built in this process.** That is the right scope
+ * for the cases below — they are about the function — and it is exactly why none
+ * of them noticed that the digest was false on all 58 reports of the polygon: the
+ * CLI wrote one more field onto the finished document, and a report that never
+ * leaves memory never meets that line. The proof on an actual artifact is in
+ * `tests/cli.test.ts`, under "the digest on the artifact the command produced",
+ * and it belongs there because it has to run the command. See ADR-0058.
+ *
  * Found as M-19.
  */
 

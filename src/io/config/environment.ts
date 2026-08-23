@@ -13,7 +13,7 @@
  * middle of a run instead of one clear error at startup.
  */
 
-import { isHeaderValue, lookup, safeHeaders } from "../untrusted.js";
+import { isHeaderValue, lookup, openRecord, safeHeaders } from "../untrusted.js";
 import type { ContextAttributeValue, ContextValues, RunConfig } from "./types.js";
 
 export class MissingCredentialError extends Error {
@@ -79,7 +79,12 @@ export function resolveContextValues(
       source: Readonly<Record<string, ContextAttributeValue>>,
       kind: "header" | "query parameter",
     ): Record<string, string> => {
-      const out: Record<string, string> = Object.create(null);
+      // `openRecord`, not `Object.create(null)` written out again: the keys are
+      // the operator's attribute names, and the one function that makes such a
+      // record is the whole of ADR-0024. Identical at runtime, and a second
+      // spelling of a rule is how the eleven point fixes that ADR counted came
+      // to disagree.
+      const out = openRecord<string>();
       for (const [name, declared] of Object.entries(source)) {
         if (typeof declared === "string") {
           out[name] = declared;

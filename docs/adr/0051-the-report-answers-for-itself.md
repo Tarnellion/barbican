@@ -168,3 +168,23 @@ the question is actually asked.
 is the moment "this file was not edited by accident" stops being enough, and the
 signature decision above is due — before an evidence pack is offered to an
 external body, not after.
+
+## Addendum, 23 August 2026: the field was last, and the document was not
+
+"The whole hash, and the field is last" above is true of `buildReport` and was
+false of the tool. The CLI wrote one more field onto the finished report —
+`{ ...built, runId }`, which is ADR-0045 putting the identifier the platform saw
+into the document the platform's owner gets — one line past the last thing that
+hashed anything. So `checkContentDigest` answered `ok: false` for every artifact
+this tool had produced: 58 of 58 on the polygon.
+
+The test in this repository was green throughout, because it checks a report
+built in memory and round-tripped through `JSON.stringify` — the one report that
+never reaches anybody.
+
+`runId` is an option of `buildReport` now, the digest is taken over a document
+that already carries it, and the guarantee is proved by running the command and
+reading the disk. A report written by 0.5.0 or earlier fails its own check and
+cannot be told apart from one that was edited; `docs/report.md` says so rather
+than leaving the first reader to run the check and wonder. See
+[ADR-0058](0058-a-guarantee-holds-where-the-artifact-goes.md).

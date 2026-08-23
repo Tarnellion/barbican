@@ -176,7 +176,23 @@ export function mergeFindings(
     if (other === undefined || check.endpointId === undefined) {
       return {};
     }
-    const observation = byCell.get(cellKey({ accountId: other, endpointId: check.endpointId }));
+    // The whole cell, resource included. A pair is two accounts asking for the
+    // **same object**, so the other side's cell differs from this one in the
+    // account and in nothing else — and a key that stopped at the endpoint found
+    // either nothing at all or whichever other cell of that account happened to
+    // share the first two coordinates. The comment on the check mapping below
+    // names `withVerdicts` and `withRequest` as the lookups that need the third
+    // coordinate; this one was left off that list and off this key. Latent while
+    // the only registered check pairs observations that name no resource
+    // (`pairsOn` filters on `resourceId === undefined`), which is why it survived
+    // ADR-0039. See ADR-0058.
+    const observation = byCell.get(
+      cellKey({
+        accountId: other,
+        endpointId: check.endpointId,
+        ...(check.resourceId === undefined ? {} : { resourceId: check.resourceId }),
+      }),
+    );
     if (observation?.url === undefined || observation.method === undefined) {
       return {};
     }
@@ -306,8 +322,10 @@ export function mergeFindings(
       // The third coordinate of the cell, and the relation that goes with it.
       // Absent on a check that judges a whole endpoint, which is every check in
       // the registry today; present the moment one judges an object, and then
-      // `withVerdicts` and `withRequest` below find the observation instead of
-      // missing it and printing the cell as agreed. See ADR-0039.
+      // `withVerdicts`, `withRequest` and `relatedRequestOf` find the
+      // observation instead of missing it and printing the cell as agreed. See
+      // ADR-0039, and ADR-0058 for the third name on that list — it was the one
+      // lookup the coordinate never reached.
       ...(resourceId === undefined ? {} : { resourceId }),
       ...(relation === undefined ? {} : { relation }),
       title,

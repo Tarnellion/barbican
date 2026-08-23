@@ -90,3 +90,13 @@ schema 2 — the paths already existed on matrix findings.
 What this does not do: it does not make the matrix channel a registered check.
 That question is [ADR-0041](0041-a-matrix-discrepancy-answers-for-a-clause.md),
 and the reasons for leaving it are written there.
+
+## Addendum, 23 August 2026: one lookup was not on the list
+
+The coordinate reached `Finding`, `withVerdicts` and `withRequest`, and the
+comment written here named those as the lookups that need it. `relatedRequestOf`
+— the one that finds the other side of a paired finding — was not on that list
+and kept building its key out of the account and the endpoint alone. Latent for
+the same reason this whole ADR stayed latent, and it would have stopped being
+latent on the same check: the fourth closing of this class is
+[ADR-0058](0058-a-guarantee-holds-where-the-artifact-goes.md).
