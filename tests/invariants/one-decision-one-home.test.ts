@@ -911,6 +911,8 @@ describe("the scanner this gate reads with", () => {
       roles("class A {\n  cellKey(\n    cell: Cell,\n  ): string {\n    return 1;\n  }\n}"),
     ).toEqual(["declaration"]);
     expect(roles("interface Keys {\n  cellKey(cell: Cell): string;\n}")).toEqual(["declaration"]);
+    expect(roles("class A {\n  get cellKey() {\n    return 1;\n  }\n}")).toEqual(["declaration"]);
+    expect(roles("class A {\n  static cellKey(cell: Cell): string;\n}")).toEqual(["declaration"]);
     // And a call is still a call, including one whose arguments run over lines.
     expect(roles("const key = cellKey(observation);")).toEqual(["call"]);
     expect(roles("const key = cellKey({\n  accountId: a,\n});")).toEqual(["call"]);
