@@ -23,16 +23,24 @@
  * other name could import it and rebuild the same string by hand — which is
  * exactly what a reviewer did on 23 August 2026, past a gate whose ADR claimed
  * to catch it. A constant nobody outside this file can reach is a stronger
- * statement than any test that looks for imitations of one: a copy elsewhere
- * now has to spell the character itself, and one file spelling one character is
- * checkable in every spelling of it. See ADR-0060.
+ * statement than any test that looks for imitations of one: a copy elsewhere has
+ * to spell the character itself, and a character written into a source literal
+ * is checkable in every spelling a literal can give it. A character *computed*
+ * rather than written — `decodeURIComponent("%00")` is the short way — is past
+ * every scanner, and `tests/invariants/one-decision-one-home.test.ts` says so in
+ * its own limits. What is left holding there is this line: such a copy is a
+ * second implementation of the separator and not a second reference to this one,
+ * so it drifts the day this one moves. See ADR-0060.
  *
  * `joinKey` is what leaves instead — the joining, not the character. The four
  * modules outside this one that call it each build a **different** key; they are
  * named in `tests/invariants/one-decision-one-home.test.ts` with the key each
  * builds, and pinned to **one call apiece**, so that neither a fifth module nor a
  * second key inside one of the four gets in under an allowance granted for
- * something else.
+ * something else. That test enumerates the **import** rather than the text of
+ * the call: `import { joinKey as glue }` and `const glue = joinKey` each reduced
+ * a count of `joinKey(` to zero, which is how the first version of it was walked
+ * around.
  *
  * `src/core/path-parameters.ts` got this right first: the regular expression it
  * owns is deliberately never handed to a caller, so a caller cannot share its

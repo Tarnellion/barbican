@@ -714,25 +714,47 @@ the `g` flag would have been the obvious way to write that module and is a
 defect, because `lastIndex` survives between calls — a presence test leaves it
 past the first parameter, and the scan that follows reads only the second.
 
-**Both of those gates could be walked around, and now they cannot.** An
-adversarial reviewer put a second cell key under a different name past the first
-one, and a second spelling of the separator — the same character written
-`\x00` instead of the four-digit escape — past it as well, both with
-`pnpm run check` green. The `{name}` grammar had no gate at all: a fourth copy in
-the runner passed everything. The answer is not more patterns.
-`KEY_SEPARATOR` is no longer exported, so a copy elsewhere has to write the
-character out itself, and the single test that replaces both — one owner, one
-exact allowance table per decision, and sources tokenised so that every spelling
-of a character is read as the one character it is — refuses that.
-[ADR-0060](docs/adr/0060-a-gate-that-cannot-be-walked-around.md) lists the seven
-evasions tried against the new gate and what each of them does.
+**Both of those gates could be walked around, and so could the one that replaced
+them.** An adversarial reviewer put a second cell key under a different name past
+the first gate, and a second spelling of the separator — the same character
+written `\x00` instead of the four-digit escape — past it as well, both with
+`pnpm run check` green; the `{name}` grammar had no gate at all, and a fourth copy
+in the runner passed everything. Its replacement was then attacked in turn and
+gave way six more times: `import { joinKey as glue }` reduced the caller count it
+enumerated to zero, `const glue = joinKey` did the same, a second key builder
+written as an object method walked past its declaration check, and a `{name}`
+grammar built with `new RegExp` was not a literal for it to read. Five of the six
+are closed here; the sixth — the separator built out of `decodeURIComponent`,
+with no zero written anywhere — is not, and it is named in the ADR and in the
+test file as a way past the gate that still works.
+
+The answer is not more patterns. `KEY_SEPARATOR` is no longer exported, so a copy
+elsewhere has to write the character out itself; and what the single test
+enumerates is now the **import** — which module may reach into an owning module,
+for which name — rather than the text of a call, which any rename defeats. An
+owned name used anywhere but the owner has to be an import of it or a call of it,
+in whatever syntactic form, so a second declaration is refused without anybody
+having to guess how it will be spelled.
+[ADR-0060](docs/adr/0060-a-gate-that-says-what-it-holds.md) carries the
+twenty-two mutations run against it, what each is caught by, the one that is
+**not** caught, and the refusal the harness prints when a mutation does not apply.
 
 The same review found the record wrong in two places, and both are corrected:
 ADR-0059 said ADR-0057 rendered a key with a space, where in fact ADR-0057 held
 the **raw NUL byte** — the byte that makes a file binary to `grep`, so the search
 that went looking for it answered "no matches" and the silence was written up as
 a rendering choice. That byte was still in the repository, which is why the gate
-now reads every tracked file rather than `src/` alone. Nothing a consumer can
+now reads every tracked file rather than `src/` alone.
+
+The second review found the record wrong again, in the document written to
+correct the first one, and those sentences are gone rather than softened: ADR-0060
+claimed that "a fifth caller fails the test whatever the function is called" and
+that a declaration spread over several lines was "caught by the two checks above"
+— neither was true of the code as committed — and the note it added to ADR-0057
+called itself "one character and nothing else" while being nine added lines. A
+gate that is described as more than it holds is the pairing this repository's own
+security invariants name as the dangerous one: a sentence telling the next reader
+not to look, over a check that no longer looks either. Nothing a consumer can
 observe changes here either: the same 227 exported names, and the same bytes over
 all 29 combinations of the reference platform.
 **Twenty-four doc comments now describe the symbol they stand on**

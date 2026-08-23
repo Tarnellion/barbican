@@ -1,5 +1,5 @@
 /**
- * A decision with one home, and a gate that cannot be walked around.
+ * A decision with one home, and a gate that says what it holds.
  *
  * Two decisions in this repository were each written out several times, each was
  * collapsed into one module on 23 August 2026, and each was given a test to keep
@@ -10,46 +10,94 @@
  * - the **`{name}` grammar** of a path template (`src/core/path-parameters.ts`,
  *   the note of 23 August on ADR-0024).
  *
- * The first gate could be walked around two ways and the second did not exist.
- * A reviewer put a second `cellKey` under another name into `src/report/`, and a
+ * The first gate could be walked around two ways and the second did not exist. A
+ * reviewer put a second `cellKey` under another name into `src/report/`, and a
  * `const SEPARATOR = "\x00"` — the same character, spelled the way the gate did
  * not read — and a fourth copy of the `{name}` grammar back into
- * `src/runner/address.ts`. All three passed `pnpm run check` with exit 0. This
- * file is the replacement, and ADR-0060 is why it is shaped the way it is.
+ * `src/runner/address.ts`. All three passed `pnpm run check` with exit 0.
+ *
+ * This file replaced them, and was then walked around six more ways on the same
+ * day, every one of them green. Five of the six are closed here. The sixth — a
+ * separator computed rather than written — is not, and the fifth is closed only
+ * outside the two modules already allowed to build an expression at runtime; both
+ * are named under "What it cannot see" below rather than left for the next
+ * reviewer to find. ADR-0060 is why the file is shaped the way it is and carries
+ * the same two lists.
  *
  * ## What holds, and in what order
  *
- * 1. **The raw material does not leave its module.** `KEY_SEPARATOR` is no
- *    longer exported; `joinKey` is. `path-parameters.ts` never handed out its
- *    `RegExp` and does not start now. A copy elsewhere therefore cannot borrow
- *    the decision — it has to write the decision out again.
- * 2. **Writing it out again is what the scan reads.** Not one spelling of it:
- *    the sources are tokenised here and the escapes inside their literals are
- *    decoded, so every way of writing the code point zero — the four-digit
- *    escape, `\x00`, `\u{0}`, `\0`, and the byte itself — is one thing to this
- *    file, because they are one character. The `{name}` grammar is read the same
- *    way: a regular expression carrying a brace that is not a quantifier.
- * 3. **Borrowing the joining is enumerated.** `joinKey` is named in five modules
- *    and each is listed below with the key it builds. A sixth fails, whatever it
- *    calls itself, which is the evasion ADR-0059 claimed to catch and did not.
- * 4. **The owned names are owned.** No other module declares one — `let`, a
- *    class member, an object method and `const f: Fn = …` included, all of which
- *    the first version of this check missed.
+ * 1. **The raw material does not leave its module.** `KEY_SEPARATOR` is not
+ *    exported; `joinKey` is. `path-parameters.ts` never handed out its `RegExp`
+ *    and does not start now. A copy elsewhere therefore cannot borrow the
+ *    decision — it has to write the decision out again, or reach into the owning
+ *    module by name.
+ * 2. **Writing it out again is what the scan reads.** Not one spelling of it: the
+ *    sources are tokenised here and the escapes inside their literals are
+ *    decoded, so every way of writing the code point zero **into a source
+ *    literal** — the four-digit escape, `\x00`, `\u{0}`, `\0`, and the byte
+ *    itself — is one thing to this file, because they are one character. A
+ *    character computed rather than written is a different matter and is the
+ *    first entry under "What it cannot see".
+ * 3. **Reaching in is enumerated at the import, not at the call.** The first
+ *    version of this check counted the text `joinKey(` per module, and
+ *    `import { joinKey as glue }` reduced that count to zero — as would
+ *    `const glue = joinKey`, an idiom already in the tree at
+ *    `src/core/defects.ts`. What is enumerated now is which module may import
+ *    which name out of an owning module. An import cannot be renamed away,
+ *    because the imported name is written in the import whatever the local name
+ *    becomes; the local name is banned from differing at all, so that a reader
+ *    grepping for `joinKey` still finds every use of it.
+ * 4. **An owned name outside its owner is an import of it or a call of it, in
+ *    any syntactic form.** Not "a declaration in the shapes we listed": the
+ *    tokeniser classifies every occurrence, so a `function`, a `const`, a class
+ *    member, an object method, a getter, an interface member and an overload
+ *    signature are all declarations here, whatever their parameter lists
+ *    contain and however many lines they run over. That replaces a regular
+ *    expression which read `([^)]*)` and so missed a parameter typed
+ *    `(part: string) => string`.
+ * 5. **A regular expression built at runtime is enumerated too.** The brace scan
+ *    reads regex literals, and `new RegExp` out of a non-foldable argument is not
+ *    one. Two modules construct a `RegExp` and both are listed with a count, so a
+ *    third fails; and any string or template literal handed to such a call is
+ *    read for a brace as if it had been written as a literal expression.
  *
- * ## What it still cannot see
+ * ## What it cannot see
  *
- * A character built arithmetically rather than written — `String.fromCharCode(0)`
- * — is not a literal and is not decoded. There is one enumerated needle for that
- * shape below, and it is the only enumerated needle here: a courtesy, not what
- * holds. What holds is 1 and 3, and neither depends on how a character is spelled.
+ * This is not the section for shapes that are merely awkward to reach. Each of
+ * these is a way past this file that is known to work, kept here because a gate
+ * that is trusted for more than it holds is worse than no gate:
  *
- * A grammar for `{name}` written without a regular expression — `indexOf` and
- * `slice` over a brace — is a different implementation rather than a copy, and
- * this file does not read it.
- *
- * And neither gate can see two keys that glue the *same* coordinates in
- * different orders. `capRows` and `acceptanceKeyOf` do exactly that, on purpose;
- * ADR-0059 records it.
+ * - **A character obtained without writing a zero.** `decodeURIComponent("%00")`
+ *   builds the separator out of a string this file reads as `%00`, and a second
+ *   key builder under an unowned name that glues with it passes everything here.
+ *   So does any arithmetic — `String.fromCharCode(one - one)` — or a code point
+ *   read out of data. The one enumerated needle below reads
+ *   `String.fromCharCode` and `String.fromCodePoint` of a **numeric zero written
+ *   in a base**, which covers `0`, `0x0`, `0b0` and `0o0` and nothing cleverer.
+ *   A scanner cannot close this class and this one does not pretend to; what
+ *   holds against it is 1 — the constant has no exported form to borrow, so a
+ *   copy is a new implementation of the separator rather than a second reference
+ *   to the one implementation, and it will drift when the one moves.
+ * - **A `{name}` grammar written without a regular expression.** `indexOf` and
+ *   `slice` over a brace is a different implementation rather than a copy, and
+ *   nothing here reads it.
+ * - **A `{name}` grammar inside a module already allowed to build a `RegExp`.**
+ *   `src/core/selectors.ts` may construct one, and the pattern it constructs is
+ *   read for a brace only in the part of it that is a literal. A grammar
+ *   assembled there out of variables is invisible to this file.
+ * - **Two keys that glue the *same* coordinates in different orders.** `capRows`
+ *   and `acceptanceKeyOf` do exactly that, on purpose; ADR-0059 records it. It is
+ *   a question about what is glued, not about how, and no gate of this kind
+ *   reaches it.
+ * - **Anything outside `src/`, except the raw byte.** `tools/oracle/index.mjs`
+ *   has a `cellKey` of its own on purpose — an oracle that shared the tool's code
+ *   would agree with itself — and the tests that split `git ls-files -z` output
+ *   split on a NUL that is not a key at all.
+ * - **The tokeniser is not a parser.** It is written out here because a parser
+ *   would be a package to vet for a gate whose value is being short enough to
+ *   read (CLAUDE.md), and a hand-written one can lose its place. It is built to
+ *   be loud when it does: anything it cannot finish throws, because a scan that
+ *   has lost its place must never report "nothing found".
  *
  * ## The scope of each check
  *
@@ -61,15 +109,12 @@
  * with a space" and wrote that down as a finding. A gate that scans `src/` alone
  * leaves the search it is defending lying.
  *
- * Everything else stops at `src/`. `tools/oracle/index.mjs` has a `cellKey` of
- * its own on purpose — an oracle that shared the tool's code would agree with
- * itself — and the tests that split `git ls-files -z` output split on a NUL that
- * is not a key at all.
+ * Everything else stops at `src/`.
  */
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import * as keys from "../../src/core/keys.js";
@@ -103,24 +148,69 @@ const SEPARATOR_HOMES: ReadonlyMap<string, number> = new Map([
   ["src/adapters/signals.ts", 3],
 ]);
 
+/** Every name one of the two owning modules is the sole home of. */
+const OWNED_NAMES: ReadonlyMap<string, string> = new Map([
+  ["joinKey", KEYS],
+  ["cellKey", KEYS],
+  ["objectKey", KEYS],
+  ["hasPathParameters", GRAMMAR],
+  ["pathParameterNames", GRAMMAR],
+  ["fillPathParameters", GRAMMAR],
+]);
+
 /**
- * The modules that may call `joinKey`, how often, and the key each one builds.
+ * Who may reach into an owning module, and for what.
  *
- * This is the list ADR-0059's third assertion was meant to be. Every entry here
- * is a **different** key — a different tuple of coordinates, for a different
- * index — and that is what a sixth entry has to persuade a reader of, rather
- * than a matcher. A copy of one of these five, under any name at all, has
- * nowhere else to get the character from.
+ * This is the enumeration the caller counter should have been. A module absent
+ * from this table may not import an owned name and may not mention one; a module
+ * present may import the names listed and call them, and may do nothing else with
+ * them — no local rebinding, no re-export, no member of that name of its own.
+ *
+ * Enumerating the **import** rather than the call site is the point. A call can
+ * be renamed (`import { joinKey as glue }`, or `const glue = joinKey` — an idiom
+ * this repository already writes, at `src/core/defects.ts`), and the first
+ * version of this gate counted the text `joinKey(` and so counted zero. The
+ * imported name survives every rename, because it is what the import names.
+ */
+const REACHES_IN: ReadonlyMap<string, { readonly names: readonly string[]; readonly why: string }> =
+  new Map([
+    ["src/core/defects.ts", { names: ["joinKey"], why: "a defect signature" }],
+    ["src/core/accepted.ts", { names: ["joinKey"], why: "the acceptance index" }],
+    ["src/io/config/parse.ts", { names: ["joinKey"], why: "the duplicate-acceptance refusal" }],
+    [
+      "src/report/findings.ts",
+      { names: ["cellKey", "joinKey"], why: "the cell a finding names, and its evidence budget" },
+    ],
+    [
+      "src/runner/walk.ts",
+      { names: ["cellKey", "objectKey"], why: "the cells walked, and the objects behind them" },
+    ],
+    ["src/core/matrix.ts", { names: ["pathParameterNames"], why: "whether a cell exists" }],
+    ["src/runner/plan.ts", { names: ["hasPathParameters"], why: "what a run can address" }],
+    ["src/runner/canaries.ts", { names: ["hasPathParameters"], why: "a canary is not templated" }],
+    ["src/runner/address.ts", { names: ["fillPathParameters"], why: "substitution into a path" }],
+  ]);
+
+/**
+ * The modules that call `joinKey`, how often, and the key each one builds.
+ *
+ * Every entry here is a **different** key — a different tuple of coordinates, for
+ * a different index — and that is what a further entry has to persuade a reader
+ * of, rather than a matcher.
  *
  * The **count** is what makes that true of a module already on the list. Without
  * it, a second key builder inside `findings.ts` — the reviewer's `keyOfCell`,
  * moved one file over — would be borrowing an allowance granted for something
  * else. One entry here is one key; a module that needs two needs a reader.
+ *
+ * The other owned names carry no count, because a count of them would mean
+ * nothing: how many times `findings.ts` happens to ask for a cell key is not a
+ * decision anybody should have to defend, and a number with no reason under it is
+ * a number somebody eventually deletes.
  */
-const JOIN_KEY_CALLERS: ReadonlyMap<string, { readonly calls: number; readonly key: string }> =
-  new Map([
-    // Three: the declaration, and the two keys built out of it.
-    [KEYS, { calls: 3, key: "the owner: the cell key and the object key" }],
+const KEY_BUILDERS: ReadonlyMap<string, { readonly calls: number; readonly key: string }> = new Map(
+  [
+    [KEYS, { calls: 2, key: "the owner: the cell key and the object key" }],
     ["src/core/defects.ts", { calls: 1, key: "endpoint, relation, conditions — a signature" }],
     ["src/core/accepted.ts", { calls: 1, key: "signature and kind — the acceptance index" }],
     [
@@ -131,10 +221,8 @@ const JOIN_KEY_CALLERS: ReadonlyMap<string, { readonly calls: number; readonly k
       "src/report/findings.ts",
       { calls: 1, key: "kind and signature — the per-defect evidence budget" },
     ],
-  ]);
-
-/** A call of `joinKey`, and its declaration, which is the same shape in the text. */
-const A_JOIN = /\bjoinKey\s*\(/g;
+  ],
+);
 
 /**
  * The modules that may write a brace-delimited grammar, and how many each holds.
@@ -156,15 +244,23 @@ const BRACE_GRAMMARS: ReadonlyMap<string, number> = new Map([
   ["src/core/selectors.ts", 1],
 ]);
 
-/** Every name one of the two owning modules is the sole home of. */
-const OWNED_NAMES: readonly (readonly [string, string])[] = [
-  ["joinKey", KEYS],
-  ["cellKey", KEYS],
-  ["objectKey", KEYS],
-  ["hasPathParameters", GRAMMAR],
-  ["pathParameterNames", GRAMMAR],
-  ["fillPathParameters", GRAMMAR],
-];
+/**
+ * The modules that build a `RegExp` at runtime, and how many times each.
+ *
+ * A constructed expression is not a literal, so the brace scan does not read it —
+ * that is how a fourth `{name}` grammar got back into `src/runner/address.ts`
+ * with `pnpm run check` green. Biome's `useRegexLiterals` catches the constructor
+ * over a plain string and folds it back to a literal; it does not catch one built
+ * out of a variable, which is the shape that walked past. Construction is rare
+ * enough to enumerate, so it is enumerated.
+ */
+const REGEXP_BUILDERS: ReadonlyMap<string, number> = new Map([
+  // The owner, recompiling its one source under the `g` flag per call. The reason
+  // it is a fresh object each time is `lastIndex`; see the module.
+  [GRAMMAR, 1],
+  // A path selector, anchored: `^…$` around an already-escaped body.
+  ["src/core/selectors.ts", 1],
+]);
 
 /**
  * The tracked files, from the index rather than from the disk.
@@ -196,6 +292,27 @@ interface Literal {
   /** The text between the delimiters, escapes left exactly as the source wrote them. */
   readonly body: string;
   readonly line: number;
+}
+
+/** A word or a single character of punctuation, in code position. */
+interface Code {
+  readonly kind: "word" | "punct";
+  readonly text: string;
+  readonly line: number;
+}
+
+type Token = Literal | Code;
+
+function isLiteral(token: Token): token is Literal {
+  return token.kind === "string" || token.kind === "template" || token.kind === "regex";
+}
+
+function isWord(token: Token | undefined, text: string): boolean {
+  return token !== undefined && token.kind === "word" && token.text === text;
+}
+
+function isPunct(token: Token | undefined, text: string): boolean {
+  return token !== undefined && token.kind === "punct" && token.text === text;
 }
 
 const IDENTIFIER = /[A-Za-z0-9_$]/;
@@ -238,7 +355,8 @@ const BEFORE_A_REGEX = new Set([
 ]);
 
 /**
- * The literals of a TypeScript source: strings, templates and regular expressions.
+ * The tokens of a TypeScript source: words, punctuation, and the three kinds of
+ * literal.
  *
  * Written out here rather than taken from a parser, and that is a decision with
  * a cost. A parser would be a new package to vet for a gate whose whole value is
@@ -250,10 +368,13 @@ const BEFORE_A_REGEX = new Set([
  *
  * Comments are skipped, so prose quoting a separator or a grammar is not a
  * finding. Template interpolations are handed back to the code scanner, so the
- * braces of an interpolation are in nobody's body.
+ * braces of an interpolation are in nobody's body — and the code inside one is
+ * tokenised like any other code. A template that carries an interpolation is
+ * emitted at its closing backtick, which puts it after the tokens of its own
+ * interpolations; nothing here depends on the order between those two.
  */
-function literalsOf(source: string, where: string): readonly Literal[] {
-  const found: Literal[] = [];
+function tokensOf(source: string, where: string): readonly Token[] {
+  const found: Token[] = [];
   const interpolations: { depth: number; body: string; line: number }[] = [];
   let at = 0;
   let line = 1;
@@ -342,6 +463,12 @@ function literalsOf(source: string, where: string): readonly Literal[] {
     previous = "/re/";
   };
 
+  const punct = (char: string): void => {
+    found.push({ kind: "punct", text: char, line });
+    previous = char;
+    at += 1;
+  };
+
   while (at < source.length) {
     const char = source.charAt(at);
     if (char === "\n") {
@@ -386,14 +513,12 @@ function literalsOf(source: string, where: string): readonly Literal[] {
         continue;
       }
       frame.depth -= 1;
-      previous = "}";
-      at += 1;
+      punct(char);
       continue;
     }
     if (frame !== undefined && char === "{") {
       frame.depth += 1;
-      previous = "{";
-      at += 1;
+      punct(char);
       continue;
     }
     if (char === "/") {
@@ -401,24 +526,29 @@ function literalsOf(source: string, where: string): readonly Literal[] {
         readRegex();
         continue;
       }
-      previous = "/";
-      at += 1;
+      punct(char);
       continue;
     }
     if (IDENTIFIER.test(char)) {
+      const start = line;
       let word = "";
       while (IDENTIFIER.test(source.charAt(at))) {
         word += source.charAt(at);
         at += 1;
       }
+      found.push({ kind: "word", text: word, line: start });
       previous = word;
       continue;
     }
-    previous = char;
-    at += 1;
+    punct(char);
   }
   if (interpolations.length > 0) fail("unterminated template");
   return found;
+}
+
+/** The literals alone, in source order, for the scans that only read literals. */
+function literalsOf(source: string, where: string): readonly Literal[] {
+  return tokensOf(source, where).filter(isLiteral);
 }
 
 /**
@@ -453,50 +583,206 @@ function spellsTheSeparator(body: string): number {
 /** A repetition count, which is the one thing a brace means that is not a grammar. */
 const QUANTIFIER = /\{\d+(?:,\d*)?\}/g;
 
-function isBraceGrammar(literal: Literal): boolean {
-  if (literal.kind !== "regex") return false;
-  const counted = literal.body.replace(QUANTIFIER, "");
+function hasABraceGrammar(body: string): boolean {
+  const counted = body.replace(QUANTIFIER, "");
   return counted.includes("{") || counted.includes("}");
 }
 
-/** The one enumerated needle in this file: a character built out of the code point zero. */
-const FROM_A_CODE_POINT = /\bfrom(?:CharCode|CodePoint)\(\s*0+\s*\)/;
-
-function escaped(name: string): string {
-  return name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function isBraceGrammar(literal: Literal): boolean {
+  return literal.kind === "regex" && hasABraceGrammar(literal.body);
 }
 
 /**
- * A declaration of `name`, in the forms this repository can write one.
+ * The one enumerated needle in this file, and the narrowest thing in it.
  *
- * The first version matched `function name(` and `const name =` and nothing
- * else, so `let`, `const name=` with no spaces, `const name: Fn = …`, a class
- * member and an object method all walked past it. A call standing alone as a
- * statement matches the member form and would be a false positive: that is a
- * loud failure in a gate rather than a quiet pass, and nothing under `src/`
- * calls one of these names as a bare statement.
+ * It reads `String.fromCharCode` and `String.fromCodePoint` of a numeric zero
+ * written in a base — `0`, `0x0`, `0b0`, `0o0`. It does not read
+ * `decodeURIComponent("%00")`, an arithmetic expression, or a code point taken
+ * out of data, and nothing of this kind could. See "What it cannot see" above:
+ * this needle is a courtesy and not what holds.
  */
-function declares(source: string, name: string): boolean {
-  const it = escaped(name);
-  return new RegExp(
-    [
-      // `function f(`, `function* f(`, `async function f<T>(`
-      `\\bfunction\\s*\\*?\\s+${it}\\s*[(<]`,
-      // `const f =`, `let f=`, `var f: Fn = …`
-      `\\b(?:const|let|var)\\s+${it}\\s*[:=]`,
-      // A class member or an object method, behind any modifiers. The parameter
-      // list has to open and close on the line and be followed by a body: bare
-      // `name(` at the start of a line is far more often a call spread over
-      // several lines — `cellKey({` in `findings.ts` is one — and a gate that
-      // cries wolf is a gate somebody edits until it stops. A declaration whose
-      // parameters run over several lines is missed here and caught by the two
-      // checks above it, which is the point of there being three.
-      `^[ \\t]*(?:(?:public|private|protected|static|readonly|abstract|override|async|get|set)\\s+)*${it}\\s*(?:<[^<>]*>)?\\([^)]*\\)\\s*(?::[^{;]+)?\\{`,
-      // `f: () => …`, `f: function …`, `f: async (…)`
-      `^[ \\t]*${it}\\s*:\\s*(?:async\\s+)?(?:function\\b|\\(|<)`,
-    ].join("|"),
-    "m",
-  ).test(source);
+const FROM_A_CODE_POINT = /\bfrom(?:CharCode|CodePoint)\(\s*(?:0[xX]0+|0[bB]0+|0[oO]0+|0+)\s*\)/;
+
+/**
+ * A module path as this repository writes one, resolved to a tracked path.
+ *
+ * `./keys.js` from `src/core/defects.ts` and `../core/keys.js` from
+ * `src/report/findings.ts` are the same module, and the gate has to know that.
+ * The extension moves back from `.js` to `.ts` because `nodenext` writes the
+ * emitted name in the source.
+ */
+function moduleOf(from: string, specifier: string): string | undefined {
+  if (!specifier.startsWith(".")) return undefined;
+  const target = resolve(dirname(resolve(ROOT, from)), specifier);
+  return relative(ROOT, target).split(sep).join("/").replace(/\.js$/, ".ts");
+}
+
+interface ImportedName {
+  readonly name: string;
+  readonly local: string;
+  readonly index: number;
+  readonly line: number;
+}
+
+interface ImportDeclaration {
+  /** The module imported from, resolved, or `undefined` for a bare specifier. */
+  readonly module: string | undefined;
+  readonly names: readonly ImportedName[];
+  /** `import * as x from …`, which puts every export behind a property access. */
+  readonly namespace: boolean;
+  readonly first: number;
+  readonly last: number;
+  readonly line: number;
+}
+
+/**
+ * The import declarations of a source, from its tokens.
+ *
+ * Enough of the grammar to answer two questions and no more: which module, and
+ * which names under which local names. A dynamic `import(` is not a declaration
+ * and is skipped. A declaration whose specifier string never arrives throws,
+ * like everything else here that has lost its place.
+ */
+function importsOf(tokens: readonly Token[], where: string): readonly ImportDeclaration[] {
+  const found: ImportDeclaration[] = [];
+  for (let at = 0; at < tokens.length; at += 1) {
+    const token = tokens[at];
+    if (!isWord(token, "import") || isPunct(tokens[at + 1], "(")) continue;
+    let last = at + 1;
+    while (last < tokens.length && !isLiteral(tokens[last] as Token)) last += 1;
+    const source = tokens[last];
+    if (source === undefined || !isLiteral(source) || source.kind !== "string") {
+      throw new Error(`${where}: an import with no module specifier`);
+    }
+    const names: ImportedName[] = [];
+    let namespace = false;
+    for (let index = at + 1; index < last; index += 1) {
+      const one = tokens[index];
+      if (one === undefined) continue;
+      if (isPunct(one, "*")) namespace = true;
+      if (one.kind !== "word") continue;
+      if (one.text === "type" || one.text === "as" || one.text === "from") continue;
+      if (isWord(tokens[index - 1], "as")) continue;
+      const renamed = isWord(tokens[index + 1], "as") ? tokens[index + 2] : undefined;
+      names.push({
+        name: one.text,
+        local: renamed !== undefined && renamed.kind === "word" ? renamed.text : one.text,
+        index,
+        line: one.line,
+      });
+    }
+    found.push({
+      module: moduleOf(where, source.body),
+      names,
+      namespace,
+      first: at,
+      last,
+      line: (token as Code).line,
+    });
+    at = last;
+  }
+  return found;
+}
+
+/** From `(` at `open`, the index of the `)` that closes it. Throws if there is none. */
+function closingParen(tokens: readonly Token[], open: number, where: string, line: number): number {
+  let depth = 0;
+  for (let at = open; at < tokens.length; at += 1) {
+    if (isPunct(tokens[at], "(")) depth += 1;
+    else if (isPunct(tokens[at], ")")) {
+      depth -= 1;
+      if (depth === 0) return at;
+    }
+  }
+  throw new Error(`${where}:${line}: a parenthesis that never closes`);
+}
+
+/** What binds a name, so that the word after one of these is a declaration. */
+const BINDS = new Set(["function", "const", "let", "var", "class", "interface", "enum", "type"]);
+
+type Role = "import" | "call" | "declaration" | "other";
+
+interface Occurrence {
+  readonly name: string;
+  readonly role: Role;
+  readonly line: number;
+}
+
+/**
+ * What every occurrence of a watched name in a source is doing.
+ *
+ * Four answers, and the two that are not `import` or `call` are what the gate
+ * refuses. The classification is by position in the token stream, so it does not
+ * depend on how a declaration is spelled:
+ *
+ * - inside an import declaration → `import`;
+ * - after `function`, `const`, `let`, `var`, `class`, `interface`, `enum` or
+ *   `type` (and after the `*` of a generator) → `declaration`;
+ * - a name whose parentheses close onto a `{` or a `:` → `declaration`, which is
+ *   a class member, an object method, a getter, an interface member or an
+ *   overload signature, whatever its parameter list holds and however many lines
+ *   it runs over;
+ * - a name followed by parentheses that close onto anything else → `call`;
+ * - anything else at all — `const glue = joinKey`, `export { joinKey }`,
+ *   `keys.joinKey`, a name in a type position → `other`.
+ *
+ * A ternary whose consequent is a call — `x ? cellKey(a) : b` — reads as a
+ * declaration here and would fail. Nothing under `src/` writes one, and a gate
+ * failing loudly on a shape it misreads is the trade this whole file makes.
+ */
+function occurrencesOf(
+  tokens: readonly Token[],
+  imports: readonly ImportDeclaration[],
+  watched: ReadonlySet<string>,
+  where: string,
+): readonly Occurrence[] {
+  const found: Occurrence[] = [];
+  for (let at = 0; at < tokens.length; at += 1) {
+    const token = tokens[at];
+    if (token === undefined || token.kind !== "word" || !watched.has(token.text)) continue;
+    const inside = imports.some((one) => at >= one.first && at <= one.last);
+    if (inside) {
+      found.push({ name: token.text, role: "import", line: token.line });
+      continue;
+    }
+    const back = isPunct(tokens[at - 1], "*") ? at - 2 : at - 1;
+    const before = tokens[back];
+    if (before !== undefined && before.kind === "word" && BINDS.has(before.text)) {
+      found.push({ name: token.text, role: "declaration", line: token.line });
+      continue;
+    }
+    if (isPunct(tokens[at - 1], ".") || !isPunct(tokens[at + 1], "(")) {
+      found.push({ name: token.text, role: "other", line: token.line });
+      continue;
+    }
+    const close = closingParen(tokens, at + 1, where, token.line);
+    const next = tokens[close + 1];
+    const declared = isPunct(next, "{") || isPunct(next, ":");
+    found.push({ name: token.text, role: declared ? "declaration" : "call", line: token.line });
+  }
+  return found;
+}
+
+/** Every literal handed to a `RegExp` call, which the brace scan reads as a pattern. */
+function regexpArguments(tokens: readonly Token[], where: string): readonly Literal[] {
+  const found: Literal[] = [];
+  for (let at = 0; at < tokens.length; at += 1) {
+    const token = tokens[at];
+    if (token === undefined || token.kind !== "word" || token.text !== "RegExp") continue;
+    if (!isPunct(tokens[at + 1], "(")) continue;
+    const close = closingParen(tokens, at + 1, where, token.line);
+    for (let index = at + 2; index < close; index += 1) {
+      const one = tokens[index];
+      if (one !== undefined && isLiteral(one)) found.push(one);
+    }
+  }
+  return found;
+}
+
+/** How many times a module calls `RegExp`, with or without `new`. */
+function regexpCalls(tokens: readonly Token[], where: string): number {
+  return occurrencesOf(tokens, [], new Set(["RegExp"]), where).filter((one) => one.role === "call")
+    .length;
 }
 
 describe("the scanner this gate reads with", () => {
@@ -527,6 +813,10 @@ describe("the scanner this gate reads with", () => {
   it("refuses to guess once it has lost its place", () => {
     expect(() => literalsOf('const unfinished = "abc', "<sample>")).toThrow("unterminated string");
     expect(() => literalsOf("/* forever", "<sample>")).toThrow("unterminated block comment");
+    expect(() => tokensOf("f(", "<sample>")).not.toThrow();
+    expect(() => occurrencesOf(tokensOf("f(", "<sample>"), [], new Set(["f"]), "<sample>")).toThrow(
+      "a parenthesis that never closes",
+    );
   });
 
   it("reads every spelling of one character as one character", () => {
@@ -540,6 +830,17 @@ describe("the scanner this gate reads with", () => {
     expect(spellsTheSeparator("\\u0041\\x41\\1")).toBe(0);
   });
 
+  it("reads a zero written in a base, and says so about the rest", () => {
+    expect(FROM_A_CODE_POINT.test("String.fromCharCode(0)")).toBe(true);
+    expect(FROM_A_CODE_POINT.test("String.fromCharCode(0x0)")).toBe(true);
+    expect(FROM_A_CODE_POINT.test("String.fromCodePoint(0b0)")).toBe(true);
+    expect(FROM_A_CODE_POINT.test("String.fromCharCode(0o00)")).toBe(true);
+    expect(FROM_A_CODE_POINT.test("String.fromCharCode(65)")).toBe(false);
+    // The limit, pinned so that nobody reads the needle as more than it is.
+    expect(FROM_A_CODE_POINT.test('decodeURIComponent("%00")')).toBe(false);
+    expect(FROM_A_CODE_POINT.test("String.fromCharCode(one - one)")).toBe(false);
+  });
+
   it("tells a grammar of braces from a quantifier", () => {
     const grammar = (body: string): boolean => isBraceGrammar({ kind: "regex", body, line: 1 });
     expect(grammar("\\{([^}]+)\\}")).toBe(true);
@@ -550,32 +851,118 @@ describe("the scanner this gate reads with", () => {
     expect(isBraceGrammar({ kind: "string", body: "{name}", line: 1 })).toBe(false);
   });
 
-  it("reads a declaration in every form this repository can write one", () => {
-    expect(declares("export function cellKey(cell: {", "cellKey")).toBe(true);
-    expect(declares("async function cellKey<T>(", "cellKey")).toBe(true);
-    expect(declares("const cellKey = (cell) => 1;", "cellKey")).toBe(true);
-    expect(declares("const cellKey=(cell)=>1;", "cellKey")).toBe(true);
-    expect(declares("let cellKey: Fn = of;", "cellKey")).toBe(true);
-    expect(declares("class A {\n  cellKey(cell) {\n    return 1;\n  }\n}", "cellKey")).toBe(true);
-    expect(declares("const to = {\n  cellKey: (cell) => 1,\n};", "cellKey")).toBe(true);
-    expect(declares("const to = {\n  cellKey: function () {},\n};", "cellKey")).toBe(true);
-    // A use is not a declaration, and neither is an import.
-    expect(declares("const key = cellKey(observation);", "cellKey")).toBe(false);
-    expect(declares('import { cellKey } from "../core/keys.js";', "cellKey")).toBe(false);
+  it("resolves a module specifier the way the compiler does", () => {
+    expect(moduleOf("src/core/defects.ts", "./keys.js")).toBe("src/core/keys.ts");
+    expect(moduleOf("src/report/findings.ts", "../core/keys.js")).toBe("src/core/keys.ts");
+    expect(moduleOf("src/io/config/parse.ts", "../../core/keys.js")).toBe("src/core/keys.ts");
+    expect(moduleOf("src/core/defects.ts", "node:crypto")).toBeUndefined();
+  });
+
+  it("reads what an import brings in, under whatever local name", () => {
+    const parse = (source: string): readonly ImportDeclaration[] =>
+      importsOf(tokensOf(source, "<sample>"), "src/report/findings.ts");
+
+    expect(parse('import { joinKey } from "../core/keys.js";')[0]).toMatchObject({
+      module: "src/core/keys.ts",
+      names: [{ name: "joinKey", local: "joinKey" }],
+      namespace: false,
+    });
+    expect(parse('import { joinKey as glue } from "../core/keys.js";')[0]).toMatchObject({
+      names: [{ name: "joinKey", local: "glue" }],
+    });
+    expect(parse('import * as keys from "../core/keys.js";')[0]).toMatchObject({
+      namespace: true,
+    });
+    expect(parse('import type { Cell } from "../core/index.js";')[0]).toMatchObject({
+      names: [{ name: "Cell", local: "Cell" }],
+    });
+    // A dynamic import is an expression, not a declaration.
+    expect(parse('const m = await import("../core/keys.js");')).toEqual([]);
+  });
+
+  it("tells a declaration from a call, in every form either can take", () => {
+    const roles = (source: string): readonly Role[] => {
+      const tokens = tokensOf(source, "<sample>");
+      return occurrencesOf(
+        tokens,
+        importsOf(tokens, "src/report/compare.ts"),
+        new Set(["cellKey"]),
+        "<sample>",
+      ).map((one) => one.role);
+    };
+
+    expect(roles("export function cellKey(cell: Cell): string { return in(cell); }")).toEqual([
+      "declaration",
+    ]);
+    expect(roles("async function* cellKey<T>(cell: T) { yield 1; }")).toEqual(["declaration"]);
+    expect(roles("const cellKey = (cell) => 1;")).toEqual(["declaration"]);
+    expect(roles("const cellKey=(cell)=>1;")).toEqual(["declaration"]);
+    expect(roles("let cellKey: Fn = of;")).toEqual(["declaration"]);
+    expect(roles("class A {\n  cellKey(cell) {\n    return 1;\n  }\n}")).toEqual(["declaration"]);
+    expect(roles("const to = {\n  cellKey: (cell) => 1,\n};")).toEqual(["other"]);
+    // The shape the previous check could not see: a `)` inside the parameter
+    // list, and a parameter list spread over several lines.
+    expect(
+      roles(
+        "const to = {\n  cellKey(cell: Cell, esc: (part: string) => string) {\n    return 1;\n  },\n};",
+      ),
+    ).toEqual(["declaration"]);
+    expect(
+      roles("class A {\n  cellKey(\n    cell: Cell,\n  ): string {\n    return 1;\n  }\n}"),
+    ).toEqual(["declaration"]);
+    expect(roles("interface Keys {\n  cellKey(cell: Cell): string;\n}")).toEqual(["declaration"]);
+    expect(roles("class A {\n  get cellKey() {\n    return 1;\n  }\n}")).toEqual(["declaration"]);
+    expect(roles("class A {\n  static cellKey(cell: Cell): string;\n}")).toEqual(["declaration"]);
+    // And a call is still a call, including one whose arguments run over lines.
+    expect(roles("const key = cellKey(observation);")).toEqual(["call"]);
+    expect(roles("const key = cellKey({\n  accountId: a,\n});")).toEqual(["call"]);
+    expect(roles("map.set(cellKey(cell), cell);")).toEqual(["call"]);
+    // Neither, and both are refused outside the owning module.
+    expect(roles('import { cellKey } from "../core/keys.js";')).toEqual(["import"]);
+    expect(roles("const glue = cellKey;")).toEqual(["other"]);
+    expect(roles('export { cellKey } from "../core/keys.js";')).toEqual(["other"]);
+    expect(roles("keys.cellKey(observation);")).toEqual(["other"]);
+  });
+
+  it("reads a pattern handed to RegExp, and counts the construction", () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: the sample is the source text of a module that builds its grammar out of a variable — the interpolation is the subject, not a mistake in this string
+    const source = 'const re = new RegExp(`\\\\{${name}\\\\}`, "g");';
+    const tokens = tokensOf(source, "<sample>");
+    expect(regexpCalls(tokens, "<sample>")).toBe(1);
+    expect(regexpArguments(tokens, "<sample>").some((one) => hasABraceGrammar(one.body))).toBe(
+      true,
+    );
+    // A return type is not a construction.
+    expect(
+      regexpCalls(tokensOf("function f(): RegExp { return g; }", "<sample>"), "<sample>"),
+    ).toBe(0);
   });
 });
 
 describe("one decision, one home", () => {
   const everything = tracked();
   const sources = tracked("src").filter((path) => path.endsWith(".ts"));
+  const owners = new Set(OWNED_NAMES.values());
+  const watched = new Set(OWNED_NAMES.keys());
+  const read = new Map(
+    sources.map((path) => {
+      const tokens = tokensOf(sourceOf(path), path);
+      return [path, { tokens, imports: importsOf(tokens, path) }];
+    }),
+  );
+
+  const tokensFor = (path: string): readonly Token[] => read.get(path)?.tokens ?? [];
+  const importsFor = (path: string): readonly ImportDeclaration[] => read.get(path)?.imports ?? [];
 
   it("sees the tree, rather than an empty list", () => {
     // A check that found nothing is green for the same reason a passing one is.
     expect(everything.length).toBeGreaterThan(200);
     expect(sources.length).toBeGreaterThan(30);
     for (const path of SEPARATOR_HOMES.keys()) expect(sources).toContain(path);
-    for (const path of JOIN_KEY_CALLERS.keys()) expect(sources).toContain(path);
+    for (const path of REACHES_IN.keys()) expect(sources).toContain(path);
+    for (const path of KEY_BUILDERS.keys()) expect(sources).toContain(path);
     for (const path of BRACE_GRAMMARS.keys()) expect(sources).toContain(path);
+    for (const path of REGEXP_BUILDERS.keys()) expect(sources).toContain(path);
     // And that the widened scope really does reach past `src/`, which is where
     // the byte ADR-0059 could not see was sitting.
     expect(everything.filter((path) => path.startsWith("docs/adr/")).length).toBeGreaterThan(50);
@@ -598,10 +985,9 @@ describe("one decision, one home", () => {
     const spelled = sources
       .map((path) => ({
         path,
-        count: literalsOf(sourceOf(path), path).reduce(
-          (total, literal) => total + spellsTheSeparator(literal.body),
-          0,
-        ),
+        count: tokensFor(path)
+          .filter(isLiteral)
+          .reduce((total, literal) => total + spellsTheSeparator(literal.body), 0),
       }))
       .filter((file) => file.count !== (SEPARATOR_HOMES.get(file.path) ?? 0))
       .map((file) => `${file.path} (${file.count})`);
@@ -642,13 +1028,122 @@ describe("one decision, one home", () => {
     ).toEqual([]);
   });
 
+  it("lets the listed modules reach into an owning module, and no others", () => {
+    const wrong: string[] = [];
+    for (const path of sources) {
+      if (owners.has(path)) continue;
+      const allowed = REACHES_IN.get(path)?.names ?? [];
+      for (const declaration of importsFor(path)) {
+        if (declaration.module === undefined || !owners.has(declaration.module)) continue;
+        if (declaration.namespace) {
+          wrong.push(`${path}:${declaration.line} imports ${declaration.module} as a namespace`);
+          continue;
+        }
+        for (const one of declaration.names) {
+          if (one.local !== one.name) {
+            wrong.push(`${path}:${one.line} imports ${one.name} under the name ${one.local}`);
+          }
+          if (!allowed.includes(one.name)) {
+            wrong.push(`${path}:${one.line} imports ${one.name}`);
+          }
+        }
+      }
+    }
+
+    expect(
+      wrong,
+      `A module reaches into an owning module in a way the table does not grant: ` +
+        `${wrong.join("; ")}. The table is the enumeration; a renamed import and a ` +
+        `namespace import are refused because both make the imported name ` +
+        `invisible at the place it is used. See ADR-0060.`,
+    ).toEqual([]);
+  });
+
+  it("mentions an owning module's path only in an import of it", () => {
+    const wrong: string[] = [];
+    for (const path of sources) {
+      const declarations = importsFor(path);
+      for (const [at, token] of tokensFor(path).entries()) {
+        if (!isLiteral(token) || token.kind !== "string") continue;
+        const target = moduleOf(path, token.body);
+        if (target === undefined || !owners.has(target) || target === path) continue;
+        if (!declarations.some((one) => one.last === at)) {
+          wrong.push(`${path}:${token.line} names ${target} outside an import`);
+        }
+      }
+    }
+
+    expect(
+      wrong,
+      `An owning module's path is written somewhere that is not an import of it: ` +
+        `${wrong.join("; ")}. \`export … from\` and a dynamic import both put the ` +
+        `owner's names somewhere the import table cannot see them.`,
+    ).toEqual([]);
+  });
+
+  it("uses an owned name outside its owner only by calling what was imported", () => {
+    const wrong: string[] = [];
+    for (const path of sources) {
+      if (owners.has(path)) continue;
+      const imported = new Set(
+        importsFor(path)
+          .filter((one) => one.module !== undefined && owners.has(one.module))
+          .flatMap((one) => one.names.map((name) => name.name)),
+      );
+      for (const one of occurrencesOf(tokensFor(path), importsFor(path), watched, path)) {
+        if (one.role === "import") continue;
+        if (one.role !== "call") {
+          wrong.push(
+            `${path}:${one.line} ${one.role === "declaration" ? "declares" : "holds"} ${one.name}`,
+          );
+          continue;
+        }
+        if (!imported.has(one.name)) {
+          wrong.push(`${path}:${one.line} calls ${one.name} without importing it`);
+        }
+      }
+    }
+
+    expect(
+      wrong,
+      `A name with one home is used somewhere as something other than a call of ` +
+        `the import: ${wrong.join("; ")}. A second declaration is the copy ADR-0059 ` +
+        `and ADR-0060 are about, in whatever form it is written; a reference that ` +
+        `is not a call — \`const glue = joinKey\`, a re-export, a property access — ` +
+        `is how a copy hides from the count below.`,
+    ).toEqual([]);
+  });
+
+  it("declares each owned name once, in the module that owns it", () => {
+    const wrong: string[] = [];
+    for (const [name, owner] of OWNED_NAMES) {
+      const roles = occurrencesOf(tokensFor(owner), importsFor(owner), new Set([name]), owner).map(
+        (one) => one.role,
+      );
+      const declarations = roles.filter((role) => role === "declaration").length;
+      if (declarations !== 1) wrong.push(`${owner} declares ${name} ${declarations} times`);
+      const other = roles.filter((role) => role === "other").length;
+      if (other !== 0) wrong.push(`${owner} holds ${name} ${other} times without calling it`);
+    }
+
+    expect(
+      wrong,
+      `An owning module does not declare exactly one of its own names: ` +
+        `${wrong.join("; ")}. A second spelling inside the owner is the same ` +
+        `duplicate one directory further in, and it passed every assertion of the ` +
+        `first gate.`,
+    ).toEqual([]);
+  });
+
   it("lets five modules call joinKey, each for one key of its own", () => {
     const wrong = sources
       .map((path) => ({
         path,
-        calls: sourceOf(path).match(A_JOIN)?.length ?? 0,
+        calls: occurrencesOf(tokensFor(path), importsFor(path), new Set(["joinKey"]), path).filter(
+          (one) => one.role === "call",
+        ).length,
       }))
-      .filter((file) => file.calls !== (JOIN_KEY_CALLERS.get(file.path)?.calls ?? 0))
+      .filter((file) => file.calls !== (KEY_BUILDERS.get(file.path)?.calls ?? 0))
       .map((file) => `${file.path} (${file.calls})`);
 
     expect(
@@ -665,7 +1160,9 @@ describe("one decision, one home", () => {
     const written = sources
       .map((path) => ({
         path,
-        count: literalsOf(sourceOf(path), path).filter(isBraceGrammar).length,
+        count:
+          tokensFor(path).filter((token) => isLiteral(token) && isBraceGrammar(token)).length +
+          regexpArguments(tokensFor(path), path).filter((one) => hasABraceGrammar(one.body)).length,
       }))
       .filter((file) => file.count !== (BRACE_GRAMMARS.get(file.path) ?? 0))
       .map((file) => `${file.path} (${file.count})`);
@@ -681,28 +1178,31 @@ describe("one decision, one home", () => {
     ).toEqual([]);
   });
 
+  it("builds a regular expression at runtime in two modules, and counts both", () => {
+    const built = sources
+      .map((path) => ({ path, count: regexpCalls(tokensFor(path), path) }))
+      .filter((file) => file.count !== (REGEXP_BUILDERS.get(file.path) ?? 0))
+      .map((file) => `${file.path} (${file.count})`);
+
+    expect(
+      built,
+      `A regular expression is constructed where the table does not allow one, or ` +
+        `no longer where it does: ${built.join(", ")}. A constructed expression is ` +
+        `not a literal, so the brace scan above reads only the literal parts of its ` +
+        `pattern — which is how a fourth \`{name}\` grammar got back into ` +
+        `src/runner/address.ts with everything green. Construction is rare enough ` +
+        `to enumerate. See ADR-0060.`,
+    ).toEqual([]);
+  });
+
   it("holds one expression in the module that owns the grammar", () => {
     // A second spelling inside the owning module is the same duplicate one
     // directory further in, and it passed every assertion of the first gate.
-    const expressions = literalsOf(sourceOf(GRAMMAR), GRAMMAR).filter(
-      (literal) => literal.kind === "regex",
+    const expressions = tokensFor(GRAMMAR).filter(
+      (token): token is Literal => isLiteral(token) && token.kind === "regex",
     );
 
     expect(expressions.map((literal) => literal.body)).toEqual(["\\{([^}]+)\\}"]);
-  });
-
-  it("lets no other module declare an owned name", () => {
-    const elsewhere = OWNED_NAMES.flatMap(([name, owner]) =>
-      sources
-        .filter((path) => path !== owner && declares(sourceOf(path), name))
-        .map((path) => `${name} in ${path}`),
-    );
-
-    expect(
-      elsewhere,
-      `A second declaration of a name with one home: ${elsewhere.join(", ")}. ` +
-        `A copy that agrees today is what ADR-0059 and ADR-0060 are about.`,
-    ).toEqual([]);
   });
 });
 

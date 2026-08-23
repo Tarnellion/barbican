@@ -64,10 +64,25 @@
  * they were one grammar written twice, and a fourth returned to
  * `src/runner/address.ts` past lint, tsc and 1550 tests on the day they were
  * collapsed — as did a second spelling inside this very file.
- * `tests/invariants/one-decision-one-home.test.ts` is the check: no regular
- * expression outside this module may carry a brace that is not a quantifier,
- * with two reasoned exceptions counted exactly, and this module holds exactly
- * one expression. See ADR-0060.
+ * `tests/invariants/one-decision-one-home.test.ts` is the check, and it holds
+ * exactly two things about a brace:
+ *
+ * - no **regular-expression literal** outside this module may carry a brace that
+ *   is not a quantifier, with two reasoned exceptions counted exactly, and this
+ *   module holds exactly one such literal;
+ * - a `RegExp` **built at runtime** is not a literal, so the modules that build
+ *   one are enumerated with a count — this one and `./selectors.ts` — and the
+ *   string and template literals handed to such a call are read for a brace as
+ *   if they had been written as expressions.
+ *
+ * The second half was added after a fourth copy of this grammar, assembled by
+ * `new RegExp` out of a variable, went back into `src/runner/address.ts` with
+ * everything green: the first version of this comment said "no regular
+ * expression outside this module", and a constructed one was not read at all.
+ * What is still not read is a grammar built inside one of the two modules the
+ * table already allows to construct one, and a grammar written with no regular
+ * expression at all — `indexOf` and `slice` over a brace. Both are in the test
+ * file's own list of what it cannot see. See ADR-0060.
  *
  * Handing out no `RegExp` is half of that gate as well as the answer to
  * `lastIndex`: a caller with nothing to copy has to write the grammar out, and
