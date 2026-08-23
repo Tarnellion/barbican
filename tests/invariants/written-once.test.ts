@@ -26,10 +26,37 @@
  * response-header allowlist out of `http.ts` — a gate does not get to widen the
  * surface it is guarding.
  *
+ * **What the source-reading half reads, and what it cannot.** Adversarial review
+ * of 23 August 2026 walked around four of these assertions and each walk-around
+ * is closed below; the closures are worth stating as limits rather than as
+ * completeness:
+ *
+ * - the two "written in one file" assertions now read **every tracked file under
+ *   `src/`**, from `git ls-files`, not a list somebody remembered to update. The
+ *   list they used to read was 5 files of 65 and 15 of 65, and the ones it missed
+ *   were the plausible carriers. What they still match is an **exact substring**:
+ *   a copy that words the same refusal differently, or builds the class name by
+ *   concatenation, is a copy this file cannot see;
+ * - the ids of `ADDRESS_RULES` are read with a regex that no longer needs `id` on
+ *   a line of its own, the count of ids is held equal to the count of entries, so
+ *   a rule whose id is not a plain double-quoted literal fails rather than
+ *   passing unwitnessed, and a spread into the table is refused rather than
+ *   followed. A disjunct added inside an existing predicate such as `isAddress`
+ *   still changes what the grammar refuses with no witness demanded of it;
+ * - the order of `ADDRESS_RULES` is behaviour and is held by witness pairs, one
+ *   per adjacent pair of the table. Order is held over the pairs listed; nothing
+ *   here says the order is the *right* one, only that changing it is a red test;
+ * - the endpoint list's live copy of the scheme-relative refusal is held to being
+ *   one of `isAddress`'s own disjuncts, character for character, and separately
+ *   over a corpus of shapes. The corpus is a corpus. What makes the pair strong
+ *   is the first half: any textual change to that condition is red, including one
+ *   that is behaviourally identical.
+ *
  * See ADR-0061.
  */
 
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -53,6 +80,30 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const sourceOf = (path: string): string => readFileSync(resolve(ROOT, path), "utf8");
 
 /**
+ * Every tracked TypeScript file under `src/`, from the index rather than the disk.
+ *
+ * The two assertions below that ask "is this written anywhere else" used to read
+ * a list of file names written into this file by hand — 5 of them for the
+ * refusal wording and 15 for the error names, against 65 tracked sources. A gate
+ * that reads a list somebody has to remember to update is the defect it was
+ * written against: the files the two lists missed were `src/cli/stream.ts`,
+ * `src/runner/stream.ts`, `src/report/findings.ts`, `src/runner/plan.ts` and
+ * `src/cli.ts`, which is to say the plausible carriers.
+ *
+ * `git ls-files` rather than a walk, for the reason `tests/docs/language.test.ts`
+ * gives: `.gitignore` already answers "does this go public", and walking the disk
+ * from here would descend into `.claude/worktrees/`, where another branch's copy
+ * of a file would answer for this one. A path the index still holds and the disk
+ * no longer does is a deletion not yet staged — somebody's working copy, not the
+ * repository — and is skipped.
+ */
+function trackedSources(): readonly string[] {
+  return execFileSync("git", ["ls-files", "-z", "src"], { cwd: ROOT, encoding: "utf8" })
+    .split("\0")
+    .filter((path) => path.endsWith(".ts") && existsSync(resolve(ROOT, path)));
+}
+
+/**
  * The text of one top-level function, signature included.
  *
  * From the signature to the first line that is a lone `}` — which is what a
@@ -71,58 +122,136 @@ function bodyOf(source: string, signature: string): string {
  * The address grammar: one table, two entry points.
  *
  * The gate is the witness list. Every rule in `ADDRESS_RULES` must have a path
- * here that it refuses, and that path must be refused by **both** entry points
- * with **that rule's** sentence — so a rule added to the table without being
- * thought about is a red test, and a rule that reaches only one of the two
- * cannot be spelled at all while they share the list.
+ * here that it refuses, that path must be refused by **both** entry points with
+ * **that rule's** sentence, and the witnesses must be in the table's own order —
+ * so a rule added to the table without being thought about is a red test, a rule
+ * that reaches only one of the two entry points cannot be spelled at all while
+ * they share the list, and a permutation of the table is caught rather than
+ * silently changing which sentence a path breaking two rules is answered with.
+ *
+ * "A rule added to the table" means an entry with a `refuses` key and an `id`
+ * that is a double-quoted literal. An entry that is neither — an id computed
+ * from a constant, or a whole array spread in — fails rather than passing
+ * unwitnessed. What is invisible here is a disjunct added inside an existing
+ * predicate, which changes what the grammar refuses without adding a rule to the
+ * table at all.
  */
 describe("the address grammar is one list", () => {
   const source = sourceOf("src/io/untrusted.ts");
 
   /**
-   * A path that breaks exactly one rule, and the sentence that rule answers
-   * with. Distinct sentences are what make "which rule fired" observable from
-   * outside a module that exports neither the table nor the predicates.
+   * One rule's witness: a path only that rule refuses, the sentence it answers
+   * with, and — for every rule but the last — a pair of paths that prove it is
+   * asked before the rule under it.
    */
-  const WITNESSES: Readonly<Record<string, { readonly path: string; readonly says: RegExp }>> = {
-    "query-or-fragment": {
+  interface Witness {
+    readonly id: string;
+    /**
+     * A path this rule refuses and no other does. Distinct sentences are what
+     * make "which rule fired" observable from outside a module that exports
+     * neither the table nor the predicates.
+     */
+    readonly path: string;
+    readonly says: RegExp;
+    /**
+     * Precedence over the next entry in the table, as two paths.
+     *
+     * `both` breaks this rule and the next one, and must be answered with this
+     * rule's sentence. `nextAlone` is `both` with this rule's trigger taken out,
+     * and must be answered with the next rule's — which is what proves `both`
+     * really did break two rules rather than one. Absent on the last entry,
+     * which has nothing under it.
+     */
+    readonly aheadOfTheNext?: { readonly both: string; readonly nextAlone: string };
+  }
+
+  /** The witnesses, in the order the table states the rules. */
+  const WITNESSES: readonly Witness[] = [
+    {
+      id: "query-or-fragment",
       path: "/v1/orders/{orderId}?_method=DELETE",
       says: /carries a query string or a fragment/,
+      // A query string and a backslash. Take the query away and the backslash
+      // is what is left to refuse.
+      aheadOfTheNext: { both: "/v1\\reports?_method=DELETE", nextAlone: "/v1\\reports" },
     },
-    "unaddressable-character": {
+    {
+      id: "unaddressable-character",
       // Backslashes, which the URL parser reads as separators and a split on
       // `/` reads as ordinary characters. No `/` in it beyond the first, so
       // `navigates` has nothing to say and the sentence can only come from
       // this rule.
       path: "/v1\\reports\\..\\..\\danger",
       says: /carries a backslash or a control character/,
+      // A backslash inside a scheme-relative address. Turn the backslash into
+      // the separator it was pretending to be and the address is what is left.
+      aheadOfTheNext: { both: "//api.test/v1\\danger", nextAlone: "//api.test/v1/danger" },
     },
-    address: {
+    {
+      id: "address",
       path: "//api.test/v1/danger",
       says: /is an address rather than a path/,
+      // An address that also navigates. Drop the leading slash and the
+      // navigation is what is left.
+      aheadOfTheNext: { both: "//api.test/v1/../danger", nextAlone: "/v1/../danger" },
     },
-    navigates: {
+    {
+      id: "navigates",
       path: "/v1/reports/../danger",
       says: /navigates with/,
     },
-  };
+  ];
 
-  /** The ids, off the table itself. */
+  const witnessOf = (id: string): Witness | undefined => WITNESSES.find((one) => one.id === id);
+
+  /**
+   * The ids, off the table itself, with the count held to the count of entries.
+   *
+   * The regex used to be anchored — `^\s*id: "…",$` — which needed `id` on a line
+   * of its own. Biome at `lineWidth: 100` leaves a short entry written on one
+   * line exactly as it found it, so a fifth rule spelled
+   * `{ id: "bang", refuses: …, because: … },` had no id as far as this gate could
+   * see, no witness was demanded for it, and the suite stayed green. The count of
+   * `refuses` keys is compared to the count of ids for the same reason: an entry
+   * whose id is a constant or a template literal would otherwise be an entry this
+   * gate cannot name and therefore does not ask about.
+   *
+   * A spread is refused outright rather than followed. `...MORE_RULES` in the
+   * table is entries this gate cannot count, let alone name, and following one
+   * would mean parsing the module — so the table is held to being written out.
+   * The red test says so, and the fix is to write the entry where the other four
+   * are.
+   */
   const declared = (): readonly string[] => {
     const table = /const ADDRESS_RULES[^=]*=\s*\[([\s\S]*?)\n\];/.exec(source);
     // A guard on the guard: a renamed constant must not read as an empty table
     // and pass everything below by having nothing to check.
     expect(table).not.toBeNull();
-    return [...(table?.[1] ?? "").matchAll(/^\s*id: "([^"]+)",$/gm)].map((match) => match[1] ?? "");
+    const body = table?.[1] ?? "";
+    expect(
+      body,
+      "ADDRESS_RULES is spread from somewhere else. Write the entry into the table: " +
+        "a spread is rules this gate cannot count, and an uncounted rule is one no " +
+        "witness is demanded for.",
+    ).not.toContain("...");
+    const ids = [...body.matchAll(/(?:^|[\s{])id:\s*"([^"]+)"/g)].map((match) => match[1] ?? "");
+    const entries = [...body.matchAll(/(?:^|[\s{])refuses:/g)].length;
+    expect(
+      ids,
+      `${entries} entr${entries === 1 ? "y" : "ies"} in ADDRESS_RULES and ${ids.length} ` +
+        `id${ids.length === 1 ? "" : "s"} this gate can read. An entry whose id is not a ` +
+        `plain double-quoted literal is an entry no witness is demanded for.`,
+    ).toHaveLength(entries);
+    return ids;
   };
 
-  it("has a witness for every rule it states, and states every rule witnessed here", () => {
-    expect([...declared()].sort()).toEqual(Object.keys(WITNESSES).sort());
+  it("has a witness for every rule it states, in the order it states them", () => {
+    expect(declared()).toEqual(WITNESSES.map((witness) => witness.id));
   });
 
   it("refuses each witness through both entry points, with that rule's sentence", () => {
     for (const id of declared()) {
-      const witness = WITNESSES[id];
+      const witness = witnessOf(id);
       expect(witness, `no witness for the rule "${id}"`).toBeDefined();
       const path = witness?.path ?? "";
 
@@ -143,6 +272,59 @@ describe("the address grammar is one list", () => {
       expect(thrown, `${id}: the door admits ${path}`).toBeInstanceOf(UnusablePathTemplateError);
       expect((thrown as Error).message).toMatch(witness?.says ?? /$^/);
     }
+  });
+
+  /**
+   * The order of the table, which its own comment calls behaviour.
+   *
+   * It was behaviour with nothing holding it. Every witness above breaks exactly
+   * one rule by construction — that is what makes "which rule fired" readable —
+   * so permuting the table changed nothing any of them could see, while changing
+   * the sentence an operator gets for a path that breaks two rules at once.
+   *
+   * Each pair is proved twice over. `both` breaks the earlier rule and the later
+   * one and must be answered with the earlier one's sentence; `nextAlone` is the
+   * same path with the earlier rule's trigger taken out, and must be answered
+   * with the later one's — which is what makes `both` a path that really did
+   * break two rules, rather than one this test believes breaks two.
+   */
+  it("asks its rules in the order it states them, pair by adjacent pair", () => {
+    const ids = declared();
+    // Every adjacent pair is covered, and only those: an entry that grew a
+    // neighbour, or lost one, lands here rather than passing.
+    expect(WITNESSES.filter((witness) => witness.aheadOfTheNext !== undefined)).toHaveLength(
+      ids.length - 1,
+    );
+    expect(WITNESSES.at(-1)?.aheadOfTheNext).toBeUndefined();
+
+    const refusal = (path: string): string => {
+      let thrown: unknown;
+      try {
+        pathTemplate(path);
+      } catch (cause) {
+        thrown = cause;
+      }
+      expect(thrown, `the door admits ${path}`).toBeInstanceOf(UnusablePathTemplateError);
+      return (thrown as Error).message;
+    };
+
+    WITNESSES.forEach((earlier, index) => {
+      const pair = earlier.aheadOfTheNext;
+      if (pair === undefined) {
+        return;
+      }
+      const later = WITNESSES[index + 1];
+      expect(later, `${earlier.id} claims a rule under it and there is none`).toBeDefined();
+
+      expect(
+        refusal(pair.both),
+        `${pair.both}: ${earlier.id} is stated before ${later?.id}`,
+      ).toMatch(earlier.says);
+      expect(
+        refusal(pair.nextAlone),
+        `${pair.nextAlone}: without ${earlier.id}'s trigger, ${later?.id} must be what refuses`,
+      ).toMatch(later?.says ?? /$^/);
+    });
   });
 
   /**
@@ -180,6 +362,20 @@ describe("the address grammar is one list", () => {
  */
 describe("a scheme-relative path is refused once, and by the grammar", () => {
   const SCHEME_RELATIVE = "//evil.test/v1/users";
+  const WORDING = "addresses another host";
+  const ENDPOINT_LIST = "src/adapters/endpoint-list.ts";
+
+  /** One entry, parsed; the message if it was refused, the empty string if not. */
+  const refusalOfEntry = async (path: string): Promise<string> => {
+    try {
+      await createEndpointListParser().parse(
+        `endpoints: [{ id: a, method: GET, path: ${JSON.stringify(path)} }]`,
+      );
+      return "";
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : String(cause);
+    }
+  };
 
   it("is the grammar's answer at the Postman door, not a copy's", async () => {
     const collection = JSON.stringify({
@@ -202,41 +398,130 @@ describe("a scheme-relative path is refused once, and by the grammar", () => {
    * What made it worth removing rather than leaving is that its comment claimed
    * it was holding the scope open.
    *
-   * The sentence now lives in one adapter. A third file using it is either a new
+   * The sentence now lives in one file. A second file using it is either a new
    * copy or the old one back.
+   *
+   * Every tracked source is read, not a list of five written here by hand. The
+   * list was the whole of this assertion until 23 August 2026, and the same
+   * wording put into `src/runner/walk.ts` — which the list did not name — passed
+   * it. What is still true only of an exact substring: a copy that says "points
+   * at another host" is a copy this cannot see.
    */
-  it("is worded in exactly one adapter", () => {
-    const wording = "addresses another host";
-    const carrying = [
-      "src/adapters/endpoint-list.ts",
-      "src/adapters/openapi.ts",
-      "src/adapters/postman.ts",
-      "src/io/untrusted.ts",
-      "src/runner/address.ts",
-    ].filter((file) => sourceOf(file).includes(wording));
+  it("is worded in exactly one file, over every tracked source", () => {
+    const sources = trackedSources();
+    // A check that found nothing is green for the same reason a passing one is.
+    expect(sources.length).toBeGreaterThan(50);
+    expect(sources).toContain(ENDPOINT_LIST);
 
-    expect(carrying).toEqual(["src/adapters/endpoint-list.ts"]);
+    expect(sources.filter((file) => sourceOf(file).includes(WORDING))).toEqual([ENDPOINT_LIST]);
   });
 
   /**
-   * The live copy, held to being a subset.
+   * The live copy, held to being a subset — as a matter of source text.
    *
    * It is kept because it runs first and answers about the entry rather than the
    * template. What it must never become is a second, laxer reading: everything
    * it refuses, the grammar refuses too, so if it were deleted tomorrow the
-   * refusal would still happen one line later. This is the assertion that goes
-   * red if the grammar's `address` rule is ever dropped while the endpoint
-   * list's wording stays behind to suggest the scope is still held.
+   * refusal would still happen one line later.
+   *
+   * The claim used to be held by one string, `//evil.test/v1/users`, which
+   * proves the copy still fires and nothing about how far it reaches: widening
+   * the condition to `path.startsWith("//") || path.includes("@")` left the gate
+   * green while the copy refused paths the grammar admits. What holds it now is
+   * that the condition is one of `isAddress`'s own disjuncts, character for
+   * character. Any edit to it is red, including a behaviourally identical one —
+   * which is the cost of the strength, and the right way round for a rule whose
+   * whole justification is that it says nothing new.
    */
+  it("refuses under one of the grammar's own disjuncts, spelled the same way", () => {
+    const list = sourceOf(ENDPOINT_LIST);
+    // The sentence as the message spells it, parenthesis included. The comment
+    // above the guard carries the wording too, and anchoring on the shorter
+    // string read the guard *above* this one — the `typeof` check on the field.
+    const at = list.indexOf(`${WORDING} (a scheme-relative URL)`);
+    expect(at, `${ENDPOINT_LIST} no longer words the refusal at all`).toBeGreaterThan(0);
+    const opens = list.lastIndexOf("if (", at);
+    expect(opens, "the refusal has no `if (` above it").toBeGreaterThan(0);
+    const closes = list.indexOf(") {", opens);
+    expect(closes, "the refusal is not inside the `if` above it").toBeGreaterThan(opens);
+    expect(closes).toBeLessThan(at);
+    // And that the `if` found is the one that throws the sentence, rather than
+    // one further up with the sentence somewhere beyond it.
+    expect(
+      list.slice(closes, at),
+      "the `if` above the sentence is not the one that throws it",
+    ).toContain("throw new InvalidEndpointError(");
+    // `path` here, `value` in the grammar. The one rename this comparison makes,
+    // and it is on a word boundary so that a condition mentioning the word in
+    // any other position fails to match rather than being mangled into a match.
+    const condition = list.slice(opens + "if (".length, closes).replace(/\bpath\b/g, "value");
+
+    const grammar = bodyOf(sourceOf("src/io/untrusted.ts"), "function isAddress(");
+    const returned = /return ([\s\S]*?);/.exec(grammar);
+    expect(
+      returned,
+      "`isAddress` no longer returns an expression this gate can read",
+    ).not.toBeNull();
+    const disjuncts = (returned?.[1] ?? "").split("||").map((part) => part.trim());
+
+    expect(disjuncts.length).toBeGreaterThan(1);
+    expect(
+      disjuncts,
+      `the endpoint list refuses under \`${condition}\`, which is not one of the grammar's ` +
+        `disjuncts (${disjuncts.join(" | ")}). A copy that says more than the rule it copies ` +
+        `is a second rule, and it is the one nobody will think to widen when the grammar moves.`,
+    ).toContain(condition);
+  });
+
+  /**
+   * And the same subset claim as behaviour, over a corpus of shapes.
+   *
+   * The implication is one-way on purpose: the grammar refuses far more than the
+   * copy does — a query string, a backslash, `..` — and the copy is not supposed
+   * to have an opinion about any of that. What must never happen is the other
+   * direction, a path the copy turns away and the grammar would have let through.
+   *
+   * A corpus, not a proof. It is here because the source-text assertion above
+   * cannot see a widening made in `isAddress` and mirrored here, and this one
+   * can.
+   */
+  it("turns away nothing at the endpoint list that the grammar would admit", async () => {
+    const CORPUS: readonly string[] = [
+      SCHEME_RELATIVE,
+      "///evil.test/v1/users",
+      "/v1/users",
+      "/v1/users/{userId}",
+      // Shapes that carry a character a widened copy would plausibly reach for,
+      // and that the grammar has no quarrel with.
+      "/v1/u@example.com/orders",
+      "/v1/mail@host/x",
+      "/v1/a.b/c",
+      "/v1/a:b/c",
+      "/v1/reports;jsessionid=1/x",
+      "/v1/%40/x",
+    ];
+
+    let fired = 0;
+    for (const path of CORPUS) {
+      if (!(await refusalOfEntry(path)).includes(WORDING)) {
+        continue;
+      }
+      fired += 1;
+      expect(
+        isUsablePathTemplate(path),
+        `${path}: the endpoint list's copy refuses what the grammar admits`,
+      ).toBe(false);
+    }
+
+    // A loop that refused nothing would pass by having asked nothing.
+    expect(fired).toBeGreaterThan(0);
+  });
+
   it("agrees with the grammar at the endpoint list, which refuses it first", async () => {
     expect(isUsablePathTemplate(SCHEME_RELATIVE)).toBe(false);
     expect(isAddressablePath(SCHEME_RELATIVE)).toBe(false);
 
-    await expect(
-      createEndpointListParser().parse(
-        `endpoints: [{ id: a, method: GET, path: ${JSON.stringify(SCHEME_RELATIVE)} }]`,
-      ),
-    ).rejects.toThrow(/addresses another host/);
+    expect(await refusalOfEntry(SCHEME_RELATIVE)).toContain(WORDING);
   });
 });
 
@@ -309,36 +594,29 @@ describe("the terminal errors are one list", () => {
   /**
    * And the names are spelled in one place besides the classes themselves.
    *
-   * A quoted `"CircuitOpenError"` in a fourth file is a second list starting.
+   * A quoted `"CircuitOpenError"` in a third file is a second list starting.
    * The two that are allowed: the class's own `this.name`, and the set.
+   *
+   * Every tracked source is read, not the 15 files this assertion used to name.
+   * The list left 50 unread, and a second copy of the set put into
+   * `src/runner/stream.ts` — one of them — passed. What is still true only of an
+   * exact substring: a name assembled at runtime, `"Circuit" + "OpenError"`, is a
+   * copy this cannot see.
    */
-  it("is spelled where the class is defined and in the set, nowhere else", () => {
-    const files = [
-      "src/adapters/credentials.ts",
-      "src/adapters/endpoint-list.ts",
-      "src/adapters/http.ts",
-      "src/adapters/openapi.ts",
-      "src/adapters/postman.ts",
-      "src/adapters/signals.ts",
-      "src/adapters/throttle.ts",
-      "src/cli/canaries.ts",
-      "src/cli/preview.ts",
-      "src/cli/run.ts",
-      "src/report/build.ts",
-      "src/report/verdict.ts",
-      "src/runner/canaries.ts",
-      "src/runner/outcome.ts",
-      "src/runner/walk.ts",
-    ];
+  it("is spelled where the class is defined and in the set, over every tracked source", () => {
+    const files = trackedSources();
+    // A check that found nothing is green for the same reason a passing one is.
+    expect(files.length).toBeGreaterThan(50);
+    expect(files).toContain("src/runner/outcome.ts");
 
-    expect(files.filter((file) => sourceOf(file).includes('"RunBudgetExhaustedError"'))).toEqual([
+    const spelling = (name: string): readonly string[] =>
+      files.filter((file) => sourceOf(file).includes(`"${name}"`));
+
+    expect(spelling("RunBudgetExhaustedError")).toEqual([
       "src/adapters/throttle.ts",
       "src/runner/outcome.ts",
     ]);
-    expect(files.filter((file) => sourceOf(file).includes('"CircuitOpenError"'))).toEqual([
-      "src/adapters/http.ts",
-      "src/runner/outcome.ts",
-    ]);
+    expect(spelling("CircuitOpenError")).toEqual(["src/adapters/http.ts", "src/runner/outcome.ts"]);
   });
 });
 

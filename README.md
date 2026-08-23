@@ -748,6 +748,45 @@ the document it links.
 Nothing a consumer can observe changes — no message, no exit code, no report
 field — and each of the three could have changed something later.
 
+- **The address grammar** was two lists seven lines apart: a conjunction of
+  predicates for the seam, the same predicates re-listed as `if` blocks with the
+  sentences an operator reads. A rule added to the second alone would never reach
+  `joinUrl`, which is the only grammar between a consumer of the library and the
+  wire. It is one table of (predicate, sentence) now, and the messages are
+  unchanged. An entry added to that table with no witness in the gate is a red
+  test, and so is a permutation of it — the order decides which sentence a path
+  breaking two rules at once is answered with.
+- **The refusal of a scheme-relative `//host/x`** stood in three places under a
+  comment saying it stood in one. The copy in the Postman parser had been
+  unreachable since the grammar took the rule over — behind a call that throws on
+  exactly that input, at zero hits from 1 529 tests — while its comment claimed
+  it was holding the scope. It is gone. The endpoint list's copy is reachable,
+  answers first, and stays: its condition is held to being one of `isAddress`'s
+  own disjuncts, character for character, so a term added to it is a red test
+  even when the term is harmless.
+- **Two sets that must agree** now have one source each: the names of the errors
+  that end a walk, which the runner and the CLI read from opposite ends, and the
+  statuses that mean "not found", which the self-inflicted-404 guard had written
+  out a second time in a file that already calls `classifyStatus`.
+
+**That gate could be walked around four ways, and now it cannot.** Adversarial
+review the day ADR-0061 was accepted went at the test rather than at the code and
+got past four of its assertions with `pnpm run check` green. Two of them filtered
+a list of file names written into the test by hand — 5 of the 65 tracked sources
+for the refusal wording, 15 of 65 for the error names — so the same sentence
+placed in `src/runner/walk.ts`, and a second copy of the terminal-error set
+placed in `src/runner/stream.ts`, were both invisible. Both now read every tracked
+file under `src/`, from `git ls-files`. A fifth rule appended to the address table
+on one line had no `id` the gate could see, because the regex needed `id` on a
+line of its own and Biome leaves a short entry alone; the ids are counted against
+the entries now, and a spread into the table is refused rather than followed. The
+order of that table was called behaviour with nothing holding it — every witness
+breaks exactly one rule, which is what made permuting it invisible — and is held
+by a pair of paths per adjacent pair of entries. And the endpoint list's copy was
+held by one string, which proves it fires and nothing about how far it reaches.
+The amendment in ADR-0061 lists what each of the four does and, at the end, the
+five shapes that still get through.
+
 **Six facts written down twice are now written down once**
 ([ADR-0064](docs/adr/0064-a-table-written-twice-is-made-to-agree.md)). None of
 them was broken — every copy agreed, which is the reason to open them rather than
@@ -776,23 +815,6 @@ sentence an operator reads: `UnsafeCanaryError` now interpolates the same
 constant the implementation counts by, so it says "up to 3 times" where it used
 to say "up to three times". Spelling the word back would put the number in two
 places again, which is what this entry is about.
-
-- **The address grammar** was two lists seven lines apart: a conjunction of
-  predicates for the seam, the same predicates re-listed as `if` blocks with the
-  sentences an operator reads. A rule added to the second alone would never reach
-  `joinUrl`, which is the only grammar between a consumer of the library and the
-  wire. It is one table of (predicate, sentence) now; the messages are unchanged,
-  and a rule with no witness in the gate is a red test.
-- **The refusal of a scheme-relative `//host/x`** stood in three places under a
-  comment saying it stood in one. The copy in the Postman parser had been
-  unreachable since the grammar took the rule over — behind a call that throws on
-  exactly that input, at zero hits from 1 529 tests — while its comment claimed
-  it was holding the scope. It is gone. The endpoint list's copy is reachable,
-  answers first, and stays, held to being a strict subset of the grammar.
-- **Two sets that must agree** now have one source each: the names of the errors
-  that end a walk, which the runner and the CLI read from opposite ends, and the
-  statuses that mean "not found", which the self-inflicted-404 guard had written
-  out a second time in a file that already calls `classifyStatus`.
 
 ## Example
 
