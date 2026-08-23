@@ -529,13 +529,18 @@ export async function collectObservations(options: CollectOptions): Promise<Coll
       if (!SAFE.has(endpoint.method)) {
         if (status >= 200 && status < 300) {
           changed.add(object);
-          // 410 beside 404 since ADR-0046, and it had to move with it. A
-          // platform that soft-deletes answers "gone" rather than "not found",
-          // and while 410 was an `error` the guard had nothing to guard — an
-          // unreadable status is already no conclusion. Now that it folds into a
-          // denial the way 404 does, a 410 this run caused itself would read as
-          // protection observed.
-        } else if ((status === 404 || status === 410) && changed.has(object)) {
+          // Asked of `classifyStatus` rather than of a list written out here.
+          // 410 joined 404 in ADR-0046 and had to be moved into this guard by
+          // hand as well; it was, and the next status will be found by whoever
+          // is not looking. What is guarded is precisely the classification: a
+          // status that folds into `not-found` folds on into a denial in
+          // `toBinary`, so one this run caused with its own write reads as
+          // protection observed — the L-7 false negative, over an answer the
+          // walk manufactured. While 410 was still an `error` the guard had
+          // nothing to guard, because an unreadable status is already no
+          // conclusion; that is the same equivalence, which is why the guard
+          // now reads it off the function that decides it. See ADR-0061.
+        } else if (classifyStatus(status) === "not-found" && changed.has(object)) {
           selfInflicted = true;
           failure = {
             accountId: account.id,

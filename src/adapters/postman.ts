@@ -278,16 +278,16 @@ function normalizePath(path: string, location: string): string {
   // query off the string form; this is the other door into the same address.
   const converted = pathTemplate(path.split("/").map(toTemplateSegment).join("/"));
 
-  // `//host/x` is a scheme-relative URL: it addresses another host rather than a
-  // path on the one under test. The scope of the check is set by the allowlist
-  // and must not be widened by the form in which a path is written.
-  if (converted.startsWith("//")) {
-    throw new InvalidPostmanItemError(
-      location,
-      "path",
-      `path "${converted}" addresses another host (a scheme-relative URL)`,
-    );
-  }
+  // A scheme-relative `//host/x` was refused again on the next line until
+  // 23 August 2026, and had been unreachable since the day the grammar took the
+  // rule over. `pathTemplate` returns its argument unchanged and throws when the
+  // decoded form is an address; decoding replaces `%2e`, `%2f` and `%5c` with one
+  // character each and deletes nothing, so a string that starts with `//` still
+  // starts with `//` after it and never comes back from that call. The line's own
+  // wording said the check widened the scope, which made it read as load-bearing;
+  // v8 had it at zero hits through 1529 tests. Dead code a comment vouches for is
+  // worse than either alone — see ADR-0061, and `tests/adapters/postman.test.ts`,
+  // which has expected the grammar's message here since 19 August.
   if (!TEMPLATE_ONLY.test(converted)) {
     throw new InvalidPostmanItemError(
       location,

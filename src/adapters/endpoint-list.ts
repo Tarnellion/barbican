@@ -196,6 +196,16 @@ function toEndpoint(entry: unknown, index: number): Endpoint {
   // `//host/x` is a scheme-relative URL: it addresses another host rather than a
   // path on the one under test. The scope of the check is set by the allowlist
   // and must not be widened by the form in which a path is written.
+  //
+  // The grammar refuses this too, and the twin of this block in the Postman
+  // parser was removed on 23 August 2026 for being unreachable behind it. This
+  // one is not: it runs *before* `pathTemplate` below, so it is what answers, and
+  // it answers about the entry rather than about the template — the sentence
+  // names the target, which is what an operator reading an endpoint list is
+  // holding. It is a strict subset of the grammar's `address` rule and cannot go
+  // stale into permitting anything: if it ever stopped firing, the call below
+  // would refuse the same string one line later, with the grammar's own wording.
+  // `tests/invariants/written-once.test.ts` holds it to that subset. See ADR-0061.
   if (path.startsWith("//")) {
     throw new InvalidEndpointError(
       index,

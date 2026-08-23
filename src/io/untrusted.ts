@@ -273,13 +273,110 @@ function navigates(value: string): boolean {
  * leading slashes, so it became `/v1/api.test/v1/x` — a request the endpoint
  * does not name, reported as if it were the one it does.
  *
- * The endpoint list and the Postman parser each refused this in their own way
- * already, and the OpenAPI parser did not. One rule, in the grammar, for the
- * same reason as everything else in this file.
+ * The OpenAPI parser did not refuse this at all, and the endpoint list and the
+ * Postman parser each refused it in their own way — three readings of one rule,
+ * which is what ADR-0024 is against. The grammar answers for all four doors now;
+ * the Postman copy was dead the moment it was written and is gone, and the one
+ * in the endpoint list is still live and says why beside itself (ADR-0061).
  */
 function isAddress(value: string): boolean {
   return value.startsWith("//") || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value);
 }
+
+/**
+ * One rule of the address grammar: what refuses a path, and what to tell whoever
+ * handed one over.
+ *
+ * Two entry points need different halves of the same list. `isAddressablePath`
+ * answers "is this addressable" for the seam; `pathTemplate` answers "which rule
+ * refused, and why, in a sentence an operator can act on" for the doors. Until
+ * 23 August 2026 each carried its own copy — five predicates conjoined in one,
+ * the same five spelled out again as four `if` blocks in the other — in the file
+ * whose opening paragraph is about a duplicate the compiler cannot check.
+ *
+ * What that costs is not symmetry. A sixth rule added to `pathTemplate` alone
+ * would never reach `joinUrl`, which is the seam ADR-0032 moved the grammar to
+ * and the only thing standing between a consumer of the library and the wire; a
+ * sixth added to `isAddressablePath` alone would refuse a document with no
+ * sentence saying which line of it to fix.
+ *
+ * A table of pairs rather than a shared list of predicates, because the messages
+ * are the most valuable text in this file: several were written from a specific
+ * audit finding, and a generic "unusable path" in their place would cost more
+ * than the duplication ever did.
+ */
+interface AddressRule {
+  /**
+   * A handle, for the gate that holds this table to a witness per rule.
+   *
+   * The table is not exported: `src/index.ts` does `export * from` on this
+   * module, so a new export here is a new promise in the published surface.
+   * `tests/invariants/written-once.test.ts` reads the ids out of the source
+   * instead, the way the response-header allowlist is read out of `http.ts`.
+   */
+  readonly id: string;
+  /** Whether this rule refuses the path. */
+  readonly refuses: (path: string) => boolean;
+  /**
+   * Why, as the sentence that follows `The endpoint path "…"`.
+   *
+   * Handed the string as the document spelled it rather than the decoded one.
+   * One rule's advice differs between a character that is in the file and an
+   * escape the platform will turn into one, and sending an operator to look for
+   * a backslash that is not there is the wrong half of the answer.
+   */
+  readonly because: (raw: string) => string;
+}
+
+/**
+ * The grammar, in the order refusals are reported.
+ *
+ * Order is behaviour: `pathTemplate` throws for the first rule that refuses, so
+ * moving an entry changes which sentence an operator gets for a path that breaks
+ * two rules at once. It is not behaviour for `isAddressablePath`, which asks all
+ * of them and only counts how many said no.
+ */
+const ADDRESS_RULES: readonly AddressRule[] = [
+  {
+    id: "query-or-fragment",
+    refuses: (path) => path.includes("?") || path.includes("#"),
+    because: () =>
+      "carries a query string or a fragment, which would travel to the platform " +
+      "verbatim — a method override smuggled that way performs a write the run " +
+      "never asked for",
+  },
+  {
+    id: "unaddressable-character",
+    refuses: carriesNothingAddressable,
+    because: (raw) =>
+      carriesNothingAddressable(raw)
+        ? "carries a backslash or a control character, which a URL parser reads as " +
+          "a separator or removes outright — either way the address stops being " +
+          "the one this template spells"
+        : // The document has neither character in it, and an operator told it does
+          // goes looking for the wrong thing. It has the escape, and the platform
+          // is where that becomes a separator.
+          "carries `%5c` or an encoded control character, which the platform decodes " +
+          "into a path separator this tool would never have written",
+  },
+  {
+    id: "address",
+    refuses: isAddress,
+    because: () =>
+      "is an address rather than a path: an absolute or scheme-relative URL in a " +
+      "document decides where the request goes, and the credentials, the scheme " +
+      "and the port are the tool's to choose",
+  },
+  {
+    id: "navigates",
+    refuses: navigates,
+    because: () =>
+      "navigates with `.` or `..`, so the request would reach an endpoint other " +
+      "than the one it names — past the exclusion list, which works on ids. " +
+      "`%2e` and a `;` parameter after the dots are the same navigation in " +
+      "another spelling, and the receiver collapses them",
+  },
+];
 
 /**
  * Whether a path is one this tool can turn into an address, taken literally.
@@ -292,19 +389,14 @@ function isAddress(value: string): boolean {
  * read an escaped value back as the character it stands for and refuse a
  * legitimate identifier.
  *
- * Two strictnesses of one grammar, in one file, per ADR-0024. Why the seam
- * exists at all: `pathTemplate` is called by three adapters, and the fourth door
- * — a consumer of the library handing `Endpoint.path` straight to
- * `collectObservations` — had no grammar between it and the wire.
+ * Two strictnesses of one grammar, in one file, per ADR-0024 — and, since
+ * ADR-0061, over one list. Why the seam exists at all: `pathTemplate` is called
+ * by three adapters, and the fourth door — a consumer of the library handing
+ * `Endpoint.path` straight to `collectObservations` — had no grammar between it
+ * and the wire.
  */
 export function isAddressablePath(value: string): boolean {
-  return (
-    !value.includes("?") &&
-    !value.includes("#") &&
-    !carriesNothingAddressable(value) &&
-    !isAddress(value) &&
-    !navigates(value)
-  );
+  return ADDRESS_RULES.every((rule) => !rule.refuses(value));
 }
 
 /**
@@ -321,49 +413,16 @@ export function isUsablePathTemplate(value: string): boolean {
  * @throws {UnusablePathTemplateError}
  */
 export function pathTemplate(value: string): string {
+  // The decoded string for every rule at once. One of the four hand-written
+  // branches this replaced read `value` here for the first half-hour of its
+  // life: `%2f%2fhost/x` threw nothing while `isUsablePathTemplate` — one
+  // function above, over the same string — answered false. Two readings of one
+  // rule is the defect this whole file exists against, and a single `find` over
+  // a single table is the spelling in which it cannot be written again.
   const decoded = decodePathish(value);
-  if (decoded.includes("?") || decoded.includes("#")) {
-    throw new UnusablePathTemplateError(
-      value,
-      "carries a query string or a fragment, which would travel to the platform " +
-        "verbatim — a method override smuggled that way performs a write the run " +
-        "never asked for",
-    );
-  }
-  if (carriesNothingAddressable(decoded)) {
-    throw new UnusablePathTemplateError(
-      value,
-      carriesNothingAddressable(value)
-        ? "carries a backslash or a control character, which a URL parser reads as " +
-            "a separator or removes outright — either way the address stops being " +
-            "the one this template spells"
-        : // The document has neither character in it, and an operator told it does
-          // goes looking for the wrong thing. It has the escape, and the platform
-          // is where that becomes a separator.
-          "carries `%5c` or an encoded control character, which the platform decodes " +
-            "into a path separator this tool would never have written",
-    );
-  }
-  // `decoded`, like every other branch here, and this line said `value` for the
-  // first half-hour of its life: `%2f%2fhost/x` then threw nothing while
-  // `isUsablePathTemplate` — one function below, over the same string — answered
-  // false. Two readings of one rule is the defect this whole file exists against.
-  if (isAddress(decoded)) {
-    throw new UnusablePathTemplateError(
-      value,
-      "is an address rather than a path: an absolute or scheme-relative URL in a " +
-        "document decides where the request goes, and the credentials, the scheme " +
-        "and the port are the tool's to choose",
-    );
-  }
-  if (navigates(decoded)) {
-    throw new UnusablePathTemplateError(
-      value,
-      "navigates with `.` or `..`, so the request would reach an endpoint other " +
-        "than the one it names — past the exclusion list, which works on ids. " +
-        "`%2e` and a `;` parameter after the dots are the same navigation in " +
-        "another spelling, and the receiver collapses them",
-    );
+  const broken = ADDRESS_RULES.find((rule) => rule.refuses(decoded));
+  if (broken !== undefined) {
+    throw new UnusablePathTemplateError(value, broken.because(value));
   }
   return value;
 }

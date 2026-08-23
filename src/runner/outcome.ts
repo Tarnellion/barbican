@@ -176,8 +176,28 @@ function* causeChain(error: unknown, limit = 4): Generator<unknown> {
  * By name, because the runner sits above the ports and must not know the classes
  * of any particular client: `instanceof` here would tie it to one implementation
  * of `HttpClient`, which is the thing the port exists to prevent.
+ *
+ * **The one place the list is written.** It stood here and again in
+ * `src/cli/canaries.ts`, same two members, different constant name, different
+ * layer — and the two are read against the same fact from opposite ends. A third
+ * member added here alone makes `terminalCause` mark the walk `truncated` while
+ * the canary summary calls the same refusal a dead platform and sends the reader
+ * after a port that is up. Added there alone, the walk records a ceiling as an
+ * ordinary transport failure and the report comes back complete over a tail
+ * nobody probed. Exported for the CLI to import rather than restate; ADR-0061.
+ *
+ * Exported from this module and deliberately not re-exported by `src/runner.ts`:
+ * that barrel is the published surface, and a set of error names is a fact about
+ * how these two layers agree, not a promise to a consumer.
+ *
+ * The client itself keeps the same decision as an `instanceof` pair — it holds
+ * the classes, and `instanceof` is the stronger test where it is available. That
+ * one cannot import this (an adapter sits below the runner), so the agreement is
+ * structural in the only way left: `tests/invariants/written-once.test.ts` reads
+ * the class names out of `src/adapters/http.ts` and fails when either side grows
+ * a member the other has not heard of.
  */
-const TERMINAL_ERROR_NAMES: ReadonlySet<string> = new Set([
+export const TERMINAL_ERROR_NAMES: ReadonlySet<string> = new Set([
   "RunBudgetExhaustedError",
   "CircuitOpenError",
 ]);
