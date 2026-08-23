@@ -490,6 +490,7 @@ describe("the scanner this gate reads with", () => {
     'const quoted = "one\\u0000two";',
     "const half = total / 2 / 3;",
     "const slashInAClass = /[/]{2}/;",
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: an interpolation inside a plain string is the subject here — the scanner has to hand this one back to the code reader rather than keep it in a body
     "const nested = `a${ { b: `c${d}e` }.b }f`;",
     "function g() { return /after a keyword/g; }",
   ].join("\n");
