@@ -350,7 +350,8 @@ describe("A-6 · the response-header value allowlist", () => {
  *
  * Mutation: the whole condition
  * `resolved.origin !== base.origin || !resolved.pathname.startsWith(base.pathname)`
- * removed from `joinUrl` (`src/runner.ts`), together with the throw it guards.
+ * removed from `joinUrl` (`src/runner/address.ts`), together with the throw it
+ * guards.
  *
  * Why nothing caught it, and it is worth being precise about. There are already
  * tests named for exactly this — `rejects an absolute address with a different

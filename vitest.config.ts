@@ -13,7 +13,12 @@ export default defineConfig({
         "src/adapters/**/*.ts",
         "src/io/**/*.ts",
         "src/report/**/*.ts",
+        // The barrel and the six modules behind it. Naming only `src/runner.ts`
+        // after ADR-0057 would measure a file of re-exports and leave the walk,
+        // the address seam and the canaries unmeasured — which is the gate being
+        // lowered by a move, not by a decision.
         "src/runner.ts",
+        "src/runner/**/*.ts",
       ],
       reporter: ["text", "json-summary"],
       // The thresholds are set per directory on purpose: a single overall
@@ -26,6 +31,7 @@ export default defineConfig({
         "src/io/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "src/report/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "src/runner.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
+        "src/runner/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
       },
     },
   },

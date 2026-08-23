@@ -41,10 +41,12 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
  * builds a `HeaderValue` through it, and so must a consumer, or the brand is a
  * wall rather than a check (ADR-0024).
  *
- * `core` and `report` are not here because they are re-exported through indexes
- * of their own rather than module by module, and `runner.ts` is a single file
- * named in the list below. The error-class guard at the bottom of this file
- * covers those without caring how a module reaches the surface.
+ * `core`, `report` and `runner` are not here because they are re-exported
+ * through a barrel of their own rather than module by module — `src/runner.ts`
+ * being the one over `src/runner/` since ADR-0057, and deliberately a list of
+ * names rather than a star, so that what those modules hand each other does not
+ * become surface. The error-class guard at the bottom of this file covers all
+ * three without caring how a module reaches the surface.
  */
 const LAYERS = ["adapters", "io"] as const;
 

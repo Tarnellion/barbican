@@ -20,8 +20,41 @@
  * exists.
  */
 
+import { readdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { read, section } from "./markdown.js";
+
+const RUNNER = resolve(dirname(fileURLToPath(import.meta.url)), "../../src/runner");
+
+/**
+ * Everything written above `classifyStatus`, wherever in the runner it lives.
+ *
+ * `src/runner.ts` was one file until 23 August 2026 and is a barrel over six
+ * modules since (ADR-0057). The module is found by the declaration rather than
+ * named, for the reason `tests/one-walk.test.ts` gives about a guard of this
+ * shape: one that has to be re-pointed by hand every time the code moves is one
+ * that will be left pointing at the wrong file and pass.
+ *
+ * Sliced out of the single module that declares the function, not out of the
+ * layer concatenated. The assertions below are about the text immediately above
+ * this function; a haystack of six files would let another module's comment
+ * answer for it.
+ */
+function aboveClassifyStatus(): string {
+  const modules = readdirSync(RUNNER)
+    .filter((one) => one.endsWith(".ts"))
+    .map((one) => `src/runner/${one}`);
+  for (const path of ["src/runner.ts", ...modules]) {
+    const source = read(path);
+    const at = source.indexOf("export function classifyStatus");
+    if (at !== -1) {
+      return source.slice(0, at);
+    }
+  }
+  throw new Error("no module of the runner declares classifyStatus");
+}
 
 /**
  * The three places, and why each of them.
@@ -55,10 +88,7 @@ describe("a platform that refuses with 200", () => {
 
   /** The assumption, stated where it is made rather than only in prose. */
   it("is stated at classifyStatus, which is where the assumption lives", () => {
-    const source = read("src/runner.ts");
-    const doc = source.slice(0, source.indexOf("export function classifyStatus"));
-
-    expect(doc).toMatch(/error envelope/i);
+    expect(aboveClassifyStatus()).toMatch(/error envelope/i);
   });
 });
 
@@ -137,8 +167,7 @@ describe("the statuses the tool cannot read", () => {
    * the same list at the function that made the choice.
    */
   it("names them at classifyStatus too", () => {
-    const source = read("src/runner.ts");
-    const doc = source.slice(0, source.indexOf("export function classifyStatus"));
+    const doc = aboveClassifyStatus();
 
     expect(doc).toMatch(/\b202\b/);
     expect(doc).toMatch(/\b405\b/);
