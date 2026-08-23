@@ -193,7 +193,7 @@ function* causeChain(error: unknown, limit = 4): Generator<unknown> {
  * The client itself keeps the same decision as an `instanceof` pair — it holds
  * the classes, and `instanceof` is the stronger test where it is available. That
  * one cannot import this (an adapter sits below the runner), so the agreement is
- * structural in the only way left: `tests/invariants/one-source.test.ts` reads
+ * structural in the only way left: `tests/invariants/written-once.test.ts` reads
  * the class names out of `src/adapters/http.ts` and fails when either side grows
  * a member the other has not heard of.
  */

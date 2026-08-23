@@ -185,7 +185,7 @@ denial", and the function that folds it is the honest thing to ask.
 
 - A rule can no longer be added to one half of the address grammar. The table is
   the only place a predicate and a sentence exist, and
-  `tests/invariants/one-source.test.ts` demands a witness per rule, refused by
+  `tests/invariants/written-once.test.ts` demands a witness per rule, refused by
   both entry points, with that rule's sentence.
 - `src/adapters/postman.ts` loses a branch v8 never reached; its statement
   coverage goes up rather than down.

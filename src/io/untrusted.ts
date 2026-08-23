@@ -311,7 +311,7 @@ interface AddressRule {
    *
    * The table is not exported: `src/index.ts` does `export * from` on this
    * module, so a new export here is a new promise in the published surface.
-   * `tests/invariants/one-source.test.ts` reads the ids out of the source
+   * `tests/invariants/written-once.test.ts` reads the ids out of the source
    * instead, the way the response-header allowlist is read out of `http.ts`.
    */
   readonly id: string;

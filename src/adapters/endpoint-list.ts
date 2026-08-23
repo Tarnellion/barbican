@@ -205,7 +205,7 @@ function toEndpoint(entry: unknown, index: number): Endpoint {
   // holding. It is a strict subset of the grammar's `address` rule and cannot go
   // stale into permitting anything: if it ever stopped firing, the call below
   // would refuse the same string one line later, with the grammar's own wording.
-  // `tests/invariants/one-source.test.ts` holds it to that subset. See ADR-0061.
+  // `tests/invariants/written-once.test.ts` holds it to that subset. See ADR-0061.
   if (path.startsWith("//")) {
     throw new InvalidEndpointError(
       index,
