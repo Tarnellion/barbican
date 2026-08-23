@@ -22,19 +22,14 @@ import { MAX_ROWS_PER_DEFECT } from "./findings.js";
 import type { RunReport, RunVerdict } from "./shape.js";
 
 /**
- * The sentences the console and the report both use.
- *
- * One source, because they are the same statement: a warning worded one way on
- * the terminal and another way in the file is two statements a reader has to
- * reconcile. See `RunReport.warnings`.
- */
-/**
  * The warning sentences, for the file and for the terminal both.
  *
- * The one place they are written. `src/cli.ts` imports this object and prints
- * the strings verbatim; it does not paraphrase them, and it does not build a
- * sentence of its own around a number. Only the colour is the terminal's to
- * decide, and a JSON file has none.
+ * The one place they are written. `src/cli/screen.ts` imports this object and
+ * prints the strings verbatim, and `src/cli/run.ts` reads it to know which of
+ * them were already said; neither paraphrases one, and neither builds a sentence
+ * of its own around a number. Only the colour is the terminal's to decide, and a
+ * JSON file has none. This named `src/cli.ts` until ADR-0056 cut the entry point
+ * down to the command line and moved every one of those readers into `src/cli/`.
  *
  * That is the second attempt at the arrangement. The first was "write the same
  * sentence in both places and remember to keep them level", and it lasted until

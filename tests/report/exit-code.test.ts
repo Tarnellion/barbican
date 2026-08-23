@@ -329,10 +329,6 @@ describe("coverage and run identification", () => {
   });
 
   /**
-   * A caller that does not say which endpoints were probed gets the same answer
-   * by subtraction — the fallback `endpointsProbed` already uses.
-   */
-  /**
    * And nowhere at all when no check ran.
    *
    * The list was built from the declarations and the walk and never from whether
@@ -345,6 +341,10 @@ describe("coverage and run identification", () => {
     expect(build({ checksRun: [] }).coverage.bodiesComparedOn).toEqual([]);
   });
 
+  /**
+   * A caller that does not say which endpoints were probed gets the same answer
+   * by subtraction — the fallback `endpointsProbed` already uses.
+   */
   it("falls back to the endpoints minus the skipped ones", () => {
     const built = build({
       endpoints: [
@@ -856,13 +856,6 @@ policy: { fallback: denied, rules: [] }
   });
 
   /**
-   * "Defect #5 from run X" pointed elsewhere a month later: `defects` is ordered
-   * by severity, so one fix upstream renumbers everything below it. The key is
-   * the signature the grouping already uses, so two runs of the same
-   * configuration against the same platform name the same defect the same way.
-   * Found by the audit of 14 August (H-10).
-   */
-  /**
    * The console is gone by the time anybody opens the file, and absence of a
    * field does not explain why the field mattered. Found by the audit of
    * 14 August (H-4).
@@ -948,6 +941,13 @@ policy: { fallback: denied, rules: [] }
     );
   });
 
+  /**
+   * "Defect #5 from run X" pointed elsewhere a month later: `defects` is ordered
+   * by severity, so one fix upstream renumbers everything below it. The key is
+   * the signature the grouping already uses, so two runs of the same
+   * configuration against the same platform name the same defect the same way.
+   * Found by the audit of 14 August (H-10).
+   */
   it("gives every defect group a key that survives the next run", () => {
     const leak = {
       checkId: "identical-response-across-tenants",
@@ -973,6 +973,17 @@ policy: { fallback: denied, rules: [] }
     expect(second.defects.map((one) => one.key)).toEqual(first.defects.map((one) => one.key));
   });
 
+  /**
+   * The one question worth asking of a report full of findings, answerable from
+   * the report rather than by scanning the observations: **was anything ever
+   * refused?**
+   *
+   * A platform answering `200 OK` with the outcome in the body reads as
+   * "allowed" on every cell, so every cell the policy denies becomes a privilege
+   * escalation and the whole report is wrong while looking like a catastrophe.
+   * Measured on a six-cell demo of one: four false escalations, one false leak,
+   * exit code 1. See L-3.
+   */
   it("counts them by conclusion, with every key present", () => {
     const built = build({
       observations: [
@@ -1163,17 +1174,6 @@ contexts:
     expect(built.coverage).not.toHaveProperty("cellsMatched");
   });
 
-  /**
-   * The one question worth asking of a report full of findings, answerable from
-   * the report rather than by scanning the observations: **was anything ever
-   * refused?**
-   *
-   * A platform answering `200 OK` with the outcome in the body reads as
-   * "allowed" on every cell, so every cell the policy denies becomes a privilege
-   * escalation and the whole report is wrong while looking like a catastrophe.
-   * Measured on a six-cell demo of one: four false escalations, one false leak,
-   * exit code 1. See L-3.
-   */
   /** 9 accounts x 6 endpoints did not give 135 cells, and the arithmetic did not add up. */
   it("tells declared accounts apart from matrix rows", () => {
     const built = build();

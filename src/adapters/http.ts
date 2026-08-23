@@ -82,11 +82,6 @@ const VALUE_PRESERVED_HEADERS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * `location` is useful for digging into a 3xx, but its query and fragment carry
- * tokens: an OAuth redirect returns `access_token` in the fragment precisely. We
- * keep only the address without parameters.
- */
-/**
  * Where a redirect points, without what it carries.
  *
  * The **origin** is the part this tool reasons about: a 3xx to another host is a
@@ -95,8 +90,13 @@ const VALUE_PRESERVED_HEADERS: ReadonlySet<string> = new Set([
  * platform's content.
  *
  * The path was kept until 17 August 2026, and query and fragment were stripped —
- * an enumeration of the two places a secret was expected to be. A password-reset
- * link, a magic link and a device-code flow all carry their token in the
+ * an enumeration of the two places a secret was expected to be. The fragment is
+ * on that list for a concrete reason worth keeping: an OAuth redirect returns
+ * `access_token` there precisely, so it is the one part of a `location` that is
+ * a credential by convention rather than by accident. What 17 August decided is
+ * that the enumeration was the wrong shape, not that the fragment was safe.
+ * A password-reset link, a magic link and a device-code flow all carry their
+ * token in the
  * **path**: `https://sso.example.com/reset/PASSWORD-RESET-TOKEN?[REDACTED]` went
  * into the report with the redaction mark sitting next to the secret. That is
  * the same mistake as a denylist of header names, one field down — the places a

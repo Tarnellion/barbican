@@ -648,7 +648,7 @@ function defectLine(defect: ComparableDefect, tense: "is" | "was"): string {
  * reader who stops after the first paragraph has stopped at the caveat that
  * governs everything below it, which is the one place stopping early is safe.
  *
- * The sentences live here rather than in `src/cli.ts` so that they can be
+ * The sentences live here rather than in `src/cli/compare.ts` so that they can be
  * asserted without a subprocess, and the tone rather than the colour so that
  * the decision about escape codes stays with the thing that knows whether there
  * is a terminal. That split is `WARNINGS` and `WARNING_STYLE` again, and the

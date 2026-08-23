@@ -35,20 +35,6 @@ import { parseConfigDocument } from "./schema.js";
 import type { AccountConfig, RunConfig, TenantConfig } from "./types.js";
 
 /**
- * The name the tool computes for itself is not available to a declaration.
- *
- * Found by the audit of 14 August. One line — a declared signal named `digest`
- * on an endpoint marked `responseMustDifferByTenant` — turned eighteen
- * cross-tenant findings into zero while `coverage.checksRun` went on saying the
- * check had run. With `kind: count` the mirror image: sixteen fabricated
- * findings on a healthy platform.
- *
- * Neither direction announced itself. That is the exact failure this tool exists
- * to prevent, reachable from a configuration file, so the name is refused rather
- * than resolved: an operator who wanted a scalar of their own gets to rename it,
- * and nobody gets a report that lies in silence.
- */
-/**
  * A scope declared for an endpoint whose bodies are never compared.
  *
  * The digest exists only where `responseMustDifferByTenant` says so — that
@@ -93,6 +79,20 @@ export class DuplicateCompareSubtreeError extends Error {
   }
 }
 
+/**
+ * The name the tool computes for itself is not available to a declaration.
+ *
+ * Found by the audit of 14 August. One line — a declared signal named `digest`
+ * on an endpoint marked `responseMustDifferByTenant` — turned eighteen
+ * cross-tenant findings into zero while `coverage.checksRun` went on saying the
+ * check had run. With `kind: count` the mirror image: sixteen fabricated
+ * findings on a healthy platform.
+ *
+ * Neither direction announced itself. That is the exact failure this tool exists
+ * to prevent, reachable from a configuration file, so the name is refused rather
+ * than resolved: an operator who wanted a scalar of their own gets to rename it,
+ * and nobody gets a report that lies in silence.
+ */
 export class ReservedSignalNameError extends Error {
   constructor(name: string) {
     super(

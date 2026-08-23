@@ -31,7 +31,7 @@
  * ## Why code units and not an explicit locale
  *
  * `localeCompare(other, "en-US")` would also be reproducible, and it is the
- * wrong half of the fix here. `canonical()` in `src/report/build.ts` is the
+ * wrong half of the fix here. `canonical()` in `src/report/canonical.ts` is the
  * reason: its `Map` branch sorted through `localeCompare`, while its `Set`
  * branch and its object-key branch went through the default `.sort()` — one
  * function answering by two rules, with the digest built on top of it. The

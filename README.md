@@ -339,6 +339,14 @@ a rendering choice. That byte was still in the repository, which is why the gate
 now reads every tracked file rather than `src/` alone. Nothing a consumer can
 observe changes here either: the same 227 exported names, and the same bytes over
 all 29 combinations of the reference platform.
+**Twenty-four doc comments now describe the symbol they stand on**
+([ADR-0062](docs/adr/0062-a-comment-describes-the-symbol-under-it.md)). One of
+them described a security guarantee that had moved: above `sanitizeLocation` it
+said the `location` header's path reaches the report, when since 17 August only
+the origin does. Nothing a consumer runs changes; what changes is what the source
+tells a reader about it. Two gates hold the checkable parts — a doc block
+standing over another doc block, and an `[ADR-NNNN]` label that does not match
+the document it links.
 
 ### What changed in 0.5.0
 
@@ -566,7 +574,7 @@ compared when there was nothing to compare, so it splits into `matchedPairs` and
 of this removes, held by a test: **a difference in digests is not proof of
 isolation** — it proves only that the bytes were different.
 **A run now says who it is on the wire**
-([ADR-0044](docs/adr/0045-a-consented-run-says-who-it-is.md)). Every request
+([ADR-0045](docs/adr/0045-a-consented-run-says-who-it-is.md)). Every request
 carries `user-agent: barbican/<version> (+<homepage>; run=<runId>)`, where `run=`
 is the identifier of the report the run produces. It was `user-agent: node`
 before, and the `runId` never left the file. README has asked for the platform

@@ -751,11 +751,11 @@ function send(res, status, payload) {
   res.end(body);
 }
 
+/** The list of endpoints. Duplicated in `endpoints.yaml` — there it is the human's declaration. */
 const ORDER_PATH = /^\/v1\/orders\/([^/]+)$/;
 const CANCEL_PATH = /^\/v1\/orders\/([^/]+)\/cancel$/;
 const STATEMENT_PATH = /^\/v1\/statements\/([^/]+)$/;
 
-/** The list of endpoints. Duplicated in `endpoints.yaml` — there it is the human's declaration. */
 /**
  * The prohibited jurisdiction.
  *

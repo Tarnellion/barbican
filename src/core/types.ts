@@ -212,13 +212,6 @@ export type SignalSpec =
   | { readonly name: string; readonly kind: "present"; readonly path: string };
 
 /**
- * The resource being requested: parameter values plus the owner.
- *
- * Declared by a human rather than fished out of responses — the reasoning is in
- * ADR-0010. The statement "resource 1001 belongs to player A" is a claim of
- * intent, exactly like the access policy itself.
- */
-/**
  * Whether a value can stand in for a path parameter.
  *
  * Three cannot, and they are the same three everywhere a path is assembled: an
@@ -251,6 +244,13 @@ export function isUsablePathSegment(value: string): boolean {
   return value !== "" && value !== "." && value !== "..";
 }
 
+/**
+ * The resource being requested: parameter values plus the owner.
+ *
+ * Declared by a human rather than fished out of responses — the reasoning is in
+ * ADR-0010. The statement "resource 1001 belongs to player A" is a claim of
+ * intent, exactly like the access policy itself.
+ */
 export interface Resource {
   readonly id: string;
   readonly tenantId: TenantId;
@@ -278,13 +278,6 @@ export interface Resource {
 }
 
 /**
- * The account's relation to the resource.
- *
- * Three-valued on purpose: a tenant administrator is usually meant to have
- * access to every resource of their own tenant and to none of anyone else's,
- * and a single "not own" flag cannot express that.
- */
-/**
  * Every relation in one list — the **source of truth**.
  *
  * The type is derived from here rather than declared separately. The reason is
@@ -307,7 +300,33 @@ export const RESOURCE_RELATIONS = [
   "foreign-tenant",
 ] as const;
 
+/**
+ * The account's relation to the resource.
+ *
+ * More than a flag on purpose: a tenant administrator is usually meant to have
+ * access to every resource of their own tenant and to none of anyone else's,
+ * and a single "not own" flag cannot express that.
+ *
+ * Five-valued, and the count is the history. Three said as much as a flat world
+ * has to say — `own`, `same-tenant`, `foreign-tenant` — and the tenant hierarchy
+ * of ADR-0013 exists precisely against that state: with three values a holding
+ * reading its own brand and a holding reading a stranger's were both "foreign",
+ * so the one relation a platform is usually meant to allow and the one it must
+ * never allow were the same answer. `descendant-tenant` and `ancestor-tenant`
+ * are that answer split. The list above is where they are written; this type is
+ * derived from it rather than declared beside it.
+ */
 export type ResourceRelation = (typeof RESOURCE_RELATIONS)[number];
+
+/**
+ * Who is really making the request: a matrix row can be an account under conditions.
+ *
+ * A function of its own, because three places ask this — the relation, the
+ * credentials, the report — and three `?? account.id` written apart would drift.
+ */
+export function principalOf(account: Account): string {
+  return account.baseAccountId ?? account.id;
+}
 
 /**
  * Determines the account's relation to the resource.
@@ -324,16 +343,6 @@ export type ResourceRelation = (typeof RESOURCE_RELATIONS)[number];
  * tenants). On a set of one element the result matches the previous one byte for
  * byte.
  */
-/**
- * Who is really making the request: a matrix row can be an account under conditions.
- *
- * A function of its own, because three places ask this — the relation, the
- * credentials, the report — and three `?? account.id` written apart would drift.
- */
-export function principalOf(account: Account): string {
-  return account.baseAccountId ?? account.id;
-}
-
 export function relationOf(
   account: Account,
   resource: Resource,
