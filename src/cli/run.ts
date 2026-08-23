@@ -515,7 +515,24 @@ export async function run(flags: RunFlags): Promise<number> {
   );
   const unauthenticated = suspicions.map((s) => s.accountId);
 
-  const built = buildReport({
+  const report: RunReport = buildReport({
+    /**
+     * The identifier the platform saw, in the document the platform's owner gets.
+     *
+     * `buildReport` mints a `runId` of its own when it is given none, and it has
+     * to: a report without one cannot be told from the next report. But it runs
+     * at the end of the walk, and the value has to exist before the first
+     * request or it cannot be on the wire at all. So the run's own identifier
+     * wins here — which is the whole of what makes marking the traffic useful,
+     * since a filter in a SIEM has to lead back to *this* file. See ADR-0045.
+     *
+     * Passed in rather than written onto the finished report, and that is the
+     * whole of ADR-0058: `contentDigest` is taken over the document as the last
+     * thing `buildReport` does, so `{ ...built, runId }` — which is what stood
+     * here — hashed a report carrying a different identifier from the one that
+     * reached the disk. Every artifact this tool wrote failed its own check.
+     */
+    runId,
     // The same rows the matrix has: a finding refers to an account under
     // conditions, and that account must be in the account list, or the reference
     // dangles.
@@ -547,18 +564,6 @@ export async function run(flags: RunFlags): Promise<number> {
     startedAt,
     finishedAt,
   });
-
-  /**
-   * The identifier the platform saw, in the document the platform's owner gets.
-   *
-   * `buildReport` mints a `runId` of its own, and it has to: a report without
-   * one cannot be told from the next report. But it runs at the end of the walk,
-   * and the value has to exist before the first request or it cannot be on the
-   * wire at all. So the run's own identifier wins here — which is the whole of
-   * what makes marking the traffic useful, since a filter in a SIEM has to lead
-   * back to *this* file. See ADR-0045.
-   */
-  const report: RunReport = { ...built, runId };
 
   let reportWritten = false;
   if (flags.report === undefined) {

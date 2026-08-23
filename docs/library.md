@@ -119,6 +119,15 @@ It catches a careless edit and not a deliberate one — anyone who can change a 
 can recompute the digest. A signature is a separate decision and is not made; see
 [ADR-0051](adr/0051-the-report-answers-for-itself.md).
 
+**The digest is the last thing `buildReport` puts in the document, so anything
+you write onto the report it returns is outside it** — the report then fails its
+own check and nothing says so. Whatever belongs in the artifact goes in through
+`BuildReportOptions`, `runId` included: pass the identifier if you minted one
+before the walk, and one is minted for you if you did not. This is not
+hypothetical advice — `{ ...built, runId }` in this tool's own CLI is what
+invalidated the digest of every report it wrote until 23 August 2026. See
+[ADR-0058](adr/0058-a-guarantee-holds-where-the-artifact-goes.md).
+
 ## What the rest of the surface is
 
 The package exports 227 values and a comparable number of types. They fall into

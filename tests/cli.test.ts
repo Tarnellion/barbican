@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Severity } from "../src/core/index.js";
-import { MAX_ROWS_PER_DEFECT, WARNINGS } from "../src/report/build.js";
+import { checkContentDigest, MAX_ROWS_PER_DEFECT, WARNINGS } from "../src/report/build.js";
 
 /** Every level of the type, so that a level added later is not left off the screen. */
 const SEVERITIES: readonly Severity[] = ["info", "low", "medium", "high", "critical"];
@@ -196,6 +196,10 @@ ${resources === 0 ? "" : `\nresources:\n${resourceLines.join("\n")}\n`}`;
 }
 
 interface ReportFile {
+  /** The identifier the run put on the wire, and the artifact is filed under. */
+  readonly runId: string;
+  /** The report's fingerprint of itself — recomputed off the disk, not off an object. */
+  readonly contentDigest: string;
   readonly warnings: readonly string[];
   readonly summary: { readonly findings: number };
   readonly coverage: {
@@ -257,7 +261,16 @@ async function runAgainstStand(options: {
   readonly flags?: readonly string[];
   /** A deployment other than the plain one, for the cases that need it. */
   readonly target?: () => Promise<{ port: number; close: () => Promise<void> }>;
-}): Promise<RunResult & { readonly report: ReportFile }> {
+  /**
+   * `false` leaves `--report` off, and the document is taken from stdout.
+   *
+   * The other channel the same report goes out through, and it is a channel and
+   * not a formatting choice: a pipeline that never names a path still receives
+   * an artifact, and whatever the file is answerable for that document is
+   * answerable for too.
+   */
+  readonly toFile?: boolean;
+}): Promise<RunResult & { readonly report: ReportFile; readonly document: string }> {
   const target = await (options.target ?? startTarget)();
   const directory = await mkdtemp(join(tmpdir(), "barbican-cli-"));
   const configPath = join(directory, "run.yaml");
@@ -274,12 +287,12 @@ async function runAgainstStand(options: {
       configPath,
       "--endpoints",
       endpointsPath,
-      "--report",
-      reportPath,
+      ...(options.toFile === false ? [] : ["--report", reportPath]),
       ...(options.flags ?? []),
     );
-    const report = JSON.parse(await readFile(reportPath, "utf8")) as ReportFile;
-    return { ...result, report };
+    const document = options.toFile === false ? result.stdout : await readFile(reportPath, "utf8");
+    const report = JSON.parse(document) as ReportFile;
+    return { ...result, report, document };
   } finally {
     delete process.env.CLI_TEST_TOKEN_ALICE;
     await target.close();
@@ -946,5 +959,81 @@ describe("what a run says about itself", () => {
 
     expect(agents).toEqual([]);
     expect(stderr).not.toContain("The report has nowhere to go but stdout");
+  });
+});
+
+/**
+ * The digest, checked on the artifact rather than on an object in memory.
+ *
+ * ADR-0051 sells `contentDigest` as the answer to "is this the file the run
+ * wrote", and `tests/report/report-answers-for-itself.test.ts` proves it — of a
+ * report `buildReport` returned, round-tripped through `JSON.stringify`. That
+ * was the only report the guarantee ever held for. Every file the command has
+ * produced failed its own check, because the CLI put the run's identifier on the
+ * report **after** the digest had been taken over a report carrying a different
+ * one: `{ ...built, runId }` (ADR-0045), one line past the last thing that
+ * hashed anything. Measured on the 58 reports of the polygon: `ok: false` on all
+ * 58.
+ *
+ * So the guarantee was checked everywhere except where it is used, which is the
+ * class this project spends its audits looking for in its own code. The test for
+ * it therefore runs the command and reads what landed on the disk: a report
+ * assembled in this process passes with the defect still in place, exactly as
+ * the existing suite did.
+ *
+ * See ADR-0058.
+ */
+describe("the digest on the artifact the command produced", () => {
+  it("checks out against the file that was written", async () => {
+    const { report } = await runAgainstStand({ config: configFor, endpoints: ENDPOINTS });
+    const verdict = checkContentDigest(report);
+
+    expect(verdict.declared).toMatch(/^[0-9a-f]{64}$/);
+    expect(verdict.computed).toBe(verdict.declared);
+    expect(verdict.ok).toBe(true);
+  });
+
+  /**
+   * And the identifier it covers is the run's own, not a second one minted by
+   * the report layer. The two guarantees are compatible only one way round:
+   * hashing last is what lets the run decide the `runId`, and a fix that made
+   * the digest check out by dropping ADR-0045 would leave the owner of the
+   * platform holding traffic marked with an identifier no artifact carries.
+   */
+  it("covers the identifier the platform was given", async () => {
+    const { report, stderr } = await runAgainstStand({ config: configFor, endpoints: ENDPOINTS });
+
+    expect(stderr).toContain(`run=${report.runId}`);
+    expect(checkContentDigest(report).ok).toBe(true);
+  });
+
+  /**
+   * The same document down the other channel. `--report` is absent in the
+   * ordinary CI invocation, and the artifact is then whatever stdout was
+   * redirected into — a file by another name, and one nobody would think to
+   * check separately.
+   */
+  it("checks out on the report printed to stdout", async () => {
+    const { report } = await runAgainstStand({
+      config: configFor,
+      endpoints: ENDPOINTS,
+      toFile: false,
+    });
+
+    expect(checkContentDigest(report).ok).toBe(true);
+  });
+
+  /**
+   * And it still catches an edit to the file, which is the whole point of
+   * carrying it: a check that passes on everything is not a check.
+   */
+  it("stops checking out when a line of the file is edited", async () => {
+    const { document } = await runAgainstStand({ config: configFor, endpoints: ENDPOINTS });
+    const edited = JSON.parse(document) as ReportFile & {
+      verdict: { readonly code: number; readonly reason: string };
+    };
+    edited.verdict = { ...edited.verdict, reason: "all good, ship it" };
+
+    expect(checkContentDigest(edited).ok).toBe(false);
   });
 });

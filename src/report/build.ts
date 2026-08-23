@@ -143,7 +143,12 @@ export function buildReport(options: BuildReportOptions): RunReport {
   const outcomes = countByOutcome(options.observations);
   const report: VerdictInputs = {
     schemaVersion: REPORT_SCHEMA_VERSION,
-    runId: randomUUID(),
+    // The caller's, where a run already put one on the wire. Minted here only
+    // for a report nobody walked (see `BuildReportOptions.runId`): the value has
+    // to be inside the document before the digest is taken at the foot of this
+    // function, and a caller writing it on afterwards is what invalidated the
+    // digest of every file this tool produced. See ADR-0058.
+    runId: options.runId ?? randomUUID(),
     configDigest: createHash("sha256").update(canonical(options.config)).digest("hex").slice(0, 16),
     tool: {
       name: "barbican",
@@ -297,5 +302,11 @@ export function buildReport(options: BuildReportOptions): RunReport {
   // And the digest after even that, over everything above it. The verdict and
   // the warnings are the two sentences a reader is most likely to want changed,
   // so a digest taken before them would cover the file except where it matters.
+  //
+  // "Last" means last in the document's life and not merely last in this
+  // function: whatever a caller writes onto the returned report is outside the
+  // digest, and the report then fails its own check with nobody the wiser. That
+  // is why `runId` is an option above rather than a field the CLI patches on
+  // afterwards. See ADR-0058.
   return { ...concluded, contentDigest: contentDigestOf(concluded) };
 }

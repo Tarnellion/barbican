@@ -1039,6 +1039,24 @@ export interface RunReport {
 
 export interface BuildReportOptions {
   readonly version: string;
+  /**
+   * The run's identifier, where the caller already has one.
+   *
+   * The CLI does: `runId` has to exist before the first request or it cannot be
+   * on the wire at all (ADR-0045), while this function runs after the last
+   * response. Absent, one is minted here — a report without an identifier cannot
+   * be told from the next report, and a consumer of the library assembling one
+   * without having walked anything has nothing to pass.
+   *
+   * **An option and not a field to patch on afterwards.** `contentDigest` is
+   * taken over the finished document as the last thing this function does, so
+   * anything written onto the report after it returns is outside the digest —
+   * and `{ ...built, runId }` in `src/cli/run.ts` was exactly that, one line
+   * past the last thing that hashed anything. Every file the tool ever wrote
+   * failed its own check. Whatever a caller wants in the document comes in
+   * through here. See ADR-0058.
+   */
+  readonly runId?: string;
   readonly config: RunConfig;
   /**
    * The matrix rows, including accounts under the declared conditions.

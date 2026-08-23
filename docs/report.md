@@ -1298,6 +1298,16 @@ answers `ok: false` with `declared` absent on such a file — not `ok: true`,
 because a verifier that waved a missing field through would make the whole thing
 optional.
 
+**A report written by `0.5.0` carries a digest that does not check out, and this
+is not a sign of tampering.** The digest was computed correctly and then the
+command wrote one more field — `runId`, the identifier the run had already put on
+the wire — onto the finished document. Every artifact produced between 22 and
+23 August 2026 answers `ok: false` with `declared` present, and there is no way
+to tell such a file from one that was edited. If you are holding one, the digest
+tells you nothing either way; re-run against the current version if the question
+matters. Fixed on 23 August 2026 —
+[ADR-0058](https://github.com/Tarnellion/barbican/blob/main/docs/adr/0058-a-guarantee-holds-where-the-artifact-goes.md).
+
 ### `runId` is also what the platform's own logs recorded
 
 Unless the run was made with `--no-identify`, every request it sent carried this
