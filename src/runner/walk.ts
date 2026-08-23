@@ -178,6 +178,14 @@ export interface CollectResult {
   readonly truncated: boolean;
 }
 
+/**
+ * Probes every "account × endpoint" pair.
+ *
+ * Endpoints with parameters in the path are skipped: there is nothing to
+ * substitute an identifier from until the question of collecting values from
+ * responses is settled. The skip is returned explicitly rather than by silence —
+ * otherwise what was not checked would look as if it had been.
+ */
 export async function collectObservations(options: CollectOptions): Promise<CollectResult> {
   const { probeable, skipped } = planEndpoints(options);
 

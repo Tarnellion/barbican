@@ -67,15 +67,6 @@ export class ExcludedCanaryError extends Error {
 }
 
 /**
- * A canary the policy denies for that account's role.
- *
- * Two statements by the same person that cannot both be true. A canary is chosen
- * because the account demonstrably reaches the endpoint — the run stops if it
- * does not — and the policy says the role may not. Left alone, the walk probes
- * the same endpoint, gets the same 200, and files a `privilege-escalation`
- * against a platform that did nothing wrong.
- */
-/**
  * A canary that answers the same to nobody as it does to the account.
  *
  * The fourth road to the state ADR-0033 was written to end, and the only one
@@ -110,6 +101,15 @@ export class UndiscerningCanaryError extends Error {
   }
 }
 
+/**
+ * A canary the policy denies for that account's role.
+ *
+ * Two statements by the same person that cannot both be true. A canary is chosen
+ * because the account demonstrably reaches the endpoint — the run stops if it
+ * does not — and the policy says the role may not. Left alone, the walk probes
+ * the same endpoint, gets the same 200, and files a `privilege-escalation`
+ * against a platform that did nothing wrong.
+ */
 export class DeniedCanaryError extends Error {
   readonly accountId: string;
   readonly endpointId: string;
@@ -183,14 +183,6 @@ export class TemplatedCanaryError extends Error {
   }
 }
 
-/**
- * Checks that the accounts really are authenticated.
- *
- * A canary is an endpoint the account is known to have access to. If it answers
- * with a denial, the token does not work, and there is no point in continuing:
- * the result of such a run looks like "everything is clean", though nothing was
- * checked.
- */
 /**
  * Whether the declared canaries can be probed at all.
  *
@@ -296,6 +288,14 @@ export function assertCanariesUsable(options: {
   }
 }
 
+/**
+ * Checks that the accounts really are authenticated.
+ *
+ * A canary is an endpoint the account is known to have access to. If it answers
+ * with a denial, the token does not work, and there is no point in continuing:
+ * the result of such a run looks like "everything is clean", though nothing was
+ * checked.
+ */
 export async function probeCanaries(options: {
   readonly baseUrl: string;
   readonly endpoints: readonly Endpoint[];
@@ -354,6 +354,25 @@ export async function probeCanaries(options: {
 
   for (const canary of options.canaries) {
     const endpoint = byId.get(canary.endpointId);
+    // Unreachable, and kept on purpose.
+    //
+    // `assertCanariesUsable` above resolved these same canaries against these
+    // same endpoints and threw this same error for an id no endpoint carries.
+    // The call is unconditional and sits in this function, so the guarantee holds
+    // for the CLI, for a test and for a consumer of the library reaching
+    // `probeCanaries` through `src/index.ts` alike: there is no door into this
+    // loop that does not pass it.
+    //
+    // Deleting it would not leave "no check". `byId.get` is honestly
+    // `Endpoint | undefined`, so the lines below would need a non-null assertion,
+    // and an edit that ever separated the two — an early return added above the
+    // assertion, a caller resolving endpoints of its own — would then read
+    // `undefined.path` where today it prints a sentence naming the account and
+    // the id. The assertion is what deleting this costs, and it is the dearer of
+    // the two.
+    //
+    // Hence one of the two lines this file never covers: left uncovered rather
+    // than reached by a fixture built to be inconsistent with itself.
     if (endpoint === undefined) {
       throw new UnknownCanaryEndpointError(canary.accountId, canary.endpointId);
     }
