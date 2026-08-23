@@ -174,6 +174,16 @@ describe("the two keys", () => {
     );
   });
 
+  it("carries the resource, in both keys", () => {
+    // The coordinate a copy of this function lost once: `relatedRequestOf`
+    // dropped `resourceId` from the key it built, and a finding then named a
+    // different cell than the one that produced it. Two objects of one endpoint
+    // are two cells, and an endpoint with no resource is neither of them.
+    expect(cellKey({ ...alice, resourceId: "o-2" })).not.toBe(cellKey(alice));
+    expect(cellKey({ accountId: "alice", endpointId: "orders.read" })).not.toBe(cellKey(alice));
+    expect(objectKey({ endpointId: "orders.read" })).not.toBe(objectKey(alice));
+  });
+
   it("names one object for two accounts, and two cells", () => {
     // The difference between them, and the reason both exist: the walk asks
     // "which object" about a column every account shares, and the report asks
