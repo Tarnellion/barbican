@@ -723,9 +723,10 @@ in the runner passed everything. Its replacement was then attacked in turn and
 gave way six more times: `import { joinKey as glue }` reduced the caller count it
 enumerated to zero, `const glue = joinKey` did the same, a second key builder
 written as an object method walked past its declaration check, and a `{name}`
-grammar built with `new RegExp` was not a literal for it to read. Four of those
-six are closed here; the two that are not are named, in the ADR and in the test
-file, as ways past it that still work.
+grammar built with `new RegExp` was not a literal for it to read. Five of the six
+are closed here; the sixth — the separator built out of `decodeURIComponent`,
+with no zero written anywhere — is not, and it is named in the ADR and in the
+test file as a way past the gate that still works.
 
 The answer is not more patterns. `KEY_SEPARATOR` is no longer exported, so a copy
 elsewhere has to write the character out itself; and what the single test

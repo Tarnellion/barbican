@@ -6,10 +6,12 @@
   document is about, and of this document. The file was
   `0060-a-gate-that-cannot-be-walked-around.md` and is renamed, because the gate
   was walked around six more ways inside the day and a title is a claim like any
-  other. Three sentences here were false as first committed; they are corrected
-  in place and listed under "Corrections to this document" at the end, because
-  leaving a false statement of fact standing in the record is the thing this
-  whole track is about.
+  other. Two sentences in this document were false as first committed, and so
+  were five more it caused to be written — in the test file, in `README.md`, in
+  `CLAUDE.md`, in `src/core/path-parameters.ts` and in the correction note this
+  ADR added to ADR-0057. All seven are corrected in place and listed under
+  "Corrections to this document" at the end, because leaving a false statement of
+  fact standing in the record is the thing this whole track is about.
 
 ## Context
 
@@ -73,19 +75,22 @@ six ways, each verified against a full green `pnpm run check`:
 5. **A grammar that is not a literal.** A fourth `{name}` in
    `src/runner/address.ts`, built by `new RegExp` out of a non-foldable argument.
    The brace scan reads regular-expression literals. (Biome's `useRegexLiterals`
-   folds `new RegExp("a literal")` back into a literal and covers *that* form;
-   the gate is credited with neither.)
+   folds `new RegExp("a literal")` back into a literal and so covers *that* form
+   already; the gate is not credited with it.)
 6. **A declaration the pattern could not cross.** A second `cellKey` with a
    different key shape, written as an object method whose parameter list contains
    a `)` — `esc: (part: string) => string`. The member pattern read
    `\([^)]*\)`.
 
-Four of the six are closed by this amendment; 4 is not, and 5 is closed only
+Five of the six are closed by this amendment. **4 is not**, and 5 is closed only
 outside the two modules already allowed to construct an expression. The judgement
 behind that split: 1, 2 and 6 are shapes somebody writes by accident or for
 convenience and were worth real work; 3 was one alternation of a regular
-expression; 4 is a shape nobody reaches for except on purpose, and a gate is not
-a sandbox. What 4 gets instead of a check is a sentence saying it works.
+expression; 5 needed a table and one more reading; 4 is a shape nobody reaches
+for except on purpose,
+and a gate is not a sandbox. What 4 gets instead of a check is a sentence saying
+it works, in three places — here, in the mutation table as a row that says *not
+caught*, and in the header of the test file itself.
 
 ## Decision
 
@@ -360,16 +365,27 @@ the tree is the gate and not the indentation.
 | 22 | the raw NUL byte put back into ADR-0057 | the repository-wide byte scan |
 
 Mutation 1 does not compile, which is the seam rather than the scan. Every other
-mutation passes `pnpm run typecheck` and Biome untouched; 2 to 13 and 15 to 22
-fail the gate and nothing else. For 3 and 17 — the two shapes this amendment
-exists for — the whole of `pnpm run check` was run, and it comes back
-`Tests  1 failed | 1704 passed | 1 skipped`: exactly one test, this one. That is
-the property being claimed. The reviewer's copy is behaviour-identical, every
-other test in the tree agrees with it, and the gate is the only thing that says
-no.
+mutation passes `pnpm run typecheck` and Biome untouched, and every one of 2 to
+13 and 15 to 22 fails this gate.
 
-Mutation 14 is the honest row. It passes Biome, `tsc`, the gate and the whole of
-`pnpm run check` with exit 0, and it builds keys with the separator.
+For three of them the whole of `pnpm run check` was run rather than the gate
+alone, and the numbers are worth quoting exactly, because one of them is not the
+clean "only this test" the first version of this ADR claimed:
+
+- **17**, the constructed grammar: `Tests  2 failed | 1703 passed | 1 skipped`,
+  both failures in this file — the brace table and the construction table. One
+  test file, nothing else in the tree.
+- **3**, the renamed import: `Tests  2 failed | 1703 passed | 1 skipped` in two
+  files — this gate, and `tests/public-surface.test.ts`, which counts 228
+  exported names where `docs/library.md` says 227. That second failure is a
+  property of the mutation being written as `export function keyOfCell` in a
+  module `src/index.ts` re-exports; any new exported helper would move the same
+  counter, and it says nothing about the separator. It is quoted here rather than
+  filtered out because the first version of this ADR wrote `1 failed` for a
+  mutation of exactly this shape.
+- **14**, the one that is not caught: `Tests  1 failed | 1704 passed | 1 skipped`
+  — and the one failure is that same exported-name count. Every assertion in this
+  gate passes over a module that builds keys with the separator.
 
 A twenty-third names a needle no file contains. The harness prints
 
@@ -385,7 +401,10 @@ from reporting a gate as effective when it never mutated anything.
 **Add two more patterns to the old gate.** The shape that had just failed twice:
 each evasion answered with a longer list of things to look for, and the list can
 only ever name the spellings somebody has already thought of. Removing the export
-removes the class.
+removes the class. The second review taught the same lesson again, and the
+amendment answers it the same way: the caller count was not lengthened with
+`glue(`, it was replaced by the import; `declares()` was not given a sixth
+pattern, it was replaced by a classification of every occurrence.
 
 **A lint rule.** Biome has no rule of this shape, and a custom plugin would put
 the reasoning in a configuration file rather than next to the history that
@@ -399,7 +418,8 @@ uses. Refusing the rename costs a contributor one alias and keeps the search
 honest.
 
 **Parse the sources instead of tokenising them.** A real parser answers every
-question this file asks and several it gets wrong — the ternary above, for one.
+question this file asks, and answers correctly the one it gets wrong — the
+ternary above.
 Rejected on the dependency rule (CLAUDE.md) and on the gate's own value being
 that a reader can finish it. The cost is written into the file: the tokeniser
 throws rather than guessing, and the shapes it misreads are named.
@@ -442,7 +462,8 @@ should read this list before the tables above. The same list is in the header of
 an allowance is reading that file and not this one.
 
 - **A separator obtained without writing a zero.**
-  `decodeURIComponent("%00")` — mutation 14, verified green. So is arithmetic
+  `decodeURIComponent("%00")` — mutation 14, which passes every assertion here.
+  So is arithmetic
   (`String.fromCharCode(one - one)`) and a code point taken out of data. A copy
   under an unowned name that glues with such a character passes everything here.
   No scanner of sources closes this class. What stands against it is the

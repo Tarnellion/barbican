@@ -17,9 +17,12 @@
  * `src/runner/address.ts`. All three passed `pnpm run check` with exit 0.
  *
  * This file replaced them, and was then walked around six more ways on the same
- * day, every one of them green. Four of the six are closed here; two are not, and
- * are named below rather than left for the next reviewer to find. ADR-0060 is why
- * the file is shaped the way it is and carries the same two lists.
+ * day, every one of them green. Five of the six are closed here. The sixth — a
+ * separator computed rather than written — is not, and the fifth is closed only
+ * outside the two modules already allowed to build an expression at runtime; both
+ * are named under "What it cannot see" below rather than left for the next
+ * reviewer to find. ADR-0060 is why the file is shaped the way it is and carries
+ * the same two lists.
  *
  * ## What holds, and in what order
  *
@@ -30,9 +33,11 @@
  *    module by name.
  * 2. **Writing it out again is what the scan reads.** Not one spelling of it: the
  *    sources are tokenised here and the escapes inside their literals are
- *    decoded, so every way of writing the code point zero — the four-digit
- *    escape, `\x00`, `\u{0}`, `\0`, and the byte itself — is one thing to this
- *    file, because they are one character.
+ *    decoded, so every way of writing the code point zero **into a source
+ *    literal** — the four-digit escape, `\x00`, `\u{0}`, `\0`, and the byte
+ *    itself — is one thing to this file, because they are one character. A
+ *    character computed rather than written is a different matter and is the
+ *    first entry under "What it cannot see".
  * 3. **Reaching in is enumerated at the import, not at the call.** The first
  *    version of this check counted the text `joinKey(` per module, and
  *    `import { joinKey as glue }` reduced that count to zero — as would
