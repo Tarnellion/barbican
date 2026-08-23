@@ -104,6 +104,12 @@ message was reworded and no predicate changed, so the order of the entries is th
 order the `if` blocks were in — which is behaviour, because it decides which
 sentence a path breaking two rules at once gets.
 
+Behaviour, and held as behaviour — but not by the first version of this gate. See
+the amendment of 23 August 2026 below: every witness in the witness list breaks
+exactly one rule, which is the property that makes "which rule fired" readable
+from outside the module and also the property that made permuting the table
+invisible to all of them.
+
 `because` is handed the string as the document spelled it rather than the decoded
 one, because one rule's advice differs between a backslash that is in the file
 and a `%5c` the platform will turn into one.
@@ -126,8 +132,13 @@ The endpoint list's copy **stays**. It is reachable, it answers first, and it
 answers about the entry rather than about the template. It is a strict subset of
 the grammar's `address` rule and cannot go stale into permitting anything: if it
 stopped firing, the `pathTemplate` call eleven lines below would refuse the same
-string with the grammar's own wording. The gate holds it to that subset, and to
-being the only file in the tree that words the refusal.
+string with the grammar's own wording.
+
+One sentence stood here in the first version of this ADR — "The gate holds it to
+that subset, and to being the only file in the tree that words the refusal" — and
+both of its claims were false when written: the gate checked one string, and it
+read five file names of the sixty-five in the tree. What holds them now is
+described in the amendment of 23 August 2026 below.
 
 ### `TERMINAL_ERROR_NAMES` is exported and the CLI imports it
 
@@ -186,7 +197,9 @@ denial", and the function that folds it is the honest thing to ask.
 - A rule can no longer be added to one half of the address grammar. The table is
   the only place a predicate and a sentence exist, and
   `tests/invariants/written-once.test.ts` demands a witness per rule, refused by
-  both entry points, with that rule's sentence.
+  both entry points, with that rule's sentence. "A rule" means an entry with an
+  `id` that is a double-quoted literal and a `refuses` key; the amendment below
+  says what that does and does not reach.
 - `src/adapters/postman.ts` loses a branch v8 never reached; its statement
   coverage goes up rather than down.
 - `src/cli/canaries.ts` imports one submodule of the runner directly. That is a
@@ -200,3 +213,143 @@ denial", and the function that folds it is the honest thing to ask.
   client's retry guard — and the gate names the one that was forgotten.
 - A third `not-found` status now costs two: the classifier, and the list spelled
   out in the gate, which is where the decision is made visible.
+
+## Amendment, 23 August 2026: the gate was walked around
+
+Adversarial review the same day this ADR was accepted went at the gate rather
+than at the code. Four of its assertions were walked around with `pnpm run check`
+green, and a fifth claim — that the order of `ADDRESS_RULES` is behaviour — turned
+out to have no assertion behind it at all.
+
+One sentence of this ADR carried two false claims; it is quoted where it stood,
+under "The dead copy goes; the live one stays and says why", and answered below.
+The test file's header carried a third, "a rule added to the table without being
+thought about is a red test". Writing this amendment turned up a sixth way in
+that the review had not tried — a whole array spread into the table — and it is
+closed with the rest.
+
+Nothing in `src/` behaved differently before or after this amendment; what
+changed is the gate, and what this document and that header claim about it.
+
+### The two assertions read a hardcoded list of files
+
+`is worded in exactly one adapter` filtered a list of **5** file names written
+into the test by hand. `is spelled where the class is defined and in the set,
+nowhere else` filtered a list of **15**. `git ls-files src` returns **65**
+TypeScript files.
+
+So 60 files went unread by the shorter list and 50 by the longer one. Among them
+were `src/cli/stream.ts`, `src/runner/stream.ts`, `src/report/findings.ts`,
+`src/runner/plan.ts` and `src/cli.ts` — the plausible carriers, not the
+implausible ones. Demonstrated: the sentence "addresses another host" placed in
+`src/runner/walk.ts` — green; a second
+`new Set(["RunBudgetExhaustedError", "CircuitOpenError"])` placed in
+`src/runner/stream.ts` — green.
+
+Both now read every tracked file under `src/`, from `git ls-files`, the way
+`tests/docs/language.test.ts` does and for the reason it gives: `.gitignore`
+already answers "does this go public", and walking the disk from a test would
+descend into `.claude/worktrees/`. A gate that reads a list somebody has to
+remember to update is the defect this ADR is about, one layer up.
+
+This is what makes the second struck sentence true, in a narrower form than it
+was written: the endpoint list is the only file **under `src/`** that carries
+that substring. `tests/`, `polygon/` and `tools/` are out of scope, and the tool
+does not read a refusal from any of them.
+
+### A one-line entry in the table has no id, as far as the gate is concerned
+
+The ids came out of the source with `/^\s*id: "([^"]+)",$/gm`, which needs `id`
+on a line of its own. Biome at `lineWidth: 100` leaves a short entry exactly as
+it was written, so
+
+```ts
+{ id: "bang", refuses: (p) => p.includes("!"), because: () => "carries a bang" },
+```
+
+appended to `ADDRESS_RULES` was a fifth rule with no id the gate could see, no
+witness demanded, and a green suite. "A rule added to the table without being
+thought about is a red test" was therefore false for the shape a person in a
+hurry actually writes.
+
+Three things hold it now. The id regex no longer anchors to a line. The count of
+ids is compared to the count of `refuses` keys, so an entry whose id is a
+constant or a template literal fails loudly instead of passing unnamed. And a
+spread — `...MORE_RULES` — is refused outright rather than followed: entries this
+gate cannot count are entries no witness is demanded for, and following one would
+mean parsing the module.
+
+### The order was declared to be behaviour and nothing held it
+
+Every witness breaks exactly one rule. That is deliberate — distinct sentences
+are what make "which rule fired" observable from outside a module that exports
+neither the table nor the predicates — and it is exactly why permuting the table
+changed nothing any witness could see. Moving `navigates` above `address` was
+green, while changing the sentence `//api.test/v1/../danger` is answered with.
+
+Held now by a pair of paths per adjacent pair of entries, and the pairs must
+cover every adjacent pair of the table:
+
+| earlier                   | later                     | breaks both             | later alone            |
+| ------------------------- | ------------------------- | ----------------------- | ---------------------- |
+| `query-or-fragment`       | `unaddressable-character` | `/v1\reports?_method=…` | `/v1\reports`          |
+| `unaddressable-character` | `address`                 | `//api.test/v1\danger`  | `//api.test/v1/danger` |
+| `address`                 | `navigates`               | `//api.test/v1/../…`    | `/v1/../danger`        |
+
+The second path is the first with the earlier rule's trigger taken out, and it
+must be answered with the *later* rule's sentence. That is what makes the first
+path a path which really does break two rules, rather than one the test believes
+breaks two — an assertion about precedence that never checks the later rule fires
+at all would pass over a table with the later rule deleted.
+
+### The live copy in the endpoint list was held by one string
+
+`agrees with the grammar at the endpoint list` fed one path,
+`//evil.test/v1/users`, and asserted the copy still refuses it. That proves the
+copy fires. It says nothing about how far it reaches, which is the whole of the
+subset claim: widening the condition to
+`path.startsWith("//") || path.includes("@")` left the gate green while the copy
+turned away `/v1/u@example.com/orders`, which the grammar admits.
+
+Held two ways now, and the first is the strong one:
+
+- **as source text.** The condition is extracted from `endpoint-list.ts` and must
+  be one of the disjuncts of `isAddress`, character for character, modulo the one
+  rename `path` → `value`. Any edit to that condition is red, including a
+  behaviourally identical one. That is the cost of the strength and it is the
+  right way round here: this block's entire justification is that it says nothing
+  the grammar does not;
+- **as behaviour, over a corpus.** For every path in a corpus, if the endpoint
+  list refuses it with this sentence then `isUsablePathTemplate` must refuse it
+  too. One-way on purpose — the grammar refuses far more than the copy does, and
+  the copy is not meant to have an opinion about a query string or a `..`. The
+  corpus is a corpus; it is there because the source-text half cannot see a
+  widening made inside `isAddress` and mirrored here, and this half can.
+
+### Limits: what this gate does not catch
+
+Attacked before being trusted, per the rule in CLAUDE.md. These got through and
+are left open, with the reason:
+
+- **A copy that words the refusal differently.** "points at another host" in a
+  second file is green. Both file-scanning assertions match an exact substring,
+  and the alternative — a list of paraphrases — is the hardcoded list again in
+  another spelling. The same applies to a class name assembled at runtime:
+  `"Circuit" + "OpenError"` is a copy this cannot see.
+- **A disjunct added inside an existing predicate.** `isAddress` growing
+  `|| value.includes("@")` is green: it changes what the grammar refuses without
+  adding an entry to the table, so no witness is demanded and no sentence is
+  reviewed. Left open deliberately — the direction is strictness, and a disjunct
+  *removed* is caught, because the witness for that rule stops being refused.
+  What is not caught is a widening nobody wrote a sentence for.
+- **Scope is `src/`.** A refusal worded in `tools/`, `polygon/` or `tests/` is
+  invisible to these two assertions. Nothing under those paths is on the path a
+  request takes, which is why the scope is where it is rather than everywhere.
+- **The order is held, not justified.** The pairs make a permutation red. Nothing
+  here says the current order is the right one; it is the order the `if` blocks
+  were in, preserved because behaviour was to stay identical.
+- **The source-reading halves are regexes over text, not a parse.** Each is
+  written to fail closed — a shape it cannot read fails the assertion that finds
+  it rather than returning an empty list — and `declared()`, `retried()` and the
+  endpoint-list extraction each carry that guard-on-the-guard. A rewrite that
+  happens to still match while meaning something else is not covered.

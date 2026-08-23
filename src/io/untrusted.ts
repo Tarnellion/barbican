@@ -335,6 +335,16 @@ interface AddressRule {
  * moving an entry changes which sentence an operator gets for a path that breaks
  * two rules at once. It is not behaviour for `isAddressablePath`, which asks all
  * of them and only counts how many said no.
+ *
+ * Behaviour, and held as behaviour since 23 August 2026:
+ * `tests/invariants/written-once.test.ts` carries a pair of paths per adjacent
+ * pair of entries. Before that the order was declared here and nothing checked
+ * it — every witness in the gate broke exactly one rule, which is what makes
+ * "which rule fired" readable and also what made a permutation invisible.
+ *
+ * Written out rather than composed. The gate counts the entries it can name, and
+ * a spread from another array is entries it cannot; a rule with no witness
+ * demanded of it is the thing this table exists to prevent.
  */
 const ADDRESS_RULES: readonly AddressRule[] = [
   {

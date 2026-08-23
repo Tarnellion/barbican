@@ -205,7 +205,15 @@ function toEndpoint(entry: unknown, index: number): Endpoint {
   // holding. It is a strict subset of the grammar's `address` rule and cannot go
   // stale into permitting anything: if it ever stopped firing, the call below
   // would refuse the same string one line later, with the grammar's own wording.
-  // `tests/invariants/written-once.test.ts` holds it to that subset. See ADR-0061.
+  //
+  // The condition below is one of `isAddress`'s two disjuncts, character for
+  // character, and `tests/invariants/written-once.test.ts` reads both out of the
+  // source and holds it so. Until 23 August 2026 the gate held one string,
+  // `//evil.test/v1/users`, which proves this fires and nothing about how far it
+  // reaches — `path.startsWith("//") || path.includes("@")` passed it while
+  // refusing paths the grammar admits. Adding a term here is therefore a red
+  // test even when the term is harmless: this block's whole justification is
+  // that it says nothing the grammar does not. See ADR-0061.
   if (path.startsWith("//")) {
     throw new InvalidEndpointError(
       index,
