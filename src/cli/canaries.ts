@@ -18,21 +18,23 @@ import type { CredentialProvider, HttpClient } from "../adapters/ports.js";
 import type { Account, Endpoint, TenantId } from "../core/index.js";
 import type { RunConfig } from "../io/config.js";
 import type { CanaryOutcome } from "../report/build.js";
+// A canary failure that is the run's own doing rather than the platform's. The
+// names come from the client's errors and reach here through
+// `CanaryResult.failure`; they are kept apart from a transport failure below
+// because the advice is opposite — nothing to check on the deployment,
+// something to change in the invocation.
+//
+// The set was written out in this file as well until 23 August 2026: the same
+// two members under a second name, which is the shape this repository has a
+// rule about. It is `src/runner/outcome.ts`'s to state — that is where
+// `terminalCause` reads it to decide whether the walk was cut short, and this
+// module judges the same refusals the walk does. Imported from the module and
+// not through `../runner.js` on purpose: the barrel is what `src/index.ts`
+// re-exports whole, and this is an agreement between two layers rather than a
+// promise to a consumer. See ADR-0061.
+import { TERMINAL_ERROR_NAMES } from "../runner/outcome.js";
 import { probeCanaries, UndiscerningCanaryError } from "../runner.js";
 import { paint } from "./screen.js";
-
-/**
- * A canary failure that is the run's own doing rather than the platform's.
- *
- * The names come from the client's errors and reach here through
- * `CanaryResult.failure`. Kept apart from a transport failure because the advice
- * is opposite: nothing to check on the deployment, something to change in the
- * invocation.
- */
-const TERMINAL_FAILURES: ReadonlySet<string> = new Set([
-  "RunBudgetExhaustedError",
-  "CircuitOpenError",
-]);
 
 /**
  * The accounts a canary is owed for, by name.
@@ -130,9 +132,9 @@ export async function probeBeforeWalk(pass: CanaryPass): Promise<readonly Canary
     // a dead port and was told "401 reads as a denial", so it went looking for
     // a stale token; the audit then hit its own `--max-requests` and was told
     // to check the port, while the platform was up and had already answered.
-    const stopped = broken.some((r) => TERMINAL_FAILURES.has(r.failure ?? ""));
+    const stopped = broken.some((r) => TERMINAL_ERROR_NAMES.has(r.failure ?? ""));
     const unreachable = broken.some(
-      (r) => r.status === 0 && !TERMINAL_FAILURES.has(r.failure ?? ""),
+      (r) => r.status === 0 && !TERMINAL_ERROR_NAMES.has(r.failure ?? ""),
     );
     const refused = broken.some((r) => r.status !== 0);
     const why = [
@@ -236,7 +238,7 @@ export async function confirmAfterWalk(
     // It is not nothing either, and silence here is what the audit of 20 August
     // found: a ceiling of 14 requests, which the preview itself called enough,
     // ate the whole second pass and the run came back 0 with a dead token.
-    const stopped = TERMINAL_FAILURES.has(result.failure ?? "");
+    const stopped = TERMINAL_ERROR_NAMES.has(result.failure ?? "");
     if (!passedBefore.has(result.accountId)) {
       continue;
     }
