@@ -24,9 +24,20 @@
  *
  * The rules live in `tools/coverage-gate.mjs` rather than here, because half of
  * them cannot run in this process: the summary of what the run measured is
- * written after the last test finishes. That half runs from
- * `pnpm run test:coverage`, and the last case in this file is what keeps it
- * wired in. See ADR-0063.
+ * written after the last test finishes. That half runs the moment vitest exits,
+ * from the same module that started it. See ADR-0063.
+ *
+ * **The wiring is checked as an effect and not as a string.** It used to be two
+ * `toContain` calls against the `test:coverage` script, and both were satisfied
+ * by the first of that script's three commands: deleting
+ * `&& node tools/coverage-gate.mjs` left all of this green while the outcome
+ * half never ran again. There is no second command now — the script is
+ * `node tools/coverage-gate.mjs` and that module spawns vitest — and the
+ * question "did the gate start this run" is asked by `setup` below, which vitest
+ * loads as a `globalSetup` and which refuses a coverage run the gate is not the
+ * parent of. A test can then ask what no reading of `package.json` can: not what
+ * the script says, but whether this very process is one the gate will answer
+ * for.
  *
  * **What this file does not hold.** It does not stop the numbers in
  * `vitest.config.ts` from being lowered — only from being lowered quietly: a
@@ -36,21 +47,27 @@
  * third.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 import {
   ALLOWANCES,
   BARRELS,
   configurationFaults,
+  GATE_VARIABLE,
   KNOWN_COVERAGE_OPTIONS,
+  MEASURED_EXTENSIONS,
   METRICS,
   matches,
   outcomeFaults,
   PROJECT_FLOOR,
   relativeSummary,
   SUMMARY_PATH,
+  setup,
   shippedSources,
 } from "../../tools/coverage-gate.mjs";
 import configuration from "../../vitest.config.js";
@@ -209,7 +226,60 @@ describe("the configuration the coverage gate is made of", () => {
       sources,
     );
 
-    expect(faults.join("\n")).toContain("not a group of four numbers");
+    expect(faults.join("\n")).toContain(
+      "coverage.thresholds.autoUpdate is neither one of the four metric names",
+    );
+  });
+
+  /**
+   * A global threshold, and the sentence this guard used to refuse one with.
+   *
+   * It said a global "applies only to files no glob matched, and every file here
+   * is matched by one, so it would gate nothing". Vitest 4 says the opposite in
+   * its documentation and in `resolveThresholds`, and a reviewer demonstrated it:
+   * a global of 99.999 fires with every file matched by a glob. So a global is a
+   * gate, and one below the floor is a lower gate.
+   */
+  it("holds a global threshold to the floor", () => {
+    const faults = configurationFaults(
+      like({ thresholds: thresholdsLike({ statements: 10 }) }),
+      sources,
+    );
+
+    expect(faults.join("\n")).toContain(
+      "coverage.thresholds.statements is 10, below the project floor of 95",
+    );
+    expect(faults.join("\n")).toContain("vitest counts every file into it");
+  });
+
+  it("has nothing against a global threshold at the floor", () => {
+    const faults = configurationFaults(
+      like({
+        thresholds: thresholdsLike({ statements: 95, branches: 90, functions: 95, lines: 95 }),
+      }),
+      sources,
+    );
+
+    // Against the configuration as it stands rather than against `[]`: what is
+    // under test is that a global at the floor adds nothing, not that the
+    // configuration is clean — which the case above already asks.
+    expect(faults).toEqual(configurationFaults(coverage, sources));
+  });
+
+  /**
+   * And the reason the correction matters. A global counts every file, so it is
+   * the single overall figure the per-directory groups exist to refuse — a fully
+   * covered core masking a drop in another layer. If it answered for a file, the
+   * five groups could be deleted under it and the question "is every file
+   * gated?" would stay true.
+   */
+  it("does not let a global threshold answer for a file", () => {
+    const faults = configurationFaults(
+      like({ thresholds: { statements: 95, branches: 90, functions: 95, lines: 95 } }),
+      sources,
+    );
+
+    expect(faults.join("\n")).toContain("gated by no threshold");
   });
 
   /**
@@ -395,31 +465,274 @@ describe("the run the coverage gate answers for", () => {
     expect(faults.join("\n")).toContain("src/cli/run.ts carries no statements at all");
   });
 
-  /**
-   * And the wiring, because the half above runs outside vitest.
-   *
-   * A test in the suite is deleted by whoever finds it inconvenient; a step in
-   * the script that CI calls is harder to lose by accident. The same reasoning
-   * as the release gate's, and the same shape of assertion.
-   */
-  it("is run after every coverage run", () => {
-    const scripts = (
-      JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as {
-        scripts: Record<string, string>;
-      }
-    ).scripts;
-
-    expect(scripts["test:coverage"]).toContain("tools/coverage-gate.mjs");
-    expect(scripts["check"]).toContain("test:coverage");
-    // Cleaned first: a summary left by an earlier run would otherwise answer for
-    // one that never happened.
-    expect(scripts["test:coverage"]).toContain("--clean");
-    expect(SUMMARY_PATH).toBe("coverage/coverage-summary.json");
-  });
-
   it("keeps a floor worth having", () => {
     // The floor is the project's own 95/90/95/95, and a guard whose floor had
     // been quietly moved to zero would pass everything above.
     expect(PROJECT_FLOOR).toEqual({ statements: 95, branches: 90, functions: 95, lines: 95 });
+  });
+});
+
+const SCRIPTS = (
+  JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as {
+    scripts: Record<string, string>;
+  }
+).scripts;
+
+interface Workflow {
+  readonly jobs: Record<string, { readonly steps?: readonly { readonly run?: string }[] }>;
+}
+
+const CI = parseYaml(readFileSync(resolve(ROOT, ".github/workflows/ci.yml"), "utf8")) as Workflow;
+
+/**
+ * A script as the list of commands a shell would run, refusing every join but
+ * `&&`.
+ *
+ * The previous version of the wiring test asked the `test:coverage` string for
+ * two substrings, and one command containing both satisfied it — so the third
+ * command could be deleted with everything green. Reading the string as a list
+ * is what "answer for what the string can express" means here: `;` runs a
+ * command whether or not the one before it worked, `||` runs it only when the
+ * one before failed, `&` puts it in the background, and a substitution hides a
+ * command inside another. None of them appears in this project's scripts, and a
+ * guard that cannot read one has to say so rather than approximate — the same
+ * refusal `matches` makes about an unfamiliar glob.
+ */
+function commandsOf(script: string): readonly string[] {
+  const commands = script.split("&&").map((one) => one.trim());
+  for (const command of commands) {
+    if (/[;&|`$()<>]/.test(command)) {
+      throw new Error(
+        `this guard cannot read the shell construct in "${script}". It knows commands joined ` +
+          `by && and nothing else; teach it the shape rather than deleting the case.`,
+      );
+    }
+  }
+  return commands;
+}
+
+describe("the wiring, as an effect rather than a string", () => {
+  /**
+   * There is no second command to delete. `test:coverage` is the gate, and the
+   * gate is what runs vitest.
+   */
+  it("makes the gate the whole of `test:coverage`", () => {
+    expect(commandsOf(SCRIPTS["test:coverage"] ?? "")).toEqual(["node tools/coverage-gate.mjs"]);
+    expect(SUMMARY_PATH).toBe("coverage/coverage-summary.json");
+  });
+
+  it("is what `check` runs", () => {
+    expect(commandsOf(SCRIPTS["check"] ?? "")).toContain("pnpm run test:coverage");
+  });
+
+  /**
+   * And what CI runs — which is not the same question: the `check` job calls the
+   * four scripts one by one rather than `pnpm run check`, so a step there could
+   * drift to calling vitest directly and take the gate off the only machine that
+   * runs Windows and three versions of node.
+   */
+  it("is what CI runs", () => {
+    const steps = (CI.jobs["check"]?.steps ?? []).map((step) => step.run?.trim() ?? "");
+
+    expect(steps).toContain("pnpm run test:coverage");
+    expect(steps.filter((one) => /\bvitest\b/.test(one))).toEqual([]);
+  });
+
+  /**
+   * The seam a `package.json` edit cannot reach. `setup` is loaded by vitest
+   * itself, so the question it asks is about this process and not about a file.
+   */
+  it("declares the gate as a globalSetup", () => {
+    expect(configuration.test?.globalSetup).toEqual(["./tools/coverage-gate.mjs"]);
+  });
+});
+
+describe("a coverage run the gate did not start", () => {
+  const measuring = { config: { coverage: { enabled: true } } };
+
+  /** Restored rather than left set: the suite's own run is a gated one. */
+  function withoutTheVariable(work: () => void): void {
+    const kept = process.env[GATE_VARIABLE];
+    delete process.env[GATE_VARIABLE];
+    try {
+      work();
+    } finally {
+      if (kept !== undefined) {
+        process.env[GATE_VARIABLE] = kept;
+      }
+    }
+  }
+
+  it("is refused before the first test", () => {
+    withoutTheVariable(() => {
+      expect(() => {
+        setup(measuring);
+      }).toThrow(/the coverage gate did not start it/);
+    });
+  });
+
+  it("is allowed when the gate is the parent", () => {
+    withoutTheVariable(() => {
+      process.env[GATE_VARIABLE] = "a-value-the-gate-would-have-set";
+      expect(() => {
+        setup(measuring);
+      }).not.toThrow();
+    });
+  });
+
+  /** `pnpm run test` measures nothing and needs no gate. */
+  it("says nothing about a run that is not measuring coverage", () => {
+    withoutTheVariable(() => {
+      expect(() => {
+        setup({ config: { coverage: { enabled: false } } });
+      }).not.toThrow();
+    });
+  });
+
+  /**
+   * And a shape it does not recognise is refused rather than read as "not
+   * measuring". This is the seam dying quietly: a vitest that stopped saying
+   * whether coverage is on would turn `setup` into a function that returns, and
+   * nothing else in this file would notice.
+   */
+  it("refuses a project it cannot read", () => {
+    withoutTheVariable(() => {
+      for (const shape of [undefined, {}, { config: {} }, { config: { coverage: {} } }]) {
+        expect(() => {
+          setup(shape);
+        }).toThrow(/not told whether the run is measuring coverage/);
+      }
+    });
+  });
+});
+
+/**
+ * The compiler's own entry point, from its manifest.
+ *
+ * The same three lines are in `tests/tools/pinned-versions.test.ts`, and
+ * deliberately not shared: it is a `bin` lookup rather than a decision, the two
+ * files ask the compiler different questions, and a typescript that moved its
+ * entry point would fail both of them by name on the same run.
+ */
+function compilerEntry(): string {
+  const installed = resolve(ROOT, "node_modules", "typescript");
+  const bin = (
+    JSON.parse(readFileSync(resolve(installed, "package.json"), "utf8")) as {
+      bin?: { tsc?: string };
+    }
+  ).bin?.tsc;
+  if (bin === undefined) {
+    throw new Error("typescript declares no `tsc` entry under `bin`");
+  }
+  return resolve(installed, bin);
+}
+
+const workspace = mkdtempSync(join(tmpdir(), "barbican-coverage-gate-"));
+
+afterAll(() => {
+  rmSync(workspace, { recursive: true, force: true });
+});
+
+describe("what the package ships", () => {
+  /**
+   * `.mts` and `.cts` are files a person genuinely adds, and both halves were
+   * blind to them: the walk asked `endsWith(".ts")` and the configuration says
+   * `src/**\/*.ts`, and `leak.mts` ends in `mts`. A reviewer put
+   * `src/core/leak.mts` in the tree with an uncovered branch and a side-effect
+   * import from a shipped module; `dist/core/leak.mjs` was built and published
+   * and this gate exited 0 with the denominator unchanged.
+   */
+  it("reads every extension the compiler emits a module for", () => {
+    const tree = join(workspace, "extensions");
+    mkdirSync(join(tree, "src", "core"), { recursive: true });
+    for (const name of ["a.ts", "core/b.mts", "core/c.cts", "d.d.ts", ".hidden.ts"]) {
+      writeFileSync(join(tree, "src", name), "");
+    }
+
+    expect(shippedSources(tree)).toEqual(["src/a.ts", "src/core/b.mts", "src/core/c.cts"]);
+  });
+
+  /** And refuses what it cannot place, rather than skipping it. */
+  it("refuses a file under src it has not reasoned about", () => {
+    const tree = join(workspace, "unknown");
+    mkdirSync(join(tree, "src"), { recursive: true });
+    writeFileSync(join(tree, "src", "a.ts"), "");
+    writeFileSync(join(tree, "src", "component.tsx"), "");
+
+    expect(() => shippedSources(tree)).toThrow(/src\/component\.tsx is under src\//);
+  });
+
+  /**
+   * The binding that makes the list above more than a guess. What the package
+   * ships is what `tsc` puts in the program and emits under `dist/`, and the
+   * compiler is asked rather than modelled — `--listFilesOnly` is a tenth of a
+   * second and it sees the files an `include` pattern misses but an import
+   * pulls in, which is exactly how `leak.mts` shipped.
+   *
+   * `process.execPath` plus the resolved entry, so this runs on Windows;
+   * `relative` and the separators are normalised on both sides for the same
+   * reason.
+   */
+  it("agrees with the compiler about which files those are", () => {
+    const listed = execFileSync(
+      process.execPath,
+      [compilerEntry(), "-p", "tsconfig.build.json", "--listFilesOnly"],
+      { cwd: ROOT, encoding: "utf8" },
+    );
+    const compiled = listed
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => relative(ROOT, line).split("\\").join("/"))
+      .filter((path) => path.startsWith("src/") && !/\.d\.[mc]?ts$/.test(path))
+      .sort();
+
+    expect(compiled.length).toBeGreaterThan(20);
+    expect(
+      [...sources],
+      "the walk and the compiler disagree about what src/ ships. A file the walk lists and " +
+        "the compiler does not compile is not shipped — an orphan .mts is not matched by the " +
+        "`include` in tsconfig.build.json and nothing imports it, so it emits nothing. A file " +
+        "the compiler compiles and the walk skips is a module measured by nobody.",
+    ).toEqual(compiled);
+  });
+
+  /**
+   * The tree, as it would be with such a file in it. Written as "the sources
+   * without it, plus it" rather than "the sources plus it", so that the case
+   * still asks its question while somebody is holding the real thing in the
+   * tree to watch the gate fail.
+   */
+  const A_MODULE = "src/core/leak.mts";
+  const withAModule = (): readonly string[] =>
+    [...sources.filter((path) => path !== A_MODULE), A_MODULE].sort();
+
+  it("names a module no include pattern covers, and no threshold", () => {
+    const faults = configurationFaults(coverage, withAModule()).join("\n");
+
+    expect(faults).toContain(`${A_MODULE} is shipped and matched by no coverage.include`);
+    expect(faults).toContain(`${A_MODULE} is measured and gated by no threshold`);
+  });
+
+  it("names it in the run as well, whatever the configuration said", () => {
+    const measured = Object.fromEntries(
+      withAModule()
+        .filter((path) => path !== A_MODULE)
+        .map((path) => [path, 100]),
+    );
+    const faults = outcomeFaults(relativeSummary(summaryOf(measured), ROOT), withAModule());
+
+    expect(faults.join("\n")).toContain(
+      `${A_MODULE} is shipped and the run measured nothing for it`,
+    );
+  });
+
+  it("can be written into the configuration once the day comes", () => {
+    // Not a hole left open: the patterns are spellable, so adding such a file is
+    // a decision with two lines beside it rather than a wall.
+    expect(MEASURED_EXTENSIONS).toEqual([".ts", ".mts", ".cts"]);
+    expect(matches("src/core/**/*.mts", "src/core/leak.mts")).toBe(true);
+    expect(matches("src/core/**/*.ts", "src/core/leak.mts")).toBe(false);
+    expect(matches("src/core/leak.mts", "src/core/leak.mts")).toBe(true);
   });
 });

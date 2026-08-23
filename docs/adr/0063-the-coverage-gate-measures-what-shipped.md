@@ -127,18 +127,18 @@ and not in the file it holds up; a number below it must be named in `ALLOWANCES`
 at exactly that value with a reason beside it, and the table is exact in both
 directions.
 
-**And the run is answered for after it happens.** `pnpm run test:coverage` is now
-`node tools/coverage-gate.mjs --clean && vitest run --coverage && node
-tools/coverage-gate.mjs`. The last step reads `coverage/coverage-summary.json`
-and asks what no reading of a configuration can: is every file the package ships
-in it, is anything in it that the package does not ship, and are the four totals
-above the floor. That half is what makes the exclusion caught rather than
-argued about — it does not care which option removed the file, and it holds the
-floor even with every threshold in the configuration deleted. It is a separate
-step and not a test because the summary is written after the last test finishes.
+**And the run is answered for after it happens.** The outcome half reads
+`coverage/coverage-summary.json` and asks what no reading of a configuration can:
+is every file the package ships in it, is anything in it that the package does
+not ship, and are the four totals above the floor. That half is what makes the
+exclusion caught rather than argued about — it does not care which option removed
+the file, and it holds the floor even with every threshold in the configuration
+deleted. It runs outside the suite because the summary is written after the last
+test finishes. This paragraph said it was the third of three commands joined by
+`&&` in `test:coverage`; the amendment below is about what that arrangement cost.
 
 The glob vocabulary is still two shapes — a literal path, and a directory
-followed by the recursive `.ts` pattern — and still **throws** on a third rather
+followed by the recursive pattern — and still **throws** on a third rather
 than approximating it. Reaching for picomatch, which is what vitest matches
 with, would make an unfamiliar pattern quietly match nothing, and quietly
 matching nothing is the defect one level up.
@@ -216,8 +216,22 @@ is where the `?? fallback` for a value the type system cannot rule out lives —
 skip reason the core added and this layer has no wording for, a filesystem error
 that is not an `Error`, a `Record` lookup the compiler cannot prove total.
 Twenty-six branches in the layer are unreached: sixteen outside `run.ts` and ten
-inside it, of which five are the signal path and five are that same defensive
-shape.
+inside it. The earlier version of this sentence divided the ten into "five the
+signal path and five that same defensive shape", and it put three files in the
+wrong column. Counted from `coverage-final.json` rather than from a reading of
+the source, the ten are **five, three and two**:
+
+| in `src/cli/run.ts`                                        | branches | what it is                                            |
+| ----------------------------------------------------------- | -------: | ------------------------------------------------------ |
+| `onSignal` (line 400), the gate at line 639, `endBySignal`'s `128 + (signalNumbers.signals[signal] ?? 0)` (line 678) |        5 | the signal path                                        |
+| `...(config.exclude === undefined ? {} : {…})` at 271, and the same shape at 439 and 574 |        3 | input cases no test declares                            |
+| `check.coverage?.(context) ?? []` at 511, and `cause instanceof Error ? … : String(cause)` at 597 |        2 | the defensive shape                                    |
+
+The three in the middle row are the shape the paragraph below separates from the
+defensive one — a spread that is present or absent according to what the
+configuration said, not a fallback for something that cannot happen. Calling
+them defensive was the same error, made twice in the same passage, and the
+review of 23 August 2026 found it.
 
 **Of the sixteen outside `run.ts`, fourteen are of that shape and two are not.**
 The two are input cases no test declares rather than fallbacks nothing can
@@ -308,6 +322,160 @@ is also the honest boundary of the first: **what it reads is the file, not the
 resolved configuration**, so a `--coverage.*` flag or a `VITEST_*` environment
 variable is outside it.
 
+### The gate runs the run, so there is no second command to delete
+
+A fourth review, on the tree the amendment above was committed from, found the
+two halves held together by a **script string**:
+
+```
+"test:coverage": "node tools/coverage-gate.mjs --clean && vitest run --coverage && node tools/coverage-gate.mjs"
+```
+
+and the case that kept them together asking that string for two substrings —
+`tools/coverage-gate.mjs` and `--clean`. **The first of the three commands
+satisfies both.** Delete `&& node tools/coverage-gate.mjs` and all 25 tests of
+`tests/invariants/coverage-gate.test.ts` stay green, `pnpm run check` exits 0,
+and the half that reads what the run measured never runs again. This is the same
+defect as the one this ADR was written about, one level up: a guard that reads a
+description has to answer for everything the description can express, and
+`toContain` answers for a substring.
+
+Reading the string better is available — split it on `&&`, refuse the other
+separators, and require the exact sequence — and it is done, because it fails
+with a clear message. But it is still a reading of a description. The seam that
+is not:
+
+**`pnpm run test:coverage` is `node tools/coverage-gate.mjs`, one command, and
+that module starts vitest.** It clears the previous summary, spawns
+`process.execPath` with vitest's own entry point and `--coverage`, hands on any
+extra arguments, propagates the exit code, and then — only if vitest succeeded,
+because vitest writes no coverage report for a failing run — reads the summary
+and answers for it. There is no second command to lose.
+
+**And vitest loads the same module as a `globalSetup`, which refuses a coverage
+run the gate did not start.** The module puts a fresh uuid in
+`BARBICAN_COVERAGE_GATE` for the child; `setup` looks for it and, when the run
+is measuring coverage and the variable is absent, throws before the first test.
+That is the wiring checked as an **effect**: not what the script says, but
+whether this very process is one whose summary will be read. A test asserting a
+script string cannot tell those apart.
+
+Two arrangements were tried and rejected, both by measurement rather than by
+argument:
+
+- **The outcome half as a `globalSetup` teardown.** A teardown does run after the
+  summary is written — measured on vitest 4.1.10, `existsSync` says true and the
+  mtime is this run's. But a throw there prints `error during close` and **the
+  process exits 0**. A gate that fails by exiting 0 is the thing this file exists
+  about.
+- **An artifact for this run, checked by a test.** The obvious shape — the gate
+  writes a receipt, a test asserts the receipt belongs to this run — cannot work
+  from inside the run: the receipt is written after the last test. The variants
+  that do work are cross-run (a pending marker the *next* run refuses to start
+  over), and they fail on a fresh checkout, where CI lives, and they turn an
+  interrupted run into a broken tree. Being inside the run is the only same-run
+  answer, and that is what `setup` is.
+
+The cost is that `pnpm exec vitest run --coverage` by hand is refused, with a
+message saying to use `pnpm run test:coverage`. That is the intended reading:
+there is no ungated coverage run. `pnpm run test` is untouched — it measures
+nothing and needs no gate.
+
+### What the package ships is what the compiler compiles
+
+`shippedSources` took `endsWith(".ts")` and `coverage.include` says
+`src/**/*.ts`, and **neither of those reads `.mts` or `.cts`**: the last three
+characters of `leak.mts` are `mts`, and picomatch wants the dot in `*.ts` as
+literally as `endsWith` does. TypeScript compiles both extensions, so this is a
+file a person adds without doing anything unusual.
+
+Demonstrated rather than reasoned about. `src/core/leak.mts` with an uncovered
+branch, imported for its side effect from `src/core/keys.ts`:
+`pnpm exec tsc -p tsconfig.build.json --listFiles` puts it in the program,
+`pnpm run build` emits `dist/core/leak.mjs`, `files` ships `dist` — and
+`pnpm run test:coverage` exited **0** with the same `3025/3080` statements as the
+run before it and the words "every module the package ships was measured".
+
+So the extensions are a list, `MEASURED_EXTENSIONS`, and anything else under
+`src/` is **refused by name** rather than skipped — the allowlist argument again,
+one directory down. Names beginning with a dot are the one exception and not a
+guessed one: `tsc --listFilesOnly` does not put `src/.hidden.ts` in the program
+either, which was checked.
+
+The list is an approximation of a definition that already exists, and the
+definition is asked directly: `tests/invariants/coverage-gate.test.ts` runs
+`tsc -p tsconfig.build.json --listFilesOnly` — a tenth of a second — and holds
+its output under `src/`, declaration files removed, to exactly what
+`shippedSources` returns. That is the binding that makes this more than a better
+guess: the compiler sees the file an `include` pattern misses but an import pulls
+in, which is precisely how `leak.mts` shipped.
+
+The patterns are not widened to cover the new extensions. There is no `.mts` or
+`.cts` under `src/` today, and the day there is, the gate names it twice — no
+`include` matches it, no threshold gates it — and somebody writes the two lines.
+That is the decision being taken rather than a module joining the package
+unmeasured.
+
+### A global threshold is a gate, and this guard said it was not
+
+The message refusing a non-object at the top level of `thresholds` said:
+
+> A global threshold applies only to files no glob matched, and every file here
+> is matched by one, so it would gate nothing.
+
+**That is false.** Vitest 4's documentation: "Unlike Jest, Vitest counts all
+files, including those covered by glob-patterns, into the global coverage
+thresholds." Its `resolveThresholds` builds the global map with the comment
+"Global threshold is for all files, even if they are included by glob patterns".
+Measured on vitest 4.1.10 with a tree where one glob matches every file:
+`ERROR: Coverage for statements (66.66%) does not meet global threshold
+(99.999%)`.
+
+The sentence was protecting the refusal of a global, and the refusal was right
+for the wrong reason — which meant the next person to check would have deleted
+both. So the guard treats a global as what it is:
+
+- **held to `PROJECT_FLOOR`**, with the same `ALLOWANCES` mechanism as any group,
+  keyed by `(global)`. A global below the floor is a written claim about the
+  whole package weaker than the one this project makes;
+- **not permitted to answer for a file.** This is the dilution. A global is the
+  single overall figure the per-directory groups exist to refuse — a fully
+  covered core masking a drop in another layer — and if it counted towards
+  "every file is gated by something", the five groups could be deleted under it
+  with the question still answering yes. The final loop reads the glob keys and
+  nothing else;
+- and everything at that level that is neither a metric name nor a readable
+  pattern — `autoUpdate`, `perFile`, `100` — is still refused by name, now with a
+  reason that is true.
+
+A global would also duplicate what the outcome half already does: the four
+totals are held to the floor from outside the configuration. Nothing is added to
+`vitest.config.ts`; what changed is what the guard would allow and what it says.
+
+### The mutations of the second amendment
+
+The three holes above, plus the ways round the first guard re-attempted against
+the second. Twelve applied, each through a harness that counts the needle before
+it edits anything and refuses when the count is not the intended one — shown
+first on a deliberately wrong needle, which was refused before anything ran —
+and each restored from a byte copy whose digest is compared after the run.
+
+| mutation                                                            | result                                    |
+| --------------------------------------------------------------------- | ------------------------------------------- |
+| a deliberately wrong needle                                            | refused: 0 applications, not 1; nothing edited and nothing run |
+| `test:coverage` changed to `vitest run --coverage`                     | 1 red                                       |
+| the same, run through the script itself                                | exit 1 before the first test, from `setup`  |
+| `globalSetup` deleted from `vitest.config.ts`                          | 1 red                                       |
+| both of those in one edit                                              | 2 red                                       |
+| the `setup` export renamed                                             | the suite does not start: `invalid globalSetup file` |
+| the refusal inside `setup` made a no-op                                | 2 red                                       |
+| `src/core/leak.mts` imported by `src/core/keys.ts`                     | 1 red, 2 faults                             |
+| `MEASURED_EXTENSIONS` put back to `[".ts"]`                            | 2 red                                       |
+| a global threshold of 10 on all four metrics                           | 2 red, naming all four                      |
+| `src/core/**/*.ts` replaced by a global at the floor                   | 1 red, 18 faults — every non-barrel file under `src/core/` |
+| `coverage.exclude: ["src/cli/**"]`                                     | 2 red                                       |
+| a blanket `src/**/*.ts` at 10                                          | 2 red                                       |
+
 ## Alternatives
 
 **Add `src/cli/**/*.ts` to the list and stop there.** The literal instruction, and
@@ -356,9 +524,16 @@ right. The rest was taken from a run somewhere before the last commit of that
 pass and never re-counted, which is the same shape of defect as everything else
 this amendment corrects, one turn of the wheel later.
 
-On the tree this amendment is committed from: 3 025/3 080 statements,
+On the tree that amendment was committed from: 3 025/3 080 statements,
 2 121/2 241 branches, 631/640 functions, 2 945/2 998 lines over 65 files;
 115 test files, 1 733 passing, 1 skipped.
+
+**The second amendment changes no number under `src/`** and it says so having
+re-measured rather than having reasoned: nothing it touches is a source file.
+On the tree it is committed from, the same 3 025/3 080 statements,
+2 121/2 241 branches, 631/640 functions and 2 945/2 998 lines over 65 files —
+and 118 test files, 1 791 passing, 1 skipped. `coverage-gate.test.ts` goes from
+25 cases to 41: the wiring, the extensions and the global threshold.
 
 **`tests/cli/` is a directory now**, alongside the two entry-point suites that
 already existed and stay where they are: `tests/cli.test.ts` (what the operator's
@@ -447,14 +622,53 @@ from it:
    is a module every line of which ran during the suite. Nothing here says a
    test looked at what it did. The mutation tables are the only evidence in this
    ADR that goes further, and they cover the cases somebody thought of.
-6. **The evidence can be missing rather than wrong.** Vitest does not write a
-   coverage report when a test fails (`reportOnFailure` is false by default), so
-   after a red run the outcome half finds no summary. It fails saying so, which
-   is the right answer, but it means the two halves are not independent
-   observers of the same run: the second only ever sees a run the first agreed
-   with.
+6. **The two halves are not independent observers of the same run.** Vitest
+   writes no coverage report when a test fails (`reportOnFailure` is false by
+   default), so the outcome half is only ever asked about a run the first half
+   agreed with: on a red run the gate returns vitest's exit code and reads
+   nothing. That is the right answer — the failure a reader needs is the test's,
+   not a missing summary — and it is also the boundary.
 7. **`all: false` was never a bypass.** It is refused because the reason it is
    harmless is a fact about vitest 4 and not about the option's name. If a
    future version reintroduces something like it, this guard refuses it until
    somebody adds it to `KNOWN_COVERAGE_OPTIONS` — and that somebody is who the
    guard depends on.
+8. **`setup` asks about the environment, and an environment can be arranged.**
+   `BARBICAN_COVERAGE_GATE=1` exported in a shell profile satisfies it, and so
+   would a wrapper that sets it. This is a guard against the edit somebody makes
+   in passing — a script rewritten, a step in CI simplified — and not against
+   somebody who has decided to run coverage without the gate. Making it more
+   than that would mean the child proving something about its parent, which on a
+   machine where the parent is arbitrary is not a thing a test can do.
+9. **The seam is in `vitest.config.ts`, and that file can be edited too.**
+   Deleting the `globalSetup` line is refused by a test that reads the file —
+   which is limit 1 again, in another place: `--config` pointing somewhere else,
+   or a `VITEST_*` variable, is outside every one of these. What has changed is
+   the number of edits it takes and how loudly each one fails, not that the door
+   has no hinges. One of those edits was measured, and the first reading of the
+   measurement was wrong: renaming the `setup` export looked as though vitest
+   accepted a `globalSetup` module exporting nothing usable, because the run it
+   was tried on matched no test file and vitest exits before initialising
+   `globalSetup` when there is nothing to run. Against a run with test files it
+   says `invalid globalSetup file … Must export setup, teardown or have a
+   default export` and the suite does not start. **A filtered run that matches
+   no test file therefore skips this seam entirely** — and runs no tests either,
+   which is why that is a note and not a hole.
+10. **"What the package ships" is bound to one build.** The compiler is asked
+    about `tsconfig.build.json`, which is the build `pnpm run build` runs and the
+    tarball carries. A second build, a bundler, or an entry added to `files`
+    would each make it a different question, and nothing here would notice.
+    Declaration files are excluded by name because they emit nothing; that is a
+    fact about TypeScript today, checked nowhere. And the two lists can disagree
+    in the harmless direction as well as the dangerous one: an **orphan** `.mts`,
+    which the walk lists and the compiler does not compile because no `include`
+    pattern matches it and nothing imports it, fails this case too. The failure
+    says so, and the answer is to import the file or delete it — an unreferenced
+    module under `src/` is not something to leave lying there either way.
+11. **The script is still read as text, in addition.** `commandsOf` splits on
+    `&&` and refuses the separators it cannot reason about, which is a better
+    reading than `toContain` and is still a reading. What backs it is the effect
+    — and the effect covers coverage runs only. A CI step quietly changed from
+    `pnpm run test:coverage` to `pnpm run test` takes coverage off the machine
+    that runs Windows and three versions of node, and what catches that is an
+    assertion that reads `ci.yml`: a file read, with a file read's limits.
