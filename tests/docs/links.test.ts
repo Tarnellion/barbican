@@ -134,41 +134,94 @@ function relativeLinks(repoPath: string): readonly string[] {
  * about matrix discrepancies answering for a clause, when the sentence was about
  * a catalogue of clauses. The link was the one place the two numbers could be
  * compared, and nothing compared them.
+ *
+ * What follows is the population: any inline link, with the label and everything
+ * the parentheses hold.
+ *
+ * The population is a **link**, and the label is the thing on trial. The first
+ * version of this gate collected with `[ADR-NNNN](target)`, which put the
+ * accused in charge of the arrest: a label spelled any other way was never
+ * collected, so it could not be judged, and the file said in the same breath
+ * that nothing here is passed over. Adversarial review of 23 August 2026 walked
+ * through with emphasis marks, a code span, a lower-case prefix, a word in front
+ * of the number, a space instead of the hyphen, an unpadded number, a gloss
+ * after the colon, a link title and the bare filename as the label — nine
+ * shapes, all of them ordinary markdown, all of them invisible.
  */
-const ADR_LINK = /\[ADR-(\d{4})\]\(([^)\s]+)\)/g;
+const INLINE_LINK = /\[([^\]]*)\]\(([^)]*)\)/g;
 
 /** The number a target carries: the last path segment, `NNNN-` and a name. */
 const ADR_TARGET = /(?:^|\/)(\d{4})-[^/]*\.md$/;
 
+/**
+ * An ADR number claimed inside a label, wherever in it and however spelled.
+ *
+ * Anchored on the word so that "quadratic" cannot start one, and separated by at
+ * most three characters of dash, space, underscore, dot or colon — which covers
+ * `ADR-0043`, `ADR 43`, `ADR_0043` and an en dash, and stops well short of
+ * matching a number that merely follows the word somewhere in a sentence.
+ * Two to four digits: a run of five is not an ADR number, and `43` is compared
+ * padded, so an unpadded label is judged rather than excused.
+ */
+const LABEL_CLAIM = /\badr[\s\p{Pd}_.:]{0,3}(\d{2,4})\b/giu;
+
+/** Emphasis and code marks around a label, which say nothing about its number. */
+const LABEL_MARKUP = /[*_`~]/g;
+
+/** A label that is the ADR's filename, which claims a number without saying "ADR". */
+const FILENAME_LABEL = /^(\d{4})-/;
+
 interface AdrLink {
   readonly line: number;
   readonly text: string;
-  readonly label: string;
+  /** Every ADR number the label claims, four digits each. Usually one; often none. */
+  readonly claims: readonly string[];
   /** The number in the filename, or `undefined` when this gate cannot read one. */
   readonly document: string | undefined;
 }
 
+/** What a link actually opens: the address, without a title or an anchor. */
+function targetIn(inside: string): string {
+  const address = inside.trim().split(/\s+/)[0] ?? "";
+  return (address.replace(/^</, "").replace(/>$/, "").split("#")[0] ?? "").trim();
+}
+
 /**
- * Every ADR link in one text, label and document number side by side.
+ * Every ADR number a label claims, padded to four digits.
+ *
+ * The filename form is only read when the target is an ADR document, so that a
+ * label like `2020-2024` on a link to something else cannot be dragged in here
+ * as a claim about ADR 2020.
+ */
+function claimsIn(label: string, document: string | undefined): readonly string[] {
+  const plain = label.replace(LABEL_MARKUP, "").trim();
+  const claims = [...plain.matchAll(LABEL_CLAIM)].map((match) => (match[1] ?? "").padStart(4, "0"));
+  const filename = document === undefined ? null : FILENAME_LABEL.exec(plain)?.[1];
+  return filename === undefined || filename === null ? claims : [...claims, filename];
+}
+
+/**
+ * Every link that names an ADR — in its label, in its target, or in both.
  *
  * A function over a string rather than over a path, so that the assertions below
  * can put a wrong label to it without one existing in the repository — and, more
  * to the point, without one existing **in this file**, which git tracks and the
  * scan reads like any other. `language.test.ts` next door learnt that the hard
  * way: it flagged its own source, and only after the commit that made it
- * visible to itself. The samples are therefore assembled at run time from parts.
+ * visible to itself. The samples are therefore assembled at run time from parts,
+ * on both sides of the link: a label the new grammar cannot read is no longer
+ * enough to keep a sample out of the scan.
  */
 function adrLinks(text: string): readonly AdrLink[] {
   const found: AdrLink[] = [];
   text.split("\n").forEach((line, index) => {
-    for (const match of line.matchAll(ADR_LINK)) {
-      const target = (match[2] ?? "").split("#")[0] ?? "";
-      found.push({
-        line: index + 1,
-        text: match[0],
-        label: match[1] ?? "",
-        document: ADR_TARGET.exec(target)?.[1],
-      });
+    for (const match of line.matchAll(INLINE_LINK)) {
+      const document = ADR_TARGET.exec(targetIn(match[2] ?? ""))?.[1];
+      const claims = claimsIn(match[1] ?? "", document);
+      if (document === undefined && claims.length === 0) {
+        continue;
+      }
+      found.push({ line: index + 1, text: match[0], claims, document });
     }
   });
   return found;
@@ -275,11 +328,25 @@ describe("links in the documentation", () => {
  * is as wrong as a link in a document. There are none in source today, which is
  * a fact about today.
  *
- * This is completely checkable and is therefore checked completely — no sampling,
- * no allowlist, and no link quietly passed over because its target has a shape
- * the gate did not expect. A target it cannot read a number from is a failure of
- * its own below, not a skip: a gate that skips what it does not understand is
- * green about exactly the cases nobody thought of.
+ * What is checked and what is not, said plainly, because the first version of
+ * this block claimed the second half away. Collected: every inline markdown link
+ * whose target is an ADR document, and every inline link whose label claims an
+ * ADR number, whatever the label looks like. Judged: the claims in the label
+ * against the number in the filename. A link to an ADR under a label that names
+ * no number at all — the words "the tenant hierarchy" over a link to
+ * `0013-tenant-hierarchy.md` — is collected and has nothing to judge; there are
+ * none in the repository today.
+ *
+ * Not collected at all, and each of these is a real way past: a reference-style
+ * link, whose target is defined on another line under a shorthand; a raw
+ * `<a href>`; a label carrying a `]` of its own; and an ADR number cited in
+ * prose with no link around it, which is how most of them are cited — 965 of the
+ * 1160 citations in the tree on 23 August 2026 — and is the shortfall no gate
+ * here closes. An address with a bracket in it is half a hole: the label's claim
+ * is still read, so the link fails loudly as a target no number can be read
+ * from, but under a label that claims nothing it goes unrecognised. The
+ * repository holds no link of any of those shapes today; that is a fact about
+ * today and not a property of this gate.
  */
 describe("an ADR link names the document it opens", () => {
   const linksByFile = files
@@ -290,24 +357,24 @@ describe("an ADR link names the document it opens", () => {
 
   it("finds ADR links, rather than agreeing with an empty repository", () => {
     // A check that found nothing is green for the same reason a passing one is.
-    // There were 178 on 23 August 2026, across README, docs/ and the ADRs.
+    // There were 195 on 23 August 2026, across README, docs/ and the ADRs.
     expect(all.length).toBeGreaterThan(100);
   });
 
-  it("can read a number from every target it found", () => {
+  it("can read a number from every target whose label names one", () => {
     const unreadable = all
       .filter(({ link }) => link.document === undefined)
       .map(({ file, link }) => `${file}:${link.line} ${link.text}`);
 
-    // Not a skip list. If this fires, either a link points somewhere new or
-    // `ADR_TARGET` is too narrow — and until one of those is settled the
-    // assertion below is not the total check it claims to be.
+    // Not a skip list. If this fires, either a label names an ADR over a link to
+    // something else or `ADR_TARGET` is too narrow — and until one of those is
+    // settled the assertion below is not the total check it claims to be.
     expect(unreadable).toEqual([]);
   });
 
   it("carries the same number in the label as in the filename", () => {
     const lying = all
-      .filter(({ link }) => link.document !== undefined && link.document !== link.label)
+      .filter(({ link }) => link.claims.some((claim) => claim !== link.document))
       .map(({ file, link }) => `${file}:${link.line} ${link.text}`);
 
     expect(lying).toEqual([]);
@@ -317,24 +384,90 @@ describe("an ADR link names the document it opens", () => {
    * Put to the reader directly, so that "no mismatch in the repository" is a
    * statement about the repository and not about a function that never says yes.
    *
-   * The samples are built from parts on purpose: written out whole they would be
-   * a mismatched ADR link inside a tracked file, and the scan above reads this
-   * file too. The guard would then fail on its own evidence, which is the shape
-   * `language.test.ts` next door was caught in.
+   * The samples are built from parts on purpose, on **both** sides of the link:
+   * written out whole they would be a mismatched ADR link inside a tracked file,
+   * and the scan above reads this file too. Interpolating the label was enough
+   * while the gate collected on the label alone; now that it collects on the
+   * target as well, the filename has to be assembled too, or every sample here
+   * would be a real link to a real ADR under a label this gate cannot read.
    */
-  it("tells a matching label from a lying one", () => {
-    const link = (label: string, document: string): string =>
-      `see [ADR-${label}](adr/${document}-a-catalogue-of-clauses.md)`;
+  const label = (text: string): string => `[${text}]`;
+  const target = (document: string, rest = "-a-catalogue-of-clauses.md"): string =>
+    `(adr/${document}${rest})`;
+  const link = (text: string, document: string, rest?: string): string =>
+    `see ${label(text)}${target(document, rest)}`;
+  const one = (text: string, document: string, rest?: string): AdrLink | undefined =>
+    adrLinks(link(text, document, rest))[0];
 
-    const agreeing = adrLinks(link("0043", "0043"));
+  it("tells a matching label from a lying one", () => {
+    const agreeing = adrLinks(link("ADR-0043", "0043"));
     expect(agreeing).toHaveLength(1);
-    expect(agreeing[0]?.label).toBe("0043");
+    expect(agreeing[0]?.claims).toEqual(["0043"]);
     expect(agreeing[0]?.document).toBe("0043");
 
-    const lying = adrLinks(link("0041", "0043"));
+    const lying = adrLinks(link("ADR-0041", "0043"));
     expect(lying).toHaveLength(1);
-    expect(lying[0]?.label).toBe("0041");
+    expect(lying[0]?.claims).toEqual(["0041"]);
     expect(lying[0]?.document).toBe("0043");
+  });
+
+  /**
+   * The nine shapes the review of 23 August 2026 walked through the old grammar
+   * with, each one an ordinary way to write the same lying link.
+   *
+   * `[ADR-NNNN](target)` was the whole population, so a label spelled any other
+   * way was not collected and therefore not judged — while the file said in its
+   * own header that nothing is passed over. Each of these now reads as a claim
+   * of 0041 over a link to 0043.
+   */
+  it.each([
+    ["emphasis around the label", "**ADR-0041**", undefined],
+    ["a code span around the label", "`ADR-0041`", undefined],
+    ["a word in front of the number", "see ADR-0041", undefined],
+    ["a gloss after the number", "ADR-0041: a catalogue of clauses", undefined],
+    ["a space instead of the hyphen", "ADR 0041", undefined],
+    ["an en dash instead of the hyphen", "ADR–0041", undefined],
+    ["a lower-case prefix", "adr-0041", undefined],
+    ["an unpadded number", "ADR-41", undefined],
+    ["the filename as the label", "0041-a-catalogue-of-clauses.md", undefined],
+  ])("reads a claim of 0041 out of %s", (_shape, text) => {
+    const found = one(text, "0043");
+
+    expect(found?.claims).toEqual(["0041"]);
+    expect(found?.document).toBe("0043");
+  });
+
+  /** A title after the address is not part of the address, and does not hide it. */
+  it("reads a link that carries a title", () => {
+    const found = one("ADR-0041", "0043", `-a-catalogue-of-clauses.md "A catalogue"`);
+
+    expect(found?.claims).toEqual(["0041"]);
+    expect(found?.document).toBe("0043");
+  });
+
+  /**
+   * And the shapes that must **not** be read as a claim, because a gate that
+   * invents one fails on a label that was never lying.
+   */
+  it("reads no claim out of a label that names no number", () => {
+    const found = one("the catalogue of clauses", "0043");
+
+    expect(found?.claims).toEqual([]);
+    expect(found?.document).toBe("0043");
+  });
+
+  it("does not find the word inside another one", () => {
+    // "quadratic" carries the three letters; the anchor is what stops it.
+    const found = one("quadratic, 2023 edition", "0043");
+
+    expect(found?.claims).toEqual([]);
+  });
+
+  it("counts an unpadded label that agrees as agreeing", () => {
+    const found = one("ADR-43", "0043");
+
+    expect(found?.claims).toEqual(["0043"]);
+    expect(found?.document).toBe("0043");
   });
 
   /**
@@ -347,7 +480,7 @@ describe("an ADR link names the document it opens", () => {
    */
   it("reads the number out of an absolute address too", () => {
     const base = "https://github.com/Tarnellion/barbican/blob/main/docs/adr";
-    const found = adrLinks(`([ADR-${"0013"}](${base}/0013-tenant-hierarchy.md))`);
+    const found = adrLinks(`(${label("ADR-0013")}(${base}/${"0013"}-tenant-hierarchy.md))`);
 
     expect(found).toHaveLength(1);
     expect(found[0]?.document).toBe("0013");
@@ -355,9 +488,9 @@ describe("an ADR link names the document it opens", () => {
 
   /** A `#section` on the end is part of the address, not part of the filename. */
   it("is not thrown by an anchor", () => {
-    const found = adrLinks(`[ADR-${"0032"}](adr/0032-the-grammar-sits-at-the-seam.md#decision)`);
+    const found = one("ADR-0032", "0032", "-the-grammar-sits-at-the-seam.md#decision");
 
-    expect(found).toHaveLength(1);
-    expect(found[0]?.document).toBe("0032");
+    expect(found?.document).toBe("0032");
+    expect(found?.claims).toEqual(["0032"]);
   });
 });
