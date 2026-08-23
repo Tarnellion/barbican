@@ -176,31 +176,45 @@ on disk really does either carry the field or not.
 
 ## What was tried against the new gate
 
-A gate nobody has attacked is a gate nobody has tested. Each of these was written
-into the tree, run, and removed.
+A gate nobody has attacked is a gate nobody has tested. Twelve mutations were
+applied to the committed tree, each by a harness that refuses to run anything
+unless every replacement landed the number of times it was declared to land — a
+mutation that did not apply is a green run that proves nothing — and each was
+restored from a byte copy taken before the edit. Each mutation was formatted
+first, the way anybody landing the change would, so that the question is the gate
+and not the indentation.
 
-1. **The reviewer's rename, again.** `keyOfCell` in `src/report/compare.ts`,
-   importing the constant. Fails at the compiler now — there is no export to
-   import — and, with the import replaced by `joinKey`, fails the caller list.
-2. **Another spelling.** `const SEPARATOR = "\x00"` in `src/report/compare.ts`.
-   Fails: the escape decodes to the same character.
-3. **A third spelling, in a form the old gate could not have had a pattern for.**
-   `"\u{0}"`. Fails, for the same reason and without a second pattern.
-4. **The character built rather than written.** `String.fromCharCode(0)`. Fails on
-   the one enumerated needle.
-5. **A fourth copy of the grammar.** `/\{[^}]+\}/` back in
-   `src/runner/address.ts`. Fails the brace table.
-6. **A second spelling inside the owner.** A `{name}` expression added to
-   `path-parameters.ts` itself. Fails both the count and the exact-source
-   assertion.
-7. **The gate defeated by deletion.** The owning module emptied. Fails: the
-   allowance counts are exact in both directions, so the owner must still spell
-   what it owns.
+| # | mutation | caught by |
+| --- | --- | --- |
+| 1 | the reviewer's `keyOfCell` in `compare.ts`, importing `KEY_SEPARATOR` | the compiler: `TS2459 … declares 'KEY_SEPARATOR' locally, but it is not exported` |
+| 2 | the same copy, importing `joinKey` instead | the caller list |
+| 3 | the same copy moved into `findings.ts`, which is already allowed to call `joinKey` | the caller **count** |
+| 4 | a separator of its own, `"\x00"` | the spelling scan |
+| 5 | the same, `"\u{0}"` | the spelling scan |
+| 6 | the same, `"\0"` | the spelling scan |
+| 7 | the same, `String.fromCharCode(0)` | the one enumerated needle |
+| 8 | `KEY_SEPARATOR` exported again | the export check on the module |
+| 9 | a fourth copy of the grammar in `src/runner/address.ts`, used and unexported | the brace table |
+| 10 | a second `{name}` expression inside the owning module | the brace count, and the exact-source assertion |
+| 11 | the owning module's expression assembled out of pieces, so that it spells nothing | both of the same two, from the other side: the counts are exact in both directions |
+| 12 | the raw NUL byte put back into ADR-0057 | the repository-wide byte scan |
 
-Each was applied to the committed tree by a harness that refuses to run the suite
-unless the replacement landed the intended number of times — a mutation that did
-not apply is a green run that proves nothing — and each was restored from a byte
-copy afterwards.
+Mutation 1 does not compile, which is the seam rather than the scan. Mutations 2
+to 12 pass `pnpm run lint` and `pnpm run typecheck` untouched, and only the gate
+fails. For 2 and 9 the whole of `pnpm run check` was run,
+and it comes back `Tests  1 failed | 1558 passed | 1 skipped` — exactly one test,
+this one. That is the property being claimed: the reviewer's copy is
+behaviour-identical, every other test agrees with it, and the gate is the only
+thing in the tree that says no.
+
+A thirteenth mutation names a needle no file contains. The harness prints
+
+> REFUSED. The needle was expected 1 time(s) in `src/report/compare.ts` and is
+> there 0. Nothing was run: a mutation that did not apply is a green run that
+> proves nothing.
+
+and restores the files without running a suite, which is what stops a harness
+from reporting a gate as effective when it never mutated anything.
 
 ## Alternatives
 
