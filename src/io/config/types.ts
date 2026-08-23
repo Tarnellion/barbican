@@ -139,13 +139,6 @@ export interface RunConfig {
 }
 
 /**
- * The declared request conditions.
- *
- * The attributes — headers and query parameters — live here rather than in the
- * core: the core knows nothing about HTTP and must not, the `contextId` label is
- * enough for it.
- */
-/**
  * The value of an attribute: either a string or a reference to an environment
  * variable.
  *
@@ -154,6 +147,13 @@ export interface RunConfig {
  */
 export type ContextAttributeValue = string | { readonly env: string };
 
+/**
+ * The declared request conditions.
+ *
+ * The attributes — headers and query parameters — live here rather than in the
+ * core: the core knows nothing about HTTP and must not, the `contextId` label is
+ * enough for it.
+ */
 export interface RequestContextConfig {
   readonly id: string;
   readonly description?: string | undefined;

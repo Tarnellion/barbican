@@ -107,11 +107,6 @@ describe("the public surface", () => {
   });
 
   /**
-   * And the specific name the finding was about, asserted through a real import
-   * rather than by reading the source: what a consumer gets is the module, not
-   * the text of the re-export.
-   */
-  /**
    * And the document that names the entry points names real ones.
    *
    * 266 exported names and five of them anywhere in the documentation, all five
@@ -139,6 +134,11 @@ describe("the public surface", () => {
     expect(missing).toEqual([]);
   });
 
+  /**
+   * And the specific name the finding was about, asserted through a real import
+   * rather than by reading the source: what a consumer gets is the module, not
+   * the text of the re-export.
+   */
   it("lets a consumer build a signal extractor and name its type", () => {
     expect(typeof api.createSignalExtractor).toBe("function");
     expect(typeof api.parseSignalPath).toBe("function");

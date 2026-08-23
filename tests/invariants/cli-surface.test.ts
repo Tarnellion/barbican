@@ -353,27 +353,11 @@ describe("a mistake on the command line", () => {
   }, 30_000);
 });
 
+const onPosix = process.platform === "win32" ? describe.skip : describe;
+const onWindows = process.platform === "win32" ? describe : describe.skip;
+
 /**
- * A signal ends the run at 130 or 143, and leaves behind what the run had.
- *
- * Nothing in `src/` mentioned SIGINT until 21 August 2026: 130 was node's
- * default behaviour, which is the correct **status** and also the kind that
- * disappears the first time someone adds a handler to "shut down gracefully".
- * That half is unchanged and still checked here, from out here, because a
- * process killed by a signal has no exit code to read from inside itself.
- *
- * What changed is the other half. This test used to assert that an interrupted
- * run leaves an empty directory, and that was the right assertion while nothing
- * reached disk before the last response: a half-written report is worse than
- * none. It is the wrong assertion now. The traffic a run spends against somebody
- * else's deployment is the expensive part of it and may not be spendable twice
- * inside an agreed window, so an interrupted run leaves a report that says the
- * tail was never probed, and a stream another run can continue from. See
- * ADR-0047. What must still never be there is `.partial` — a report caught
- * mid-write, which the rename exists to make impossible.
- */
-/**
- * Windows is a different question, not a weaker answer to this one.
+ * Windows is a different question, not a weaker answer to the one below.
  *
  * `subprocess.kill("SIGINT")` there does not deliver a signal — POSIX signals do
  * not exist, and node maps the call onto `TerminateProcess`, which ends the
@@ -388,9 +372,6 @@ describe("a mistake on the command line", () => {
  * it had walked, and `--resume` still has something to continue from. That is
  * the assertion below, and it is the reason the stream exists at all.
  */
-const onPosix = process.platform === "win32" ? describe.skip : describe;
-const onWindows = process.platform === "win32" ? describe : describe.skip;
-
 onWindows("a run killed outright, where no handler can run", () => {
   it("still leaves the cells the walk had reached", async () => {
     const reportDir = await mkdtemp(join(tmpdir(), "barbican-cli-killed-"));
@@ -427,6 +408,25 @@ onWindows("a run killed outright, where no handler can run", () => {
   });
 });
 
+/**
+ * A signal ends the run at 130 or 143, and leaves behind what the run had.
+ *
+ * Nothing in `src/` mentioned SIGINT until 21 August 2026: 130 was node's
+ * default behaviour, which is the correct **status** and also the kind that
+ * disappears the first time someone adds a handler to "shut down gracefully".
+ * That half is unchanged and still checked here, from out here, because a
+ * process killed by a signal has no exit code to read from inside itself.
+ *
+ * What changed is the other half. This test used to assert that an interrupted
+ * run leaves an empty directory, and that was the right assertion while nothing
+ * reached disk before the last response: a half-written report is worse than
+ * none. It is the wrong assertion now. The traffic a run spends against somebody
+ * else's deployment is the expensive part of it and may not be spendable twice
+ * inside an agreed window, so an interrupted run leaves a report that says the
+ * tail was never probed, and a stream another run can continue from. See
+ * ADR-0047. What must still never be there is `.partial` — a report caught
+ * mid-write, which the rename exists to make impossible.
+ */
 onPosix("an interrupted run", () => {
   /** The files a run leaves in the directory it was given, minus the report itself. */
   const besides = (files: readonly string[]): readonly string[] =>

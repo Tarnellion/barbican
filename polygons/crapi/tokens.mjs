@@ -31,14 +31,6 @@ function user(id, email, secret, tokenEnv) {
 }
 
 /**
- * Who is logged in.
- *
- * The variable names must match `tokenEnv` in `barbican.run.yaml`: once they
- * diverged, they would give a run without a single token, that is, a solid wall of
- * 401s, and a solid wall of denials agrees with the policy and looks like a clean
- * report.
- */
-/**
  * The passwords of the deployment's pre-seeded users.
  *
  * These are not secrets: the values are published in crAPI itself as seed constants,
@@ -55,6 +47,14 @@ function secretOf(name, published) {
   return process.env[`CRAPI_PASSWORD_${name.toUpperCase()}`] ?? published;
 }
 
+/**
+ * Who is logged in.
+ *
+ * The variable names must match `tokenEnv` in `barbican.run.yaml`: once they
+ * diverged, they would give a run without a single token, that is, a solid wall of
+ * 401s, and a solid wall of denials agrees with the policy and looks like a clean
+ * report.
+ */
 export const USERS = [
   user("adam", "adam007@example.com", secretOf("adam", "adam007!123"), "CRAPI_TOKEN_ADAM"),
   user("pogba", "pogba006@example.com", secretOf("pogba", "pogba006!123"), "CRAPI_TOKEN_POGBA"),

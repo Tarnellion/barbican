@@ -98,7 +98,7 @@ A standard whose numbering may not be published goes in through
 `StandardCatalog.register(definition)`, from a source outside this repository and
 beside the private checks that cite it. Both functions then hold it to exactly
 the same terms as the bundled three. See
-[ADR-0041](adr/0043-a-catalogue-of-clauses.md).
+[ADR-0043](adr/0043-a-catalogue-of-clauses.md).
 
 `clauseCoverage({ cells, checksRun, reservations })` is the other direction, and
 `report.coverage.clauses` is what a run puts there: one row per clause either

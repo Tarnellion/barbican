@@ -113,6 +113,70 @@ function relativeLinks(repoPath: string): readonly string[] {
     .filter((target) => target !== "" && !/^(https?:|mailto:)/.test(target));
 }
 
+/**
+ * A link that names an ADR by number, and the document it actually opens.
+ *
+ * Both halves carry the number, and the guard above compares neither of them: it
+ * asks only whether the target exists, so a label naming one decision over a link
+ * to another is green. `docs/library.md` labelled the catalogue-of-clauses ADR
+ * `ADR-0041` while linking `0043-a-catalogue-of-clauses.md`, and `README.md`
+ * labelled `ADR-0044` while linking `0045-a-consented-run-says-who-it-is.md`;
+ * both opened the right document under the wrong name.
+ *
+ * Neither example is spelled here as a link, deliberately. This file is tracked
+ * and the scan below reads it, so a mismatched link written out in prose would
+ * be a real finding about a real file — the gate failing on its own evidence.
+ *
+ * That is worse here than a dead link. An ADR number is working currency in this
+ * repository — comments cite one, commit messages cite one, `CLAUDE.md` cites
+ * nine — and none of those citations is a link anything can follow. A reader who
+ * takes "ADR-0041" from a sentence and goes looking for it lands on a decision
+ * about matrix discrepancies answering for a clause, when the sentence was about
+ * a catalogue of clauses. The link was the one place the two numbers could be
+ * compared, and nothing compared them.
+ */
+const ADR_LINK = /\[ADR-(\d{4})\]\(([^)\s]+)\)/g;
+
+/** The number a target carries: the last path segment, `NNNN-` and a name. */
+const ADR_TARGET = /(?:^|\/)(\d{4})-[^/]*\.md$/;
+
+interface AdrLink {
+  readonly line: number;
+  readonly text: string;
+  readonly label: string;
+  /** The number in the filename, or `undefined` when this gate cannot read one. */
+  readonly document: string | undefined;
+}
+
+/**
+ * Every ADR link in one text, label and document number side by side.
+ *
+ * A function over a string rather than over a path, so that the assertions below
+ * can put a wrong label to it without one existing in the repository — and, more
+ * to the point, without one existing **in this file**, which git tracks and the
+ * scan reads like any other. `language.test.ts` next door learnt that the hard
+ * way: it flagged its own source, and only after the commit that made it
+ * visible to itself. The samples are therefore assembled at run time from parts.
+ */
+function adrLinks(text: string): readonly AdrLink[] {
+  const found: AdrLink[] = [];
+  text.split("\n").forEach((line, index) => {
+    for (const match of line.matchAll(ADR_LINK)) {
+      const target = (match[2] ?? "").split("#")[0] ?? "";
+      found.push({
+        line: index + 1,
+        text: match[0],
+        label: match[1] ?? "",
+        document: ADR_TARGET.exec(target)?.[1],
+      });
+    }
+  });
+  return found;
+}
+
+/** Binary files carry no links; reading them as text proves nothing. */
+const BINARY = /\.(png|jpg|jpeg|gif|ico|pdf|woff2?|zip|gz)$/i;
+
 const files = trackedFiles();
 const tracked = trackedPaths(files);
 const documents = files.filter((one) => one.endsWith(".md"));
@@ -200,5 +264,100 @@ describe("links in the documentation", () => {
     }
 
     expect(dead).toEqual([]);
+  });
+});
+
+/**
+ * An ADR link names the ADR it opens.
+ *
+ * Every tracked file, and not only the markdown ones: the rule is about a number
+ * that is currency everywhere in this repository, and a link in a source comment
+ * is as wrong as a link in a document. There are none in source today, which is
+ * a fact about today.
+ *
+ * This is completely checkable and is therefore checked completely — no sampling,
+ * no allowlist, and no link quietly passed over because its target has a shape
+ * the gate did not expect. A target it cannot read a number from is a failure of
+ * its own below, not a skip: a gate that skips what it does not understand is
+ * green about exactly the cases nobody thought of.
+ */
+describe("an ADR link names the document it opens", () => {
+  const linksByFile = files
+    .filter((one) => !BINARY.test(one))
+    .map((one) => ({ file: one, links: adrLinks(readFileSync(join(ROOT, one), "utf8")) }))
+    .filter((one) => one.links.length > 0);
+  const all = linksByFile.flatMap((one) => one.links.map((link) => ({ file: one.file, link })));
+
+  it("finds ADR links, rather than agreeing with an empty repository", () => {
+    // A check that found nothing is green for the same reason a passing one is.
+    // There were 178 on 23 August 2026, across README, docs/ and the ADRs.
+    expect(all.length).toBeGreaterThan(100);
+  });
+
+  it("can read a number from every target it found", () => {
+    const unreadable = all
+      .filter(({ link }) => link.document === undefined)
+      .map(({ file, link }) => `${file}:${link.line} ${link.text}`);
+
+    // Not a skip list. If this fires, either a link points somewhere new or
+    // `ADR_TARGET` is too narrow — and until one of those is settled the
+    // assertion below is not the total check it claims to be.
+    expect(unreadable).toEqual([]);
+  });
+
+  it("carries the same number in the label as in the filename", () => {
+    const lying = all
+      .filter(({ link }) => link.document !== undefined && link.document !== link.label)
+      .map(({ file, link }) => `${file}:${link.line} ${link.text}`);
+
+    expect(lying).toEqual([]);
+  });
+
+  /**
+   * Put to the reader directly, so that "no mismatch in the repository" is a
+   * statement about the repository and not about a function that never says yes.
+   *
+   * The samples are built from parts on purpose: written out whole they would be
+   * a mismatched ADR link inside a tracked file, and the scan above reads this
+   * file too. The guard would then fail on its own evidence, which is the shape
+   * `language.test.ts` next door was caught in.
+   */
+  it("tells a matching label from a lying one", () => {
+    const link = (label: string, document: string): string =>
+      `see [ADR-${label}](adr/${document}-a-catalogue-of-clauses.md)`;
+
+    const agreeing = adrLinks(link("0043", "0043"));
+    expect(agreeing).toHaveLength(1);
+    expect(agreeing[0]?.label).toBe("0043");
+    expect(agreeing[0]?.document).toBe("0043");
+
+    const lying = adrLinks(link("0041", "0043"));
+    expect(lying).toHaveLength(1);
+    expect(lying[0]?.label).toBe("0041");
+    expect(lying[0]?.document).toBe("0043");
+  });
+
+  /**
+   * An absolute address on GitHub is read the same way as a relative one.
+   *
+   * Half the ADR links in `docs/guide.md` and `docs/report.md` are absolute —
+   * that is the fix the shipped-links assertion above asks for — so a gate that
+   * only understood `adr/NNNN-….md` would be silent on exactly the documents a
+   * reader who installed the package gets.
+   */
+  it("reads the number out of an absolute address too", () => {
+    const base = "https://github.com/Tarnellion/barbican/blob/main/docs/adr";
+    const found = adrLinks(`([ADR-${"0013"}](${base}/0013-tenant-hierarchy.md))`);
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.document).toBe("0013");
+  });
+
+  /** A `#section` on the end is part of the address, not part of the filename. */
+  it("is not thrown by an anchor", () => {
+    const found = adrLinks(`[ADR-${"0032"}](adr/0032-the-grammar-sits-at-the-seam.md#decision)`);
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.document).toBe("0032");
   });
 });

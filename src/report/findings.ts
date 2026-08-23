@@ -82,12 +82,6 @@ export function countBySeverity(
 }
 
 /**
- * Attaches to every finding the request that produced it.
- *
- * Joined on the triple 'account × endpoint × resource' — the same key a cell is
- * identified by everywhere in the project.
- */
-/**
  * The key of a matrix cell: account, endpoint, resource.
  *
  * Written out by hand in five places, and the sixth had to agree with all five
@@ -102,6 +96,12 @@ function cellKey(of: {
   return `${of.accountId}\u0000${of.endpointId}\u0000${of.resourceId ?? ""}`;
 }
 
+/**
+ * Attaches to every finding the request that produced it.
+ *
+ * Joined on the triple 'account × endpoint × resource' — the same key a cell is
+ * identified by everywhere in the project.
+ */
 export function mergeFindings(
   diffs: readonly AccessDiff[],
   checks: readonly ResolvedFinding[],

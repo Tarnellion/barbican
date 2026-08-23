@@ -70,11 +70,6 @@ describe("the streamed report", () => {
   });
 
   /**
-   * The reason the function exists: no chunk is the size of the document. A
-   * hand-written serialiser that quietly joined everything before yielding would
-   * pass every assertion above and none of this one.
-   */
-  /**
    * The ceiling this function exists to remove is not removed by yielding in
    * chunks alone: anything that serialises a whole top-level value before the
    * first chunk puts it back. The first version filtered the keys with
@@ -112,6 +107,11 @@ describe("the streamed report", () => {
     expect(serialised).toBe(100);
   });
 
+  /**
+   * The reason the function exists: no chunk is the size of the document. A
+   * hand-written serialiser that quietly joined everything before yielding would
+   * pass every assertion above and none of this one.
+   */
   it("never holds the whole document in one chunk", () => {
     const report = {
       observations: Array.from({ length: 500 }, (_, index) => ({

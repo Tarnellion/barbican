@@ -67,15 +67,6 @@ export class ExcludedCanaryError extends Error {
 }
 
 /**
- * A canary the policy denies for that account's role.
- *
- * Two statements by the same person that cannot both be true. A canary is chosen
- * because the account demonstrably reaches the endpoint — the run stops if it
- * does not — and the policy says the role may not. Left alone, the walk probes
- * the same endpoint, gets the same 200, and files a `privilege-escalation`
- * against a platform that did nothing wrong.
- */
-/**
  * A canary that answers the same to nobody as it does to the account.
  *
  * The fourth road to the state ADR-0033 was written to end, and the only one
@@ -110,6 +101,15 @@ export class UndiscerningCanaryError extends Error {
   }
 }
 
+/**
+ * A canary the policy denies for that account's role.
+ *
+ * Two statements by the same person that cannot both be true. A canary is chosen
+ * because the account demonstrably reaches the endpoint — the run stops if it
+ * does not — and the policy says the role may not. Left alone, the walk probes
+ * the same endpoint, gets the same 200, and files a `privilege-escalation`
+ * against a platform that did nothing wrong.
+ */
 export class DeniedCanaryError extends Error {
   readonly accountId: string;
   readonly endpointId: string;
@@ -183,14 +183,6 @@ export class TemplatedCanaryError extends Error {
   }
 }
 
-/**
- * Checks that the accounts really are authenticated.
- *
- * A canary is an endpoint the account is known to have access to. If it answers
- * with a denial, the token does not work, and there is no point in continuing:
- * the result of such a run looks like "everything is clean", though nothing was
- * checked.
- */
 /**
  * Whether the declared canaries can be probed at all.
  *
@@ -296,6 +288,14 @@ export function assertCanariesUsable(options: {
   }
 }
 
+/**
+ * Checks that the accounts really are authenticated.
+ *
+ * A canary is an endpoint the account is known to have access to. If it answers
+ * with a denial, the token does not work, and there is no point in continuing:
+ * the result of such a run looks like "everything is clean", though nothing was
+ * checked.
+ */
 export async function probeCanaries(options: {
   readonly baseUrl: string;
   readonly endpoints: readonly Endpoint[];

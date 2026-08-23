@@ -292,12 +292,6 @@ export interface CanaryOutcome {
 }
 
 /**
- * A finding with the request attached.
- *
- * The core does not know about addresses and must not — the join happens here,
- * while the report is built, on the triple 'account × endpoint × resource'.
- */
-/**
  * A report finding — one for both means of detection.
  *
  * There used to be two lists: matrix discrepancies along the axes `kind`/
@@ -428,14 +422,6 @@ export interface ReportFinding {
 }
 
 /**
- * The inputs the conclusions rest on.
- *
- * Without them a finding can neither be filed as a ticket nor disputed: every
- * `expected` rests on a policy the report did not carry, and `foreign-tenant` and
- * `ancestor-tenant` rest on a tenant tree the reader had to reconstruct from the
- * pattern of denials.
- */
-/**
  * What to reproduce a finding with.
  *
  * There are no credential headers here and there cannot be: they come from the
@@ -519,6 +505,14 @@ export interface ReportedObservation extends AccessObservation {
  */
 export type ReportedAuthScheme = AuthScheme & { readonly header: string };
 
+/**
+ * The inputs the conclusions rest on.
+ *
+ * Without them a finding can neither be filed as a ticket nor disputed: every
+ * `expected` rests on a policy the report did not carry, and `foreign-tenant` and
+ * `ancestor-tenant` rest on a tenant tree the reader had to reconstruct from the
+ * pattern of denials.
+ */
 export interface RunInputs {
   /** The policy with patterns expanded — exactly the one that gave the verdicts. */
   readonly policy: ResolvedAccessPolicy;

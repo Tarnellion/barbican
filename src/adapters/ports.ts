@@ -3,7 +3,11 @@
  *
  * The core depends on these types, but never on concrete HTTP clients and
  * parsers. Replacing the client or the parser must not touch src/core.
- * The implementations will arrive in session 3.
+ *
+ * The implementations are the rest of `src/adapters/`: `http.ts`, `throttle.ts`,
+ * `signals.ts`, `credentials.ts`, and three `SpecParser`s in `openapi.ts`,
+ * `postman.ts` and `endpoint-list.ts`. This sentence read "the implementations
+ * will arrive in session 3" long after every one of them had.
  */
 
 import type { Endpoint, HttpMethod, SignalSpec, SignalValue } from "../core/types.js";
@@ -95,13 +99,6 @@ export interface CredentialProvider {
 }
 
 /**
- * What the provider knows about the request it issues headers for.
- *
- * There is no body here: the tool does not send them. Once sending appears, a
- * body will be added here, and that will be a decision of its own, not a silent
- * extension.
- */
-/**
  * What the adapters need to know about an account under declared request conditions.
  *
  * The core makes do with the `contextId` label; the headers and query parameters
@@ -113,6 +110,13 @@ export interface ContextAttributes {
   readonly query: Readonly<Record<string, string>>;
 }
 
+/**
+ * What the provider knows about the request it issues headers for.
+ *
+ * There is no body here: the tool does not send them. Once sending appears, a
+ * body will be added here, and that will be a decision of its own, not a silent
+ * extension.
+ */
 export interface SignedRequest {
   readonly method: string;
   /** The full address of the request, with path parameters already substituted. */

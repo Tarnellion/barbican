@@ -256,16 +256,6 @@ export const FORBIDDEN_HEADER_PREFIXES: readonly (readonly [string, string])[] =
 ];
 
 /**
- * The query-string keys that present credentials.
- *
- * A token in the query string means a different account: the platform will serve
- * the request as that account, while the report will write the original
- * `baseAccountId`. Found by adversarial review: an `access_token` in the conditions
- * was served as someone else's account, and a whole half of the matrix went out as
- * somebody other than the one the report named. On top of that the value itself
- * would land in the report in the clear — request addresses are printed there.
- */
-/**
  * Words that name a write, for the check by **value**.
  *
  * Wider than `HttpMethod`: `CONNECT` is not in the domain and a platform
@@ -335,6 +325,16 @@ export const WRITE_METHOD_WORDS: ReadonlySet<string> = new Set([
   "PURGE",
 ]);
 
+/**
+ * The query-string keys that present credentials.
+ *
+ * A token in the query string means a different account: the platform will serve
+ * the request as that account, while the report will write the original
+ * `baseAccountId`. Found by adversarial review: an `access_token` in the conditions
+ * was served as someone else's account, and a whole half of the matrix went out as
+ * somebody other than the one the report named. On top of that the value itself
+ * would land in the report in the clear — request addresses are printed there.
+ */
 export const FORBIDDEN_QUERY_KEYS: ReadonlySet<string> = new Set([
   "access_token",
   "accesstoken",

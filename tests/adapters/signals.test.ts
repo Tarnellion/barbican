@@ -423,12 +423,12 @@ describe("count and present", () => {
   });
 });
 
+/**
+ * A prefix will not do: two responses differing past the cut-off would give
+ * the same digest, and the tool would claim a match that does not exist. The
+ * absence of a signal beats a wrong one.
+ */
 describe("the size ceiling", () => {
-  /**
-   * A prefix will not do: two responses differing past the cut-off would give
-   * the same digest, and the tool would claim a match that does not exist. The
-   * absence of a signal beats a wrong one.
-   */
   /**
    * Nothing computed, and one flag saying which silence this is.
    *
