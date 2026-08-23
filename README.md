@@ -849,9 +849,10 @@ get through.
 **Six facts written down twice are now written down once**
 ([ADR-0064](docs/adr/0064-a-table-written-twice-is-made-to-agree.md)). None of
 them was broken — every copy agreed, which is the reason to open them rather than
-the reason to leave them: this repository is twelve days old and has already
-written an ADR after a duplicate stopped agreeing two days after it was made
-([ADR-0032](docs/adr/0032-the-grammar-sits-at-the-seam.md)). The reserved check ids are now a mapped type
+the reason to leave them: this repository is twelve days old and
+[ADR-0024](docs/adr/0024-strings-from-outside.md) was already written after
+eleven point fixes of one shape across four files, two of which had drifted
+apart by the time anyone counted them. The reserved check ids are now a mapped type
 over `DiffKind`, so a fifth kind of matrix discrepancy that nobody reserves does
 not compile; the severity ranks are one table the console and the report both
 read, so a re-ranking cannot sort them differently; the `YYYY-MM-DD` grammar is
