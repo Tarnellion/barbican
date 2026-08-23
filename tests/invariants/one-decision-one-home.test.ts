@@ -24,6 +24,12 @@
  * reviewer to find. ADR-0060 is why the file is shaped the way it is and carries
  * the same two lists.
  *
+ * A second review the same day found two more, and both are closed: a brace
+ * written as `\u007b`, which the brace scan read as an ordinary character while
+ * the separator scan two functions away decoded escapes on principle; and the
+ * constructor reached through `const Expression = RegExp`, which no count of
+ * calls could see. See the amendment of 23 August 2026 in ADR-0060.
+ *
  * ## What holds, and in what order
  *
  * 1. **The raw material does not leave its module.** `KEY_SEPARATOR` is not
@@ -35,7 +41,10 @@
  *    sources are tokenised here and the escapes inside their literals are
  *    decoded, so every way of writing the code point zero **into a source
  *    literal** — the four-digit escape, `\x00`, `\u{0}`, `\0`, and the byte
- *    itself — is one thing to this file, because they are one character. A
+ *    itself — is one thing to this file, because they are one character. The
+ *    brace is read the same way since the second review of 23 August 2026: one
+ *    decoder, both scans. It was not until then, and `/\u007b([^\u007d]+)\u007d/g`
+ *    — the owner's grammar byte for byte — was a literal with no brace in it. A
  *    character computed rather than written is a different matter and is the
  *    first entry under "What it cannot see".
  * 3. **Reaching in is enumerated at the import, not at the call.** The first
@@ -57,9 +66,13 @@
  *    `(part: string) => string`.
  * 5. **A regular expression built at runtime is enumerated too.** The brace scan
  *    reads regex literals, and `new RegExp` out of a non-foldable argument is not
- *    one. Two modules construct a `RegExp` and both are listed with a count, so a
+ *    one. Two modules name `RegExp` at all and both are listed with a count, so a
  *    third fails; and any string or template literal handed to such a call is
- *    read for a brace as if it had been written as a literal expression.
+ *    read for a brace as if it had been written as a literal expression. What is
+ *    counted is every mention of the word rather than every call of it, because
+ *    `const Expression = RegExp;` is a mention in no role a call count reads —
+ *    and `new Expression("\\{([^}]+)\\}")` under it was a fourth copy of the
+ *    grammar with everything green, Biome's `useRegexLiterals` included.
  *
  * ## What it cannot see
  *
@@ -85,6 +98,13 @@
  *   `src/core/selectors.ts` may construct one, and the pattern it constructs is
  *   read for a brace only in the part of it that is a literal. A grammar
  *   assembled there out of variables is invisible to this file.
+ * - **A constructor reached without writing its name.** `const Expression = RegExp`
+ *   is caught, because every mention of the word is counted; `/x/.constructor`,
+ *   `Reflect.construct(…)` and a lookup on `globalThis` out of an assembled string
+ *   are not. This is the same class as the separator above and has the same
+ *   answer: a scanner cannot close it. What holds against it is 1 — the grammar
+ *   has no exported form to borrow, so a copy is a second implementation that
+ *   will drift when the one moves.
  * - **Two keys that glue the *same* coordinates in different orders.** `capRows`
  *   and `acceptanceKeyOf` do exactly that, on purpose; ADR-0059 records it. It is
  *   a question about what is glued, not about how, and no gate of this kind
@@ -245,7 +265,7 @@ const BRACE_GRAMMARS: ReadonlyMap<string, number> = new Map([
 ]);
 
 /**
- * The modules that build a `RegExp` at runtime, and how many times each.
+ * The modules that write the word `RegExp` in code at all, and how many times.
  *
  * A constructed expression is not a literal, so the brace scan does not read it —
  * that is how a fourth `{name}` grammar got back into `src/runner/address.ts`
@@ -253,13 +273,24 @@ const BRACE_GRAMMARS: ReadonlyMap<string, number> = new Map([
  * over a plain string and folds it back to a literal; it does not catch one built
  * out of a variable, which is the shape that walked past. Construction is rare
  * enough to enumerate, so it is enumerated.
+ *
+ * The count was of **calls** until the second review of 23 August 2026, and a
+ * call is not the only way to reach a constructor: `const Expression = RegExp;`
+ * and then `new Expression(…)` built the owner's grammar in `src/runner/address.ts`
+ * with everything green — the alias is a call of `Expression`, and the pattern
+ * beside it is a string literal no scan reads. Every mention is counted now, in
+ * whatever role, so the alias is the thing that fails. A mention obtained without
+ * the word — `/x/.constructor` — is not covered and is under "What it cannot see".
+ *
+ * Each count is two: the construction, and the `RegExp` return type over the
+ * function that performs it.
  */
-const REGEXP_BUILDERS: ReadonlyMap<string, number> = new Map([
+const REGEXP_MENTIONS: ReadonlyMap<string, number> = new Map([
   // The owner, recompiling its one source under the `g` flag per call. The reason
   // it is a fresh object each time is `lastIndex`; see the module.
-  [GRAMMAR, 1],
+  [GRAMMAR, 2],
   // A path selector, anchored: `^…$` around an already-escaped body.
-  ["src/core/selectors.ts", 1],
+  ["src/core/selectors.ts", 2],
 ]);
 
 /**
@@ -557,34 +588,53 @@ function literalsOf(source: string, where: string): readonly Literal[] {
  * to.
  *
  * Decoding rather than matching is the point of this gate. It holds no list of
- * ways to write the separator; it reads what a spelling *means*, so a spelling
- * nobody has thought of yet is covered the day it is written. It
+ * ways to write the separator or the brace; it reads what a spelling *means*, so
+ * a spelling nobody has thought of yet is covered the day it is written. It
  * over-approximates on a literal backslash followed by an escape — which nothing
  * under `src/` writes, and which would fail loudly rather than quietly.
  */
 const ESCAPE =
   /\\(?:u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|([0-7]{1,3})(?![0-9]))/g;
 
+/**
+ * A literal's body with every such escape resolved to the character it stands
+ * for.
+ *
+ * One decoder, read by both scans below. The separator scan had it from the
+ * start — "it reads what a spelling *means*, so a spelling nobody has thought of
+ * yet is covered the day it is written" — and the brace scan did not, which made
+ * that sentence false of half this file: `/{([^}]+)}/g` is the
+ * owner's grammar byte for byte and went through the brace scan as a literal
+ * with no brace in it. Found by the second adversarial review of 23 August 2026.
+ *
+ * A code point outside the Unicode range is left as it was written: nothing
+ * legal spells one, and `String.fromCodePoint` throws on it, which would turn a
+ * scan into a crash rather than a finding.
+ */
+function decodeEscapes(body: string): string {
+  return body.replace(
+    ESCAPE,
+    (match, braced?: string, four?: string, hex?: string, octal?: string) => {
+      const digits = braced ?? four ?? hex;
+      const point =
+        digits === undefined ? Number.parseInt(octal ?? "", 8) : Number.parseInt(digits, 16);
+      return Number.isInteger(point) && point >= 0 && point <= 0x10ffff
+        ? String.fromCodePoint(point)
+        : match;
+    },
+  );
+}
+
 /** How many times a literal's body spells the separator, in any spelling of it. */
 function spellsTheSeparator(body: string): number {
-  let count = body.split(RAW_SEPARATOR).length - 1;
-  for (const match of body.matchAll(ESCAPE)) {
-    const hex = match[1] ?? match[2] ?? match[3];
-    if (hex !== undefined) {
-      if (Number.parseInt(hex, 16) === 0) count += 1;
-      continue;
-    }
-    const octal = match[4];
-    if (octal !== undefined && Number.parseInt(octal, 8) === 0) count += 1;
-  }
-  return count;
+  return decodeEscapes(body).split(RAW_SEPARATOR).length - 1;
 }
 
 /** A repetition count, which is the one thing a brace means that is not a grammar. */
 const QUANTIFIER = /\{\d+(?:,\d*)?\}/g;
 
 function hasABraceGrammar(body: string): boolean {
-  const counted = body.replace(QUANTIFIER, "");
+  const counted = decodeEscapes(body).replace(QUANTIFIER, "");
   return counted.includes("{") || counted.includes("}");
 }
 
@@ -779,10 +829,26 @@ function regexpArguments(tokens: readonly Token[], where: string): readonly Lite
   return found;
 }
 
-/** How many times a module calls `RegExp`, with or without `new`. */
-function regexpCalls(tokens: readonly Token[], where: string): number {
-  return occurrencesOf(tokens, [], new Set(["RegExp"]), where).filter((one) => one.role === "call")
-    .length;
+/**
+ * How many times a module writes the word `RegExp` in code at all.
+ *
+ * Calls were what this counted, on the reasoning that a return type is not a
+ * construction. True, and beside the point: the constructor can be reached
+ * through any name that is bound to it, and `const Expression = RegExp;` was
+ * a mention in no role this counted, followed by a `new Expression("\\{([^}]+)\\}")`
+ * that `regexpArguments` never looked at because the word beside the parenthesis
+ * was not `RegExp`. Green, and a fourth copy of the owner's grammar. Biome's
+ * `useRegexLiterals` does not see it either — the argument is a constant, but the
+ * callee is not the constructor it knows.
+ *
+ * So every mention is counted, whatever it is doing: a call, a type annotation, a
+ * binding. A module that gains a `: RegExp` return type is red until its count is
+ * updated, which is the same trade every table in this file makes, and the same
+ * one it makes for a rename. The word itself is what is counted — `pathPatternToRegExp`
+ * is a different identifier and is not one.
+ */
+function regexpMentions(tokens: readonly Token[], where: string): number {
+  return occurrencesOf(tokens, [], new Set(["RegExp"]), where).length;
 }
 
 describe("the scanner this gate reads with", () => {
@@ -924,18 +990,35 @@ describe("the scanner this gate reads with", () => {
     expect(roles("keys.cellKey(observation);")).toEqual(["other"]);
   });
 
-  it("reads a pattern handed to RegExp, and counts the construction", () => {
+  it("reads a pattern handed to RegExp, and counts every mention of the name", () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: the sample is the source text of a module that builds its grammar out of a variable — the interpolation is the subject, not a mistake in this string
     const source = 'const re = new RegExp(`\\\\{${name}\\\\}`, "g");';
     const tokens = tokensOf(source, "<sample>");
-    expect(regexpCalls(tokens, "<sample>")).toBe(1);
+    expect(regexpMentions(tokens, "<sample>")).toBe(1);
     expect(regexpArguments(tokens, "<sample>").some((one) => hasABraceGrammar(one.body))).toBe(
       true,
     );
-    // A return type is not a construction.
-    expect(
-      regexpCalls(tokensOf("function f(): RegExp { return g; }", "<sample>"), "<sample>"),
-    ).toBe(0);
+    // A return type is a mention, and so is a binding — the shape that reaches
+    // the constructor under a name this file is not watching.
+    const mentions = (text: string): number =>
+      regexpMentions(tokensOf(text, "<sample>"), "<sample>");
+    expect(mentions("function f(): RegExp { return g; }")).toBe(1);
+    expect(mentions("const Expression = RegExp;")).toBe(1);
+    // And the word is the word: a longer identifier that ends in it is not one.
+    expect(mentions("export function pathPatternToRegExp(p: string) { return p; }")).toBe(0);
+  });
+
+  it("reads a brace spelled as an escape", () => {
+    // The owner's grammar byte for byte, spelled in escapes.
+    expect(hasABraceGrammar(String.raw`\u007b([^\u007d]+)\u007d`)).toBe(true);
+    expect(hasABraceGrammar(String.raw`\x7b([^\x7d]+)\x7d`)).toBe(true);
+    expect(hasABraceGrammar(String.raw`\u{7b}`)).toBe(true);
+    // And a quantifier is still a quantifier however it is spelled.
+    expect(hasABraceGrammar(String.raw`\d{4}`)).toBe(false);
+    // A code point outside the Unicode range is left as it was written rather
+    // than thrown on — and what is written carries two braces of its own, so it
+    // is a finding. Over-approximating loudly is the direction this file fails in.
+    expect(hasABraceGrammar(String.raw`\u{ffffffff}`)).toBe(true);
   });
 });
 
@@ -962,7 +1045,7 @@ describe("one decision, one home", () => {
     for (const path of REACHES_IN.keys()) expect(sources).toContain(path);
     for (const path of KEY_BUILDERS.keys()) expect(sources).toContain(path);
     for (const path of BRACE_GRAMMARS.keys()) expect(sources).toContain(path);
-    for (const path of REGEXP_BUILDERS.keys()) expect(sources).toContain(path);
+    for (const path of REGEXP_MENTIONS.keys()) expect(sources).toContain(path);
     // And that the widened scope really does reach past `src/`, which is where
     // the byte ADR-0059 could not see was sitting.
     expect(everything.filter((path) => path.startsWith("docs/adr/")).length).toBeGreaterThan(50);
@@ -1178,20 +1261,22 @@ describe("one decision, one home", () => {
     ).toEqual([]);
   });
 
-  it("builds a regular expression at runtime in two modules, and counts both", () => {
+  it("names RegExp in two modules, and counts every mention of it", () => {
     const built = sources
-      .map((path) => ({ path, count: regexpCalls(tokensFor(path), path) }))
-      .filter((file) => file.count !== (REGEXP_BUILDERS.get(file.path) ?? 0))
+      .map((path) => ({ path, count: regexpMentions(tokensFor(path), path) }))
+      .filter((file) => file.count !== (REGEXP_MENTIONS.get(file.path) ?? 0))
       .map((file) => `${file.path} (${file.count})`);
 
     expect(
       built,
-      `A regular expression is constructed where the table does not allow one, or ` +
-        `no longer where it does: ${built.join(", ")}. A constructed expression is ` +
-        `not a literal, so the brace scan above reads only the literal parts of its ` +
+      `The word RegExp is written where the table does not allow it, or no longer ` +
+        `where it does: ${built.join(", ")}. A constructed expression is not a ` +
+        `literal, so the brace scan above reads only the literal parts of its ` +
         `pattern — which is how a fourth \`{name}\` grammar got back into ` +
-        `src/runner/address.ts with everything green. Construction is rare enough ` +
-        `to enumerate. See ADR-0060.`,
+        `src/runner/address.ts with everything green, and a second one got back ` +
+        `through \`const Expression = RegExp\`, which is a mention and not a call. ` +
+        `Every mention is counted for that reason, a type annotation included. ` +
+        `See ADR-0060.`,
     ).toEqual([]);
   });
 

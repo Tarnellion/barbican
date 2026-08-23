@@ -475,6 +475,13 @@ an allowance is reading that file and not this one.
   `src/core/selectors.ts` may build one; only the literal fragments of what it
   builds are read for a brace. A pattern assembled there out of variables is
   invisible.
+- **A constructor reached without writing the word `RegExp`.** `/x/.constructor`,
+  `Reflect.construct`, a lookup on `globalThis` out of an assembled string. The
+  alias `const Expression = RegExp` **is** caught since the amendment of 23 August
+  2026, because the count is of mentions rather than of calls; the rest of the
+  class is the separator's class in another spelling, and no scanner of sources
+  closes it. What stands against it is the same thing: the grammar has no exported
+  form to borrow, so a copy is a second implementation and will drift.
 - **A ternary whose consequent is a call of an owned name.** It reads as a
   declaration and fails the gate. A false positive rather than a false negative,
   and stated so that the next reader fixes the classifier rather than the
@@ -498,6 +505,59 @@ an allowance is reading that file and not this one.
 - **The acceptance duplicate check still keys on the citable form.** ADR-0059's
   first "noticed and not fixed" item, unchanged — it changes which configurations
   are accepted.
+
+## Amendment, 23 August 2026: an escaped brace and an aliased constructor
+
+A third review, the same day, went at the two halves of this gate that read a
+regular expression. Both were walked around with `pnpm run check` green, and both
+are closed here. Nothing in `src/` behaved differently before or after; what
+changed is the test file and what this document claims for it.
+
+**The brace scan matched a character where the separator scan decoded one.** The
+principle stated above under "The gate decodes a spelling instead of matching
+one" was true of half this file. `spellsTheSeparator` resolved `\u0000`, `\x00`,
+`\u{0}` and `\0` to the character they stand for and counted that;
+`hasABraceGrammar` asked `body.includes("{")` over the text as written. So
+
+```ts
+const PARAMETER_NAME = /\u007b([^\u007d]+)\u007d/g;
+```
+
+— the owner's grammar byte for byte, and a fourth copy of it in
+`src/runner/address.ts` — was a regular expression with no brace in it as far as
+the brace table was concerned. There is now one decoder, `decodeEscapes`, and
+both scans read it. A quantifier stays a quantifier through the decoding, and a
+code point outside the Unicode range is left as it was written rather than
+thrown on: `String.fromCodePoint` would raise there, and a scan that raises is a
+scan that has stopped answering.
+
+**The construction table counted calls, and an alias is not a call.**
+
+```ts
+const Expression = RegExp;
+const PARAMETER_NAME = new Expression("\\{([^}]+)\\}", "g");
+```
+
+`regexpCalls` classified the occurrence of `RegExp` here as neither an import nor
+a call — it is a reference — so the module's count stayed at zero; and
+`regexpArguments` reads the literals beside the word `RegExp`, which is not the
+word beside this parenthesis, so the pattern was never read for a brace either.
+Biome's `useRegexLiterals` does not fold it back to a literal for the same
+reason: the callee it knows is the constructor, not a binding of it. Green, and a
+fourth copy of the grammar.
+
+What is counted now is **every mention of the word**, in whatever role — a call,
+a return type, a binding. The table's counts move from 1 to 2 for both modules
+because each writes `RegExp` once as the constructor and once as the return type
+of the function that calls it. The cost is that adding a `: RegExp` annotation
+anywhere is a red test until the count is updated, which is the trade every table
+in that file already makes. The word is what is counted, so `pathPatternToRegExp`
+is not one.
+
+Two mutations were run against the amended tree, each by the harness described
+above and each restored from a byte copy: the escaped grammar, caught by the
+brace table (`src/runner/address.ts (1)`), and the alias, caught by the mention
+table (`src/runner/address.ts (1)`). Both were green against the tree before it.
 
 ## Corrections to this document
 

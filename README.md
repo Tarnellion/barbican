@@ -824,8 +824,9 @@ field — and each of the three could have changed something later.
   statuses that mean "not found", which the self-inflicted-404 guard had written
   out a second time in a file that already calls `classifyStatus`.
 
-**That gate could be walked around, and the ways in are closed.** Adversarial
-review the day ADR-0061 was accepted went at the test rather than at the code.
+**That gate could be walked around, and four of the ways in are closed.**
+Adversarial review the day ADR-0061 was accepted went at the test rather than at
+the code.
 Four of its assertions were got past with `pnpm run check` green, and a fifth
 claim — that the order of the address table is behaviour — had no assertion
 behind it at all. Two of the four filtered a list of file names written into the
@@ -842,9 +843,35 @@ holding it, because every witness breaks exactly one rule and a permutation is
 invisible to all of them; it is held by a pair of paths per adjacent pair of
 entries. And the endpoint list's copy was held by one string, which proves it
 fires and says nothing about how far it reaches; its condition is now held to
-being one of `isAddress`'s own disjuncts, character for character. The amendment
-in ADR-0061 says what each closure does and ends with the five shapes that still
-get through.
+being one of `isAddress`'s own disjuncts, character for character. The first
+amendment in ADR-0061 says what each closure does and ends with the shapes that
+still get through.
+
+**Two doors were still open, and the seam is now held to its own text.** A second
+review, the same day and against that amended tree, walked around four more
+assertions with `pnpm run check` green. The load-bearing one: `And neither entry
+point decides anything of its own` was held by "the seam does not contain `&&`",
+and a conjunction is not the only way to reach a verdict without asking the
+table — a ternary at the seam and an early `return` at the door both got through,
+each of them a back door into `joinUrl`, which is the only grammar between a
+consumer of the library and the wire. Naming the spellings to refuse is the wrong
+shape of check, because that list has no end; those two bodies and the third
+exported function beside them are now held to being **one exact text** each,
+comments stripped, so any edit is red including a behaviourally identical one. The endpoint list's corpus asked the grammar only
+about the refusals worded the way that copy words them, so a second `if` saying
+"points at another host" turned away a path the grammar admits and the test whose
+name promised otherwise stayed green — the population is every refusal now, and
+the decision behind it is that an adapter must not refuse what the grammar
+admits. A fifth rule with quoted keys was invisible to the gate and caught only
+by Biome's formatter; the entries are counted structurally now, so a computed key
+fails too. And in the sibling gate for the `{name}` grammar, a brace written
+`\u007b` went through a scan that decoded escapes for the key separator two
+functions away, and `const Expression = RegExp` reached the constructor past a
+count of calls: one decoder for both scans, and every mention of the name
+counted. The second amendment of ADR-0061 and the amendment of ADR-0060 carry the
+mutations, and both end with what is still open — starting with a back door
+written inside one of the four predicates, which was run rather than reasoned
+about and passes the whole suite: 118 files, 1776 passed, 1 skipped.
 
 **Six facts written down twice are now written down once**
 ([ADR-0064](docs/adr/0064-a-table-written-twice-is-made-to-agree.md)). None of
