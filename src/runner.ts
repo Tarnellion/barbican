@@ -12,7 +12,7 @@
  *
  * Re-exported **by name** rather than with `export *`. The six modules hand each
  * other a good deal more than the package ever promised a consumer —
- * `TEMPLATE_PARAMETER`, `joinUrl`, `substitute`, `withQuery`, `cellKey`,
+ * `TEMPLATE_PARAMETER`, `joinUrl`, `substitute`, `withQuery`,
  * `terminalCause`, `unreadableStatusReason` — and `src/index.ts` does
  * `export * from "./runner.js"`, so a star here would put every one of them on
  * the published surface, which the next release is then answerable for.

@@ -28,6 +28,7 @@ import {
   FLAT_HIERARCHY,
   isUsablePathSegment,
 } from "../../core/index.js";
+import { KEY_SEPARATOR } from "../../core/keys.js";
 import { FORBIDDEN_QUERY_KEYS, ForbiddenResourceQueryError, WRITE_METHOD_WORDS } from "./basis.js";
 import { normalizeContexts } from "./contexts.js";
 import { parseConfigDocument } from "./schema.js";
@@ -611,7 +612,7 @@ export function parseRunConfig(source: string): RunConfig {
     // finding on. Composed from the same function `defects[].key` is, so "two
     // entries for one defect" here means the same thing it means there.
     const defect = citableDefectKey(acceptance);
-    const key = `${defect} ${acceptance.kind}`;
+    const key = `${defect}${KEY_SEPARATOR}${acceptance.kind}`;
     if (acceptedKeys.has(key)) {
       throw new DuplicateAcceptanceError(where, defect, acceptance.kind);
     }

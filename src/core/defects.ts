@@ -8,6 +8,7 @@
  * numbers speak of the size of the matrix, not of the number of problems.
  */
 
+import { KEY_SEPARATOR } from "./keys.js";
 import { byCodeUnits } from "./order.js";
 import type { ResourceRelation, Severity } from "./types.js";
 
@@ -154,16 +155,6 @@ export const SEVERITY_ORDER: Readonly<Record<Severity, number>> = {
 };
 
 /**
- * The key separator: a character that never occurs in identifiers.
- *
- * Written as an escape sequence rather than a raw byte. The byte in the source
- * made the file binary to `grep`: a search across the repository silently
- * skipped it entirely, and "no matches" here would read as "this code does not
- * exist".
- */
-const SEPARATOR = "\u0000";
-
-/**
  * The citable form of the same signature `defectSignature` builds.
  *
  * The separator is a space rather than the NUL the signature uses: this one is
@@ -191,7 +182,7 @@ export function citableDefectKey(of: DefectCoordinates): string {
 export function defectSignature(of: DefectCoordinates): string {
   // A separator that never occurs in identifiers: gluing with a hyphen would
   // admit a collision of two different signatures into one string.
-  return [of.endpointId, of.relation ?? "", of.contextId ?? ""].join(SEPARATOR);
+  return [of.endpointId, of.relation ?? "", of.contextId ?? ""].join(KEY_SEPARATOR);
 }
 
 const keyOf = defectSignature;
