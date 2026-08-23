@@ -769,23 +769,27 @@ field — and each of the three could have changed something later.
   statuses that mean "not found", which the self-inflicted-404 guard had written
   out a second time in a file that already calls `classifyStatus`.
 
-**That gate could be walked around four ways, and now it cannot.** Adversarial
-review the day ADR-0061 was accepted went at the test rather than at the code and
-got past four of its assertions with `pnpm run check` green. Two of them filtered
-a list of file names written into the test by hand — 5 of the 65 tracked sources
-for the refusal wording, 15 of 65 for the error names — so the same sentence
-placed in `src/runner/walk.ts`, and a second copy of the terminal-error set
-placed in `src/runner/stream.ts`, were both invisible. Both now read every tracked
-file under `src/`, from `git ls-files`. A fifth rule appended to the address table
-on one line had no `id` the gate could see, because the regex needed `id` on a
-line of its own and Biome leaves a short entry alone; the ids are counted against
-the entries now, and a spread into the table is refused rather than followed. The
-order of that table was called behaviour with nothing holding it — every witness
-breaks exactly one rule, which is what made permuting it invisible — and is held
-by a pair of paths per adjacent pair of entries. And the endpoint list's copy was
-held by one string, which proves it fires and nothing about how far it reaches.
-The amendment in ADR-0061 lists what each of the four does and, at the end, the
-five shapes that still get through.
+**That gate could be walked around, and the ways in are closed.** Adversarial
+review the day ADR-0061 was accepted went at the test rather than at the code.
+Four of its assertions were got past with `pnpm run check` green, and a fifth
+claim — that the order of the address table is behaviour — had no assertion
+behind it at all. Two of the four filtered a list of file names written into the
+test by hand — 5 of the 65 tracked sources for the refusal wording, 15 of 65 for
+the error names — so the same sentence placed in `src/runner/walk.ts`, and a
+second copy of the terminal-error set placed in `src/runner/stream.ts`, were both
+invisible; both assertions now read every tracked file under `src/`, from
+`git ls-files`. A fifth rule appended to the address table on one line had no
+`id` the gate could see, because the regex needed `id` on a line of its own and
+Biome leaves a short entry alone; the ids are counted against the entries now,
+and a spread into the table — a way in the review had not tried — is refused
+rather than followed. The order of that table was called behaviour with nothing
+holding it, because every witness breaks exactly one rule and a permutation is
+invisible to all of them; it is held by a pair of paths per adjacent pair of
+entries. And the endpoint list's copy was held by one string, which proves it
+fires and says nothing about how far it reaches; its condition is now held to
+being one of `isAddress`'s own disjuncts, character for character. The amendment
+in ADR-0061 says what each closure does and ends with the five shapes that still
+get through.
 
 **Six facts written down twice are now written down once**
 ([ADR-0064](docs/adr/0064-a-table-written-twice-is-made-to-agree.md)). None of

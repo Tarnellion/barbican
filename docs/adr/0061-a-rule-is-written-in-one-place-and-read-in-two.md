@@ -216,13 +216,19 @@ denial", and the function that folds it is the honest thing to ask.
 ## Amendment, 23 August 2026: the gate was walked around four ways
 
 Adversarial review the same day this ADR was accepted went at the gate rather
-than at the code, and got past four of its assertions with `pnpm run check`
-green. One sentence of this ADR carried two false claims — it is quoted where it
-stood, under "The dead copy goes; the live one stays and says why", and answered
-below. The test file's header carried a third, "a rule added to the table without
-being thought about is a red test". Nothing in `src/` behaved differently before
-or after this amendment; what changed is the gate, and what this document and
-that header claim about it.
+than at the code. Four of its assertions were walked around with `pnpm run check`
+green, and a fifth claim — that the order of `ADDRESS_RULES` is behaviour — turned
+out to have no assertion behind it at all.
+
+One sentence of this ADR carried two false claims; it is quoted where it stood,
+under "The dead copy goes; the live one stays and says why", and answered below.
+The test file's header carried a third, "a rule added to the table without being
+thought about is a red test". Writing this amendment turned up a sixth way in
+that the review had not tried — a whole array spread into the table — and it is
+closed with the rest.
+
+Nothing in `src/` behaved differently before or after this amendment; what
+changed is the gate, and what this document and that header claim about it.
 
 ### The two assertions read a hardcoded list of files
 
@@ -231,11 +237,12 @@ into the test by hand. `is spelled where the class is defined and in the set,
 nowhere else` filtered a list of **15**. `git ls-files src` returns **65**
 TypeScript files.
 
-The files the two lists did not name are the plausible carriers, not the
-implausible ones: `src/cli/stream.ts`, `src/runner/stream.ts`,
-`src/report/findings.ts`, `src/runner/plan.ts` and `src/cli.ts`. Demonstrated:
-the sentence "addresses another host" placed in `src/runner/walk.ts` — green; a
-second `new Set(["RunBudgetExhaustedError", "CircuitOpenError"])` placed in
+So 60 files went unread by the shorter list and 50 by the longer one. Among them
+were `src/cli/stream.ts`, `src/runner/stream.ts`, `src/report/findings.ts`,
+`src/runner/plan.ts` and `src/cli.ts` — the plausible carriers, not the
+implausible ones. Demonstrated: the sentence "addresses another host" placed in
+`src/runner/walk.ts` — green; a second
+`new Set(["RunBudgetExhaustedError", "CircuitOpenError"])` placed in
 `src/runner/stream.ts` — green.
 
 Both now read every tracked file under `src/`, from `git ls-files`, the way

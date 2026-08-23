@@ -84,11 +84,12 @@ const sourceOf = (path: string): string => readFileSync(resolve(ROOT, path), "ut
  *
  * The two assertions below that ask "is this written anywhere else" used to read
  * a list of file names written into this file by hand — 5 of them for the
- * refusal wording and 15 for the error names, against 65 tracked sources. A gate
- * that reads a list somebody has to remember to update is the defect it was
- * written against: the files the two lists missed were `src/cli/stream.ts`,
- * `src/runner/stream.ts`, `src/report/findings.ts`, `src/runner/plan.ts` and
- * `src/cli.ts`, which is to say the plausible carriers.
+ * refusal wording and 15 for the error names, against 65 tracked sources. So 60
+ * files went unread by the shorter list and 50 by the longer one, and among them
+ * were `src/cli/stream.ts`, `src/runner/stream.ts`, `src/report/findings.ts`,
+ * `src/runner/plan.ts` and `src/cli.ts` — which is to say the plausible carriers.
+ * A gate that reads a list somebody has to remember to update is the defect it
+ * was written against.
  *
  * `git ls-files` rather than a walk, for the reason `tests/docs/language.test.ts`
  * gives: `.gitignore` already answers "does this go public", and walking the disk
