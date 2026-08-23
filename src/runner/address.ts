@@ -7,20 +7,21 @@
  * library handing `Endpoint[]` straight to the walk. Everything that decides an
  * address is in this file for that reason. A check on one side of a module
  * boundary and the build on the other is the state that ADR was written from.
+ *
+ * Reading `{name}` out of a template is not one of those decisions, and since
+ * ADR-0024's note of 23 August 2026 it lives in `../core/path-parameters.js`.
+ * The line is worth stating, because moving it looks from a distance like the
+ * thing ADR-0032 forbids: that grammar refuses nothing, it only says which
+ * substrings are parameters, and the core has to say the same thing about the
+ * same string when it decides whether a cell exists. Every guard the seam owns —
+ * `isAddressablePath` before the join, the origin and prefix comparison after it,
+ * and `pathSegment` on each substituted value — is still here, and none of them
+ * moved.
  */
 
 import type { Resource, TenantId } from "../core/index.js";
+import { fillPathParameters } from "../core/path-parameters.js";
 import { isAddressablePath, pathSegment, UnusablePathTemplateError } from "../io/untrusted.js";
-
-/**
- * Whether a path names parameters at all.
- *
- * Beside `PARAMETER_NAME` below, which reads the same `{name}` out of the same
- * template: one grammar, and the two spellings of it stay where a reader meets
- * both. Asked by the plan, by the canary checks and — through `substitute` — by
- * the walk.
- */
-export const TEMPLATE_PARAMETER = /\{[^}]+\}/;
 
 export class PathEscapesTargetError extends Error {
   readonly endpointPath: string;
@@ -115,8 +116,6 @@ export function baseUrlForTenant(
   return tenantBaseUrls?.get(tenantId) ?? fallback;
 }
 
-const PARAMETER_NAME = /\{([^}]+)\}/g;
-
 /**
  * Substitutes the resource's values into the path template.
  *
@@ -128,9 +127,16 @@ const PARAMETER_NAME = /\{([^}]+)\}/g;
  * A missing name still yields an empty segment on purpose — the template asked
  * for a parameter the resource does not describe, and that is a mismatch between
  * the two, caught by `resourceApplies` before it gets here.
+ *
+ * Which substrings are parameters is `fillPathParameters`' to say, and this file
+ * used to answer it twice over — a `TEMPLATE_PARAMETER` for "are there any" and a
+ * `PARAMETER_NAME` for "which", with a comment saying they were one grammar in
+ * two spellings. `resourceApplies` in the core, which decides whether this
+ * substitution will ever be asked for, carried a third copy of the second. One
+ * grammar, one place: ADR-0024 and `../core/path-parameters.js`.
  */
 export function substitute(path: string, resource: Resource): string {
-  return path.replace(PARAMETER_NAME, (_match, name: string) => {
+  return fillPathParameters(path, (name) => {
     if (!Object.hasOwn(resource.params, name)) {
       return "";
     }

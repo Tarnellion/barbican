@@ -131,3 +131,99 @@ back from JSON.
 The lesson is the one this ADR is already about, one level up: a rule written
 once has to be **reachable** once. `tests/public-surface.test.ts` reads `src/io`
 now, and requires every error class the source declares to be exported.
+
+## Note of 2026-08-23: the `{name}` grammar, and where a grammar goes when the core reads it too
+
+**This is not a new decision.** It is the twelfth case of the one above, and it
+is recorded here rather than in an ADR of its own because nothing in the
+Decision needed changing — only its address needed spelling out, for a grammar
+the core is one of the callers of.
+
+The same `{name}` template-parameter grammar stood written three times:
+
+- `TEMPLATE_PARAMETER = /\{[^}]+\}/` in `src/runner/address.ts` — is there a
+  parameter at all, asked by `planEndpoints` and by `assertCanariesUsable`;
+- `PARAMETER_NAME = /\{([^}]+)\}/g` in the same file — the names, for
+  `substitute`;
+- `PARAMETER_NAME = /\{([^}]+)\}/g` in `src/core/matrix.ts`, **character for
+  character** the second, deciding in another layer whether a resource applies
+  to an endpoint.
+
+A comment above the first admitted the first two were one grammar in two
+spellings. Nothing named the third, and the spelling had already leaked into
+prose — a comment in `src/adapters/postman.ts` and one in its test wrote the
+expression out by hand to explain why `{{playerId}}` must be reduced. Five
+places holding one rule, none of which the compiler compares. This ADR's
+arithmetic exactly.
+
+They had not drifted, which is the state a duplicate is in right up until it is
+not. What drift would have cost is worth naming: the two in the runner decide
+what a run walks, and the one in the core decides which cells exist. A
+`{name:int}` learned by one and not the others gives a run that probes a cell
+the matrix does not contain, or a matrix expecting a cell the run never walked.
+
+### Where it went, and why not `src/io/untrusted.ts`
+
+`src/core/path-parameters.ts`, and the callers import it.
+
+The file this ADR names is the right home for a grammar the *doors* need. This
+one is also read by the core — `resourceApplies` in `src/core/matrix.ts` — and
+`src/io/untrusted.ts` already imports `isUsablePathSegment` from
+`src/core/types.ts`. A core that imported back would close that ring.
+
+The precedent is that same `isUsablePathSegment`, whose comment states the rule
+this note is generalising: it is in the core "because the core builds cells out
+of the same values", and `untrusted.ts` reaches down for it rather than keeping
+a copy. A path template is read by the core for the same reason — an endpoint is
+a cell coordinate. So: **a grammar lives in `src/io/untrusted.ts` unless the core
+reads it too, in which case it lives in `src/core` and `untrusted.ts` imports
+it.** One rule, one place, at the address the layering allows.
+
+Its own module rather than a few more lines in `src/core/types.ts`, following
+`src/core/order.ts` — off `src/core/index.ts` and so off the published surface,
+because how the tool reads a template it was handed is not something a consumer
+is promised. The package still exports 227 values and `src/index.ts` is
+untouched.
+
+### The trap inside the tidying
+
+The obvious way to write one module out of three copies is one `RegExp` with the
+`g` flag, shared. That is a defect, not a simplification. A global regex is
+**stateful**: `test()` advances `lastIndex` and resets it only on a miss, and
+`String.prototype.matchAll` clones the regex *with the `lastIndex` it is handed*,
+so a scan following a presence test starts in the middle of the string. Measured
+on Node 22: after one `test()` of `/v1/players/{playerId}/orders/{orderId}`,
+`matchAll` over that same string yields `orderId` alone.
+
+Through `planEndpoints` that reads as a resource declaring only `orderId` being
+taken for one that covers the endpoint, the cell being walked, and `substitute`
+sending the request to `/v1/players//orders/1001` — an address the endpoint does
+not name, with the endpoint's verdict computed from whatever answers.
+
+So the module keeps one flagless literal, derives a fresh global one per scan
+with `new RegExp(PARAMETER, "g")`, and exports no `RegExp` at all.
+`tests/core/path-parameters.test.ts` holds the symptom in three tests and the
+shape in a fourth, all written against that collapse and watched failing under
+it.
+
+### Consequences
+
+- Five spellings of one grammar become one, and one of the five was in another
+  layer with nothing pointing at it.
+- `TEMPLATE_PARAMETER` no longer exists. It was never on the published surface —
+  `src/runner.ts` re-exports by name, and this constant was on the list of what
+  the six modules hand each other and the package does not promise.
+- Behaviour is unchanged: `/\{[^}]+\}/` and `/\{([^}]+)\}/` match the same
+  substrings, and a capture group added to a presence test changes nothing about
+  what matches. The polygon oracle answers as it did over all 29 combinations.
+- The seam of [ADR-0032](0032-the-grammar-sits-at-the-seam.md) did not move.
+  Reading `{name}` out of a template refuses nothing; every guard
+  `src/runner/address.ts` owns — `isAddressablePath` before the join, the origin
+  and prefix comparison after it, `pathSegment` on each substituted value — is
+  still in that file, and the header there says so, because from a distance this
+  move looks like the thing that ADR forbids.
+- Not closed, and deliberately: `src/adapters/postman.ts` keeps a
+  `PARAMETER_NAME` of its own, `/^[A-Za-z0-9_.-]+$/`. It is a different grammar
+  wearing the same name — the character set a Postman `:playerId` may use, not
+  the shape of a template — and folding two different rules together because
+  their constants collide would be this ADR run backwards.

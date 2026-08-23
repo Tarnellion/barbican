@@ -13,8 +13,9 @@
 import type { CredentialProvider, HttpClient } from "../adapters/ports.js";
 import type { Account, Endpoint, ResolvedAccessPolicy, TenantId } from "../core/index.js";
 import { resolveExpectedVerdict, SAFE_METHODS } from "../core/index.js";
+import { hasPathParameters } from "../core/path-parameters.js";
 import { safeHeaders } from "../io/untrusted.js";
-import { baseUrlForTenant, joinUrl, TEMPLATE_PARAMETER } from "./address.js";
+import { baseUrlForTenant, joinUrl } from "./address.js";
 import { failureCode, terminalCause } from "./outcome.js";
 
 export interface CanaryResult {
@@ -252,7 +253,7 @@ export function assertCanariesUsable(options: {
     if (endpoint === undefined) {
       throw new UnknownCanaryEndpointError(canary.accountId, canary.endpointId);
     }
-    if (TEMPLATE_PARAMETER.test(endpoint.path)) {
+    if (hasPathParameters(endpoint.path)) {
       throw new TemplatedCanaryError(canary.accountId, canary.endpointId);
     }
     if ((options.exclude ?? []).includes(canary.endpointId)) {

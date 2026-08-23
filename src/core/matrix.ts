@@ -5,6 +5,7 @@
  * collected.
  */
 
+import { pathParameterNames } from "./path-parameters.js";
 import type { TenantNode } from "./tenancy.js";
 import type { AccessMatrix, AccessObservation, Account, Endpoint, Resource } from "./types.js";
 
@@ -61,17 +62,20 @@ export type ObservationIndex = ReadonlyMap<
   ReadonlyMap<string, ReadonlyMap<string | undefined, AccessObservation>>
 >;
 
-const PARAMETER_NAME = /\{([^}]+)\}/g;
-
 /**
  * Whether the resource applies to the endpoint.
  *
  * One rule for the run and for the diff: if they drifted apart, they would give
  * observations with nothing to compare against, and findings with no
  * observations.
+ *
+ * The names are read by `pathParameterNames` and not by an expression of this
+ * file's own. There was one here — `/\{([^}]+)\}/g`, character for character the
+ * copy in `src/runner/address.ts`, in another layer and mentioned by neither.
+ * One grammar, one place: ADR-0024 and `./path-parameters.js`.
  */
 export function resourceApplies(endpoint: Endpoint, resource: Resource): boolean {
-  const names = [...endpoint.path.matchAll(PARAMETER_NAME)].map((match) => match[1] ?? "");
+  const names = pathParameterNames(endpoint.path);
   // `Object.hasOwn`, not a check against undefined: the names come from the
   // path, that is, from an untrusted specification, and `{constructor}` would
   // answer for any object through the prototype chain — a hostile spec would get
