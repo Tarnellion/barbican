@@ -145,9 +145,14 @@ describe("the plan, which asks both questions in one pass", () => {
       ],
     });
 
-    // Under the collapse the first path leaves `lastIndex` at 22, which is past
-    // the end of the second (20 characters): the second endpoint reads as having
-    // no parameters at all and is probed, at `/v1/orders/{orderId}` literally.
+    // Under the collapse exactly one of the two comes back skipped, never both:
+    // a path that matched leaves `lastIndex` past its own parameter, and the
+    // next path — 20 characters against the 22 the first consumed — is searched
+    // from beyond its end and reads as having no parameters at all. Which of the
+    // two slips through depends on the `lastIndex` the module happened to be
+    // carrying when this test began, and that is the whole objection: the answer
+    // about one endpoint depends on who asked about another. The endpoint that
+    // slips is probed at its template, `/v1/orders/{orderId}` literally.
     expect(plan.skipped).toEqual([
       { endpointId: "players.read", reason: "path-parameters" },
       { endpointId: "orders.read", reason: "path-parameters" },
@@ -155,26 +160,46 @@ describe("the plan, which asks both questions in one pass", () => {
     expect(plan.probeable).toEqual([]);
   });
 
-  it("does not take a resource covering half the parameters for one that applies", () => {
+  /**
+   * Asked three times, and this is not belt and braces.
+   *
+   * The first draft of this test asked once and **passed** under the collapse,
+   * by luck: it inherited a `lastIndex` that sent `hasPathParameters` at the
+   * second parameter and left the scan starting past the end, so
+   * `resourceApplies` saw no names, refused the resource and reached the right
+   * answer for the wrong reason. One call cannot tell a rule that holds from a
+   * state that happened to line up. Three can: from any `lastIndex` the module
+   * carries in, the three answers below are not all the same — the presence test
+   * walks the string one parameter per call and the scan follows it — while a
+   * grammar with no state gives one answer however often it is asked.
+   */
+  it("gives one answer about a resource covering half the parameters, however often asked", () => {
     const resource: Resource = {
       id: "order-1001",
       tenantId: "acme",
       params: { orderId: "1001" },
     };
-
-    const plan = planEndpoints({
+    const input = {
       baseUrl: "https://api.test",
       endpoints: [endpoint("player.order.read", TWO)],
       resources: [resource],
-    });
+    };
 
-    // Under the collapse `resourceApplies` sees `["orderId"]` alone — the
-    // presence test consumed `{playerId}` — declares the resource applicable, and
-    // the run walks the cell. `substitute` has no value for `playerId` and yields
-    // an empty segment, so the request goes to `/v1/players//orders/1001`: an
+    const once = planEndpoints(input);
+    const twice = planEndpoints(input);
+    const thrice = planEndpoints(input);
+
+    expect(twice).toEqual(once);
+    expect(thrice).toEqual(once);
+
+    // And the answer is the right one. Under the collapse the wrong one is
+    // reachable: `resourceApplies` sees `["orderId"]` alone, because the presence
+    // test consumed `{playerId}`, declares the resource applicable, and the run
+    // walks the cell. `substitute` has no value for `playerId` and yields an
+    // empty segment, so the request goes to `/v1/players//orders/1001` — an
     // address the endpoint does not name, with the verdict for the endpoint it
     // does name computed from whatever answers.
-    expect(plan.skipped).toEqual([{ endpointId: "player.order.read", reason: "path-parameters" }]);
-    expect(plan.probeable).toEqual([]);
+    expect(once.skipped).toEqual([{ endpointId: "player.order.read", reason: "path-parameters" }]);
+    expect(once.probeable).toEqual([]);
   });
 });
