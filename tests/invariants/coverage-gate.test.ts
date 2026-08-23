@@ -260,7 +260,10 @@ describe("the configuration the coverage gate is made of", () => {
       sources,
     );
 
-    expect(faults).toEqual([]);
+    // Against the configuration as it stands rather than against `[]`: what is
+    // under test is that a global at the floor adds nothing, not that the
+    // configuration is clean — which the case above already asks.
+    expect(faults).toEqual(configurationFaults(coverage, sources));
   });
 
   /**
@@ -672,25 +675,42 @@ describe("what the package ships", () => {
       .sort();
 
     expect(compiled.length).toBeGreaterThan(20);
-    expect([...sources]).toEqual(compiled);
+    expect(
+      [...sources],
+      "the walk and the compiler disagree about what src/ ships. A file the walk lists and " +
+        "the compiler does not compile is not shipped — an orphan .mts is not matched by the " +
+        "`include` in tsconfig.build.json and nothing imports it, so it emits nothing. A file " +
+        "the compiler compiles and the walk skips is a module measured by nobody.",
+    ).toEqual(compiled);
   });
 
-  it("names a module no include pattern covers, and no threshold", () => {
-    const withAModule = [...sources, "src/core/leak.mts"].sort();
-    const faults = configurationFaults(coverage, withAModule).join("\n");
+  /**
+   * The tree, as it would be with such a file in it. Written as "the sources
+   * without it, plus it" rather than "the sources plus it", so that the case
+   * still asks its question while somebody is holding the real thing in the
+   * tree to watch the gate fail.
+   */
+  const A_MODULE = "src/core/leak.mts";
+  const withAModule = (): readonly string[] =>
+    [...sources.filter((path) => path !== A_MODULE), A_MODULE].sort();
 
-    expect(faults).toContain("src/core/leak.mts is shipped and matched by no coverage.include");
-    expect(faults).toContain("src/core/leak.mts is measured and gated by no threshold");
+  it("names a module no include pattern covers, and no threshold", () => {
+    const faults = configurationFaults(coverage, withAModule()).join("\n");
+
+    expect(faults).toContain(`${A_MODULE} is shipped and matched by no coverage.include`);
+    expect(faults).toContain(`${A_MODULE} is measured and gated by no threshold`);
   });
 
   it("names it in the run as well, whatever the configuration said", () => {
-    const faults = outcomeFaults(relativeSummary(summaryOf(everythingMeasured()), ROOT), [
-      ...sources,
-      "src/core/leak.mts",
-    ]);
+    const measured = Object.fromEntries(
+      withAModule()
+        .filter((path) => path !== A_MODULE)
+        .map((path) => [path, 100]),
+    );
+    const faults = outcomeFaults(relativeSummary(summaryOf(measured), ROOT), withAModule());
 
     expect(faults.join("\n")).toContain(
-      "src/core/leak.mts is shipped and the run measured nothing for it",
+      `${A_MODULE} is shipped and the run measured nothing for it`,
     );
   });
 

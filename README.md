@@ -670,16 +670,36 @@ modules are brought to 100 % of their statements, functions and lines; the ninth
 is named on a line of its own for the part of it only a spawned process can
 observe.
 
-That test read two keys of a dozen, and a review walked around it four ways with
+That test read two keys of a dozen, and a review walked around it three ways with
 the whole run green — an `exclude` that took the same nine modules back out, a
 group whose numbers were zeroed, a blanket threshold that answered for every
 file at once. The rules moved into `tools/coverage-gate.mjs` and now answer for
 the whole option set: the names are an allowlist, a number below the project
 floor has to be written down with its reason, and `pnpm run test:coverage` reads
 the summary the run leaves behind — so a file the package ships that was not
-measured is named whatever removed it. Four unreachable fallbacks in `src/cli/`
+measured is named whatever removed it. Five unreachable fallbacks in `src/cli/`
 were deleted rather than described while that was being counted; the behaviour
 they described could not happen.
+
+**And the gate is what runs the run.** A fourth round found three holes in it.
+The wiring between its two halves was a script string, and a test that asked
+that string for two substrings was satisfied by the first of its three commands:
+deleting `&& node tools/coverage-gate.mjs` left every test green while the half
+that reads the summary never ran again. There is no second command now —
+`pnpm run test:coverage` is `node tools/coverage-gate.mjs`, and that module
+clears the summary, starts vitest and answers for what it measured — and the
+wiring is checked as an effect rather than as text: vitest loads the same module
+as a `globalSetup`, and a run measuring coverage that the gate did not start is
+refused before the first test. A module written as `.mts` or `.cts` was invisible
+to both halves, because `leak.mts` ends in `mts` and neither `endsWith(".ts")`
+nor `src/**/*.ts` reads that as a match — one imported by a shipped module built
+into `dist/` and the gate said "every module the package ships was measured".
+What the compiler compiles is now the definition, held to `tsc --listFilesOnly`.
+And a sentence in the guard was simply false about vitest: a global threshold
+does apply to every file, glob-matched ones included, so it is now held to the
+project floor like any other gate and refused the right to answer for a file.
+[ADR-0063](docs/adr/0063-the-coverage-gate-measures-what-shipped.md) carries all
+three, and the limits it still has.
 
 **Three defects the refactoring uncovered are fixed.** They are the reason a
 refactor is worth reading rather than skimming — each was invisible while the

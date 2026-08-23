@@ -49,7 +49,7 @@ pnpm run lint:fix     # autofix
 pnpm run typecheck    # tsc --noEmit
 pnpm run test         # vitest run
 pnpm run test:watch   # vitest in watch mode
-pnpm run test:coverage # vitest with coverage and thresholds
+pnpm run test:coverage # the coverage gate: it runs vitest and answers for what it measured
 pnpm run build        # tsc -> dist, + the executable bit on cli.js
 pnpm run schema       # regenerate schema/barbican.run.schema.json (needs a build)
 pnpm run deps:behind  # what is behind, and what the cooldown is holding (needs the network)
