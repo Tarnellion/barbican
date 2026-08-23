@@ -234,6 +234,21 @@ naming every declared endpoint.
 whitespace**, `Retry-After` can no longer shorten the backoff below the tool's own
 formula, and `--dry-run` no longer refuses configurations that run.
 
+### Unreleased
+
+On `main`, not on npm. `0.5.0` is what `npm install barbican` gives you, and the
+work below changes nothing a consumer can observe.
+
+**The modules that were half the source are split by what they do.**
+`report/build`, `io/config` and `cli` were 3012, 2832 and 1872 lines, and each
+held four or five separate jobs — the shape of the report and the verdict over
+it; the schemas and the rules about what a request may carry; the command line
+and the walk it orchestrates. Each is a directory of modules behind the path it
+always had, so every import in this repository and in a consumer's code is the
+import it was. The guarantee is checked rather than claimed: the exported names
+and their count are unchanged, the report is the same bytes over all 29
+combinations of the reference platform, and the oracle answers as it did.
+
 ### What changed in 0.5.0
 
 The largest release so far, and most of it came out of an adversarial audit of
