@@ -34,9 +34,18 @@
  *
  * ## What it cannot see
  *
- * - A table built rather than written: `Object.fromEntries`, a `Map`, an array
- *   of pairs, or ranks assigned in a loop. The shape read here is the shape a
- *   person types, which is also the shape the reviewer typed.
+ * A source scan is not a sandbox. It reads what a person writes by accident or
+ * by convenience; it cannot read what somebody writes in order to defeat it, and
+ * the list below is what stays open on purpose rather than what nobody thought
+ * of.
+ *
+ * - A table or a list **built** rather than written: `Object.fromEntries`, a
+ *   `Map` filled in a loop, a name assembled from pieces (`"x-" + "method"`), a
+ *   name decoded or computed at run time. The shapes read here are the shapes a
+ *   person types, which are also the shapes each of the reviewers typed. A
+ *   header member written out is read in all three quotations and in any case,
+ *   because those are spellings a formatter produces rather than ones somebody
+ *   chooses; assembling the string is not.
  * - A date grammar spelled some other way — `\d\d\d\d-\d\d-\d\d`, or `indexOf`
  *   and `slice` over the hyphens. `[0-9]` is folded to `\d` before the scan
  *   because that substitution is the one a linter suggests; nothing else is.
@@ -47,6 +56,11 @@
  * - A re-ranking of the one table that is left. Nothing here or in the compiler
  *   holds that; `tests/report/compare.test.ts` and the exit-code tests are what
  *   would notice, and only through the order they observe.
+ * - A second header composition that carries **no** member of either list — one
+ *   built out of `forbiddenHeaderReason` itself, or one guarding names nobody
+ *   has forbidden yet. The first is a caller and not a copy; the second is a new
+ *   rule, and a new rule belongs in `basis.ts` by CLAUDE.md rather than by this
+ *   file.
  *
  * See ADR-0064.
  */
@@ -124,8 +138,27 @@ describe("the severity ranks are written in one place", () => {
     ["src/report/findings.ts", 5],
   ]);
 
+  /**
+   * The key, then the number, with the spellings a person reaches for.
+   *
+   * `\b(?:critical|…)\s*:\s*\d` was the first version and it read three things
+   * about a key that has more than three shapes: adversarial review of
+   * 23 August 2026 put a private `Readonly<Record<Severity, number>>` back into
+   * `src/cli/screen.ts` written `critical: +0 … info: +4` and again with quoted
+   * keys, and both passed Biome, `tsc` and the whole suite. A leading `+` is
+   * what `\d` alone misses; a quote is what `\b` misses, because the character
+   * before `critical` is then `"` and the one after it is `"` rather than `:`.
+   *
+   * So: an optional quote on each side of the key — the same one on both, which
+   * is what the backreference is for — an optional bracket for a computed key,
+   * and an optional sign on the number. Every one of those is a spelling a
+   * formatter or a linter can produce from the plain one; none of them is a
+   * spelling somebody arrives at without meaning to.
+   */
+  const RANK = /(?<![\w$])\[?\s*(["']?)(?:critical|high|medium|low|info)\1\s*\]?\s*:\s*[+-]?\d/g;
+
   it("has no second table, and has not lost the one it has", () => {
-    expectExactly(/\b(?:critical|high|medium|low|info)\s*:\s*\d/g, HOMES);
+    expectExactly(RANK, HOMES);
   });
 });
 
@@ -157,18 +190,132 @@ describe("the forbidden-header lists are written in one place", () => {
   /**
    * The lists themselves are module-private, so a second composition cannot
    * import them — that half is the compiler's since 23 August 2026, and it is
-   * the half the reviewer walked through. This is the other half: a copy that
-   * writes the entries out instead. Three entries distinctive enough not to
-   * occur anywhere else in this tool are read, one from the exact map and two
-   * from the prefixes.
+   * the half the first reviewer walked through. This is the other half: a copy
+   * that writes the entries out instead.
+   *
+   * It read three entries until the review of the same day came back through:
+   * `proxy-authorization`, `x-original-` and `x-http-method`. A scan keyed on
+   * three remembered strings answers about those three strings, and a second
+   * composition carrying `authorization`, `cookie`, `host`, `x-method`,
+   * `x-rewrite-` and `x-forwarded-host` — six of the twenty, and every one of
+   * them load-bearing — went through the whole run green. A partial copy of a
+   * denylist is a denylist; CLAUDE.md's rule about request conditions is on
+   * record that this rule was already wrong once for having fewer layers than
+   * it needed, so fewer members is exactly the drift to expect.
+   *
+   * ## What is read now
+   *
+   * **Every member of both layers, taken from the owner's own source** rather
+   * than remembered here — the eleven exact names and the nine prefixes, parsed
+   * out of the two declarations in `src/io/config/basis.ts`. A member added
+   * there is covered by this scan the moment it is added, which a hand-copied
+   * list of needles could never be.
+   *
+   * Per file, the count is the number of **distinct** members it writes out as a
+   * quoted literal, and it is exact in both directions. Distinct members and not
+   * occurrences, because the question is "does this file carry a piece of the
+   * composition", and a file that names one of these headers twice for one
+   * honest reason is answering it once.
    */
-  const HOMES: Homes = new Map([["src/io/config/basis.ts", 1]]);
+  const OWNER = "src/io/config/basis.ts";
 
-  it.each([
-    ["proxy-authorization", /proxy-authorization/g],
-    ["x-original-", /x-original-/g],
-    ["x-http-method", /x-http-method/g],
-  ])("has no second list carrying %s", (_entry, probe) => {
-    expectExactly(probe, HOMES);
+  /**
+   * The first element of every pair in one of the two declarations.
+   *
+   * Read out of the source and not imported, because these lists stopped being
+   * exported for the reason this scan exists: a test that imported them would be
+   * the twelfth door in the wall. The declaration runs to the first line that
+   * begins with `]` — `]);` closes the `Map`, `];` the array.
+   */
+  function entriesOf(declaration: string): readonly string[] {
+    const code = codeOf(OWNER);
+    const from = code.indexOf(declaration);
+    expect(from, `${declaration} is not in ${OWNER}`).toBeGreaterThanOrEqual(0);
+    const to = code.indexOf("\n]", from);
+    return [...code.slice(from, to).matchAll(/\["([^"]+)",/g)].map((match) => match[1] ?? "");
+  }
+
+  const EXACT = entriesOf("const FORBIDDEN_CONTEXT_HEADERS");
+  const PREFIXES = entriesOf("const FORBIDDEN_HEADER_PREFIXES");
+  const MEMBERS = [...EXACT, ...PREFIXES];
+
+  /**
+   * Where a member of either layer may be written out, and how many distinct
+   * ones. Every entry but the owner's carries the reason it is not a copy.
+   */
+  const HOMES: ReadonlyMap<string, { readonly members: number; readonly why: string }> = new Map([
+    [OWNER, { members: 20, why: "the owner: both layers, and nothing else holds either" }],
+    [
+      "src/adapters/http.ts",
+      {
+        members: 3,
+        why:
+          "content-length, transfer-encoding and connection are stripped from a " +
+          "request the client builds — the transport doing its own job, not a rule " +
+          "about what an operator may declare",
+      },
+    ],
+    [
+      "src/adapters/credentials.ts",
+      {
+        members: 2,
+        why:
+          "authorization and cookie are the headers the credential provider sets; " +
+          "this is the code the forbidden list exists to protect, not a copy of it",
+      },
+    ],
+    [
+      "src/report/sections.ts",
+      {
+        members: 2,
+        why: "authorization and cookie in the report's redaction of what it prints",
+      },
+    ],
+    [
+      "src/io/config/schema.ts",
+      { members: 1, why: 'cookie is the "kind" of a declared authentication scheme' },
+    ],
+  ]);
+
+  /** The three ways a string literal is written. Built, so this file holds none. */
+  const QUOTES: readonly string[] = ['"', "'", String.fromCharCode(96)];
+
+  /**
+   * The scan has to be reading a list rather than an empty one it could not
+   * parse: an `entriesOf` that matched nothing would agree with every file in
+   * the tree. The two numbers move only when somebody deliberately adds a
+   * forbidden name, which is a change that should cost one line here.
+   */
+  it("reads both layers off the owner", () => {
+    expect(EXACT).toHaveLength(11);
+    expect(PREFIXES).toHaveLength(9);
+    expect(EXACT).toContain("authorization");
+    expect(PREFIXES).toContain("x-http-method");
+  });
+
+  it("has no second composition, whichever members it carries", () => {
+    const carried = new Map<string, number>();
+    for (const path of sources()) {
+      // Case-folded, because `Authorization` is how a person writes a header
+      // name and `forbiddenHeaderReason` lower-cases its argument for exactly
+      // that reason. No file in this tree spells one of these with a capital
+      // today, so folding costs nothing and closes the cheapest evasion there
+      // is.
+      const code = codeOf(path).toLowerCase();
+      // All three ways a string literal is written, for the same reason. The
+      // counts are the same with the third as without it, so it costs nothing
+      // either; the six backtick spellings in this tree are prose inside doc
+      // comments, which `codeOf` has already dropped.
+      const written = MEMBERS.filter((member) =>
+        QUOTES.some((quote) => code.includes(`${quote}${member}${quote}`)),
+      );
+      if (written.length > 0) {
+        carried.set(path, written.length);
+      }
+    }
+
+    expect(Object.fromEntries(carried)).toEqual(
+      Object.fromEntries([...HOMES].map(([path, home]) => [path, home.members])),
+    );
   });
 });

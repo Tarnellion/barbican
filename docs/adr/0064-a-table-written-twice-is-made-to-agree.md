@@ -58,7 +58,7 @@ justified it stays, and the justification is written next to both copies.**
 | - | ---- | ----------- |
 | 1 | the reserved check ids | the compiler: `Readonly<Record<DiffKind, true>>` |
 | 2 | the severity ranks | the compiler for a level **added** to `Severity`; a source scan for a second table |
-| 3 | the cost of a canary | one test counts what the two passes issue; a second compares the preview's bill with what a run of the same declaration sends |
+| 3 | the cost of a canary | one test counts what the two passes issue; a second compares the preview's bill with what a run of the same declaration sends, in the safe mode and under `--unsafe-methods` alike, and once more for a resumed run |
 | 4 | the date grammar | one exported `RegExp`, plus a source scan for a second one and a comparison with the shipped schema |
 | 5 | the composition of the header layers | the compiler for a copy that **borrows** the lists, which are module-private; a source scan for one that writes them out |
 | 6 | the two URL rules | a comment inside each, because they are two rules |
@@ -96,6 +96,35 @@ with a token and no canary: the polygon has none, and without one "accounts that
 declare a canary" and "accounts that have credentials" are the same set, so a
 preview billing either would agree with the walk.
 
+**It ran one command line, and the command line is half of what a run sends.**
+The first version of that file hardcoded the safe mode on both sides — no
+`--unsafe-methods` on the flags it handed the preview, `allowUnsafeMethods:
+false` written into the walk — so `flags.unsafeMethods === true` in
+`src/cli/preview.ts` could be replaced by the literal `false` and the whole suite
+stayed green. Adversarial review, 23 August 2026; the mutation and its output are
+in the second **Corrections** section below.
+
+That is the worst place in this tool for an undercount, which is why it is the
+one that got closed rather than described. With `--unsafe-methods` the run
+issues writes. The operator reads the bill, picks a `--max-requests` ceiling the
+preview called sufficient, and the ceiling truncates a run that has already
+changed objects on somebody else's deployment: a truncated read is a gap in a
+report, a truncated write is a platform left half-modified. The polygon has one
+write endpoint, `orders.cancel`, so the two modes are two different matrices —
+144 cells and 180, with the same 24 canary requests — and each mode is now
+previewed and walked on its own.
+
+The other switches that move the traffic were looked at in the same pass, and
+one more was in the same position. `--resume` subtracts the carried cells from
+the bill and the walk skips them, which is two computations of one number like
+the canary passes; it is covered now, with the carried records taken from a real
+walk of the same declaration, because a hand-written record that fits no cell is
+refused before the first request and would test the refusal instead. `--checks`
+is not in that position and does not need to be: it selects what is compared once
+a response is in hand, and neither side counts requests by it. A declared context
+set was already covered — the polygon has two, and both halves read their
+`endpointIds`.
+
 The seventh copy of the same number was in shipped prose. `docs/guide.md`
 printed `Cells a run would probe: 144, plus 8 canary requests` where the command
 it quotes prints 24 — true when it was written, and read by exactly the person
@@ -106,6 +135,17 @@ arithmetic lines of every such quotation in every tracked markdown file against
 this polygon's own preview. Its header says what it leaves alone: the endpoint
 rows, which the documents abridge and hand-align, and anything that is not
 markdown.
+
+It re-measured **one** of those two lines until the review of 23 August:
+`Matrix rows:` was read only when it sat on the line immediately above the bill,
+so the same line with a blank line under it was in no quotation at all and could
+say anything. Both lines are anchors now. The listing of blocks that quote some
+*other* declaration was keyed on the file as well, which is an exemption the size
+of a document — a polygon transcript with wrong numbers pasted into
+`docs/adr/0042-a-canary-the-run-will-not-send.md` was excused along with the one
+the entry was written for, and the test that checks the exemptions are still in
+use saw a file that still quoted something and said nothing. An entry names the
+transcript it excuses now, so every other block in that file is measured.
 
 **4.** One `RegExp` and one parser in `src/core/calendar.ts`, off the `core`
 barrel and so off the public surface, the same standing `src/core/order.ts` has.
@@ -181,15 +221,34 @@ It refuses neither a second severity table nor a second date grammar. Those, and
 a header composition that writes the lists out by hand, are refused by
 `tests/invariants/a-table-written-twice.test.ts` — a source scan with an exact
 count per file in both directions, so that the owner losing its own copy fails as
-loudly as a second one appearing. What that scan cannot see is listed in its
-header: a table built rather than written, a grammar spelled some other way,
-anything outside `src/`, and a **re-ranking** of the one severity table that is
-left, which nothing anywhere holds.
+loudly as a second one appearing.
+
+**What that scan reads, it reads whole, and it did not at first.** The severity
+probe was anchored on `:\s*\d`, which is three characters of a key that has more
+shapes than three: `critical: +0 … info: +4`, and the same table with quoted
+keys, both passed Biome, `tsc` and the run. The header probe read three
+remembered members — `proxy-authorization`, `x-original-`, `x-http-method` — so a
+second composition carrying six *other* members went through green. A scan keyed
+on remembered strings answers about those strings. The severity probe now reads
+the key with the spellings a formatter can produce from the plain one; the header
+scan takes **every** member of both layers out of the owner's own source and
+counts, per file, how many distinct ones are written out, case-folded, exact in
+both directions. A member added to `basis.ts` is covered the moment it is added.
+
+What that scan cannot see is listed in its header, and the list is longer than it
+was: a table or a list **built** rather than written — `Object.fromEntries`, a
+loop, a name assembled out of pieces or computed at run time — a grammar spelled
+some other way, anything outside `src/`, a **re-ranking** of the one severity
+table that is left, which nothing anywhere holds, and a second header composition
+carrying no member of either list. A source scan is not a sandbox: it reads what
+a person writes by accident or convenience and not what somebody writes in order
+to defeat it, and everything above is the first kind.
 
 Four tests hold what no type can: `tests/runner/canary-cost.test.ts` (a change to
 what a canary costs that does not reach the constant),
 `tests/cli/preview-bills-what-the-run-sends.test.ts` (a preview whose bill is not
-what the run sends), `tests/docs/dry-run-transcript.test.ts` (a transcript in the
+what the run sends — in the safe mode, under `--unsafe-methods`, and for a
+resumed run), `tests/docs/dry-run-transcript.test.ts` (a transcript in the
 documentation that has stopped being the output of the command above it), and the
 schema test that refuses a deadline the expiry arithmetic cannot read.
 
@@ -217,7 +276,7 @@ the words, and the composition at each of the three sites is one `has` call, so
 there is nothing yet to compose. If a second condition joins it, it joins
 `forbiddenHeaderReason`'s neighbourhood and not three call sites.
 
-## Corrections
+## Corrections — the first pass
 
 Every "the compiler now refuses …" sentence in the first version of this document
 was tried with a mutation, under `npx tsc --noEmit` and `npx vitest run`. Three
@@ -225,7 +284,7 @@ were false, and this is what was done with each.
 
 | claimed | mutation | before | now |
 | ------- | -------- | ------ | --- |
-| a second severity table does not compile | a private `Readonly<Record<Severity, number>>` with the same ranks, back in `src/cli/screen.ts` | compiled, suite green | the claim is narrowed to what the type holds — a level **added** to `Severity` — and a source scan refuses the second table |
+| a second severity table does not compile | a private `Readonly<Record<Severity, number>>` with the same ranks, back in `src/cli/screen.ts` | compiled, suite green | the claim is narrowed to what the type holds — a level **added** to `Severity` — and a source scan refuses the second table. The scan then had to be corrected in turn; see the second pass below |
 | a second date grammar in `src/io/config/schema.ts` does not compile | the literal `/^\d{4}-\d{2}-\d{2}$/` in place of the imported `CALENDAR_DATE` | compiled, suite green | the claim is replaced; the same scan refuses it, and the shipped `schema/barbican.run.schema.json` is compared with `CALENDAR_DATE.source` |
 | the header layers are held by "the compiler: one function, two callers" | the composition re-inlined into `normalizeContexts`, importing both lists | compiled, suite green | the lists are module-private, so that mutation no longer compiles; a copy that writes them out is refused by the scan |
 
@@ -240,3 +299,65 @@ canary was held by "a test that counts the requests both passes issue" — true 
 the constant, and nothing at all about the multiplication in `src/cli/preview.ts`
 that spends it. `tests/cli/preview-bills-what-the-run-sends.test.ts` is that
 link, and it is described under **3** above.
+
+## Corrections — the second pass
+
+The tests written in the first pass were then attacked, on 23 August 2026, and
+five ways past them were found. Each is closed here, and each closure was
+re-attacked with the mutation that had walked past its predecessor.
+
+| what was claimed | the way past it | now |
+| ---------------- | --------------- | --- |
+| the preview's bill is compared with what the run sends | the link drove one command line: no `--unsafe-methods` on the flags, `allowUnsafeMethods: false` written into the walk. `allowUnsafeMethods: flags.unsafeMethods === true` in `src/cli/preview.ts` → `false`, whole suite green | both halves take a `RunMode`; the polygon is previewed and walked in each mode, and the walk reads the flag the way `src/cli/run.ts` does at the canary passes and at `collectObservations` |
+| — (nothing claimed) | `--resume` was in the same position: the preview subtracts the carried cells and the walk skips them, and no test compared the two | a fourth case carries records from a real walk of the same declaration into a resumed one |
+| a source scan refuses a second severity table | `critical: +0 … info: +4`, or the same keys quoted, passed `\b(?:critical\|…)\s*:\s*\d` | the probe reads an optional quote on each side of the key, an optional bracket for a computed key, and a sign on the number |
+| a second header composition that writes the lists out is refused | it read three members. A second composition in `src/io/config/contexts.ts` carrying `authorization`, `cookie`, `host`, `x-method`, `x-rewrite-`, `x-forwarded-host` and a second `.find` was green through the whole run, `tsc` included | every member of both layers is parsed out of the owner's own source and counted per file, case-folded, exact in both directions |
+| the two arithmetic lines of every quoted transcript are re-measured | `Matrix rows:` was read only when it sat immediately above the bill; with a blank line between them it was in no quotation at all | both lines are anchors, and a quotation runs from the first anchor of a code run to the end of that run |
+| an exception names a transcript this run does not produce | `NOT_THE_POLYGON` excused a **file**, so a polygon transcript with wrong numbers pasted into ADR-0042 was excused with it — and "has no listed exception that no longer quotes one" saw a file that still quoted something | an entry names the block it excuses; every other block in that file is measured, and an entry matching no block fails |
+
+Each mutation was applied by a harness that refuses to write anything when the
+replacement does not apply the number of times asked for, and each was reversed
+from a byte copy rather than with `git checkout --`. Shown once on a deliberately
+wrong needle:
+
+    REFUSED: the needle applies 0 time(s) in …/src/cli/preview.ts, 1 asked for.
+    Nothing was written and nothing was run.
+
+The two that matter, run against the work above, with the tree at 118 test files
+and 1778 passing:
+
+    FAIL  tests/cli/preview-bills-what-the-run-sends.test.ts > … > sends exactly what it promised with --unsafe-methods
+    AssertionError: expected [ { method: 'GET', …(2) }, …(203) ] to have a length of 168 but got 204
+    …
+    Test Files  1 failed | 117 passed (118)
+         Tests  3 failed | 1775 passed | 1 skipped (1779)
+
+    FAIL  tests/invariants/a-table-written-twice.test.ts > the forbidden-header lists are written in one place > has no second composition, whichever members it carries
+    AssertionError: expected { …(6) } to deeply equal { 'src/io/config/basis.ts': 20, …(4) }
+    +   "src/io/config/contexts.ts": 6,
+    …
+    Test Files  1 failed | 117 passed (118)
+         Tests  1 failed | 1777 passed | 1 skipped (1779)
+
+### What is still open
+
+- **The unsafe comparison is of totals, per mode.** It says the preview's number
+  and the walk's demand agree; it says nothing about *which* cells were written,
+  and nothing about the throttle, the retries or the `--max-requests` ceiling,
+  none of which the preview models. Those are the polygon oracle's subject.
+- **A source scan is not a sandbox.** Every gate touched here reads source text.
+  A severity table built in a loop, a forbidden header assembled out of pieces,
+  a transcript in something that is not markdown: none of them is read, and the
+  header of each test file says so. Answering an evasion somebody would only
+  write on purpose with another pattern is how the gates before these ones grew
+  without getting stronger — see [ADR-0060](0060-a-gate-that-says-what-it-holds.md).
+- **The exemption in the transcript gate is still a copy of a number.** It names
+  the excused block word for word, so editing that block fails the test rather
+  than passing silently — but the words themselves are re-derived by nobody.
+  The transcript it names is asserted against the code in
+  `tests/runner/unsafe-canary.test.ts`, which is what makes the copy affordable.
+- **The endpoint rows of a quoted transcript are still not compared**, for the
+  reason the test's header gives: the documents abridge and hand-align them.
+- **`--checks` is argued about rather than measured.** It changes no request
+  count in either half today; a check that issued a request of its own would
+  make that argument false, and nothing would fail.

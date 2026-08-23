@@ -946,6 +946,35 @@ constant the implementation counts by, so it says "up to 3 times" where it used
 to say "up to three times". Spelling the word back would put the number in two
 places again, which is what this entry is about.
 
+**Those gates were walked around in turn, and five ways in are closed.** The one
+that matters is the link between what `--dry-run` bills and what a run sends: it
+drove a single command line, so the preview's own `--unsafe-methods` could be
+pinned to `false` and the whole suite stayed green. That is the worst place in
+this tool to undercount. With `--unsafe-methods` the run writes, and an operator
+who picks a `--max-requests` ceiling the preview called sufficient gets a run
+truncated after it has already changed objects on somebody else's deployment. The
+polygon is previewed and walked in both modes now — 144 cells and 180, the same
+24 canary requests — and `--resume`, which was in the same position, is covered
+with the carried cells taken from a real walk. `--checks` is not: it selects what
+is compared once a response is in hand and moves no request count, and the test
+says so rather than pretending to measure it.
+
+The other four were gates reading less than they claimed. The severity scan was
+anchored on `:\s*\d`, so a second rank table written `+0 … +4`, or with quoted
+keys, passed; the forbidden-header scan read three remembered names, so a second
+composition carrying six *other* members of the same two lists passed — it now
+takes every member out of the owning module's own source and counts them per
+file; `Matrix rows:` in a documented transcript was compared only when it sat on
+the line above the bill, so the same line with a blank line under it could say
+anything; and the transcript gate's list of "quotes some other declaration"
+excused a whole file, so a polygon transcript with wrong numbers pasted into
+ADR-0042 was excused with it. [ADR-0064](docs/adr/0064-a-table-written-twice-is-made-to-agree.md)
+carries the mutation for each, the refusal its harness prints when a replacement
+does not apply, and a section naming what is still open — starting with the fact
+that a source scan reads what a person writes by accident and not what somebody
+writes to defeat it. Nothing a consumer can observe changes: the same 227
+exported names.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.
