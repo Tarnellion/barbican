@@ -17,9 +17,11 @@
  *
  * **What this holds:** the two lines a reader takes a number from — `Matrix
  * rows:` and `Cells a run would probe:` — wherever a tracked markdown file
- * quotes them, against the polygon's real output. Both directions: a quotation
- * that stops matching fails, and one nobody knew about fails as unaccounted for
- * rather than passing unseen.
+ * quotes them, against the polygon's real output. Each is an anchor of its own,
+ * so either one alone in a code block is measured; reading `Matrix rows:` only
+ * when it sat on the line above the bill left it unmeasured wherever it did not.
+ * Both directions: a quotation that stops matching fails, and one nobody knew
+ * about fails as unaccounted for rather than passing unseen.
  *
  * **What it does not hold, and why:**
  *
@@ -34,7 +36,10 @@
  *   `polygon/verify.mjs` is what runs the built binary against the platform.
  * - A block that quotes a dry run of some *other* declaration is listed below
  *   with its reason instead of being checked. There is one, and its numbers are
- *   held by the test that owns the same transcript.
+ *   held by the test that owns the same transcript. The listing names the
+ *   **block**, not the file: it excused the whole file until 23 August 2026, so
+ *   a polygon transcript with wrong numbers pasted into that ADR was excused
+ *   with it.
  * - Only markdown. `tests/runner/unsafe-canary.test.ts` carries the same
  *   transcript as ADR-0042 in its header comment; the two are checked against
  *   each other by `tests/docs/detached-comments.test.ts`, not here.
@@ -56,19 +61,49 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const BILL = "Cells a run would probe:";
 
 /**
- * The blocks that quote a dry run of a declaration that is not the polygon.
+ * The other line a reader takes a number from, and the second anchor.
+ *
+ * It used to be picked up only when it sat on the line immediately above the
+ * bill. `Matrix rows: 999 (declared accounts 42)`, a blank line, then a correct
+ * bill, and the wrong number was in a document with nothing looking at it —
+ * adversarial review, 23 August 2026. A gate on a transcript compares the
+ * transcript, not the line that happens to be adjacent to the one it knows.
+ */
+const ROWS = "Matrix rows:";
+
+const ANCHORS = [ROWS, BILL] as const;
+
+/**
+ * A block that quotes a dry run of a declaration that is not the polygon.
  *
  * Each carries the reason it is not measured here and the name of what does
  * measure it. An entry with no such pair is a block somebody stopped checking.
+ *
+ * **Keyed by the transcript and not by the file.** A whole-file exemption is a
+ * hole the size of the file: a polygon transcript with wrong numbers pasted into
+ * `docs/adr/0042-a-canary-the-run-will-not-send.md` was excused along with the
+ * one the entry was written for, and the test that checks the exemptions are
+ * still in use could not see it either, because the file still quoted something.
+ * `transcript` is the excused block itself, whitespace-collapsed; every other
+ * block in that same file is measured against the polygon like anybody else's.
  */
-const NOT_THE_POLYGON: ReadonlyMap<string, string> = new Map([
-  [
-    "docs/adr/0042-a-canary-the-run-will-not-send.md",
-    "one account and one write endpoint, the smallest declaration that reaches the " +
+interface SomeOtherDeclaration {
+  readonly path: string;
+  /** The excused block, word for word — `wordsOf` is applied to both sides. */
+  readonly transcript: string;
+  readonly why: string;
+}
+
+const NOT_THE_POLYGON: readonly SomeOtherDeclaration[] = [
+  {
+    path: "docs/adr/0042-a-canary-the-run-will-not-send.md",
+    transcript: "Cells a run would probe: 1, plus 3 canary requests",
+    why:
+      "one account and one write endpoint, the smallest declaration that reaches the " +
       "defect the ADR is about; the same transcript is asserted against the code in " +
       "tests/runner/unsafe-canary.test.ts",
-  ],
-]);
+  },
+];
 
 /** What the repository carries, from git rather than from the disk — as in `links.test.ts`. */
 function trackedMarkdown(): readonly string[] {
@@ -78,8 +113,8 @@ function trackedMarkdown(): readonly string[] {
 }
 
 /**
- * Every transcript in one document that quotes the bill, with the words around
- * it that belong to the same transcript.
+ * Every transcript in one document that quotes one of the two arithmetic lines,
+ * with the words after it that belong to the same transcript.
  *
  * A **transcript**, not a mention: only a line inside a fenced block or indented
  * as a code block is read. Prose saying what the line used to say — this
@@ -88,31 +123,55 @@ function trackedMarkdown(): readonly string[] {
  *
  * Both kinds of block, because `docs/adr/0042-a-canary-the-run-will-not-send.md`
  * indents its transcript instead of fencing it: a search that only knew about
- * fences would have reported the repository clean of a copy it could not see. A
- * transcript runs from the `Matrix rows:` line above the bill, where there is
- * one, to the last line before the blank line or fence that ends it — which is
- * what picks up the wrapping `docs/first-run.md` does to stay inside its margin.
+ * fences would have reported the repository clean of a copy it could not see.
+ *
+ * A **run** of code lines is what is read, ending at the blank line or the fence
+ * that ends it — which is what picks up the wrapping `docs/first-run.md` does to
+ * stay inside its margin. Inside a run, the quotation starts at the first line
+ * carrying either anchor and goes to the end of the run. Starting at the anchor
+ * rather than at the top of the run is what leaves the endpoint rows out:
+ * `docs/guide.md` abridges and hand-aligns them in the same fence, and the
+ * header above says why they are not compared.
+ *
+ * Anchoring on both lines, and not on the bill with a peek one line up, is the
+ * fix of 23 August 2026: `Matrix rows:` in a run of its own was in no quotation
+ * at all, so any number could stand there.
  */
 function billsQuotedIn(text: string): readonly string[] {
   const lines = text.split("\n");
-  const ends = (line: string): boolean => line.trim() === "" || line.trim().startsWith("```");
   const quotations: string[] = [];
   let fenced = false;
-  lines.forEach((line, at) => {
+  let run: string[] = [];
+  let anchoredAt: number | undefined;
+
+  const endRun = (): void => {
+    if (anchoredAt !== undefined) {
+      quotations.push(run.slice(anchoredAt).join("\n"));
+    }
+    run = [];
+    anchoredAt = undefined;
+  };
+
+  for (const line of lines) {
     if (line.trim().startsWith("```")) {
+      endRun();
       fenced = !fenced;
-      return;
+      continue;
     }
-    if (!line.includes(BILL) || !(fenced || line.startsWith("    "))) {
-      return;
+    // `line.startsWith("    ")` and not a trim, because an indented code block
+    // is defined by its indentation. On a Windows checkout the line may end in
+    // `\r`; nothing here reads the end of a line, and `wordsOf` collapses it
+    // with the rest of the whitespace.
+    if (line.trim() === "" || !(fenced || line.startsWith("    "))) {
+      endRun();
+      continue;
     }
-    const from = at > 0 && (lines[at - 1] ?? "").trim().startsWith("Matrix rows:") ? at - 1 : at;
-    let to = at;
-    while (to + 1 < lines.length && !ends(lines[to + 1] ?? "")) {
-      to += 1;
+    run.push(line);
+    if (anchoredAt === undefined && ANCHORS.some((anchor) => line.includes(anchor))) {
+      anchoredAt = run.length - 1;
     }
-    quotations.push(lines.slice(from, to + 1).join("\n"));
-  });
+  }
+  endRun();
   return quotations;
 }
 
@@ -137,12 +196,18 @@ describe("a dry-run transcript in the documentation", () => {
     expect(quoting.length).toBeGreaterThanOrEqual(3);
   });
 
+  /** The one entry above that excuses this exact block, or nothing. */
+  const excusing = (path: string, block: string): SomeOtherDeclaration | undefined =>
+    NOT_THE_POLYGON.find(
+      (entry) => entry.path === path && wordsOf(entry.transcript) === wordsOf(block),
+    );
+
   it("quotes the polygon's own numbers, or is listed as quoting something else", async () => {
     const said = (await previewOf(polygonDeclaration())).screen;
-    const real = wordsOf(said.slice(said.indexOf("Matrix rows:")));
+    const real = wordsOf(said.slice(said.indexOf(ROWS)));
 
     for (const { path, block } of quoting) {
-      if (NOT_THE_POLYGON.has(path)) {
+      if (excusing(path, block) !== undefined) {
         continue;
       }
       expect(real, `${path} quotes a dry run this run does not produce`).toContain(wordsOf(block));
@@ -150,13 +215,17 @@ describe("a dry-run transcript in the documentation", () => {
   });
 
   /**
-   * And the exceptions are exact in the other direction: a document listed above
-   * that stopped carrying such a block leaves an allowance nobody will remove,
-   * which is how an exception outlives the thing it excused.
+   * And the exceptions are exact in the other direction: an entry above that
+   * matches no block leaves an allowance nobody will remove, which is how an
+   * exception outlives the thing it excused. It matched on the file name until
+   * 23 August 2026, so editing the excused transcript — or replacing it with a
+   * polygon one carrying wrong numbers — left the entry looking used.
    */
   it("has no listed exception that no longer quotes one", () => {
-    const seen = new Set(quoting.map((one) => one.path));
+    const unused = NOT_THE_POLYGON.filter(
+      (entry) => !quoting.some(({ path, block }) => excusing(path, block) === entry),
+    );
 
-    expect([...NOT_THE_POLYGON.keys()].filter((path) => !seen.has(path))).toEqual([]);
+    expect(unused.map((entry) => `${entry.path}: ${entry.transcript}`)).toEqual([]);
   });
 });

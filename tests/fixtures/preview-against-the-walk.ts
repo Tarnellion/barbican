@@ -12,6 +12,12 @@
  * throttle and request ceiling all change that number for reasons the preview
  * deliberately does not model. What is compared here is the walk's demand
  * against the preview's estimate of it.
+ *
+ * Both halves take a `RunMode`, because the command line changes what a run
+ * sends and the first version of this fixture hardcoded one point of it:
+ * `allowUnsafeMethods: false` on both sides and no `--unsafe-methods` on the
+ * flags, so `flags.unsafeMethods === true` in `describePlan` could be replaced
+ * by `false` with the whole suite green. See ADR-0064.
  */
 
 import { readFileSync } from "node:fs";
@@ -34,6 +40,7 @@ import {
   resolveTokens,
   toAccounts,
 } from "../../src/io/config.js";
+import type { CellRecord } from "../../src/runner.js";
 import { collectObservations } from "../../src/runner.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -42,6 +49,29 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 export interface Declaration {
   readonly config: RunConfig;
   readonly endpointList: string;
+}
+
+/**
+ * The command line, as far as it changes how many requests go out.
+ *
+ * Only the switches that move the number. `--checks` does not: it decides what
+ * is compared once a response is in hand, and `describePlan` prints the
+ * selection without counting it. `--report` and `--no-identify` do not either.
+ * What is left is the two below, and both of them were outside this fixture
+ * until 23 August 2026.
+ */
+export interface RunMode {
+  /** `--unsafe-methods`: the write endpoints join the matrix on both sides. */
+  readonly unsafeMethods?: boolean;
+  /**
+   * What `--resume` carries: cells a previous walk already finished.
+   *
+   * The preview subtracts their count from the bill and the walk does not probe
+   * them again, which is two computations of one number in the shape ADR-0064 is
+   * about. Take them from `cellsWalkedBy` on the same declaration and the same
+   * mode — a record that fits no cell of this matrix is refused by the walk.
+   */
+  readonly resumed?: readonly CellRecord[];
 }
 
 /** The reference polygon's own declaration, read from the files the oracle runs. */
@@ -117,14 +147,22 @@ async function endpointsOf(declaration: Declaration) {
  * its plan there and returns only an exit code, so the numbers under test exist
  * nowhere else.
  */
-export async function previewOf(declaration: Declaration): Promise<Estimate> {
+export async function previewOf(declaration: Declaration, mode: RunMode = {}): Promise<Estimate> {
   const said: string[] = [];
   const write = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
     said.push(String(chunk));
     return true;
   });
   try {
-    const flags: RunFlags = { config: "polygon/barbican.run.yaml", dryRun: true };
+    // Spelled as `src/cli/run.ts` receives it from commander: the switch is
+    // absent rather than `false` when it was not given, because `describePlan`
+    // asks `flags.unsafeMethods === true` and an explicit `false` would not tell
+    // the two spellings apart.
+    const flags: RunFlags = {
+      config: "polygon/barbican.run.yaml",
+      dryRun: true,
+      ...(mode.unsafeMethods === true ? { unsafeMethods: true } : {}),
+    };
     const code = describePlan(
       declaration.config,
       await endpointsOf(declaration),
@@ -133,7 +171,9 @@ export async function previewOf(declaration: Declaration): Promise<Estimate> {
       createThrottle({}).limits,
       resolveContextValues(declaration.config, environmentFor(declaration.config)),
       undefined,
-      0,
+      // `carried.records.length` in the CLI, which is where the number comes
+      // from there too.
+      mode.resumed?.length ?? 0,
     );
     expect(code).toBe(0);
   } finally {
@@ -158,7 +198,34 @@ export async function previewOf(declaration: Declaration): Promise<Estimate> {
  * `probeCanaries` called twice here — would measure an arrangement no operator
  * ever runs.
  */
-export async function requestsIssuedBy(declaration: Declaration): Promise<readonly HttpRequest[]> {
+export async function requestsIssuedBy(
+  declaration: Declaration,
+  mode: RunMode = {},
+): Promise<readonly HttpRequest[]> {
+  return (await walk(declaration, mode)).requests;
+}
+
+/**
+ * The cells one walk finished, in the form `--resume` carries them.
+ *
+ * The same records `src/cli/run.ts` appends to the stream beside the report, and
+ * the only honest source of a `resumed` list: a record that fits no cell of the
+ * matrix being walked is refused by `collectObservations`, so a hand-written one
+ * would test the refusal instead of the arithmetic.
+ */
+export async function cellsWalkedBy(
+  declaration: Declaration,
+  mode: RunMode = {},
+): Promise<readonly CellRecord[]> {
+  return (await walk(declaration, mode)).records;
+}
+
+interface Walked {
+  readonly requests: readonly HttpRequest[];
+  readonly records: readonly CellRecord[];
+}
+
+async function walk(declaration: Declaration, mode: RunMode): Promise<Walked> {
   const { config } = declaration;
   const environment = environmentFor(config);
   const endpoints = await endpointsOf(declaration);
@@ -175,6 +242,12 @@ export async function requestsIssuedBy(declaration: Declaration): Promise<readon
       .map((tenant) => [tenant.id, tenant.baseUrl ?? ""]),
   );
   const { client, seen } = countingClient();
+  // One flag, read the way the CLI reads it — `flags.unsafeMethods === true` at
+  // all three call sites. Hardcoded `false` here on both sides was the hole: the
+  // preview's own `allowUnsafeMethods` could be pinned to `false` and nothing
+  // measured the difference, in the one mode where an undercounted bill lets a
+  // `--max-requests` ceiling truncate a run that has already written.
+  const allowUnsafeMethods = mode.unsafeMethods === true;
 
   const canaryPass = {
     baseUrl: config.target.baseUrl,
@@ -183,11 +256,12 @@ export async function requestsIssuedBy(declaration: Declaration): Promise<readon
     credentials,
     client,
     exclude: config.exclude,
-    allowUnsafeMethods: false,
+    allowUnsafeMethods,
     accounts,
     tenantBaseUrls,
   };
 
+  const records: CellRecord[] = [];
   const before = await probeBeforeWalk(canaryPass);
   const { truncated } = await collectObservations({
     baseUrl: config.target.baseUrl,
@@ -195,13 +269,17 @@ export async function requestsIssuedBy(declaration: Declaration): Promise<readon
     accounts,
     credentials,
     client,
-    allowUnsafeMethods: false,
+    allowUnsafeMethods,
     exclude: config.exclude,
     resources: config.resources,
     tenantBaseUrls,
     contextAttributes: attributes,
+    ...(mode.resumed === undefined ? {} : { resumed: mode.resumed }),
+    record: (record) => {
+      records.push(record);
+    },
   });
   await confirmAfterWalk({ ...canaryPass, before, truncated });
 
-  return seen;
+  return { requests: seen, records };
 }

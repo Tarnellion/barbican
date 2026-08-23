@@ -22,6 +22,30 @@
  * owing canaries, when the cell arithmetic and the walk's disagree, and when a
  * pass is added to or dropped from either end of the run.
  *
+ * ## Both modes, because the undercount is worst in the second
+ *
+ * Until 23 August 2026 every case here ran one command line: no
+ * `--unsafe-methods` on the flags, `allowUnsafeMethods: false` hardcoded on the
+ * walk. So `allowUnsafeMethods: flags.unsafeMethods === true` in
+ * `src/cli/preview.ts` could be replaced by the literal `false` with the whole
+ * suite green — the preview would then bill a safe run's matrix while the walk
+ * sent the write cells too.
+ *
+ * That is the worst place in this tool for an undercount. With
+ * `--unsafe-methods` the run issues writes; an operator reads the bill, picks a
+ * `--max-requests` ceiling the preview called sufficient, and the ceiling
+ * truncates a run that has already changed objects on somebody else's
+ * deployment. A truncated read is a gap in the report; a truncated write is a
+ * platform left half-modified.
+ *
+ * The other switches that change what a run sends were looked at in the same
+ * pass. `--resume` is here too: the preview subtracts the carried cells and the
+ * walk does not probe them, which is two computations of one number. `--checks`
+ * is not, and does not need to be — it selects what is compared once a response
+ * is in hand, and neither side counts requests by it; the preview prints the
+ * selection on a line of its own. A declared context set was already covered:
+ * the polygon has two, and both halves read `endpointIds` from them.
+ *
  * **What it does not hold**, deliberately:
  *
  * - The client is a stub. Retries on `429` and `5xx`, the throttle and the
@@ -35,13 +59,18 @@
  *   for that reason.
  * - Nothing here proves the polygon's numbers are the *right* ones. It proves
  *   the two halves of this tool agree about them.
+ * - The two modes are compared per mode, not against each other's traffic. What
+ *   a write cell *does* to the platform is the polygon oracle's subject, not
+ *   this file's.
  *
  * See ADR-0064.
  */
 
 import { describe, expect, it } from "vitest";
+import { SAFE_METHODS } from "../../src/core/index.js";
 import { CANARY_REQUESTS_PER_ACCOUNT } from "../../src/runner/canaries.js";
 import {
+  cellsWalkedBy,
   inlineDeclaration,
   polygonDeclaration,
   previewOf,
@@ -94,6 +123,91 @@ describe("what a dry run bills, against what the run sends", () => {
 
     expect(estimate.cells).toBeGreaterThan(100);
     expect(estimate.canaryRequests).toBeGreaterThan(20);
+  });
+
+  /**
+   * And the same comparison with `--unsafe-methods`, which is the mode the
+   * undercount is worst in.
+   *
+   * The polygon's `orders.cancel` is `POST /v1/orders/{orderId}/cancel`, skipped
+   * without the flag and walked with it, so the two modes are two different
+   * matrices and a preview that billed the safe one for an unsafe run would be
+   * short by exactly those cells.
+   */
+  it("sends exactly what it promised with --unsafe-methods", async () => {
+    const declaration = polygonDeclaration();
+    const mode = { unsafeMethods: true };
+
+    const estimate = await previewOf(declaration, mode);
+    const sent = await requestsIssuedBy(declaration, mode);
+
+    expect(sent).toHaveLength(estimate.total);
+  });
+
+  /**
+   * The two halves apart from each other again, and in this mode it is the cell
+   * half that moves: the canary passes are the same accounts and the same
+   * endpoints whichever methods the walk is allowed.
+   */
+  it("bills the canary passes and the walk apart from each other with --unsafe-methods", async () => {
+    const declaration = polygonDeclaration();
+    const mode = { unsafeMethods: true };
+
+    const estimate = await previewOf(declaration, mode);
+    const sent = await requestsIssuedBy(declaration, mode);
+
+    const withCanary = declaration.config.accounts.filter(
+      (account) => account.canary !== undefined,
+    ).length;
+    expect(estimate.canaryRequests).toBe(withCanary * CANARY_REQUESTS_PER_ACCOUNT);
+    expect(sent).toHaveLength(estimate.cells + withCanary * CANARY_REQUESTS_PER_ACCOUNT);
+  });
+
+  /**
+   * And the two modes really are two, on both sides.
+   *
+   * Without this the case above is satisfied by a polygon that has no write
+   * endpoint left: the bill and the count would agree at the safe number and
+   * the mode would be tested by nothing. The walk's side is asserted from the
+   * requests themselves rather than from the bill — a method outside
+   * `SAFE_METHODS` went over the wire, which is the whole difference the flag
+   * buys and the reason an undercount here is expensive.
+   */
+  it("walks a larger matrix under --unsafe-methods, and writes", async () => {
+    const declaration = polygonDeclaration();
+
+    const safe = await previewOf(declaration);
+    const unsafe = await previewOf(declaration, { unsafeMethods: true });
+    const sent = await requestsIssuedBy(declaration, { unsafeMethods: true });
+
+    expect(unsafe.cells).toBeGreaterThan(safe.cells);
+    const safeMethods = new Set<string>(SAFE_METHODS);
+    expect(sent.filter((request) => !safeMethods.has(request.method)).length).toBeGreaterThan(0);
+  });
+
+  /**
+   * `--resume`: the cells a previous walk finished come off the bill, and the
+   * walk does not probe them again.
+   *
+   * Two computations of one number, like the canary passes: `describePlan`
+   * subtracts `carried.records.length`, and `collectObservations` resolves each
+   * record onto a cell of the matrix and skips it. The records come from a real
+   * walk of the same declaration, because a hand-written one that fits no cell
+   * is refused before the first request and would test the refusal instead.
+   */
+  it("bills a resumed run for what is left of it", async () => {
+    const declaration = polygonDeclaration();
+    const carried = (await cellsWalkedBy(declaration)).slice(0, 40);
+    const mode = { resumed: carried };
+
+    const whole = await previewOf(declaration);
+    const estimate = await previewOf(declaration, mode);
+    const sent = await requestsIssuedBy(declaration, mode);
+
+    expect(carried).toHaveLength(40);
+    expect(estimate.cells).toBe(whole.cells - carried.length);
+    expect(sent).toHaveLength(estimate.total);
+    expect(estimate.screen).toContain(`${carried.length} are already in the`);
   });
 
   /**
