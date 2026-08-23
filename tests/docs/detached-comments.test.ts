@@ -149,14 +149,9 @@ function detachedDocBlocks(text: string): readonly number[] {
  *   than one declaration. A rule that flagged it would be a rule people satisfy
  *   with a blank line, which fixes nothing. This entry is permanent unless the
  *   header stops being a header.
- * - **`src/core/checks/registry.ts`** — a real occurrence of the defect: the
- *   block for `UnknownCheckError` stands over the one for `RESERVED_CHECK_IDS`.
- *   Left alone because the file was being changed on another track the day this
- *   gate was written. It goes when that lands, and this entry with it.
  */
 const KNOWN_OCCURRENCES: Readonly<Record<string, number>> = {
   "src/core/checks/clauses.ts": 1,
-  "src/core/checks/registry.ts": 1,
 };
 
 describe("a doc comment sits on the symbol it describes", () => {
