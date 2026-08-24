@@ -236,7 +236,7 @@ const KNOWN_OCCURRENCES: Readonly<Record<string, number>> = {
  */
 const MODULE_HEADERS: Readonly<Record<string, number>> = {
   "src/core/calendar.ts": 1,
-  "src/core/keys.ts": 1,
+  "src/core/identifiers.ts": 1,
   "src/core/order.ts": 1,
   "src/core/path-parameters.ts": 1,
   "src/core/standards/types.ts": 1,

@@ -620,8 +620,9 @@ the tool could not see is the same class of lie as a falsely clean run.
 
 ### Unreleased
 
-On `main`, not on npm. `0.5.0` is what `npm install barbican` gives you, and the
-work below changes nothing a consumer can observe.
+On `main`, not on npm. `0.5.0` is what `npm install barbican` gives you. Most of
+the work below changes nothing a consumer can observe; the last entry does, and
+says exactly what.
 
 **The modules that were half the source are split by what they do.**
 `report/build`, `io/config`, `cli` and `runner` were 3012, 2832, 1872 and 1726
@@ -1015,6 +1016,37 @@ module the package ships was measured. And one spelling of a narrowed `test.incl
 with every coverage number where it was; a negated second entry is caught
 instead. Each was run against the full suite before it was
 written down, and the ADR that owns each gate carries what was run.
+
+**An identifier now has a grammar, and this one a consumer can observe**
+([ADR-0066](docs/adr/0066-an-identifier-has-a-grammar.md)). `src/core/keys.ts`
+described the character it glues keys with as "a character that never occurs in
+an identifier" and nothing made that true: an endpoint id, a context id and an
+accepted finding's `kind` were `z.string().min(1)` with no character class, and
+YAML writes a NUL as `\0` inside double quotes. A key is a fixed number of parts
+joined by that character, so a part carrying one splits two ways — two
+acceptances of two *different* defects had a single key, and the `Map` that
+indexes them kept the last, which then decided the other's deadline.
+
+The five strings a key is made of — an account id, an endpoint id, a resource id,
+a context id and a finding's kind — are now held to a rule: no C0 control, no
+DEL, no C1 control, neither Unicode line separator, and not the empty string,
+which is how a key writes a coordinate it does not have. A space, punctuation,
+any script and an emoji are all still names. The rule is applied at `joinKey`,
+the one place a key is built, because that is the seam that covers the two doors
+nobody enumerates — a consumer of the library handing `Endpoint[]` straight to
+the core, and a resume stream read back off disk — and it is applied again at
+each of the six doors that can name the line of the file to change. Refusing the
+NUL alone would have been a point fix on whichever character the separator
+happens to be.
+
+What changes for a consumer: a configuration or a document carrying one of those
+characters in one of those five fields is refused where it used to be accepted,
+with a message naming the field and spelling the character out; nothing that was
+refused before is accepted now; and the package exports three names more, 230
+where it exported 227 — the grammar and the error it throws, because a rule the
+library door holds a consumer to and does not let them inspect is a wall rather
+than a check. The oracle answers as it did over all 29 combinations of the
+reference platform, and every key's bytes are what they were.
 
 ## Example
 

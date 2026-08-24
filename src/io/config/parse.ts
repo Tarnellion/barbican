@@ -27,6 +27,7 @@ import {
   DIGEST_SCOPE_MISSING_SIGNAL,
   describeAcceptance,
   FLAT_HIERARCHY,
+  identifier,
   isUsablePathSegment,
 } from "../../core/index.js";
 import { FORBIDDEN_QUERY_KEYS, ForbiddenResourceQueryError, WRITE_METHOD_WORDS } from "./basis.js";
@@ -406,7 +407,13 @@ export function parseRunConfig(source: string): RunConfig {
   const config = parseConfigDocument(source);
 
   const seen = new Set<string>();
-  for (const account of config.accounts) {
+  for (const [index, account] of config.accounts.entries()) {
+    // Before the duplicate check, because an id the tool cannot key a table on
+    // makes "is this one already declared" the wrong question to be asking: two
+    // ids differing only inside a control character are two entries here and one
+    // row of the matrix. The grammar is `identifier` in `src/core/identifiers.ts`
+    // — ADR-0066 — and this is the door for it, not the rule.
+    identifier(account.id, `The id at accounts[${index}]`);
     if (seen.has(account.id)) {
       throw new DuplicateAccountIdError(account.id);
     }
@@ -527,7 +534,8 @@ export function parseRunConfig(source: string): RunConfig {
 
   const resources: Resource[] = [];
   const resourceIds = new Set<string>();
-  for (const declared of config.resources ?? []) {
+  for (const [index, declared] of (config.resources ?? []).entries()) {
+    identifier(declared.id, `The id at resources[${index}]`);
     if (resourceIds.has(declared.id)) {
       throw new DuplicateResourceIdError(declared.id);
     }
@@ -596,6 +604,17 @@ export function parseRunConfig(source: string): RunConfig {
   const acceptedKeys = new Set<string>();
   for (const [index, declared] of (config.accepted ?? []).entries()) {
     const where = describeAcceptance(index);
+    // The three coordinates of an acceptance that reach a key. `relation` is a
+    // closed union and needs no grammar; `endpoint`, `context` and `kind` are
+    // `z.string().min(1)` and were the measured hole — `kind: "\0E"` on one entry
+    // and `endpoint: "a\0own"` on another are two different defects with one
+    // `acceptanceKeyOf`, and the `Map` in `indexAcceptances` kept the last of
+    // them. See ADR-0066.
+    identifier(declared.endpoint, `The endpoint at accepted[${index}]`);
+    identifier(declared.kind, `The kind at accepted[${index}]`);
+    if (declared.context !== undefined) {
+      identifier(declared.context, `The context at accepted[${index}]`);
+    }
     if (UNACCEPTABLE_KINDS.has(declared.kind)) {
       throw new UnacceptableFindingKindError(where, declared.kind);
     }

@@ -5,6 +5,7 @@
  * creates the registry explicitly and passes it on.
  */
 
+import { identifier } from "../identifiers.js";
 import type { DiffKind } from "../types.js";
 import type { Check, CheckContext, CheckRun, ResolvedFinding } from "./types.js";
 
@@ -194,6 +195,11 @@ export class CheckRegistry {
    * overwriting a check would mean silently lost coverage.
    */
   register(check: Check): void {
+    // A check id becomes the `kind` of every finding the check makes, and a
+    // finding's kind is a coordinate of the acceptance key and of the evidence
+    // budget. Checks are registered from code, so this is the library door and
+    // the only one: nothing in the configuration names a new check. See ADR-0066.
+    identifier(check.id, "The id of a registered check");
     if (this.#checks.has(check.id)) {
       throw new DuplicateCheckIdError(check.id);
     }

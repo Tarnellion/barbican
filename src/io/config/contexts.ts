@@ -19,7 +19,7 @@
 import type { AuthScheme } from "../../adapters/credentials.js";
 import type { ContextAttributes } from "../../adapters/ports.js";
 import type { Account, ExpectedAccessPolicy } from "../../core/index.js";
-import { describePolicyRule } from "../../core/index.js";
+import { describePolicyRule, identifier } from "../../core/index.js";
 import { isHeaderName, isHeaderValue, safeHeaders } from "../untrusted.js";
 import {
   ForbiddenContextHeaderError,
@@ -126,7 +126,13 @@ export function normalizeContexts(
   const contexts: RequestContextConfig[] = [];
   const seenIds = new Set<string>();
 
-  for (const context of declared) {
+  for (const [index, context] of declared.entries()) {
+    // A context id reaches two keys: the account row it derives
+    // (`alice-a@geo-blocked`, and so every cell key of that row) and the defect
+    // signature. Both are joined with a control character, and the id was
+    // `z.string().min(1)` with no character class. See ADR-0066 — the grammar is
+    // in `src/core/identifiers.ts`, this is one of its doors.
+    identifier(context.id, `The id at contexts[${index}]`);
     if (seenIds.has(context.id)) {
       throw new DuplicateContextIdError(context.id);
     }

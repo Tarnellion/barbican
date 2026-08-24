@@ -22,7 +22,6 @@
 import { calendarDayOf } from "./calendar.js";
 import type { DefectCoordinates } from "./defects.js";
 import { defectSignature } from "./defects.js";
-import { joinKey } from "./keys.js";
 
 /**
  * One accepted finding, in the core's own vocabulary.
@@ -87,7 +86,15 @@ export function acceptanceKeyOf(of: DefectCoordinates, kind: string): string {
   // A space stood here first and is precisely what the signature's own reason
   // forbids — an endpoint id ending in a space, with no conditions, glues to
   // the same string as its neighbour with the kind read as part of the context.
-  return joinKey(defectSignature(of), kind);
+  //
+  // The kind is handed to `defectSignature` rather than glued onto its result,
+  // and the string is the same. What changed with ADR-0066 is that every part of
+  // this key is now a coordinate the grammar has read: a finished signature
+  // carries separators, so passing one back in as a part would have been a key
+  // used as an identifier — and the grammar could not have told the difference
+  // between the separators this function put there and the ones an operator's
+  // `kind` smuggled in. That pair is the defect this all comes from.
+  return defectSignature(of, kind);
 }
 
 /**
