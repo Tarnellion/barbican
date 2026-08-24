@@ -271,11 +271,40 @@ clause paraphrases were checked against the published documents in the same pass
 four ASVS summaries and the ASVS boundary statement were narrowed to what their
 source says.
 
-What is still ahead and still unestimated: **the clause-by-clause content
-itself**, and the rendering. The catalogue holds the part of ASVS V8 this tool
-can speak to and now says which of it nothing answers; deciding what a pack
-claims per clause, and what a reader of it is entitled to conclude, is the work
-none of these ADRs does.
+**Both of those landed on 24 August 2026, and phase 5 is closed.** What a pack
+claims per clause is `src/report/pack.ts` and
+[ADR-0067](docs/adr/0067-an-evidence-pack-says-what-it-checked.md): six claims,
+and three of them — `inconclusive`, `unanswered`, `withheld` — say something
+about the run rather than about the platform, which is the half a reader
+otherwise mistakes for the first. A clause nothing answers is never "passed", and
+a run that exited 2 withholds `upheld` while keeping `breached`, because a later
+failure of the run does not un-observe what was already seen. The rendering is
+`src/report/page.ts` and `barbican pack`
+([ADR-0068](docs/adr/0068-a-pack-is-drawn-from-the-json.md)): one self-contained
+HTML file, hand-written escaping, nothing fetched from anywhere. Both shipped in
+`0.7.0`.
+
+**So both modules are done and published, and this document has no phase 6.**
+What is left in it is smaller than a phase and is listed here so that it is not
+mistaken for nothing:
+
+- **crAPI — phase 2, item 2, still marked "next".** It never ran. It is the
+  second public polygon and the one that matters most for the risk this document
+  ranks second — a tool that finds what is not there loses trust on the first
+  run, and one polygon is not evidence about false positives. The `polygon-recon`
+  agent in `.claude/agents/` exists for exactly this step.
+- **Open question 1, which crAPI forces.** Some of its BOLAs are reachable only
+  through an identifier from the body of a previous response, and this tool does
+  not store bodies. The question is marked "to be decided in phase 2" and phase 2
+  is where it still sits; until it is decided, that class of defect is
+  structurally out of reach, which is a sentence this project should be able to
+  say out loud rather than discover.
+- **Open question 2**, the shared ground-truth format, for the same reason.
+- **A run against a platform somebody actually operates.** Not in this document
+  at all, and the one thing the reference platform cannot substitute for: a cold
+  start against the published `0.6.0` on 24 August found a defect no gate in this
+  repository could have — the report prints `relation` and a declaration asks for
+  `scope`. Forty lines of stub found that. A real deployment will find more.
 
 ---
 
@@ -303,7 +332,7 @@ the configuration format — [ADR-0008](docs/adr/0008-run-configuration-format.m
 | The build through `tsc` | CJS or a bundle is needed | `tsup`, then `tsdown` |
 | Biome | rules are missing | ESLint 9 flat + `oxlint` in CI |
 | `fast-redact` (a candidate, not installed) | 28 months without a release; it mutates the source object | `@pinojs/redact` |
-| `pdfkit` (a candidate, not installed) | it cannot carry the report we need | HTML → PDF as a separate step |
+| `pdfkit` | not installed, and now not needed: ADR-0068 chose one self-contained HTML file, printed to PDF by the reader's own browser. The row stays as the record of a candidate that was weighed and dropped | — |
 | Any dependency | a supply-chain incident | a 7-day cooldown gives time for a version to be pulled |
 
 Check on every dependency update, and at least once a quarter.
