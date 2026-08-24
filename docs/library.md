@@ -48,6 +48,36 @@ you drove yourself needs no conversion. A report that came back off disk is
 JSON and is not one until something has checked it: `toComparableRun(value,
 source)` is that check, and it throws `UnreadableReportError` naming the file.
 
+## Building an evidence pack
+
+`evidencePack({ run, catalog })` turns a saved run into the structure a document
+about external standards is drawn from: one row per clause of the catalogue,
+saying what this run did about it and — where it did nothing — saying that in a
+way a reader cannot take for a pass. It is pure and renders nothing; JSON is the
+source of truth and a document is a separate step.
+
+`createBundledCatalog()` is the catalogue this repository ships — the
+authorization chapter of OWASP ASVS 5.0, three entries of the API Top 10 and the
+CWE-284 hierarchy. It is a fresh instance each time on purpose, so you can
+register a standard of your own into it — that is what `StandardCatalog`'s own
+`register` method is for: a standard whose numbering may not be published belongs
+on the machine that holds it and not in a public repository. Whatever you
+register gets rows like the rest.
+
+The input is what came back off disk: `toPackableRun(value, source)` is the check,
+and it throws the same `UnreadableReportError`, naming the field and the file.
+A `RunReport` is deliberately **not** assignable to `PackableRun` — a file may
+carry a severity or a reservation code this build has never heard of, and typing
+those as the report's own unions would be a promise made by a cast.
+
+Every sentence a pack prints comes out of `CLAIMS`, `STANDINGS` and
+`DISCLAIMERS`. A row carries the code and you read the sentence from the table:
+they are assertions the tool makes to somebody who was not there, and a second
+copy of one is a second assertion the day it is improved. Read
+[ADR-0067](adr/0067-an-evidence-pack-says-what-it-checked.md) before rendering
+one — what a pack may claim, and what it refuses to, is the whole of that
+decision.
+
 ## Running the walk yourself
 
 `collectObservations` performs it: it takes the endpoints, the accounts, a
@@ -140,7 +170,7 @@ invalidated the digest of every report it wrote until 23 August 2026. See
 
 ## What the rest of the surface is
 
-The package exports 232 values and a comparable number of types. They fall into
+The package exports 238 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,

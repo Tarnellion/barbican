@@ -61,4 +61,17 @@ export * from "./report/build.js";
 // because telling a mistyped path from a report of another vintage is done in
 // a `catch`.
 export * from "./report/compare.js";
+// The evidence pack (ADR-0067): a saved report and a catalogue in, the structure
+// a document is drawn from out. Exported for the reason `compareRuns` is — a
+// consumer that drove the walk from the library holds the report afterwards, and
+// "what may I say about ASVS 8.2.2 on the strength of this run" is not a
+// different question because the walk was driven by code.
+//
+// `src/report/document.ts` beside it is **not** exported, and that is the
+// decision rather than an oversight: it is the reading half of two doors, its
+// `stringAt` and its `numberAt` are plumbing a consumer has no use for, and
+// putting ten of them on the surface would be ten names to keep. The one thing
+// out of it a consumer catches, `UnreadableReportError`, reaches here through
+// `compare.js`, which is the module that has always declared it.
+export * from "./report/pack.js";
 export * from "./runner.js";

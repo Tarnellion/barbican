@@ -1117,6 +1117,52 @@ run and the tool does not own the screen it is opened on. The package exports
 232 names, one more than before — `spellOut`, so that a consumer building its
 own report has the same rendering rather than a second one.
 
+### Unreleased
+
+**A saved report can be turned into an evidence pack: the structure a document
+about external standards is drawn from**
+([ADR-0067](docs/adr/0067-an-evidence-pack-says-what-it-checked.md)). This is the
+first half of Module 2, and it is pure — `evidencePack({ run, catalog })` takes a
+report that has already been written and the catalogue it is to be read against,
+and returns one row per clause. Nothing renders anything yet and no subcommand
+builds one; JSON stays the single source of truth and a document is drawn from it
+in a separate step.
+
+The structure is the small half. What the change actually decides is **what such
+a pack is allowed to say**, and every rule of it points the same way:
+
+- **A clause no check cited and no cell was evidence about is `unanswered`, never
+  a pass**, and the sentence beside it says so. The catalogue is what makes that
+  sayable at all: a pack built from what a run happened to cite lists what was
+  checked, and the question a reader has is what was not.
+- **`upheld` carries its denominator and its reservations on the row** — the cells
+  that concluded, the cells that concluded nothing by reason, and why "exercised"
+  falls short of "holds across the surface". Those come out of the report's own
+  `coverage.clauses` rather than being computed a second time.
+- **A run that exited 2 reports what it found and reports nothing as upheld.** It
+  describes the network, the deployment or its own credentials rather than the
+  platform, so a cell that agreed may have agreed for a reason that has nothing to
+  do with access — while a hole found before the budget ran out is still a hole.
+- **A pack states, on every pack, that it is evidence about a policy a human
+  declared** ([ADR-0006](docs/adr/0006-expected-access-declaration.md)), that every
+  conclusion in it is drawn from status codes seen from outside, and that the
+  catalogue it was read against is bounded. None of the three can ever be
+  discharged by running the tool again.
+
+The eleven sentences a pack prints live in one table, for the reason `WARNINGS`
+does: two copies of an assertion become two assertions the day one of them is
+improved. `tests/invariants/a-claim-has-one-wording.test.ts` is the gate on that,
+and what it does **not** catch — a paraphrase above all — is measured and listed
+in the ADR's `Limits`.
+
+Reading a saved report is now one module, `src/report/document.ts`, shared by the
+comparison's door and the pack's: every string lifted out of a file still goes
+through the identifier grammar
+([ADR-0066](docs/adr/0066-an-identifier-has-a-grammar.md)), and a rendered
+document is a new sink for one. The package exports 238 names, six more than
+before — `evidencePack`, `toPackableRun`, `PACK_SCHEMA_VERSION`, `CLAIMS`,
+`STANDINGS` and `DISCLAIMERS`.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.

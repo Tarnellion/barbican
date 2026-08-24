@@ -341,8 +341,15 @@ const REACHES_IN: ReadonlyMap<string, { readonly names: readonly string[]; reado
       { names: ["identifier"], why: "an account, a resource and an acceptance" },
     ],
     ["src/io/config/contexts.ts", { names: ["identifier"], why: "a context id" }],
+    // One entry and not two, although two modules read a saved report. The
+    // comparison held this allowance until 25 August 2026, when `evidencePack`
+    // became a second reader of the same kind of file; the reading half moved to
+    // `src/report/document.ts` rather than being written out again, so the
+    // number of modules reaching into the owner went from one to one instead of
+    // to two. A third reader of a saved report asks `document.ts` for `stringAt`
+    // and needs no entry here at all. See ADR-0067.
     [
-      "src/report/compare.ts",
+      "src/report/document.ts",
       { names: ["identifier"], why: "every string lifted out of a saved report" },
     ],
     [
