@@ -66,8 +66,21 @@ exist.
    is open to everyone (a password leak) and `/users/v1` is available to an ordinary user.
    **But the `vulnerable=0/1` switch turned out to be useless as an oracle** — the modes
    are indistinguishable by response statuses, see [ADR-0009](docs/adr/0009-validation-oracle.md).
-2. **crAPI — next.** Documented BOLA/IDOR, a mapping onto the OWASP API Top 10,
-   an official docker-compose.
+2. **crAPI — passed, 13 August 2026.** Documented BOLA/IDOR, a mapping onto the
+   OWASP API Top 10, an official docker-compose. `polygons/crapi/` holds the
+   declaration, a hand-written oracle in the format of
+   [ADR-0012](docs/adr/0012-ground-truth-format.md) and a `verify.mjs` that uses
+   the shared `tools/oracle` module — the same one VAmPI and the reference
+   platform use. The run and its numbers are in
+   [docs/polygons/crapi.md](docs/polygons/crapi.md).
+
+   **This item said "next" until 24 August**, eleven days after it was done, and
+   the line above is the correction. Nothing checked it: the polygon oracles are
+   not in CI and not in `pnpm run check`, so a phase item can stay open in this
+   document while the work sits finished in the tree beside it. Re-verified on
+   24 August against `0.7.0` — 60 cells, 16 findings against 16 expected, 0
+   mismatches — which is the only evidence that seven days of cutting modules
+   apart did not break it.
 3. **Juice Shop — on leftover time.** A broad ground truth on broken access control.
 
 **Exit criterion:** the defects from the hand-written list reproduce, and there are no
@@ -288,18 +301,18 @@ HTML file, hand-written escaping, nothing fetched from anywhere. Both shipped in
 What is left in it is smaller than a phase and is listed here so that it is not
 mistaken for nothing:
 
-- **crAPI — phase 2, item 2, still marked "next".** It never ran. It is the
-  second public polygon and the one that matters most for the risk this document
-  ranks second — a tool that finds what is not there loses trust on the first
-  run, and one polygon is not evidence about false positives. The `polygon-recon`
-  agent in `.claude/agents/` exists for exactly this step.
-- **Open question 1, which crAPI forces.** Some of its BOLAs are reachable only
-  through an identifier from the body of a previous response, and this tool does
-  not store bodies. The question is marked "to be decided in phase 2" and phase 2
-  is where it still sits; until it is decided, that class of defect is
-  structurally out of reach, which is a sentence this project should be able to
-  say out loud rather than discover.
-- **Open question 2**, the shared ground-truth format, for the same reason.
+- **Juice Shop — phase 2, item 3**, the one still open. "On leftover time" is
+  what this document says of it, and it is the third independent ground truth
+  about false positives.
+- **The polygon oracles run nowhere but by hand.** VAmPI, crAPI and Juice Shop
+  each have a `verify.mjs`, and none of them is in CI or in `pnpm run check` —
+  crAPI's needs an external clone and about 2.5 GB of images, which is a real
+  reason, and the consequence is that it went unrun for eleven days while this
+  document said it had never run at all. Whether that is worth a scheduled job
+  is a decision nobody has taken.
+- **Open question 2**, the shared ground-truth format. Note that it is further
+  along than this section implies: `tools/oracle` is shared by all three
+  polygons already, which is most of what the question asked for.
 - **A run against a platform somebody actually operates.** Not in this document
   at all, and the one thing the reference platform cannot substitute for: a cold
   start against the published `0.6.0` on 24 August found a defect no gate in this
@@ -310,11 +323,15 @@ mistaken for nothing:
 
 ## Open questions that need an ADR
 
-1. **Identifiers from responses against the ban on storing bodies.** Some BOLAs are
-   reachable only through an `id` from the body of a previous response. The proposed
-   direction: extract individual values along paths fixed in the code into a short-lived
-   in-memory pool that never reaches the report. To be decided in phase 2, before the
-   detectors of this class are written.
+1. ~~**Identifiers from responses against the ban on storing bodies.**~~ **Closed
+   24 August 2026, and the answer is no** —
+   [ADR-0071](docs/adr/0071-an-identifier-from-a-body-is-not-worth-a-pool.md). The
+   price was measured rather than estimated: of crAPI's eighteen challenges, the
+   number blocked *solely* by the ban is **zero**. The motivating case — a vehicle
+   GUID — turned out to be a constant of the seed, proven by tearing the volumes
+   down and re-seeding, so it is declared in `resources[]` like any other resource.
+   And the proposed pool could not have carried it anyway: it was to hold scalars,
+   `SignalValue` is a number or a boolean, and a GUID is a string.
 2. **The format of the machine-readable ground truth.** Shared between VAmPI, crAPI and
    our own platform, otherwise the validation is not reused. To be decided in phase 2.
 
