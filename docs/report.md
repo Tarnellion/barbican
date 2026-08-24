@@ -451,9 +451,11 @@ the platform's doing. A changed digest does **not** by itself make the exit code
 1 — two runs finding the same defects over the same surface describe a platform
 in the same state, whatever you edited in between.
 
-**The unit is the defect, not the finding row.** Rows are joined on
-`defects[].key` — endpoint, relation, conditions — which is what that key was
-made readable and stable for. A difference in the *number of rows* is news about
+**The unit is the defect, not the finding row.** Rows are joined on a defect's
+coordinates — endpoint, relation, conditions. Not on `defects[].key`, which is
+those same three printed for a person to cite: it joins them with a space, a
+space is a legal character in a name, and one such string can therefore print for
+two different defects ([ADR-0070](adr/0070-a-comparison-joins-on-coordinates.md)). A difference in the *number of rows* is news about
 the shape of a run, not about the platform: one defect is fifty rows or one
 depending on the evidence budget above and on how wide your matrix is, and
 `violations` moves the moment you add an account. So `violations`, `accountIds`
