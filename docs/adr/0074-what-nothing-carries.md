@@ -83,9 +83,13 @@ Seven of the thirteen are values a consumer is **refused for colliding with** �
 `ReservedSignalNameError` and `ReservedCheckIdError` are raised by name — or ids
 they need in order to ask the catalogue about a bundled standard. `isHeaderValue`
 and `systemClock` are on the surface by the whole-module policy above.
-`COMPARISON_SCHEMA_VERSION` is the odd one: `REPORT_SCHEMA_VERSION` and
-`PACK_SCHEMA_VERSION` are both explained in `docs/library.md` and the third is
-not, which is a gap in the document rather than a name to remove.
+`COMPARISON_SCHEMA_VERSION` is the odd one. When this survey was taken,
+`docs/library.md` explained **only** `PACK_SCHEMA_VERSION`; the other two were on
+the surface and unexplained. The change that carries this document adds
+`REPORT_SCHEMA_VERSION` to that page, which is why the sentence reads as it does
+now — and the first version of it described the state after its own edit as
+though it were what the survey found. All three are gaps in the document rather
+than names to remove, and the third is still one.
 
 **Nothing on this list is removed, and none of it is proposed for 1.0 as a
 list.** A removal is a breaking change and needs its own argument; what this
@@ -130,8 +134,10 @@ into the three kinds:
 dead code had been spotted during the week. They were already dealt with on 23
 and 24 August — a `?? ""` after a filter that had excluded `undefined`, a `?? 1`
 on a lookup in a map built from the list being looked up in, and a `?? reason` on
-a table keyed by the type of the value being looked up. What is left in those two
-files is one `{}` spread arm each.
+a table keyed by the type of the value being looked up. What is left is one `{}`
+spread arm in `src/cli/preview.ts` and **three** in `src/cli/run.ts` — lines 271,
+439 and 574. The first version of this sentence said one each; it was measured
+against the wrong file.
 
 ### 3. Helpers that exist once per module
 

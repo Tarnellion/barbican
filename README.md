@@ -1138,6 +1138,38 @@ run and the tool does not own the screen it is opened on. The package exports
 232 names, one more than before — `spellOut`, so that a consumer building its
 own report has the same rendering rather than a second one.
 
+**The gate a contributor waits for went from 21 s to 14 s, and the reason was not
+what anybody expected** ([ADR-0072](docs/adr/0072-the-suite-is-as-long-as-its-longest-file.md)).
+The suspicion was module import: vitest reported 12 s of it against 2 s of
+transform, and 58 of 126 test files import a barrel rather than the module they
+are about. Measured, that was wrong twice over. Import is a sum across workers
+and the wall clock is not; the file that set the duration imports 63 ms of
+modules; and taking the barrels out of every test could not have beaten 0.94 s,
+which is what the whole of the repeated importing costs — proved by running the
+suite without isolation rather than by rewriting anything.
+
+What actually held the clock was two files sleeping. Five requests a second is a
+*pace* and not only a ceiling ([ADR-0026](docs/adr/0026-throttling-defaults.md)),
+so the smallest useful run waits about 800 ms for a stub that answers in under a
+millisecond, and twenty-nine tests were spending it while asserting about a
+screen or an exit code. They now pass `--rps 200 --concurrency 8` from one named
+fixture, and nothing about the pace stopped being tested.
+
+**The report layer was measured and not cut.** Four modules over 790 lines, and
+the question was whether any of them holds more than one job. None does in a way
+that a cut would help: `shape.ts` is 77 % prose, and splitting a type graph to
+make files smaller costs the reader the part that made it worth reading —
+[ADR-0073](docs/adr/0073-the-report-layer-is-not-cut.md). Two real things came out
+of looking: `compareRuns` built the same two sets twice, which is 5.16 ms against
+2.43 ms on a pair of 80,000-observation runs, and a helper that only the reader
+used had been left behind by an earlier move.
+
+**Nothing was deleted as dead weight, and that is the measured answer**
+([ADR-0074](docs/adr/0074-what-nothing-carries.md)). The public surface is 242
+promises and every one was checked; what turned up instead was seven refusals
+that were written, reachable, and exercised by nothing at all. They have tests
+now, which is why the suite is 1943 and not 1936.
+
 ### What changed in 0.7.0
 
 **A refusal names the word this tool taught you.** A cold start against the

@@ -53,8 +53,9 @@ smallest useful run — one account, one endpoint, a canary — takes about 800 
 against a stub on loopback that answers in under a millisecond. Nineteen of the
 twenty-six tests in `tests/cli.test.ts`, and ten of the sixty in
 `cli-surface.test.ts`, were sleeping through that while asserting about the
-screen, an exit code or the shape of a report. One call site had already noticed
-and passed `--rps 200 --concurrency 8`, with the reasoning written beside it:
+screen, an exit code or the shape of a report. Two call sites had already noticed
+and passed `--rps 200 --concurrency 8`, one of them with the reasoning written
+beside it:
 "fifty-two
 cells at the conservative default of five a second is ten seconds of waiting for
 a local stand to answer itself."
@@ -74,8 +75,13 @@ waiting, not work.
 
 Nothing about the pace stopped being tested. `tests/adapters/throttle.test.ts`
 holds `DEFAULT_THROTTLE_LIMITS` with an exact `toEqual`, holds the README table
-built from the same constant, and drives the throttle through a test clock — so
-it proves the 200 ms spacing without waiting for it either.
+built from the same constant, and drives the throttle through a test clock,
+which proves that starts are spread rather than released in a burst without
+waiting for them. What it does **not** assert is the 200 ms itself: that test
+runs at four requests a second, so it is about the shape of the spacing and not
+about the number the default produces. An earlier version of this paragraph
+claimed the number was proven; nothing proves it, and saying so is cheaper than
+a test that would have to sleep to say it.
 
 **And the general rule the measurement bought:** the suite's duration is not a
 budget shared among 126 files. It is the longest file. A change that does not

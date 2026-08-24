@@ -22,10 +22,17 @@ measured before anything was decided:
 | `src/report/pack.ts` | 855 | 353 | 40 | 462 |
 | `src/report/findings.ts` | 793 | 342 | 24 | 427 |
 
-Taken before this round's own change, which is why `compare.ts` is 1 023 lines in
-the tree this document lands in: the paragraph it grew is the one on
-`ProbedEndpoints`. A file that gets longer by being explained is the thing this
-table is about.
+Taken before this round's own change. `compare.ts` is **1 020** lines in the tree
+this document lands in: the paragraph it grew is the one on `ProbedEndpoints`, and
+the change that wrote this sentence also removed two lines net, so the first
+version of it said 1 023 and was wrong by the time it was committed. A file that
+gets longer by being explained is the thing this table is about — and a count of a
+file, written into that file's own commit, is the thing ADR-0065 is about.
+
+The `total` and `blank` columns above are each one line high, for the reason a
+line count usually is: the split on newline yields an empty string after the last
+one. `code` and `prose` are exact. Left as measured rather than silently adjusted,
+because the correction is the interesting part.
 
 The first row is the whole argument about `shape.ts`: **77% of it is prose.** It
 is a type graph with the reasoning written beside each field, and the reasoning

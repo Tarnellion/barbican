@@ -5,11 +5,14 @@
  * is a *pace* and not only a ceiling: `minimumGapMs` holds every start 200 ms
  * apart, so the smallest useful run — one account, one endpoint, a canary — takes
  * about 800 ms of waiting for a stub on loopback that answers in under a
- * millisecond. Measured on 24 August 2026, that pace was 13.2 of the 18.4 seconds
- * `pnpm run test` took: `tests/cli.test.ts` and
- * `tests/invariants/cli-surface.test.ts` between them spent it sleeping, and the
- * suite's wall clock is the longer of the two, because every other file finishes
- * underneath them. The remaining 124 files run in 5.2 s.
+ * millisecond. Measured on 24 August 2026: `tests/cli.test.ts` and
+ * `tests/invariants/cli-surface.test.ts` ran 13.2 s longer than the other 124
+ * files put together, and the suite's wall clock is the longer of those two,
+ * because everything else finishes underneath them. **Taking the pace off those
+ * two returned 6.2 s** of the 18.4 — 17.19 s to 11.00 s on the run that measured
+ * it. The 13.2 is the gap between the two files and the rest; the 6.2 is what
+ * the pace itself cost, and an earlier version of this comment said the first
+ * number where it meant the second.
  *
  * Passing this to a test that is about the screen, the exit code or the shape of
  * the report is therefore not a shortcut: the pace is not what those tests are
