@@ -32,11 +32,11 @@
  * second implementation of the separator and not a second reference to this one,
  * so it drifts the day this one moves. See ADR-0060.
  *
- * `joinKey` is what leaves instead — the joining, not the character. The four
+ * `joinKey` is what leaves instead — the joining, not the character. The three
  * modules outside this one that call it each build a **different** key; they are
  * named in `tests/invariants/one-decision-one-home.test.ts` with the key each
- * builds, and pinned to **one call apiece**, so that neither a fifth module nor a
- * second key inside one of the four gets in under an allowance granted for
+ * builds, and pinned to **one call apiece**, so that neither a fourth module nor
+ * a second key inside one of the three gets in under an allowance granted for
  * something else. That test enumerates the **import** rather than the text of
  * the call: `import { joinKey as glue }` and `const glue = joinKey` each reduced
  * a count of `joinKey(` to zero, which is how the first version of it was walked

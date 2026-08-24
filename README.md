@@ -893,7 +893,7 @@ count of calls: one decoder for both scans, and every mention of the name
 counted. The second amendment of ADR-0061 and the amendment of ADR-0060 carry the
 mutations, and both end with what is still open — starting with a back door
 written inside one of the four predicates, which was run rather than reasoned
-about and passes the whole suite: 118 files, 1795 passed, 1 skipped, re-measured
+about and passes the whole suite: 118 files, 1797 passed, 1 skipped, re-measured
 on the tree this section describes.
 
 **Six facts written down twice are now written down once**
@@ -940,6 +940,15 @@ further sentences were false about history and are corrected: this repository is
 twelve days old, so no duplicate in it has "agreed for months", and neither
 ADR-0024 nor ADR-0032 describes a report that said `match: true`.
 
+Three things changed behaviour. Two are in the safe direction: an acceptance whose
+`until` names a day that does not exist — `2026-11-31` — used to roll over into
+the next day through the library door and now reads as lapsed, and the same
+deadline string is refused by one grammar wherever it arrives. The third is one
+sentence an operator reads: `UnsafeCanaryError` now interpolates the same
+constant the implementation counts by, so it says "up to 3 times" where it used
+to say "up to three times". Spelling the word back would put the number in two
+places again, which is what this entry is about.
+
 **A configuration that names one defect twice is still refused, and one that
 does not is no longer refused with it**
 ([ADR-0048](docs/adr/0048-a-finding-can-be-known-and-still-reported.md), note of
@@ -951,15 +960,6 @@ matches a finding on the NUL-joined signature. Nothing reserves the word
 defect twice when it named two. The check now asks the same function the report
 does; the message still prints the citable string, because that is what the
 operator wrote.
-
-Three things changed behaviour. Two are in the safe direction: an acceptance whose
-`until` names a day that does not exist — `2026-11-31` — used to roll over into
-the next day through the library door and now reads as lapsed, and the same
-deadline string is refused by one grammar wherever it arrives. The third is one
-sentence an operator reads: `UnsafeCanaryError` now interpolates the same
-constant the implementation counts by, so it says "up to 3 times" where it used
-to say "up to three times". Spelling the word back would put the number in two
-places again, which is what this entry is about.
 
 **Those gates were walked around in turn, and five ways in are closed.** The one
 that matters is the link between what `--dry-run` bills and what a run sends: it

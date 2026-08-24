@@ -120,7 +120,6 @@ key. They call `joinKey` now:
 | --- | --- | --- |
 | `src/core/defects.ts` | 1 | endpoint, relation, conditions — a defect signature |
 | `src/core/accepted.ts` | 1 | signature and kind — the acceptance index |
-| `src/io/config/parse.ts` | 1 | citable defect and kind — the duplicate-acceptance refusal |
 | `src/report/findings.ts` | 1 | kind and signature — the per-defect evidence budget |
 
 That table is in the gate. **The first version of this ADR said that a fifth
@@ -236,7 +235,6 @@ owning module, and for which names.
 | --- | --- | --- |
 | `src/core/defects.ts` | `joinKey` | a defect signature |
 | `src/core/accepted.ts` | `joinKey` | the acceptance index |
-| `src/io/config/parse.ts` | `joinKey` | the duplicate-acceptance refusal |
 | `src/report/findings.ts` | `cellKey`, `joinKey` | the cell a finding names, and its evidence budget |
 | `src/runner/walk.ts` | `cellKey`, `objectKey` | the cells walked, and the objects behind them |
 | `src/core/matrix.ts` | `pathParameterNames` | whether a cell exists |
@@ -596,3 +594,18 @@ rewrites itself teaches the next reader nothing.
 - "**One character of this file has been changed and nothing else**" (the note
   this ADR added to `docs/adr/0057-…md`), written as nine added lines. Reworded
   to describe the file it is in.
+
+## Note, 24 August 2026: one caller fewer
+
+`src/io/config/parse.ts` is gone from both tables above. It glued the citable
+form of a defect's coordinates to a kind, as the key of the duplicate-acceptance
+refusal, and that key was the wrong one — the refusal now asks
+`acceptanceKeyOf`, the function the report matches a finding with, and builds no
+key of its own. See the note of the same date on
+[ADR-0048](0048-a-finding-can-be-known-and-still-reported.md).
+
+The removal is recorded here because both tables are exact in both directions: a
+caller that stops calling fails the gate rather than passing it, which is what
+happened — the suite went red on `src/io/config/parse.ts (0)` before this entry
+was deleted. That is the property working, and it is the reason an allowance
+carries its count.

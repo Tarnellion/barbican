@@ -1235,9 +1235,9 @@ describe("one decision, one home", () => {
     expect(
       wrong,
       `joinKey is called somewhere that builds no key of its own, or a module on ` +
-        `the list builds a second one: ${wrong.join(", ")}. Each of the five ` +
+        `the list builds a second one: ${wrong.join(", ")}. Each of the four ` +
         `entries in this file is a different tuple of coordinates and one key; a ` +
-        `sixth entry, or a second key inside one of the five, is exactly what this ` +
+        `fifth entry, or a second key inside one of the four, is exactly what this ` +
         `gate exists for — whatever the function calls itself. See ADR-0060.`,
     ).toEqual([]);
   });

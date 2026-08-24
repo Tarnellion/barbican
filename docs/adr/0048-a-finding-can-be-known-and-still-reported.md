@@ -210,10 +210,29 @@ form, because that is the string the operator wrote and will search their file
 for. Both cases are in `tests/io/accepted.test.ts` and both go red under the old
 key — measured, not argued.
 
-This is a change in which configurations are accepted, in the permissive
-direction: files that were refused are now parsed. Nothing that was accepted
-becomes refused, because the signature separates every triple the citable form
-separates and two it does not.
+This is a change in which configurations are accepted, and it goes both ways.
+
+Files that were refused for naming one defect twice when they named two are now
+parsed. And an adversarial review of the same day found the other direction,
+which the first version of this note denied: **a NUL written into an identifier**.
+Nothing forbids one — `endpoint`, `context` and `kind` are `z.string().min(1)`,
+and YAML writes `\0` in double quotes — so the signature, which is four parts
+and always three separators, can be split two ways:
+
+    "a"      + own + (no context) + "\0E"   and
+    "a\0own" +       (no context) + "E"
+
+One signature, two citable forms. Such a pair was accepted before and is refused
+now — but it was never two acceptances in any useful sense: `indexAcceptances`
+is a `Map` on that same signature, so the second entry silently replaced the
+first and decided the deadline. The refusal is the better behaviour; the sentence
+claiming there was no such case was not.
+
+The premise underneath is what deserves the attention. `src/core/keys.ts` calls
+its separator "a character that never occurs in an identifier", and nothing makes
+that true — the same shape as the sentinel `baseline` above, one layer down. See
+the note that follows this one if the identifiers have since been given a
+grammar; until then this is a named limit and not a closed one.
 
 The general lesson is the one ADR-0059 is about, in the direction nobody was
 watching: a string built for people to read had become a map key. A form meant

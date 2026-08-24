@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { indexAcceptances } from "../../src/core/accepted.js";
 import type { Endpoint } from "../../src/core/index.js";
 import {
   assertReferencesResolve,
@@ -191,12 +192,17 @@ describe("a declared acceptance", () => {
    * safer one — it refused a declaration the tool can act on.
    */
   it("is a different declaration under a context spelled like the absent one", () => {
-    expect(
-      configWithContexts(`
+    const parsed = configWithContexts(`
   - { endpoint: orders.list, kind: privilege-escalation, reason: a, until: 2026-11-30 }
   - { endpoint: orders.list, context: baseline, kind: privilege-escalation, reason: b, until: 2026-11-30 }
-`).accepted,
-    ).toHaveLength(2);
+`).accepted;
+
+    // The size of the index and not the length of the list: two entries that
+    // survived the parser and then collided in `indexAcceptances` would still be
+    // two entries, and the second would silently decide. What this change bought
+    // is that a parsed file has as many acceptances as the report can tell apart.
+    expect(parsed).toHaveLength(2);
+    expect(indexAcceptances(parsed).size).toBe(2);
   });
 
   /**
@@ -212,12 +218,17 @@ describe("a declared acceptance", () => {
    * it exists to avoid, reached through the key the duplicate check was using.
    */
   it("is a different declaration where the citable forms collide", () => {
-    expect(
-      configWithContexts(`
+    const parsed = configWithContexts(`
   - { endpoint: "orders.list own", relation: same-tenant, context: "c", kind: privilege-escalation, reason: a, until: 2026-11-30 }
   - { endpoint: orders.list, relation: own, context: "same-tenant c", kind: privilege-escalation, reason: b, until: 2026-11-30 }
-`).accepted,
-    ).toHaveLength(2);
+`).accepted;
+
+    // The size of the index and not the length of the list: two entries that
+    // survived the parser and then collided in `indexAcceptances` would still be
+    // two entries, and the second would silently decide. What this change bought
+    // is that a parsed file has as many acceptances as the report can tell apart.
+    expect(parsed).toHaveLength(2);
+    expect(indexAcceptances(parsed).size).toBe(2);
   });
 
   it("is a different declaration under a different relation", () => {
