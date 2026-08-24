@@ -594,9 +594,9 @@ a Limits section describing a tree that no longer exists is the defect
   the table named six doors, and a seventh and an eighth were found the same day —
   which is the entry demonstrating itself.
 
-- **`citableDefectKey` is still a map key one layer out, and still ambiguous.**
+- **`citableDefectKey` is still ambiguous, and it was a map key one layer out.**
   This grammar covers the keys `joinKey` builds. The citable form joins the same
-  three coordinates **with a space**, and `src/report/compare.ts` indexes two
+  three coordinates **with a space**, and `src/report/compare.ts` indexed two
   saved reports on `defects[].key`, which is that form. Measured against the
   built tree:
 
@@ -610,11 +610,14 @@ a Limits section describing a tree that no longer exists is the defect
 
   Every string in both is a legal identifier under this grammar, because a space
   is a legal character in a name and that is a decision, not a gap. Two different
-  defects therefore merge into one row when two reports are compared. It is the
-  same class as the defect this ADR is about — a form written for people used to
-  decide identity, which is the note of 24 August on ADR-0048 — one layer further
-  out, and it is left open here rather than fixed in passing, because fixing it
-  means deciding what `defects[].key` is for.
+  defects therefore merged into one row when two reports were compared — and,
+  since `groupDefects` keys on the signature, into one row within a single report
+  before any comparison. It is the same class as the defect this ADR is about — a
+  form written for people used to decide identity, which is the note of 24 August
+  on ADR-0048 — one layer further out. It was left open here rather than fixed in
+  passing, because fixing it means deciding what `defects[].key` is for; ADR-0067
+  decided that, and the comparison joins on the coordinates now. **The string is
+  as ambiguous as it was**, and this entry stands for any future index on it.
 
 - **Two identifiers that read alike are still two identifiers.** A homoglyph, a
   zero-width joiner, a bidirectional override: all admitted, and
@@ -688,12 +691,14 @@ a Limits section describing a tree that no longer exists is the defect
   functions in `src/` that read a file are enumerated in the note above, which is
   the best a list can do.
 
-- **`citableDefectKey` is unchanged, and so is its ambiguity.** The entry above
-  stands word for word: the space-joined form is still what `src/report/compare.ts`
-  indexes two reports on, and a space is still a legal character in a name. What
+- **`citableDefectKey` is unchanged, and so is its ambiguity.** The space-joined
+  form is what it was, and a space is still a legal character in a name. What
   changed on 24 August is that the *characters* of that key are now checked, which
-  is a different question — the collision measured there is between two keys both
-  made of perfectly legal identifiers.
+  is a different question — the collision measured above is between two keys both
+  made of perfectly legal identifiers. What changed later the same day is who
+  reads the string: ADR-0067 took `src/report/compare.ts` off it, so the collision
+  no longer merges two defects. It would merge them again for the next index built
+  on that key, and no gate would say so.
 
 - **`--json` was a narrower channel, not a safe one**, and the first version of
   this entry said "never the channel" on the assumption that `JSON.stringify`

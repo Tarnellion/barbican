@@ -164,3 +164,30 @@ covered is the likely one. `findings[].standards` and `coverage.checksRun` are
 where that would come from, and both are in the report already; they are left out
 here because a first version that compares everything comparable is a version
 whose output nobody reads.
+
+## Note, 24 August 2026: the unit is the defect, and the key was not the defect
+
+Two sentences above are narrowed by ADR-0067, and one of them is the sentence
+this note exists for.
+
+"**The unit is the defect**, joined on `defects[].key`" — the unit is what it
+was and the join is not. That key is `citableDefectKey`: the three coordinates
+joined **with a space**, for a person to paste into a ticket. ADR-0066 made a
+space a legal character in an identifier, deliberately, so the string names two
+defects at once —
+
+```
+A = { endpointId: "a",       relation: "own",         contextId: "b same-tenant d" }
+B = { endpointId: "a own b", relation: "same-tenant", contextId: "d" }
+```
+
+— both printed `a own b same-tenant d`, and merged into one entry by the `Map`
+this ADR describes. The comparison joins on the coordinates now, through
+`defectSignature`, which is what `groupDefects` decided the two were groups by in
+the first place.
+
+And in Consequences: "`defects[].key` acquires a second consumer … load-bearing
+in a way a change to `citableDefectKey` would break loudly rather than quietly."
+The second consumer prints the key beside every row and no longer joins on it, so
+less depends on the citable form than that sentence claims — which is the safe
+direction for it to be wrong in, and it was wrong all the same.

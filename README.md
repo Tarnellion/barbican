@@ -1117,6 +1117,34 @@ run and the tool does not own the screen it is opened on. The package exports
 232 names, one more than before — `spellOut`, so that a consumer building its
 own report has the same rendering rather than a second one.
 
+### Unreleased
+
+**`barbican diff` no longer merges two defects that print the same key**
+([ADR-0067](docs/adr/0067-a-comparison-joins-on-coordinates.md)). The comparison
+indexed two reports on `defects[].key` — the citable form, which joins a defect's
+endpoint, relation and conditions **with a space**. A space is a legal character
+in a name, deliberately, so that string can print for two different defects:
+`{ endpointId: "a", relation: "own", contextId: "b same-tenant d" }` and
+`{ endpointId: "a own b", relation: "same-tenant", contextId: "d" }` are both
+`a own b same-tenant d`. It does not take two files — a report this tool writes
+carries both rows under that one key. A second run that fixed one of the two was
+reported as one defect whose kinds and severity had changed, with the fix nowhere
+in the output. The comparison joins on the coordinates now, through the same
+function the report grouped the defects by.
+
+Nothing in the report moved: `schemaVersion` is still `"2"`, `defects[].key` is
+the same string in the same place, and a report already on disk compares
+correctly — including one written before this change. The output differs only
+where the old key was ambiguous. `changed[].key` in `--json` is now the citable
+key as the **second** run wrote it, which is the same string in every pair of
+reports one build produced.
+
+One consumer-visible edge, and only through the library: `compareRuns` joins with
+`joinKey`, which refuses a coordinate that is not a legal identifier, so a
+hand-built `ComparableRun` carrying one now raises `UnusableIdentifierError`
+where the old index printed it. Through the CLI nothing changes — such a file was
+already refused, by name and by field, when it was read.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.

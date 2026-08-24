@@ -18,6 +18,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { UnusableIdentifierError } from "../../src/core/index.js";
 import {
   type ComparableDefect,
   type ComparableRun,
@@ -69,6 +70,9 @@ function probed(...endpointIds: readonly string[]): readonly { readonly endpoint
 
 const LATER = "2026-08-21T09:00:00.000Z";
 const SECOND_RUN = "22222222-2222-4222-8222-222222222222";
+
+/** The key separator, from its code point: a raw one here would make this file binary. */
+const NUL = String.fromCharCode(0);
 
 /** The rendered screen as one string, which is how a reader meets it. */
 function screen(comparison: ReturnType<typeof compareRuns>): string {
@@ -288,6 +292,118 @@ describe("a defect that changed without going away", () => {
     expect(comparison.defects.gone).toEqual([]);
     expect(comparison.defects.changed[0]?.changes.map((one) => one.axis)).toEqual(["acceptance"]);
     expect(screen(comparison)).toContain("held out of the verdict");
+  });
+});
+
+/**
+ * Two defects whose citable keys are one string.
+ *
+ * `defects[].key` joins the three coordinates with a **space**, and a space is a
+ * legal character in an identifier — a decision, not a gap (ADR-0066). So the
+ * printed key is ambiguous, and the pair below is the shortest witness of it.
+ * Measured against the built tree on 24 August 2026:
+ *
+ * ```
+ * A = { endpointId: "a",       relation: "own",         contextId: "b same-tenant d" }
+ * B = { endpointId: "a own b", relation: "same-tenant", contextId: "d" }
+ * citableDefectKey(A) === citableDefectKey(B)   // true,  "a own b same-tenant d"
+ * defectSignature(A)  === defectSignature(B)    // false
+ * ```
+ *
+ * It does not take two files. `groupDefects` keys on the signature, so a report
+ * this tool wrote carries **both** rows, under one `key` — the `Map` that indexed
+ * on that key kept the last of them before the pair was ever compared with
+ * anything. See ADR-0067.
+ *
+ * The coordinates are spelled out here rather than derived from the key, for the
+ * reason written over `defect` above: they are what the comparison now joins on,
+ * and a fixture that computed them would be agreeing with the function under
+ * test.
+ */
+describe("a citable key that names two defects", () => {
+  const FIRST: ComparableDefect = defect({
+    key: "a own b same-tenant d",
+    endpointId: "a",
+    relation: "own",
+    contextId: "b same-tenant d",
+    kinds: ["privilege-escalation"],
+    severity: "critical",
+  });
+  const SECOND: ComparableDefect = defect({
+    key: "a own b same-tenant d",
+    endpointId: "a own b",
+    relation: "same-tenant",
+    contextId: "d",
+    kinds: ["cross-tenant-read"],
+    severity: "high",
+  });
+  const LOOKED_AT = probed("a", "a own b");
+
+  it("does not merge two rows of one report into one defect", () => {
+    const before = run({ defects: [FIRST, SECOND], observations: LOOKED_AT });
+    const after = run({
+      runId: SECOND_RUN,
+      startedAt: LATER,
+      defects: [FIRST, SECOND],
+      observations: LOOKED_AT,
+    });
+
+    const comparison = compareRuns(before, after);
+
+    // Two defects, both in both runs, neither moved. Indexed on the printed key
+    // this is one entry and the count is 1.
+    expect(comparison.defects.unchanged).toBe(2);
+    expect(comparison.defects.gone).toEqual([]);
+    expect(comparison.defects.appeared).toEqual([]);
+    expect(comparison.defects.changed).toEqual([]);
+  });
+
+  /**
+   * And the second run fixing one of the two reads as one fixed and one standing.
+   *
+   * On the printed key it read as neither: the two rows collapsed to the last of
+   * them, the surviving defect was matched against the wrong twin, and the
+   * comparison said one defect had changed its kinds and its severity — a
+   * sentence about a platform that had done nothing of the sort, with the fix it
+   * had made nowhere in the output.
+   */
+  it("tells a fixed one from the one still standing", () => {
+    const before = run({ defects: [FIRST, SECOND], observations: LOOKED_AT });
+    const after = run({
+      runId: SECOND_RUN,
+      startedAt: LATER,
+      defects: [FIRST],
+      observations: LOOKED_AT,
+    });
+
+    const comparison = compareRuns(before, after);
+
+    expect(comparison.defects.gone.map((one) => one.defect.endpointId)).toEqual(["a own b"]);
+    expect(comparison.defects.gone[0]?.otherRunProbedEndpoint).toBe(true);
+    expect(comparison.defects.unchanged).toBe(1);
+    expect(comparison.defects.changed).toEqual([]);
+    expect(comparison.defects.appeared).toEqual([]);
+  });
+
+  /**
+   * And the join meets the seam, which is a way `compareRuns` can now end.
+   *
+   * Joining on the coordinates means joining them with `joinKey`, which refuses a
+   * part that is not an identifier — where indexing on a string lifted out of the
+   * file did not. Through the CLI this changes nothing: `toComparableRun` refused
+   * such a document at the door, naming the field and the file. This is the
+   * **library** door, where `compareRuns` takes a structure a consumer built
+   * itself, and it is the seam ADR-0066 put under the doors for the door nobody
+   * enumerated. A report `buildReport` wrote cannot get here: `groupDefects`
+   * builds the same signature and throws first.
+   */
+  it("refuses a hand-built run whose coordinates are not identifiers", () => {
+    const before = run({
+      defects: [defect({ key: "a any-resource baseline", endpointId: `a${NUL}own` })],
+    });
+    const after = run({ runId: SECOND_RUN, startedAt: LATER });
+
+    expect(() => compareRuns(before, after)).toThrow(UnusableIdentifierError);
   });
 });
 

@@ -22,7 +22,12 @@
  * 2. **The unit is the defect, not the finding row.** One defect is fifty rows
  *    or one, depending on the evidence budget of ADR-0029 and on how many cells
  *    the matrix has; a difference in row counts is news about the run's shape,
- *    not about the platform. `defects[].key` is the identity that survives.
+ *    not about the platform. What survives is a defect's **coordinates** —
+ *    endpoint, relation, conditions — and `defectIdentity` reads them out of the
+ *    group. `defects[].key` is the citable form of the same three, and it was
+ *    what this indexed on until 24 August 2026: a form joined with a space, in a
+ *    grammar where a space is a legal character, so it names two defects at once
+ *    and merged them. See ADR-0067.
  * 3. **A difference in coverage is a difference.** A run that probed twelve
  *    cells where yesterday's probed a hundred and forty-four did not fix
  *    anything, and every defect missing from it is missing because nothing went
@@ -44,7 +49,7 @@
 
 import { identifier } from "../core/identifiers.js";
 import type { ResourceRelation } from "../core/index.js";
-import { SEVERITY_ORDER } from "../core/index.js";
+import { defectSignature, SEVERITY_ORDER } from "../core/index.js";
 import { byCodeUnits } from "../core/order.js";
 import { lookup, openRecord } from "../io/untrusted.js";
 import { REPORT_SCHEMA_VERSION } from "./build.js";
@@ -75,6 +80,13 @@ export const COMPARISON_SCHEMA_VERSION = "1";
  * anything by severity except the order two lists are printed in.
  */
 export interface ComparableDefect {
+  /**
+   * The citable form: what an operator pastes into a ticket, printed as written.
+   *
+   * Not the identity — see `defectIdentity`. It is read out of the file rather
+   * than recomputed from the coordinates beside it, because it is the string the
+   * report actually carries and the one a reader will search their file for.
+   */
   readonly key: string;
   readonly endpointId: string;
   readonly kinds: readonly string[];
@@ -199,6 +211,7 @@ export interface DefectChange {
 }
 
 export interface ChangedDefect {
+  /** The citable key, as the second run wrote it. The identity is `defectIdentity`. */
   readonly key: string;
   readonly before: ComparableDefect;
   readonly after: ComparableDefect;
@@ -365,20 +378,67 @@ function changesOn(before: ComparableDefect, after: ComparableDefect): readonly 
   return changes;
 }
 
+/**
+ * The identity two runs meet a defect on: its coordinates, not its printed key.
+ *
+ * `defects[].key` was this until 24 August 2026, and it is the citable form — the
+ * three coordinates joined with a **space**, for a person to paste into a ticket.
+ * A space is a legal character in an identifier, deliberately (ADR-0066), so that
+ * string can name two defects at once:
+ *
+ * ```
+ * A = { endpointId: "a",       relation: "own",         contextId: "b same-tenant d" }
+ * B = { endpointId: "a own b", relation: "same-tenant", contextId: "d" }
+ * ```
+ *
+ * Both print `a own b same-tenant d`. Two rows of one report, merged into one
+ * entry by the `Map` below — the second run then reads as having changed the
+ * kinds and the severity of a defect that is in fact two defects, one of them
+ * gone. It does not take two files: `groupDefects` keys on the signature, so a
+ * report this tool wrote carries both rows under one `key`. See ADR-0067.
+ *
+ * `defectSignature` is asked rather than a second spelling of the three
+ * coordinates, because it is the function that decided these were two groups in
+ * the first place — the run that wrote the file and the comparison that reads it
+ * back agree by construction rather than by two authors agreeing. Its parts go
+ * through the identifier grammar, which refuses the separator, so the joining is
+ * injective where a space is not.
+ *
+ * The coordinates are read out of the group and no new field is written: a
+ * machine key beside the citable one would be absent from every report already on
+ * disk, which is the file this subcommand exists to read.
+ *
+ * ## When this throws
+ *
+ * `joinKey` refuses a part that is not an identifier, so this can raise
+ * `UnusableIdentifierError` where indexing on `defects[].key` could not. Not from
+ * the CLI: `toComparableRun` put every string through the same grammar before it
+ * built the value, so a report read off disk has already been refused at the door
+ * if it carries one. From the **library** door it can — `compareRuns` takes a
+ * `ComparableRun`, which a consumer's own `RunReport` satisfies without passing
+ * `toComparableRun`. That is the seam under a door nobody enumerated, which is
+ * what ADR-0066 put it there for, and a report `buildReport` wrote cannot reach
+ * it: `groupDefects` builds the same signature and would have thrown first.
+ */
+function defectIdentity(defect: ComparableDefect): string {
+  return defectSignature(defect);
+}
+
 function compareDefects(before: ComparableRun, after: ComparableRun): DefectDifference {
-  // A `Map` keyed by `defects[].key`, which is built out of an endpoint id —
-  // a name that came from an OpenAPI document, an endpoint list or a Postman
-  // collection, and so a name this tool did not choose. See ADR-0024.
-  const beforeByKey = new Map(before.defects.map((one) => [one.key, one]));
-  const afterByKey = new Map(after.defects.map((one) => [one.key, one]));
+  // Keyed by the coordinates — an endpoint id among them, a name that came from
+  // an OpenAPI document, an endpoint list or a Postman collection, and so a name
+  // this tool did not choose. See ADR-0024, and `defectIdentity` above for why
+  // this is not `defects[].key`.
+  const beforeBySignature = new Map(before.defects.map((one) => [defectIdentity(one), one]));
+  const afterBySignature = new Map(after.defects.map((one) => [defectIdentity(one), one]));
   const probedBefore = probedEndpoints(before);
   const probedAfter = probedEndpoints(after);
 
   const gone: DefectAppearance[] = [];
   const changed: ChangedDefect[] = [];
   let unchanged = 0;
-  for (const [key, defect] of beforeByKey) {
-    const twin = afterByKey.get(key);
+  for (const [signature, defect] of beforeBySignature) {
+    const twin = afterBySignature.get(signature);
     if (twin === undefined) {
       gone.push({ defect, otherRunProbedEndpoint: probedAfter.has(defect.endpointId) });
       continue;
@@ -387,13 +447,17 @@ function compareDefects(before: ComparableRun, after: ComparableRun): DefectDiff
     if (changes.length === 0) {
       unchanged += 1;
     } else {
-      changed.push({ key, before: defect, after: twin, changes });
+      // The citable key as the **second** run wrote it. The signature above is a
+      // NUL-joined string and has no business on a terminal; the two runs agree
+      // on the citable form whenever both were written by this tool, and where
+      // they do not, the row is about what is there now.
+      changed.push({ key: twin.key, before: defect, after: twin, changes });
     }
   }
 
   const appeared: DefectAppearance[] = [];
-  for (const [key, defect] of afterByKey) {
-    if (!beforeByKey.has(key)) {
+  for (const [signature, defect] of afterBySignature) {
+    if (!beforeBySignature.has(signature)) {
       appeared.push({ defect, otherRunProbedEndpoint: probedBefore.has(defect.endpointId) });
     }
   }
@@ -848,8 +912,10 @@ function pathTo(holder: string, key: string): string {
  *
  * **Every** string, and not only the ones ADR-0066 calls identifiers. Each of
  * them is printed to a terminal by `renderComparison`, keyed on by `compareRuns`,
- * or both: `defects[].key` indexes the defect comparison, `observations[].endpointId`
- * indexes the probed set, a `notProbed` key indexes the skip table, and `runId`,
+ * or both: a defect's three coordinates are joined into the key the defect
+ * comparison indexes on, `defects[].key` is printed beside every one of its
+ * rows, `observations[].endpointId` indexes the probed set, a `notProbed` key
+ * indexes the skip table, and `runId`,
  * `startedAt`, `configDigest`, `verdict.reason`, `target.label` and the rest are
  * printed verbatim. Measured on 24 August 2026: an endpoint id carrying
  * `U+001B [2K` and a carriage return erases the line it was printed on, and a

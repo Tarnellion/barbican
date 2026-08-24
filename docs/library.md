@@ -36,12 +36,22 @@ uses four of these.
 
 `compareRuns(before, after)` takes two reports and returns what changed between
 them: whether the declaration behind them moved, whether the second run looked
-at less than the first, and which defects appeared, went or changed — joined on
-`defects[].key`, because a difference in the number of finding **rows** is news
-about the shape of a run and not about the platform. `renderComparison(result)`
+at less than the first, and which defects appeared, went or changed — joined on a
+defect's coordinates, because a difference in the number of finding **rows** is
+news about the shape of a run and not about the platform. The coordinates and not
+`defects[].key`: that key is the citable form, joined with a space, and a space is
+a legal character in a name, so one such string can print for two different
+defects — see [ADR-0067](adr/0067-a-comparison-joins-on-coordinates.md). `renderComparison(result)`
 turns that into the lines the CLI prints, each with a tone rather than a colour.
 See [ADR-0050](adr/0050-a-comparison-is-of-defects-not-of-files.md) for what the
 exit codes mean and why a truncated run can be compared but not believed.
+
+Joining on the coordinates means joining them with `joinKey`, so `compareRuns`
+raises `UnusableIdentifierError` if a defect's `endpointId`, `relation` or
+`contextId` is not a legal identifier. A report `buildReport` wrote cannot carry
+one, and a report read through `toComparableRun` was refused at that point with
+the field and the file named; a structure you assembled yourself meets the check
+here.
 
 Its input is a structural view that a `RunReport` already satisfies, so a walk
 you drove yourself needs no conversion. A report that came back off disk is
