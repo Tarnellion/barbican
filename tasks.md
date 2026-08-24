@@ -65,6 +65,10 @@ Left over from this topic:
 
 - [ ] Retries and the circuit breaker currently live in the HTTP client. If a second
       transport appears, move them into a decorator over the port.
+      Checked 24 August 2026: still open, and the condition has not fired. `RetryPolicy`,
+      `backoffFor`, `parseRetryAfter` and the breaker's `circuitOpen` are all in
+      `src/adapters/http.ts`; `HttpClient` in `src/adapters/ports.ts` is still one
+      `send`, and the tree has one implementation of it.
 - [x] The allowlist tells entries with a port from entries without: `api.test` allows any
       port, `api.test:8443` exactly one.
 - [x] The circuit breaker counts failed requests, not attempts. Before, with the
@@ -108,8 +112,11 @@ Left over from this topic:
       visibility mark (`status` / `body-signal` / `invisible`).
 - [x] Both verifications were rewritten onto the shared module `tools/oracle/`: parsing
       the format, comparing as sets in both directions, trustworthiness checks and a check
-      that the oracle is complete. The module is covered by 21 tests — it is load-bearing
-      for every claim of the form "0 discrepancies".
+      that the oracle is complete. It is load-bearing for every claim of the form
+      "0 discrepancies", so it is covered heavily: 21 tests when this line was first
+      written, and `pnpm exec vitest run tests/tools/oracle.test.ts` re-measured on
+      24 August 2026 says **35 passed**. The figure is dated because a bare count
+      written into a file the count is about goes stale without anything saying so.
 - [x] The platform: 19 variants agreed after the rewrite. VAmPI: 2 modes,
       13 and 11 findings — the same ones as before it.
 - [x] **The format was corrected twice in the course of the move.** `defect` became
@@ -357,6 +364,14 @@ Left over from this topic:
       reading the holding's document two steps up. Reproduced personally.
 - [ ] A new honest limit: three tiers tell a step from a chain, but do not tell
       "exactly two steps" from an arbitrary number.
+      Checked 24 August 2026 and still open, in the way that matters most: the limit
+      is not written down anywhere a reader of the tool would meet it. `docs/guide.md`
+      has a "What the model does not express" section since 19 August and this is not
+      one of its four entries; searching the tracked documentation for the shape of
+      the sentence — "one step", "two steps", "immediate parent", "depth" — finds it
+      in `docs/guide.md`, `docs/report.md` and ADR-0013 not at all. The three sibling
+      gaps below were closed as records by writing them into the guide; this one is
+      owed the same paragraph.
 - [x] **Conditions with a query parameter are covered by a polygon cell.** The tenth flag
       `POLYGON_DEFECT_SCOPE_ALL_HONORED`: a hidden `?scope=all` removes the tenant
       filter. An attribute in the query string travels a different path than a header
@@ -395,6 +410,11 @@ Left over from this topic:
       would give a wall of `probe-error` right where the platform does work.
 - [ ] SoD is **not to be done** in this module: it requires writes and state, and belongs
       to a different class of tool. Record the decision if it is ever disputed.
+      Checked 24 August 2026: stays open because it is standing, not because it is
+      owed work. The reasoning is in `docs/research/coverage-model.md` §139 and
+      `docs/research/tenancy-models.md` §5.2-5.3, and nothing has disputed it, so
+      there is no ADR to write yet. Ticking it would say the decision was recorded
+      as an ADR, which is the condition, and the condition has not been met.
 
 ## Walking through adoption on a real platform (14 August 2026)
 
@@ -424,6 +444,9 @@ thing and nowhere says so.
       express", with the workaround named as forbidden and the reason. The gap itself
       stays open — the likely shape below is a guess, not a decision, and it is not
       promised anywhere.
+      Checked 24 August 2026 in `src/io/config/schema.ts`: `baseUrl` is declared on
+      `tenants[]` and nowhere else, and `authSchemes` is still
+      `z.record(z.string().min(1), authSchema)`. Open, unchanged.
 - [ ] **Granted access is not a relation.** The five relations describe **belonging**
       — whose the resource is and how the tenants are related. They cannot say
       "Anna shared this document with Boris". On any platform with sharing, an ACL
@@ -434,6 +457,11 @@ thing and nowhere says so.
       is granted where you work, this module answers a smaller question than it
       appears to". The gap stays open and still needs thought before anything is
       promised.
+      Checked 24 August 2026: `RESOURCE_RELATIONS` in `src/core/types.ts` is still
+      the five, and nothing added since describes a grant. Open, unchanged — and
+      four days of work on Module 2 did not touch it, which is worth noticing: an
+      evidence pack now says what a run answered for, and this is one of the things
+      it will go on not answering.
 - [x] **Permissions that depend on the resource's state** — a draft may be edited, a
       published one may not. Works around to declaring two resources with different
       identifiers and separate rules, which is honest and costs a line. Worth a
@@ -449,6 +477,10 @@ thing and nowhere says so.
       Written into `docs/guide.md` on 19 August, and said plainly there: no
       workaround, a rule that needs the body is outside what this declaration can
       state. The boundary stays where ADR-0019 put it.
+      Checked 24 August 2026: `contexts[]` still carries `headers` and `query` and
+      nothing else. Open by decision rather than by neglect — the entry stays
+      unticked because the boundary is a boundary, and one that a reader of an
+      evidence pack now has a stronger claim on than before.
 - [x] **A role a rule names and no account carries fails in silence.** Found while
       checking the two items below against the code: the guide said "read a role
       selector twice; nothing else will", and that was accurate. Measured on the
@@ -1466,7 +1498,14 @@ readability, failed on B-2 / H-3 above and was closed with it.
       is why it reads as correct.
 - [x] **E-6.** Closed 17 August, and the numbers had grown: **266 exported names
       and 78 error classes** against the audit's 217 and 66 — a quarter more in
-      three days, this session's own work included.
+      three days, this session's own work included. Those two are the count **on
+      17 August** and stay written that way, because the entry is about the day the
+      contract was written down. Re-measured off the built package on 24 August
+      2026 — `Object.keys` over `dist/index.js` — the surface is **242 values and
+      99 error classes**, which is what `docs/library.md` states and what
+      `tests/public-surface.test.ts` holds it to; the fall from 266 is
+      `configSchema` and the curation this entry describes, and the climb since is
+      four days of work.
       **`configSchema` is no longer exported**, and the cost of exporting it was
       measured rather than argued: its declaration was 100 lines of
       `z.ZodObject<…>` in `config.d.ts`, 18% of the file, and it named
@@ -2197,12 +2236,26 @@ recorded underneath.
       without `--unsafe-methods` — is not refused and not warned about. The check runs
       before planning and never sees the flags. Likely shape: a fifth `WARNINGS` entry
       after planning rather than a refusal.
+      Checked 24 August 2026: open. `UnusedResourceError` is thrown from
+      `assertReferencesResolve` in `src/io/config/references.ts`, still on
+      "fits no endpoint" and still before planning, and `WARNINGS` in
+      `src/report/verdict.ts` has five keys — `unnamedTarget`, `nothingRefused`,
+      `noCanary`, `endpointsNotProbed`, `findingsCapped` — none of them this one.
+      The fifth arrived on 21 August for a different silence, which is worth
+      knowing: the shape this item proposes has since been used once, so the cost
+      of using it again is known and small.
 - [ ] **A role typo that lands on another account's role is still silent.** Two
       accounts, `alice: user` and `bob: usre`, a rule for `[user]`: the rule resolves,
       bob falls through to fallback, and nothing says so. The asymmetry is right as a
       principle — a role no rule mentions is a real declaration — but the reasoning in
       the comment is wider than the fact. `nearestFirst` is already in the file; a
       warning for a role one edit away from a declared one would close it.
+      Checked 24 August 2026: open, and the comment has since been narrowed but not
+      the code. `nearestFirst` is called twice in `src/io/config/references.ts`, both
+      times to order the suggestions inside an error message, and the doc block over
+      `UnknownRoleReferenceError` now says outright that "the reverse direction is
+      deliberately not checked". Nothing in `src/` or `tests/` mentions a role one
+      edit away from a declared one.
 - [x] **`--dry-run` still paraphrases `noCanary` in its own words and its own
       colour** — red in `describePlan`, yellow in `WARNING_STYLE`, one fact said twice.
       The command the guide tells you to run first is the one place the 18 August fix
@@ -2216,25 +2269,66 @@ recorded underneath.
       at once**, so they cannot tell which one holds — the header claims each holds
       independently and the tests do not measure that. One five-line test with
       `external: false` and barrier 2 bypassed would.
+      Checked 24 August 2026: half of it closed itself and the half this item asks
+      for did not. `tests/adapters/openapi.test.ts` has not been touched since — no
+      commit in `9e716e4..HEAD` names it — and `external: false` occurs three times
+      in it: the http tripwire, the source assertion, and a mention in prose. Over
+      the file system there is still no test with the option on and barrier 2 gone.
+      What did change, before this item was written: the header no longer claims
+      barrier 1 holds the file system, it says barrier 2 does and that the
+      measurement was made by hand on 18 August. So the false sentence is gone and
+      the missing test is still missing, which is exactly the state ADR-0065 later
+      named — a prose measurement is not a gate.
 - [ ] **`polygons/**` is outside the `tsconfig` program.** Checked separately, both
       polygons' `tokens.mjs` carry real type errors nobody sees. Adding them to
       `include` surfaces a batch of existing ones — its own task.
+      Checked 24 August 2026, and re-measured rather than repeated. `tsconfig.json`
+      `include` is `["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts",
+      "tools/**/*.mjs"]` — `polygons/**` is still outside it, while `tools/**/*.mjs`
+      shows that a `.mjs` under this configuration is checked in earnest. Running
+      the compiler over the three `tokens.mjs` with this repository's own options
+      gives **47 diagnostics**: 31 `TS7006` (an implicit `any` parameter), 7
+      `TS2339`, 6 `TS18046`, and one each of `TS2554`, `TS2532` and `TS2322`. The
+      last two of those are the ones the item means by "real": `vampi/tokens.mjs`
+      line 110 calls something with one argument that takes none, and line 123
+      assigns a one-parameter function where a zero-parameter one is asked for. It
+      is three polygons now and not two — crAPI has its own.
 - [ ] **`cooldownPolicy` reads `minimumReleaseAgeExclude` more narrowly than pnpm
       does** — pnpm accepts a bare package name, a union, and globs, and normalises
       versions; this compares `pkg@version` as a string. A scalar entry silently
       becomes a set of characters. The list is empty today, so it sleeps.
+      Checked 24 August 2026: open, and asleep for the same reason.
+      `tools/dependency-cooldown.mjs` still builds `new Set(workspace
+      ?.minimumReleaseAgeExclude ?? [])` and still asks it for `` `${name}@${version}` ``;
+      no commit in `9e716e4..HEAD` touches the file. `minimumReleaseAgeExclude: []`
+      in `pnpm-workspace.yaml` is still empty, so the scalar case has still never
+      been reached — which is why it is worth writing down that it has not been
+      fixed, rather than assuming a quiet file is a correct one.
 - [ ] **The Juice Shop oracle declares no defect the tool cannot see** — no
       `body-only`, no `unsafe-method`, no `out-of-scope`, though the recon spends a
       section on exactly those. `/rest/products/1/reviews` hands the reviewers' email
       addresses to anybody and the policy allows the endpoint.
+      Checked 24 August 2026 by reading `polygons/juice-shop/ground-truth.json`
+      rather than by bringing the platform up: every one of its 11 defects carries
+      `"visibility": "status"`, and no other value occurs in the file. Open,
+      unchanged — the only commit under `polygons/` in this whole stretch is a
+      doc-comment move.
 - [ ] **Two status-visible endpoints are missing from the polygon's list**:
       `/rest/user/authentication-details/` (the whole user catalogue to any customer)
       and `/api/BasketItems/1` (an object-level BOLA on a non-basket resource). Adding
       both gives four more findings with no policy change.
+      Checked 24 August 2026: open. Neither string occurs anywhere under
+      `polygons/juice-shop/` — not in `endpoints.yaml`, not in `ground-truth.json`,
+      not in the README.
 - [ ] **The `app.config` cells are justified by the endpoint's name.** Its 23 KB is
       Angular bootstrap configuration a shopfront needs before login; the note should
       cite the field that makes it a defect, or the three cells will not survive a
       reviewer.
+      Checked 24 August 2026: open, and the note is word for word what the item
+      quotes — "The application names the endpoint `admin` itself. The policy
+      declares it closed to everyone: nothing here has an administrator role, so
+      nothing is declared able to read it." Three findings still stand on
+      `app.config`, one per account including `anonymous`.
 
 ## Adversarial review of 19 August 2026, second pass (the fixes themselves)
 
@@ -2326,6 +2420,717 @@ header allowlist is an indirect channel about the body; an IDN entry in
 learns it only from a wall of `HostNotAllowedError`; and `%252e%252e` reaches a
 target that decodes twice, which nothing here can demonstrate without such a
 target.
+
+## The audit of 20 August 2026, and the day it took to answer
+
+A pass over the whole tree, run before phase 4 was allowed to close, with its
+findings lettered A- through M- — the letters are cited from `src/`, from the
+tests and from the ADRs, and are the only record of the audit itself that this
+repository holds. Most of 21 August went on closing it, and the closures are
+below; the numbers quoted in them are the commits' own, measured on the tree of
+that day. Three of the headings are one sentence said three ways:
+
+**a run can come back `0` about something it never tested**; **a door can carry
+more than a path**; and **an invariant with a comment over it and no test under
+it is a rule the next edit deletes for free**.
+
+- [x] **Six ways a run answered `0` about something it had not tested.** Each one
+      was reproduced before it was patched, and each looks like a clean run from
+      every angle a reader has. A canary on `/health`, which answers everybody, so
+      a dead token passed it and every 401 after it agreed with a policy of denial
+      (ADR-0040). A `--max-requests` ceiling the preview itself called sufficient,
+      exhausted by the second canary pass, whose every result carried a terminal
+      failure and whose reading loop skipped exactly those. Eleven endpoints with
+      nine templated and no `resources` declared: two probed, `warnings: []`,
+      "No privilege escalation found" in green over the object half of the surface.
+      A check that threw taking the whole run with it. A body-signal check
+      comparing bytes, so two empty tenants matched and a `high` leak was reported
+      on a healthy platform. And the `--unsafe-methods` canary diagnosed as a
+      platform that never answered.
+- [x] **An unknown key in the configuration was dropped in eight sections out of
+      ten.** Only `policy.rules[]` and `contexts[]` were `z.strictObject`. One
+      letter turned a run into a false zero: `tokenENV` made the account anonymous
+      — which also excused it from the canary rule — `bodySignal` removed the body
+      channel, `resouces` cut a matrix of six cells to two, and `excludes` disarmed
+      the exclusion list, after which the run went and knocked at the address
+      declared untouchable. The guards inside each section were fine; none of them
+      can fire when the section itself is gone. The generated JSON Schema carries
+      `additionalProperties: false` by construction now, so an editor bound to
+      `$schema` marks the typo too.
+- [x] **The fourth door carried more than a path, and only the path had moved.**
+      ADR-0032 put the address grammar in `joinUrl` on 19 August and moved that
+      rule and no other, so `assertContextsCannotWrite`, the forbidden header names
+      and the forbidden query keys were still called from the CLI alone. Through
+      `collectObservations`, with `allowUnsafeMethods: false`, a run put
+      `GET /v1/orders/42?_method=DELETE&api_key=SECRET-TOKEN-42` with an
+      `x-http-method-override: DELETE` beside it on the wire, and reported
+      `writeMethodsProbed: false` about it. Closed at the seam (ADR-0037), and the
+      merge order reversed with it: attributes were spread **after** the
+      credentials under a comment calling that the second line of the same defence,
+      and a later spread wins — `authorization` declared as an attribute replaced
+      the account's own header while the report named the original account.
+- [x] **`resources[].query` was the twin left at the door**, found by the
+      adversarial pass over the same day's own fixes (V-1). Same declaration, same
+      address, through `withQuery`, and the seam had not been told about it. The
+      refusal names the section of the file to go and edit: a resource is not a
+      context, and calling it one sends the reader to the wrong lines.
+- [x] **Twenty-four invariants were held by a comment and by nothing else**, and
+      they were found by deleting the code under the comment and watching the suite
+      stay green. Four on the transport: the sliding rate window replaced by
+      `await Promise.resolve()` (1022 tests passed, and at `--rps 1000` the
+      mutation admitted 1500 requests in one instant); `response.body?.cancel()`
+      replaced by `await response.text()`, so every byte of somebody else's
+      production data was pulled into the process while "no body in any form" went
+      on passing; `x-api-key` added to the response-header value allowlist, agreed
+      to by 963 tests; and the origin-and-prefix comparison in `joinUrl` deleted
+      outright, after which the account's Bearer token went to port 9999 and to
+      `/admin` above the declared prefix. Four on the verdict, four on the CLI —
+      `--unsafe-metods` exiting 1 rather than 64, `--rps 1e23` giving a gap of
+      1e-20 ms, which is the no-limits mode this project says must not exist — and
+      twelve in the core, from the four parser limits raised to a gigabyte apiece
+      to the defect-signature separator changed from NUL to a hyphen, which merges
+      two breakages of the platform into one ticket.
+- [x] **The order of the report came from the machine's `LC_ALL`** (L-2). Eleven
+      comparisons went through `localeCompare()` with no locale argument, and
+      `sv_SE` against `en_US` ordered the finding rows, the defect groups and the
+      entries `configDigest` is hashed from differently. Worse than order:
+      `MAX_ROWS_PER_DEFECT` cuts the evidence rows **after** the sort, so two
+      machines walking one matrix kept different rows of the same defect — and
+      `docs/report.md` offers `configDigest` as the way to tell "the platform
+      changed" from "we changed the declaration", which a digest that moves with
+      the machine manufactures the false alarm for. Everything compares by UTF-16
+      code units through `byCodeUnits` now (ADR-0036), because a bare `.sort()`
+      written tomorrow then agrees by construction rather than by vigilance.
+- [x] **Three walks grew as the square of their input** (J-4, J-5), and the
+      comment above the worst of them is the irony of the whole class: it records
+      the audit of 14 August taking 275 ms out of `findUnauthenticated` by lifting
+      `indexPolicy` clear of the loop, and leaves the loop itself — the larger term
+      — exactly where it was. A note about what was measured is not a statement
+      about what is left. Figures as recorded in the commit: 37.51 ms at 640
+      accounts down to 0.82, and `describeMatrix` at 1600 endpoints 18.96 ms down
+      to 7.58. All six result digests identical across the change.
+- [x] **The report was bounded by the largest string node can hold.**
+      `JSON.stringify` builds the document in memory first and a string stops at
+      536 870 888 characters; `MAX_ROWS_PER_DEFECT` bounded `findings` and nothing
+      else, while `observations` carries a row per cell whether anything was found
+      or not. 57 826 cells against a platform answering with 196 headers: every
+      request spent, no file, `Run aborted: Invalid string length`. Where the wall
+      stands is the target's to decide, not the operator's — 692 000 cells at six
+      response headers, 74 000 at 126. Chunked now, byte for byte what
+      `JSON.stringify` produced (ADR-0038).
+
+      And the first chunked writer removed no ceiling at all, which is the part
+      worth keeping: the key filter asked `JSON.stringify(value) !== undefined`,
+      serialising every top-level value in full before the first chunk was
+      yielded — the throw came from the line above the loop written to avoid it.
+      The proof that shipped with it passed by luck, the indented document being
+      over the limit while the unindented one the filter builds was not.
+- [x] **A symlink at `<path>.partial` took the report wherever it pointed** — the
+      open followed it and `mode` was ignored, because nothing was being created.
+      Removed first and created with `wx` now; unlinking a symlink removes the link
+      and not its target, so the pair is safe where either half alone is not.
+- [x] **The Windows job had been red since 19 August and no machine here said so.**
+      `tests/tools/pinned-versions.test.ts` started `npx` by bare name; npm installs
+      that launcher on Windows as `npx.cmd` and `npx.ps1` and ships no `npx.exe`,
+      while libuv resolves a bare name against `.com` and `.exe` only. The gate
+      written for exactly this class could not see it at any list length: it
+      compared `package.json` scripts against a list of POSIX-only commands, and the
+      script said `vitest run` while the launcher was a line inside a test file. It
+      reads every source under `tests/` and `tools/` now and refuses a
+      `child_process` call whose command is a string literal outside an allowlist —
+      an allowlist for the reason the response-header one is.
+- [x] **The grammar for a string from outside was reachable from one door only.**
+      `src/io/untrusted.ts` was re-exported by no index, so none of its 15 values
+      was among the package's exports — and `HeaderValue` is branded, so the signing
+      provider ADR-0018 promises "is implementable on top of the exported port" did
+      not compile, and the one spelling that did was a cast: the grammar skipped
+      rather than applied, which is the opposite of what branding it was for.
+      ADR-0024's "not from the CLI, and not from a consumer of the library" held
+      for the CLI half only.
+- [x] **The release gate answered for the tree and not for the tag.** Five holes:
+      the step comparing `GITHUB_REF_NAME` with `package.json` was named in no
+      assertion, so deleting it left the suite green; a tag did not have to point at
+      a commit on main, so a branch that never merged could publish with provenance
+      attesting to it; `v0.5.0-rc.1` matches the `v*` trigger and `npm publish` with
+      no `--tag` writes `latest`; an already-published version arrived as a 409
+      after four CI jobs, a build and a pack; and the section describing a release
+      only had to exist as a heading, which is how 0.3.0 shipped three breaking
+      report changes described nowhere a consumer reads. The decisions are functions
+      in `tools/release-gate.mjs` now (ADR-0049), and `publishConfig.tag` is
+      `unreviewed` rather than unset — a lost `--tag` then lands on a channel nobody
+      installs from, which is a version to deprecate instead of an incident.
+- [x] **There was no way to report a hole in this tool that was not publishing it**
+      (M-8). `bugs.url` points at the public issue tracker, so the only route a
+      finder had was an issue everybody can read. `SECURITY.md` says what counts as
+      a vulnerability in the tool — a request the run was not told to make, data
+      leaving into the report, a clean verdict over something never tested, a
+      document that takes over the run, the supply chain — and what does not: a
+      finding barbican reports about the platform you pointed it at is the tool
+      working. It asks for no credentials, because a report reproduced against a
+      real platform puts somebody's production tokens in a maintainer's inbox.
+      The email line is a marked placeholder and a test keeps it marked: an address
+      that stops looking like a placeholder is a report going nowhere with both
+      sides believing the channel worked.
+- [x] **The shape of the report was guarded by a tautology.**
+      `expect(build().schemaVersion).toBe(REPORT_SCHEMA_VERSION)` agrees with every
+      possible report: rename the field and an IDE moves the assertion with it,
+      while every parser breaks. The gate is a skeleton now — every key path in a
+      report `buildReport` actually produced, with the JSON type at it and the
+      values discarded — compared against a fixture that records which schema
+      version it describes, so raising the constant alone fails and raising the
+      fixture alone fails.
+- [x] **Two ADR numbers were wrong in opposite directions on the same day.**
+      ADR-0039 was cited from `src/report/build.ts` and two tests and had never been
+      written — a reference into nothing being worse than a stale one, since there
+      is no document to be out of date. And three tracks took the number 0041 at
+      once; two were renumbered to 0042 and 0043, and the matrix mapping kept 0041
+      because ADR-0039 already pointed at it by that number.
+- [x] **Cyrillic reached a tracked file.** `pnpm run check` was green on the
+      working tree and the branch went red on the commit that added it: the guard
+      reads `git ls-files`, so it sees a file once it is tracked and not before.
+      The label was a fixture for non-ASCII, which is what it still is. Worth
+      remembering when writing a fixture rather than after: the local gate and the
+      committed gate are answering about different sets of files, and only one of
+      them is the one CI asks.
+
+What this session cost, and what it teaches: the whole of it is closures of
+findings, not features, and it took a day. The pattern underneath all six false
+zeros is that **every counter in the report answers "was anything found" and one
+field answers "was anything looked at"** — `coverage` — and nothing was reading
+it. The fix that mattered least in lines and most in kind is the fifth
+`WARNINGS` sentence.
+
+## Phase 5 opens: what a report may say about itself, and what a clause may claim (21-22 August 2026)
+
+The entry ticket picked the standard — OWASP ASVS 5.0, because it is public, its
+numbering is stable and the one registered check already cited it, while GLI-19
+and the AGCO requirements are distributed under registration and cannot go into a
+public repository at all. Everything below is the JSON half of Module 2 landing
+piece by piece, and `0.5.0` shipping on 22 August.
+
+- [x] **A clause a check cites had nothing to resolve against**
+      ([ADR-0043](docs/adr/0043-a-catalogue-of-clauses.md)). `StandardRef` was
+      two free strings: `OWASP-ASVS-5.0 / 8.4.11` type-checks, registers, runs, and
+      puts a coverage row for a requirement that does not exist into every report
+      from then on — failing in the direction nobody audits, since an evidence pack
+      gets read for the clauses it omits and never for the ones it should not have
+      mentioned. `src/core/standards/` is the list as data. A second standard
+      arrives by **registration** rather than by editing that module, which is what
+      lets a private one exist at all, so the invariant is about a run and not
+      about the tree. No allowance for a standard "not catalogued yet": an
+      exception list with no expiry is the pin nobody removes.
+- [x] **A matrix discrepancy pointed at no clause of any standard** (ADR-0041).
+      `standards` was substituted on the branch fed by the registry only, and the
+      field's own comment explained the other away — formally true and a dead end,
+      since the matrix channel is privilege escalation and cross-tenant access,
+      which is what this tool is for. `standardsForDiff(kind, relation)` assigns on
+      the same two axes `severityOf` takes.
+- [x] **"The clause was exercised" was inexpressible for the matrix channel**
+      (ADR-0052). A clause exercised over nine hundred agreeing cells reached an
+      evidence pack only if one of them broke. `coverage.clauses` is one row per
+      clause either channel reached, and **nothing in it is a percentage**: a
+      percentage hides its denominator, and claiming a clause covered over a
+      surface the tool could not see is the same class of lie as a falsely clean
+      run.
+- [x] **The report did not identify itself** (ADR-0051). `createHash` occurred once
+      in `build.ts` and hashed the configuration, so a row could be deleted from
+      `findings` and a sentence rewritten in `verdict.reason` with nothing inside
+      the file objecting — and under ADR-0002 the edit reaches every rendered form.
+      `contentDigest` says in the decision and not in a footnote that it catches
+      carelessness and not malice.
+- [x] **A finding can be known and accepted without leaving the report**
+      (ADR-0048). The model had one channel for intent carrying two statements, and
+      the only way to stop a finding failing a build was to declare the cell
+      allowed — after which the finding is gone from the artifact entirely. That is
+      also what a team with forty findings on a first run has to do forty times
+      before the tool can go into CI, and the usual answer to that is to take the
+      step out of CI instead. `accepted:` keeps the row, its severity and its place
+      in every counter; one number changes.
+- [x] **A walk now survives the run that made it** (ADR-0047). Nothing reached disk
+      until the last response was in, and `grep` for SIGINT over `src/` matched
+      nothing — so Ctrl-C, the OOM killer, a cancelled CI job and a dropped network
+      each took the whole run with them. What is lost there is not compute but
+      traffic already spent against a deployment that is not ours, inside a window
+      somebody agreed to in writing and that may not open again this week.
+- [x] **`barbican diff` compares two saved reports** (ADR-0050). Both halves of the
+      two questions a second run is made to answer were already in the file and
+      nothing read either, while a plain text diff of two reports reports a
+      difference on every line that matters least. A disappearance is attributed: a
+      defect gone from a run that never probed that endpoint is nothing fixed and
+      nothing looked at.
+- [x] **410 is a refusal, and the statuses that stay unreadable are named**
+      (ADR-0046). The four that stay unreadable are written into the README, the
+      guide and the report document, held by a test in all three. The redirect case
+      is the expensive one and is left undone rather than half-built.
+- [x] **A run says who it is on the wire** (ADR-0045). README has asked for the
+      platform owner's written agreement from the beginning and says why — "someone
+      has to know that the traffic in their logs is yours" — and nothing made that
+      possible.
+- [x] **The body channel compares what a human named** (ADR-0044). The one check
+      the "bodies are not read" invariant was ever relaxed for was wrong in both
+      directions at once, and both were reproduced.
+- [x] **`docs/first-run.md`, and two assumptions that were nowhere in writing.**
+      The run's own blast radius — the job holds every role's live credentials at
+      once, and a run is by construction a burst of 401/403 from one subject, which
+      is what a lockout or an anti-fraud rule is hung on — and **one probe per
+      cell**: every row is a single sample, so one 200 off a stale replica is a
+      `critical` that is not there. `links.test.ts` could not have caught the
+      document's absence: it checks that a link leads somewhere, not that anything
+      leads to a document, which is how `docs/polygons/juice-shop.md` sat
+      unreferenced with the guard green.
+- [x] **The walk holds one copy of the matrix, not three** (ADR-0053). The
+      measurement that named three materialisations counted the walk as one of
+      them; the walk was three by itself. Peak resident set down by up to 22% at
+      576 000 cells as recorded in the commit, and **the peak of the whole run does
+      not move** — it is reached while the report is built, where the three
+      materialisations still stand. Saying which is the useful half.
+- [x] **`0.5.0` released 22 August**, and the release itself carried a correction:
+      the paragraph about earlier versions counted two of them and there are four,
+      the two it did not name being the two that answer `0` to a run that tested
+      nothing.
+- [x] **The Windows job caught three promises the tests had no right to make.**
+      `subprocess.kill("SIGINT")` on Windows delivers no signal at all — node maps
+      it onto `TerminateProcess` — so the graceful stop is unreachable from a test
+      there; `mode: 0o600` on the stream is a POSIX promise; and the third was a
+      test leaning on a boundary rather than a boundary, reaching its half-walked
+      state by interrupting a run where exhausting `--max-requests` does it on
+      every platform. A Windows test now stands beside the two POSIX-only ones
+      asserting the half that needs no handler, which is the reason the stream
+      exists.
+- [x] **A file that passed on a quiet laptop and timed out on CI.** Three CLI runs
+      in `verdict-seams` named no rate, so they walked at the conservative default
+      of five a second: about four and a half seconds against a five-second
+      timeout. It failed on node 26 and passed on 22 and 24 in the same run, which
+      is the worst way for a test to be wrong — the next reader goes looking for
+      the difference between the node versions.
+
+## Four modules cut into directories, and a gate that stopped measuring nine of them (23 August 2026)
+
+Four files were half the source: `report/build.ts`, `io/config.ts`, `cli.ts` and
+`runner.ts` at 3012, 2832, 1872 and 1726 lines. All four cuts landed inside
+forty-seven minutes of each other, each at a seam a decision already named rather
+than at the table of contents, and each behind the import path it always had.
+
+- [x] **The report is cut where the cell is** (ADR-0054). The seam is `cellKey`,
+      whose own comment records the key being written out by hand in five places
+      with a sixth having to agree with all five — so any cut leaving it on two
+      sides of a module boundary recreates that state somewhere harder to see.
+- [x] **The configuration module becomes a directory** (ADR-0055). The seam that
+      was not free to choose: a zod-inferred type may not cross a module boundary,
+      because a shipped declaration naming a package is a version of that package
+      the tool has promised to keep.
+- [x] **The entry point is only a command line** (ADR-0056), and **the runner is
+      cut at the address** (ADR-0057) — the second because ADR-0032 is a decision
+      about a *place*, and a cut putting `substitute` on the other side of a
+      boundary from `joinUrl` would rebuild the state that ADR was written from.
+- [x] **Three defects the cut uncovered, recorded as one class** (ADR-0058),
+      because the cause is shared: each is a guarantee this project already made,
+      holding at the place it was measured and at no place it was used. The worst
+      of them is that **`contentDigest` answered `ok: false` for every artifact
+      this tool had ever written** — `buildReport` takes it over the finished
+      document as its last statement, and the CLI then wrote one more field,
+      `{ ...built, runId }`, one line past the last thing that hashed anything.
+      58 of the polygon's 58 reports. The existing test was green throughout,
+      because it checks a report built in memory and round-tripped through
+      `JSON.stringify` — the one report that never reaches anybody.
+- [x] **A gate that only ran after the push now runs before it.** Cutting `cli.ts`
+      turned a file-local `paint` into an exported one, and its parameter type
+      carried `import … from "node:util"` into a shipped declaration; the check for
+      it existed only as a shell line in CI, so it reported the leak after the work
+      was pushed rather than preventing it. It is a file now —
+      `tools/no-dependency-in-declarations.mjs`, run at the end of
+      `pnpm run build` — and CI calls that same file.
+
+**The coverage gate silently stopped measuring nine modules, and the sentence
+warning against exactly that was three lines below the gap.** This is the
+session's real finding and it is worth the space (ADR-0063).
+
+- [x] `vitest.config.ts` named five directories and carried one exemption — "cli.ts
+      is not included: it is argument parsing and printing, checked by running the
+      built binary rather than by unit tests" — which was true of a file that no
+      longer existed in the shape it describes. The nine modules the `cli` cut
+      produced were named by none of the five: the run orchestration, the second
+      canary pass (ADR-0033's other half), the gate on `--resume` (ADR-0047's), the
+      screen and its headline, `--dry-run`, the report's 0600 and atomic rename,
+      the whole `diff` subcommand, the grammar of `--rps` — which exists so there
+      is no no-limits mode — and what the build says it is. **None of them is
+      argument parsing**, and `src/cli/compare.ts` was executed by no test in this
+      process at all.
+- [x] **Forty-two minutes earlier, the runner cut had added its own directory to
+      that same list**, with a comment three lines below the `cli` gap saying why
+      naming only the barrel would be "the gate being lowered by a move, not by a
+      decision". The sentence was written above the very list that had already lost
+      nine modules.
+- [x] **And it was not unnoticed either.** ADR-0056 records the state under "what
+      was not allowed to change, and did not": `src/cli` is not among the measured
+      directories, "so the split neither adds coverage nor removes any: the numbers
+      are the same 2683/2721 statements before and after". True as arithmetic. What
+      it does not ask is whether the reason the file was out still applied to the
+      nine files it had become. Being right about the class of mistake, in a
+      comment, next to an instance of it, is the finding: **the guard cannot be a
+      sentence**.
+- [x] **How long it lasted was written down wrong, and corrected.** The first
+      version of that ADR said four days; the amendment measured it at three
+      hours — `339fd42` at
+      10:45 and `c1dc60d` at 13:45 on 23 August — and noted that by the two ADRs'
+      own dates it is one day, ADR-0056's date being itself a day ahead of its
+      commit. Three hours is the honest number and it is enough: what matters is
+      that the state was reached by omission and left by accident.
+- [x] **`include` is one pattern over `src/` now, and the rules moved out of the
+      configuration.** A review then walked around the first guard four ways with
+      the whole run exiting 0 — a `coverage.exclude` taking the same nine modules
+      back out while both lists stood untouched, a group's numbers zeroed, a
+      blanket `src/**/*.ts` at 10 answering for every file at once, and `all: false`,
+      which turns out to change nothing because the option was removed in vitest 4.
+      The option names are an allowlist now, and `pnpm run test:coverage` reads the
+      summary the run left behind.
+- [x] **A fourth round found three more, and the first is the shape this repository
+      keeps rediscovering.** The wiring between the gate's two halves was a script
+      string, and the test asking that string for two substrings was satisfied by
+      the first of its three commands: deleting `&& node tools/coverage-gate.mjs`
+      left every test green while the half that reads the summary never ran again.
+      There is no second command now — the gate *is* the script, and vitest loads
+      the same module as a `globalSetup`, so a coverage run the gate did not start
+      is refused before the first test. A `.mts` module was invisible to both
+      halves. And a sentence inside the guard was simply false about vitest: a
+      global threshold does apply to every file, glob-matched ones included, and
+      the refusal it was protecting was right for the wrong reason — which means
+      the next person to check would have deleted both.
+- [x] **Two of this project's own thresholds were decoration.** `src/index.ts` and
+      `src/runner.ts` are re-export barrels with no statements, and v8 reports
+      100 % of zero, so the two lines gating them passed for the same reason an
+      empty set of files passes. They are `BARRELS` now, a list the outcome half
+      requires to be exactly the set measured as empty.
+- [x] **Five unreachable fallbacks were deleted rather than described** while that
+      was being counted, and the ADR's own branch justification had called them
+      defensive.
+
+## One decision, one home — and a gate attacked until it held (23 August 2026)
+
+The same day, on the other axis: decisions written out in several places, each
+collapsed into one module with a test to keep it collapsed. What makes this
+session worth reading is not the collapses. It is that **every gate written here
+was attacked, most of them the same day, and most of them gave way.**
+
+- [x] **One cell key, in core** (ADR-0059). `cellKey` was written out twice
+      character for character, the second under a comment warning that a key
+      written by hand in several places stops agreeing with itself. On its first
+      run the gate found two more keys, both written with the separator as a **raw
+      NUL byte** — which makes a file binary to `grep`, so every search of this
+      repository for that character had been answering "no matches" over two source
+      files.
+- [x] **One grammar for a `{name}` in a path template**, in the core and not in
+      `src/io/untrusted.ts`, because `untrusted.ts` already imports from the core
+      and a grammar the core reads cannot live above it. The module hands out no
+      `RegExp`: one shared global one would have been the obvious way to write it
+      and is a defect, since `lastIndex` survives between calls, so a presence test
+      leaves the scan that follows it reading only the second parameter — and
+      through `planEndpoints` that turns a resource covering half an endpoint's
+      parameters into one that applies.
+
+**The gate was walked around six ways inside a day, and the ADR's title was a
+claim like any other.** ADR-0060 was filed as
+`0060-a-gate-that-cannot-be-walked-around.md`. It is now
+`0060-a-gate-that-says-what-it-holds.md`.
+
+- [x] The six, each verified against a full green `pnpm run check`: a renamed
+      import (`import { joinKey as glue }`, against a caller table that counted the
+      text `joinKey\s*\(` per module and so counted zero); a local rebinding
+      (`const glue = joinKey;` — not a hypothetical idiom, `src/core/defects.ts`
+      already writes `const keyOf = defectSignature;`); a zero in another base
+      (`String.fromCharCode(0x0)`, against a needle that required `0+`); a
+      character with no zero written at all (`decodeURIComponent("%00")`); a
+      grammar built by `new RegExp` out of a non-foldable argument, invisible to a
+      scan that reads regular-expression literals; and a second `cellKey` written
+      as an object method whose parameter list contains a `)`, which the member
+      pattern read as `\([^)]*\)`.
+- [x] **Five are closed and one is not, and the one that is not is written down as
+      working** — in the ADR, in the mutation table as a row that says *not
+      caught*, and in the header of the test file. The judgement behind the split
+      is in the ADR: 1, 2 and 6 are shapes somebody writes by accident or for
+      convenience; 3 was one alternation of a regular expression; 5 needed a table;
+      4 is a shape nobody reaches for except on purpose.
+- [x] **The answer was not more patterns.** `KEY_SEPARATOR` is no longer exported —
+      `joinKey` is — so a copy elsewhere has to write the character out itself, and
+      writing it out is what the gate reads. What is enumerated is the **import**:
+      which module may reach into an owning module and for which name, because an
+      import survives every rename of the call. Twenty-two mutations were run
+      against the committed tree, each through a harness that refuses to run
+      anything unless every replacement lands the number of times declared — "a
+      mutation that did not apply is a green run that proves nothing" — and each
+      restored from a byte copy.
+- [x] **Two sentences in that ADR were false as committed, and five more it caused
+      to be written.** In the test file, in `README.md`, in `CLAUDE.md`, in
+      `src/core/path-parameters.ts` and in a correction note it had itself added to
+      ADR-0057. All seven are corrected in place under "Corrections to this
+      document", because leaving a false statement of fact standing in the record
+      is the thing this whole track is about.
+- [x] **And twice more the day after the amendment**: a brace written as its
+      Unicode escape rather than as the character, which the brace scan read as an
+      ordinary character while the separator scan two functions away decoded
+      escapes on principle; and `const Expression = RegExp`, which reaches the
+      constructor past a count of calls. One decoder for both scans now, and every
+      mention of the name counted.
+
+- [x] **The address grammar was one table read from both ends** (ADR-0061), because
+      `isAddressablePath` returned the conjunction of five predicates and
+      `pathTemplate` re-listed the same five by hand, seven lines apart, in the file
+      whose opening paragraph is about a duplicate the compiler cannot check. The
+      refusal of a scheme-relative `//host/x` stood in three places under a comment
+      saying it stood in one, and one of the three had been unreachable since the
+      grammar took the rule over — zero hits from 1529 tests, under a comment
+      claiming it held the scope open.
+- [x] **That gate was then walked around too, twice.** First: two of its assertions
+      filtered 5 and 15 hardcoded file names against 65 tracked sources, so the same
+      sentence in `walk.ts` and a second terminal-error set in `stream.ts` were both
+      invisible; a fifth table entry written on one line had no `id` the regex could
+      see, because Biome at `lineWidth: 100` leaves a short entry alone; and the
+      order of the entries had been called behaviour with nothing holding it, every
+      witness breaking exactly one rule. Second: "neither entry point decides
+      anything of its own" was one substring check per entry point — a **ternary**
+      in the seam and an **early `return`** in the door were each a back door into
+      `joinUrl` with the whole suite green. The three exported functions of that
+      grammar are held to one exact text each now, so any edit is red including a
+      behaviourally identical one.
+
+**A scan changed from distinct members to occurrences, and the class it had been
+folding away was the likeliest one there is.**
+
+- [x] The forbidden-header gate counted, per file, the **distinct** members of the
+      two layers written out as quoted literals — "because the question is 'does
+      this file carry a piece of the composition', and a file that names one of
+      these headers twice for one honest reason is answering it once". The owner
+      already carries every piece. So **a second, whole composition written by hand
+      inside the owner itself added nothing to the count and passed**: the one place
+      a second composition is most likely to appear is the one place it was
+      invisible. Measured rather than argued — under that mutation the distinct
+      count stays 20 and the suite is green, while the occurrence count goes to 41.
+- [x] The price is that an honest second mention costs a line in the table, which
+      is the price this repository already pays for an override in
+      `pnpm-workspace.yaml` and an expiry in `osv-scanner.toml`: an allowance
+      carries its count and its reason, and a count that has stopped being true
+      fails rather than passes. The owner's entry reads 21 and not 20, and says
+      why — `cookie` is written once in the exact layer and once more where the
+      reason for it is composed.
+- [x] **The predecessor of that scan read three remembered strings**, so a second
+      composition in `src/io/config/contexts.ts` carrying six other members went
+      green through the whole run, `tsc` included. Both changes were needed and
+      neither reaches the shape written out of *full* header names, which is
+      recorded as still open.
+
+- [x] **Twenty-four doc blocks stood over a neighbour rather than their own
+      subject** (ADR-0062). Only the second block of such a pair attaches to
+      anything, so the first is reasoning no tool will ever show beside a symbol —
+      and in this repository the reasoning is often the only record of an argument.
+      One of them described a security guarantee that had moved: above
+      `sanitizeLocation` the comment said the `location` header's path is kept,
+      untrue since 17 August, when only the origin survives — so a reader who
+      stopped at that block treated the report as a carrier of a password-reset
+      path. Twelve were found by reading and twelve more by the gate written for
+      the class.
+- [x] **The link gate collected only the links that could not be lying.** It matched
+      a label of the exact form `[ADR-NNNN]` with a target after it, which is a
+      condition on the very label it exists to judge — so a label spelled any other
+      way was never collected: nine ordinary spellings went through, and a link
+      title hid a tenth. Meanwhile both the ADR and the test header said nothing is
+      passed over. The population is the link now, and every count in ADR-0062 was
+      re-measured — it had said fourteen, then 12 + 2, then twenty-six, then
+      twenty-four, then fourteen again.
+
+      Writing this entry tripped that same gate, which is the shortest possible
+      demonstration that it works: spelling the old pattern out in full put a link
+      to a file called `target` into this document, and `pnpm run check` went red
+      on it. The README solved it first, by naming the label and not the target.
+- [x] **Six tables that must agree were made to agree** (ADR-0064), each by the
+      strongest mechanism it admits: the compiler, then a test, then a comment
+      beside a duplicate that is justified. **Three sentences in that ADR credited
+      the compiler with refusals it does not make**, and each was tried under
+      `tsc --noEmit` and found to compile clean with the suite green.
+- [x] **What a source scan can hold is written once** (ADR-0065), instead of five
+      times. Five of the ADRs above had grown their own version of the same
+      paragraph. The rule it states is the one this session earned: an entry in a
+      `Limits` section is written down only after it has been run, and **no
+      document about such a gate says the gate cannot be walked around** — not the
+      ADR, not the test header, not the README, and not the title.
+- [x] **A count of the repository, written into the repository, invalidates
+      itself.** The last commit of the day is that sentence applied to the sentences
+      that had just been written.
+
+Noticed while writing this session up and **not fixed**, because this round
+touches no code: the transcript gate reads a quotation as "fenced, or a line
+starting with four spaces". A continuation line of a list item in this file is
+indented six, so a prose sentence in a bullet that happens to contain the words
+of either anchor is collected as a transcript and compared against a real
+`--dry-run`. It cost two attempts to write the sentence about a matrix of four
+rows above. Fail-closed and cheap to work around, so it is a note and not a
+defect — but the next person to quote one of those two lines in prose will meet
+it, and the message they get is about a dry run they did not write.
+
+## An identifier has a grammar, and the ninth door (24 August 2026)
+
+- [x] **`src/core/keys.ts` said of its separator that it is "a character that never
+      occurs in an identifier", and nothing made that true** (ADR-0066). An
+      endpoint id, a context id and an acceptance's `kind` are `z.string().min(1)`
+      with no character class, and YAML writes a NUL as `\0` inside double quotes,
+      so a part carrying one splits two ways. Measured: two different defects under
+      one `acceptanceKeyOf`, and through the library door `indexAcceptances` — a
+      `Map` on that key — kept the last of them, so **one acceptance silently
+      decided the other's deadline**.
+- [x] **The grammar refuses the class that cannot be a name, not the one character
+      that breaks today's separator**: the C0 controls, DEL, the C1 controls, the
+      two Unicode line separators, and the empty string, which is the absence
+      sentinel every key here writes for a coordinate it does not have. Narrowing
+      it to the NUL is the twelfth point fix ADR-0024 counts — true only until the
+      separator moves. Applied at `joinKey`, the one place a key is built, **and**
+      at the doors that name the field and the file, which is ADR-0032's division
+      and not a new one: the seam makes the refusal certain, the door makes it
+      useful.
+- [x] **The third owner arrived with one home and no gate at all.**
+      `src/core/identifiers.ts` joined `keys.ts` and `path-parameters.ts` as a
+      module owning a decision, and nothing was keeping it single: a second copy of
+      its class of code points, plus a new export in `src/report/findings.ts`, left
+      the whole suite green until `one-decision-one-home.test.ts` took it — and
+      because `src/core/index.ts` re-exports that owner on purpose, the barrel is
+      enumerated as the one conduit that may.
+- [x] **The ninth door: a saved report is a document.** `barbican diff` reads two of
+      them and passed every string straight to the terminal and into its own map
+      keys. Measured against the built tree: `U+001B` `[2K` and a carriage return in
+      `observations[].endpointId` erased the line the comparison printed it on, and
+      `U+001B` `[31m` in `defects[].key` recoloured everything after it. A saved
+      report can come from another machine, an earlier build or somebody else,
+      exactly like an OpenAPI file — and `barbican run --report` having written one
+      yesterday says nothing about the file two paths name today. **Refused rather
+      than escaped**, because escaping on the way to a terminal is modelling the
+      terminal, is a second grammar to keep in step with the first, and leaves the
+      tool holding an id it can never print back.
+- [x] **Three more from the same review.** The resume stream got a door of its own —
+      it was covered by the seam and by nothing that could name the file, while the
+      version and declaration mismatches quote its header onto the terminal.
+      `src/adapters/openapi.ts` claimed its generated fallback id needed no check
+      because the path had been through `pathTemplate`; measured false, that grammar
+      admits `U+0085`, the C1 range and the two line separators. And `toAccounts`
+      composes `alice@geo-blocked` with a character an account id may legally carry,
+      so account `a` under context `b@c` and account `a@b` under context `c` both
+      give `a@b@c`: the attribute map held one entry for two rows, the run spent all
+      four requests before `DuplicateIdError`, and `--dry-run` counted the matrix at
+      four rows and exited 0.
+- [x] **Two corrections to that pass, both of prose claiming more than the code
+      held.** `HEADER_FIELDS` carried "which `tests/report/write.test.ts` asserts
+      against" and no such assertion existed. And the Limits section said `--json`
+      "was never the channel" because `JSON.stringify` escapes control characters;
+      measured, it escapes code points below `U+0020` only — DEL, the whole C1 range
+      and both line separators came out raw, and `U+009B` is CSI to a terminal
+      reading 8-bit controls.
+- [x] **A header value the platform chose is kept as text, not as an escape.** Where
+      a value is the platform's to choose and is kept rather than refused — a
+      response header on the allowlist — `spellOut` writes it out at the point it is
+      kept. Two raw C1 characters had reached a report this tool wrote.
+- [x] **`0.6.0` released**, carrying the four cuts, the coverage gate, the one-home
+      gates and this grammar.
+
+## Module 2: the evidence pack (24 August 2026)
+
+Phase 5's second half, and the whole of it landed in one day on top of the JSON
+work of 21-22 August.
+
+- [x] **The catalogue said which clauses nothing answers, and it was wrong about
+      four of them** (ADR-0069). `findUncoveredClauses` subtracted `Check.standards`
+      and nothing else, while the matrix channel cites clauses too — so over the
+      sixteen bundled clauses it named thirteen as answered by nothing when nine is
+      the answer: ASVS 8.1.1, 8.2.1, 8.2.2 and OWASP API5 are cited on every finding
+      of the kind that names them. **The gate could not have noticed**:
+      `standard-refs.test.ts` pinned the thirteen "so that a check added, a check's
+      claims widened, or a clause added all move it", and a change to
+      `standardsForDiff` moved nothing — the whole matrix mapping could have been
+      deleted with `pnpm run check` green.
+- [x] **And the first draft of that ADR's own mutation table was wrong about what
+      it had run**, which is the more useful half. It claimed mutation 3 was green
+      everywhere on the tree before the change; run against that tree it turned
+      three files red. What is true is narrower and worse: under the mutation the
+      pinned list of uncovered clauses **did not move** — it had listed 8.2.1
+      wrongly and went on listing it, now rightly, with nothing recording that its
+      meaning had inverted.
+- [x] **The clause paraphrases were checked against the published documents**,
+      clause by clause. Four ASVS summaries said more or less than their requirement
+      does and were narrowed; the ASVS `scope` line was wrong about its own
+      selection; and both it and this repository counted fourteen ASVS chapters
+      where 5.0 has seventeen. Each unanswered clause now carries
+      `unansweredBecause` — the sentence saying why nothing here answers it, which
+      existed in source comments a reader of a report never sees.
+- [x] **An evidence pack says what it checked, and what it did not** (ADR-0067).
+      `evidencePack({ run, catalog })` is pure and renders nothing. The structure is
+      the small half; what the change actually decides is what such a pack is
+      **allowed to say**. A clause no check cited and no cell was evidence about is
+      `unanswered`, never a pass — a pack built from what a run happened to cite
+      lists what was checked, and the question a reader has is what was not.
+      `upheld` carries its denominator and its reservations on the row. **A run that
+      exited 2 reports what it found and reports nothing as upheld**, because such a
+      run describes the network or its own credentials rather than the platform,
+      while a hole found before the budget ran out is still a hole.
+- [x] **And a pack can be drawn into a document an auditor opens** (ADR-0068):
+      `barbican pack <report.json> --out <file.html>`. One self-contained HTML file —
+      no external stylesheet, no font, no image, no script — because it is read on a
+      machine with no network and printed to PDF through a browser. The element and
+      attribute names the renderer can write are closed unions with no `href`, no
+      `src` and no `on…`, so a clause's published address is printed as text and a
+      `javascript:` URL is never the scheme of anything. `Markup` is a brand, so a
+      raw string cannot be spliced into the page, and `words()` composes `spellOut`
+      with markup escaping rather than merging them: one is how a value is kept, the
+      other is how a sink is written, and `report.json` must not grow HTML entities.
+      Exit 2 when the run behind the pack exited 2, because a pipeline shipping such
+      a pack as evidence unnoticed is the defect the whole artifact is written
+      against.
+- [x] **The print rules are declared and not measured**, and the ADR says so: no
+      browser runs in this repository's suite, so the test asserts the properties
+      are in the document rather than that an engine honoured them.
+- [x] **A defect found by reading a real pack rather than by reasoning about one.**
+      A clause and its claim are adjacent spans held apart by a margin, so any
+      reader that drops the CSS — a browser's reading mode, a screen reader,
+      anything that copies the text out — read `8.1.1breached`. That class is only
+      ever found by opening the artifact, which nothing in this repository can do.
+- [x] **`barbican diff` no longer merges two defects that print the same key**
+      (ADR-0070). The comparison indexed on `defects[].key`, the citable form, which
+      joins endpoint, relation and conditions **with a space** — and a space is a
+      legal character in a name, deliberately. It does not take two files: a report
+      this tool writes carries both rows under that one key, so a second run that
+      fixed one of the two was reported as one defect whose kinds had changed, with
+      the fix nowhere in the output.
+- [x] **A refusal names the word this tool taught you.** A cold start against the
+      published `0.6.0`, installed from the registry and driven against a two-tenant
+      stand with a configuration written by reading the tool's own output, found the
+      one thing the repository cannot see from the inside: every finding prints
+      `relation`, and a policy rule calls the same thing `scope`.
+      `Unrecognized key: "relation"` is true and unhelpful. One entry, and the rule
+      for what may join it is that **this project must have taught the wrong word** —
+      `parameters` for `params` is a mistake a reader brought with them and gets no
+      hint, which a test holds.
+- [x] **`SKIP_REASONS` is keyed by the planner's own union** rather than by
+      `string`, so a fifth reason can no longer reach a run without reaching the
+      screen that explains it. Found while closing the six tables of ADR-0064 and
+      left alone then as out of scope, which is the whole reason it has a note: an
+      entry of a list one is already writing is the cheapest one to leave out, and
+      it is left out silently.
+- [x] **`0.7.0` released**, the second release of the day and the sixth in twelve
+      days. Both modules are in it: the role × endpoint matrix with privilege
+      escalation, BOLA/IDOR and cross-tenant leaks, and an evidence pack drawn from
+      a saved report. What is left after it is not a phase, which is what
+      `plan.md` was changed to say an hour later.
+
+### Where the tree stands, measured on 24 August 2026
+
+Every figure here was produced by running the thing at the commit this session
+was written on, not carried over from a commit message.
+
+- `pnpm run check` green: **126 test files, 1936 passed, 1 skipped**.
+- `node polygon/verify.mjs`: **29 combinations, 0 mismatches**.
+- The published surface, off `Object.keys` over the built `dist/index.js`: **242
+  values**, of which **99 are error classes** — which is what `docs/library.md`
+  states and `tests/public-surface.test.ts` holds it to.
+- The bundled standards catalogue: **3 standards, 16 clauses**, of which
+  `findUnansweredClauses` returns **9** against an empty check registry.
+- `docs/adr/` holds **71 files**, 0000 through 0070.
+- Between the commit that last touched this file and this one: **196 commits, 143
+  of them not merges**, over four days.
 
 ## Adversarial review of 18 August 2026 (the gate itself)
 
@@ -2896,6 +3701,9 @@ without them the only person who can run the tool is its author.
       with signing show up. One will not reveal what is common, and a mini-language for
       canonicalization derived from one would turn into a bad templating engine.
       The revision condition is in ADR-0018.
+      Checked 24 August 2026: open, and the condition has not fired — no second
+      platform with signing, and `authSchemes` still takes `bearer`, `header`,
+      `cookie` and `basic`. Nothing in four days of work touched it.
 - [x] ~~Endpoint selectors by pattern~~ — closed, the platform was moved
       onto `path: /v1/admin/**`, and 19 combinations agreed.
 - [x] **User documentation** — [docs/guide.md](docs/guide.md) and
@@ -3005,6 +3813,22 @@ Left over from the cold read, in decreasing order of payoff:
       and the check "the tag equals the package version" is already done by the release.
       My proposal is not to take it on; revisit if a second package appears in the repository
       or releases become more frequent than one a week.
+
+      **The revision condition has fired, and this is the entry saying so rather than
+      the entry acting on it.** Measured from the tags on 24 August 2026: `v0.2.0`
+      13 August, `v0.3.0` 17 August, `v0.4.0` 18 August, `v0.5.0` 22 August, and
+      `v0.6.0` and `v0.7.0` both on 24 August. Six releases in twelve days, two of
+      them in one day — an order of magnitude past "more frequent than one a week".
+      The item stays open because a fired condition asks for the decision to be taken
+      again, not for the opposite answer to be assumed: the second half of the
+      original reasoning is stronger than it was, not weaker. What changesets buys is
+      a changelog assembled from change-description files, and this repository now has
+      `### Unreleased` written as work lands plus `tests/docs/release-readme.test.ts`
+      holding it (ADR-0034), which is the same product by a different route and no
+      dependency. What has genuinely changed is the cost of getting a release
+      description wrong, and that cost is now paid by a gate. Re-vet the package
+      before deciding either way — the figures above are from 13 August and this
+      project's own rules say a vetting goes stale.
 - [x] User documentation — closed above (docs/guide.md, docs/report.md).
       The entry here was a duplicate from the old phase 4 plan.
 
@@ -3067,6 +3891,13 @@ Lift these bans together with the corresponding ADR, not "along for the ride" wi
       `fast-redact` passed its 28-month mark too, at 29, though it is a candidate that
       was never installed, so what that settles is where to go if redaction ever needs a
       library. swagger-parser is the one still ahead, and April 2027 is right for it.
+      Checked 24 August 2026 and left open, because it is standing and the last pass
+      was six days ago. One thing found while checking, and it is recorded above
+      rather than here: the changesets entry carries a revision condition — "releases
+      more frequent than one a week" — which fired between the last review and this
+      one and which nothing noticed. That is the failure mode this line exists
+      against, in a condition that lives outside plan.md's table, so the table is not
+      where the next reader will look for it.
 - [x] Revisit TypeScript 7 once it leaves preview and stabilizes its public API.
       Revisited 18 August 2026, and the condition is met — the decision is what is left.
       The second half does not apply here: nothing in this repository imports the
