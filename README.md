@@ -1332,6 +1332,20 @@ only change under `src/` in this entry.
 `barbican/0.4.0` in the `user-agent` the tool sends, three releases after that
 stopped being true. A line nobody can check is a line that dates itself.
 
+**`barbican diff` walks the observations twice rather than four times.**
+`compareCoverage` and `compareDefects` each built their own pair of
+probed-endpoint sets over the longest array a report has, and neither can get a
+different answer than the other. Built once and passed down: 5.16 ms against
+2.43 ms over a pair of runs of 80 000 observations. The output is unchanged, and
+the reference platform's 29 reports are the same bytes.
+
+**The four largest files in the report layer were read and left alone**, which is
+[ADR-0073](docs/adr/0073-a-file-is-cut-along-its-jobs.md). `src/report/shape.ts`
+is 1 129 lines of which 873 are prose and 234 are code — a type graph with the
+reasoning beside each field — and the other three hold one job each. The ADR
+also records three changes that measurement argued *against* making, so the next
+reader does not have to measure them again.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.
