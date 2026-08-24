@@ -30,7 +30,8 @@ Two more you will need beside them:
   breaking change for you.
 
 The example in the [README](../README.md) is compiled and run by a test, and it
-uses four of these.
+uses three of these — `buildAccessMatrix`, `diffAccess` and `expandPolicy`. The
+fourth name it imports, `ANY`, is a selector rather than an entry point.
 
 ## Comparing two runs
 
@@ -66,9 +67,12 @@ saying what this run did about it and — where it did nothing — saying that i
 way a reader cannot take for a pass. It is pure and renders nothing; JSON is the
 source of truth and a document is a separate step.
 
-`createBundledCatalog()` is the catalogue this repository ships — the
-authorization chapter of OWASP ASVS 5.0, three entries of the API Top 10 and the
-CWE-284 hierarchy. It is a fresh instance each time on purpose, so you can
+`createBundledCatalog()` is the catalogue this repository ships — sixteen
+clauses: eight of the thirteen requirements of OWASP ASVS 5.0 chapter V8, the
+three authorization entries of the API Top 10, and five access-control
+weaknesses under CWE-284. Each standard carries a `scope` line saying what it
+leaves out, because a clause absent from this catalogue is not thereby absent
+from the standard. It is a fresh instance each time on purpose, so you can
 register a standard of your own into it — that is what `StandardCatalog`'s own
 `register` method is for: a standard whose numbering may not be published belongs
 on the machine that holds it and not in a public repository. Whatever you
@@ -81,9 +85,13 @@ carry a severity or a reservation code this build has never heard of, and typing
 those as the report's own unions would be a promise made by a cast.
 
 Every sentence a pack prints comes out of `CLAIMS`, `STANDINGS` and
-`DISCLAIMERS`. A row carries the code and you read the sentence from the table:
-they are assertions the tool makes to somebody who was not there, and a second
-copy of one is a second assertion the day it is improved. Read
+`DISCLAIMERS` — eleven of them, six, two and three. A row carries the code and
+you read the sentence from the table: they are assertions the tool makes to
+somebody who was not there, and a second copy of one is a second assertion the
+day it is improved. `PACK_SCHEMA_VERSION` is the pack's own `schemaVersion`,
+`"1"` today, and it is there for the reason the report's is: a third
+machine-readable artifact without one breaks its parser silently at the first
+change of structure. Read
 [ADR-0067](adr/0067-an-evidence-pack-says-what-it-checked.md) before rendering
 one — what a pack may claim, and what it refuses to, is the whole of that
 decision.
@@ -148,6 +156,13 @@ so an implementation of your own can be substituted:
   `identifier(value, "where it came from")` at the point you chose the value and
   the message names the line of your own document instead
   ([ADR-0066](adr/0066-an-identifier-has-a-grammar.md)).
+- `spellOut` — the other half of that decision, for a string the tool keeps
+  rather than refuses. A response header value on the allowlist is the platform's
+  to choose, and `JSON.stringify` escapes the C0 controls and leaves the C1 ones
+  alone: two raw C1 characters reached a report this tool wrote, and one of them
+  is a CSI that drives the terminal of whoever opens the file. `spellOut` writes
+  such a code point as `\u009B` at the point the value is kept. Use it if you
+  build a report of your own, so that there is one rendering rather than two.
 
 Three of its options are about a walk that may not reach its end, and they are
 what the CLI builds `--resume` out of ([ADR-0047](adr/0047-a-walk-that-survives-its-run.md)):
@@ -175,7 +190,11 @@ Three functions read it:
 - `clauseAnswers(catalog, checks)` returns one row per catalogued clause with
   everything in this tool that can cite it: the registered checks that declare
   it, and the kinds of matrix discrepancy whose mapping cites it. Both are
-  derived — there is no field anywhere that declares a clause covered.
+  derived — there is no field anywhere that declares a clause covered. The
+  second half is `standardsForDiff` asked about `DIFF_KINDS`, which is the four
+  kinds of matrix discrepancy as a list with `DiffKind` derived from it: the
+  answer is only as complete as the list it walks, so the list is the union
+  rather than a copy of one.
 - `findUnansweredClauses(catalog, checks)` is those rows where both are empty —
   the half an evidence pack cannot be complete without, since a pack built from
   findings alone lists only what happened to be checked. Each row's
@@ -231,7 +250,7 @@ three groups, and only the first is a contract:
    failure, and `instanceof` needs the class. They are grouped by the module that
    throws them.
 3. **Everything else** — `assertPolicyIsSound`, `indexPolicy`, `relationOf`,
-   `expandPattern` and some forty more. These exist because the CLI needs them
+   `expandPattern` and ninety-six more. These exist because the CLI needs them
    and the CLI is built from the same modules. They are exported rather than
    hidden so that the build does not carry code no one can reach, which is the
    older of the two mistakes. **They are not a contract.** Use them if they help;
