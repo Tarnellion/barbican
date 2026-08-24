@@ -1325,8 +1325,7 @@ are to sentences written the same day by this work and caught by review of it �
 one said crAPI had never run, eleven days after it ran.
 
 **`barbican diff --help` said `--json` writes the comparison "instead of a
-summary".** The summary still goes to stderr; the line now says so. That is the
-only change under `src/` in this entry.
+summary".** The summary still goes to stderr; the line now says so.
 
 **A version number in an example is a placeholder now.** Two documents printed
 `barbican/0.4.0` in the `user-agent` the tool sends, three releases after that
@@ -1345,6 +1344,22 @@ is 1 129 lines of which 873 are prose and 234 are code — a type graph with the
 reasoning beside each field — and the other three hold one job each. The ADR
 also records three changes that measurement argued *against* making, so the next
 reader does not have to measure them again.
+**Seven refusals the tool has always made now have tests.** Each was written,
+was reachable from `parseRunConfig` or from the library door, and was run by
+nothing: a context id declared twice, a context naming an account that is not
+declared, a context query value an address cannot carry, a context and a body
+signal each naming an endpoint the run does not have, a header **value** naming a
+write method checked at the seam rather than at the configuration door, and
+`PathEscapesTargetError` reaching a consumer as a class rather than as a
+substring of a failure reason. Two of them raise error classes that no test and
+no document named anywhere. Found by reading the coverage report rather than by
+anything going wrong; the surveys behind it — of the 242 exported names, of every
+line coverage cannot reach, of four copies of `isRecord`, and of what the test
+tree duplicates — are
+[ADR-0074](docs/adr/0074-what-nothing-carries.md). Nothing the tool does changed:
+the only edit under `src/` is a comment recording why a loop in
+`assertReferencesResolve` cannot be reached today and what would make it live
+again.
 
 ## Example
 

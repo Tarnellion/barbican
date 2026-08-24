@@ -227,6 +227,51 @@ describe("the errors a consumer has to catch", () => {
     // Before the wire, not after it.
     expect(walked).toEqual([]);
   });
+
+  /**
+   * And the seam's other refusal, which no test named as a class.
+   *
+   * The census of 24 August 2026 counted four error classes on this surface that
+   * no test and no document names anywhere; `PathEscapesTargetError` was one, and
+   * its `throw` runs four times a suite — through `staysWithinTarget`, which
+   * catches it and answers `false`. That is the unit under test agreeing with
+   * itself: a class caught inside the module that threw it proves nothing about
+   * whether a consumer can name it, and `err.name` against a string literal is
+   * the state this file's header is written against.
+   *
+   * The leading space is what makes the case reach the comparison at all —
+   * `isAddressablePath` accepts it and the URL parser trims it, so the path is
+   * absolute by the time an address exists. It is the same construction
+   * `tests/invariants/transport.test.ts` uses for A-8, where the assertion is
+   * about the boolean; here it is about the class and the field on it.
+   */
+  it("hands the seam's other refusal to a consumer as a class", async () => {
+    const walked: string[] = [];
+    let thrown: unknown;
+
+    try {
+      await api.probeCanaries({
+        baseUrl: "https://api.test/v1",
+        endpoints: [{ id: "whoami", method: "GET", path: " https://api.test/admin" }],
+        canaries: [{ accountId: "a", endpointId: "whoami" }],
+        credentials: { headersFor: () => api.safeHeaders([["x-token", "t"]]) },
+        client: {
+          send(request) {
+            walked.push(request.url);
+            return Promise.resolve({ status: 200, headers: {} });
+          },
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(api.PathEscapesTargetError);
+    // The field the class carries beyond `message`, which is the other half of
+    // what a class is for: a consumer reading it does not parse the sentence.
+    expect((thrown as api.PathEscapesTargetError).endpointPath).toBe(" https://api.test/admin");
+    expect(walked).toEqual([]);
+  });
 });
 
 /**

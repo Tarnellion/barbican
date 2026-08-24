@@ -35,7 +35,11 @@ import { createOpenApiParser } from "../src/adapters/openapi.js";
 import type { ContextAttributes, HttpClient, HttpRequest } from "../src/adapters/ports.js";
 import { createPostmanCollectionParser } from "../src/adapters/postman.js";
 import type { Account } from "../src/core/index.js";
-import { ForbiddenResourceQueryError, parseRunConfig } from "../src/io/config.js";
+import {
+  ForbiddenResourceQueryError,
+  MethodOverrideInContextError,
+  parseRunConfig,
+} from "../src/io/config.js";
 import {
   isAddressablePath,
   isUsablePathTemplate,
@@ -507,6 +511,36 @@ describe("condition attributes reaching the runner directly", () => {
       await expect(walkWith(attributes)).rejects.toThrow();
     });
   }
+
+  /**
+   * The third layer at the seam, which no test reached.
+   *
+   * Every case above is caught by one of the first two — an exact name or a
+   * family prefix. CLAUDE.md says the rule is three layers and that the third,
+   * **by value**, "is what catches a method override smuggled through an
+   * attribute"; the first version of the rule had only the first layer and was
+   * wrong for exactly that reason (ADR-0019). `x-vendor-verb` is on no list and
+   * can be on none: a platform names its own override header, which is why the
+   * value is read at all.
+   *
+   * The door has held this since ADR-0019 — `assertContextsCannotWrite` reads
+   * the resolved values, and `tests/io/contexts.test.ts` catches one arriving
+   * from the environment. The seam's copy of it was written when the conditions
+   * moved here in ADR-0037 and was never run: found by reading the coverage
+   * report on 24 August 2026, where that `throw` was the only unreached
+   * statement in `src/io/config/basis.ts`, and both arms of the ternary under it
+   * — the one that decides whether the message says "Resource" or "Context" —
+   * were unreached with it.
+   */
+  it("refuses a write smuggled through a header no list can name", async () => {
+    await expect(
+      walkWith({
+        contextId: "c",
+        headers: safeHeaders([["x-vendor-verb", "DELETE"]]),
+        query: {},
+      }),
+    ).rejects.toThrow(MethodOverrideInContextError);
+  });
 
   /**
    * The half no list of names can give. The attributes used to be spread after

@@ -303,6 +303,25 @@ export function assertReferencesResolve(config: RunConfig, endpoints: readonly E
   // endpoint's bodies not being compared at all, and two scopes for one
   // endpoint — need no endpoint list and are refused at the parse gate, which a
   // library consumer cannot walk past.
+  //
+  // Unreachable through `parseRunConfig`, and kept on purpose. Measured on
+  // 24 August 2026, against the built tree: the parse gate raises
+  // `CompareSubtreeWithoutComparisonError` for a scope whose endpoint is not
+  // under `responseMustDifferByTenant`, so an unknown id here has to be named in
+  // both — and the loop twenty lines above walks `responseMustDifferByTenant`
+  // first and throws there. Every spelling of the typo ends at one of those two,
+  // which is why no test reaches these four lines. Seven of the eight places
+  // this function raises `UnknownEndpointReferenceError` from are exercised; this
+  // is the eighth.
+  //
+  // What holds it up is a rule in another module, and the check it makes is
+  // three lines. `assertReferencesResolve` takes a `RunConfig` — an interface,
+  // not a brand — so a consumer that assembles one by hand is a door this
+  // reasoning says nothing about, and the day the parse gate learns to accept a
+  // scope on an endpoint whose bodies are not compared, this is the line that
+  // decides whether the typo is refused or walked past in silence. The same
+  // argument `probeCanaries` keeps its unreachable `UnknownCanaryEndpointError`
+  // on. See ADR-0074.
   for (const subtree of config.bodySignals?.compareSubtree ?? []) {
     for (const endpointId of subtree.endpoints) {
       if (!known.has(endpointId)) {

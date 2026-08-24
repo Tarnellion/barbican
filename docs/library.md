@@ -59,6 +59,13 @@ you drove yourself needs no conversion. A report that came back off disk is
 JSON and is not one until something has checked it: `toComparableRun(value,
 source)` is that check, and it throws `UnreadableReportError` naming the file.
 
+`COMPARISON_SCHEMA_VERSION` is the comparison's own `schemaVersion`, the third of
+the three this package writes beside `REPORT_SCHEMA_VERSION` and
+`PACK_SCHEMA_VERSION`, and it is here for the same reason they are: a
+machine-readable artifact without one breaks its parser silently at the first
+change of structure. The census of 24 August 2026 found it the only one of the
+three this page did not name — see [ADR-0074](adr/0074-what-nothing-carries.md).
+
 ## Building an evidence pack
 
 `evidencePack({ run, catalog })` turns a saved run into the structure a document
