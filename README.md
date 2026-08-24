@@ -1117,6 +1117,24 @@ run and the tool does not own the screen it is opened on. The package exports
 232 names, one more than before — `spellOut`, so that a consumer building its
 own report has the same rendering rather than a second one.
 
+### Unreleased
+
+On `main`, not on npm. `0.6.0` is what `npm install barbican` gives you.
+
+**A refusal names the word this tool taught you.** A cold start against the
+published `0.6.0` — installed from the registry, driven against a two-tenant
+stand, with a configuration written by reading the tool's own output — found one
+thing the repository cannot see from the inside: every finding prints
+`relation`, and a policy rule calls the same thing `scope`. The reader learns one
+word from the artifact and needs the other to write a declaration, so
+`Unrecognized key: "relation"` is true and unhelpful. The refusal now says which
+key the declaration uses, appended after what the schema refused rather than
+instead of it. One entry, and the rule for what may join it is that this project
+must have taught the wrong word: `parameters` for `params` is a mistake a reader
+brought with them and gets no hint, which a test holds. One name for one concept
+is the real fix and belongs to a major —
+[ADR-0013](docs/adr/0013-tenant-hierarchy.md), note of 24 August 2026.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.

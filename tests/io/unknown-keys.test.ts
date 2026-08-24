@@ -481,3 +481,56 @@ ${POLICY}`);
     );
   });
 });
+
+/**
+ * And one refusal says what the reader probably meant.
+ *
+ * `relation` is not a typo. It is the word this tool prints on every finding —
+ * `relation: foreign-tenant` — for the thing a policy rule calls `scope`. The
+ * reader learned it from a report and wrote it in a declaration, and the
+ * ordinary message tells them only that the key is unknown.
+ *
+ * The hint is appended, never substituted: what the schema refused, and where,
+ * is still the first thing the message says.
+ */
+describe("a key this project taught the reader", () => {
+  it("is answered with the name the declaration uses", () => {
+    try {
+      parseRunConfig(
+        config(`
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [orders.list], relation: own, outcome: allowed }
+`),
+      );
+      expect.unreachable("the configuration should not have parsed");
+    } catch (cause) {
+      expect(cause).toBeInstanceOf(ConfigValidationError);
+      const message = (cause as Error).message;
+      expect(message).toContain('Unrecognized key: "relation"');
+      expect(message).toContain('the key is "scope"');
+    }
+  });
+
+  /**
+   * A key that is merely close to a right one gets no hint. The table is not a
+   * spell-checker: an entry belongs there only when this project taught the
+   * wrong word, and nothing here prints `parameters` at anybody.
+   */
+  it("is not a spell-checker for a name nobody was taught", () => {
+    try {
+      parseRunConfig(
+        config(`
+resources:
+  - { id: order, tenant: t, owner: alice, parameters: { orderId: "1" } }
+`),
+      );
+      expect.unreachable("the configuration should not have parsed");
+    } catch (cause) {
+      const message = (cause as Error).message;
+      expect(message).toContain('Unrecognized key: "parameters"');
+      expect(message).not.toContain("If that is what you meant");
+    }
+  });
+});

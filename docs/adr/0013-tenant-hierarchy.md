@@ -123,3 +123,29 @@ the strict check of the tree at startup and the rule "anything uncovered falls
 through to `fallback`", which stays conservative.
 
 Revisit if several parents for one tenant become necessary.
+
+## Note, 24 August 2026: one concept, two names
+
+A cold start against the published `0.6.0` — a fresh install from the registry,
+a two-tenant stand, and a configuration written by reading the tool's own output
+— surfaced something this repository cannot see from the inside.
+
+Every finding in a report prints `relation`: `relation: foreign-tenant` is how
+the tool names an account's standing to a resource, and `ResourceRelation` in
+`src/core/types.ts` is where that name comes from. A policy rule calls the same
+thing **`scope`**. So a reader learns one word from the artifact and needs the
+other one to write a declaration, and the ordinary refusal — `Unrecognized key:
+"relation"` — is true and unhelpful, because the word did not come from a typo.
+It came from here.
+
+The honest resolution is one name for one concept. That is a breaking change to
+the configuration format, so it belongs to a major and not to this note; when it
+happens, `scope` is the name to drop, because `relation` is what the core, the
+report and this ADR already say.
+
+Until then the refusal names the other word. `THE_OTHER_NAME` in
+`src/io/config/schema.ts` holds the one entry, and its comment carries the rule
+for what may join it: a name belongs there only when **this project taught
+somebody the wrong one**. `parameters` for `params` is a mistake a reader brings
+with them and gets no hint — measured, and held by a test that fails if it ever
+does.

@@ -799,9 +799,54 @@ export function parseConfigDocument(source: string): DeclaredConfig {
 
   const parsed = configSchema.safeParse(document);
   if (!parsed.success) {
-    throw new ConfigValidationError(z.prettifyError(parsed.error));
+    throw new ConfigValidationError(withTheOtherName(parsed.error));
   }
   return parsed.data;
+}
+
+/**
+ * The other name a reader is likely to write, and the field it belongs to.
+ *
+ * One entry, and it earns its place by measurement rather than by imagination:
+ * every finding in a report prints `relation` — `relation: foreign-tenant` — and
+ * the declaration calls the same thing `scope`. A person reads a report, learns
+ * the word this tool used, writes it in the policy, and is told only that the key
+ * is not recognised. The trap is one the project set itself, which is what
+ * separates this from a spelling mistake.
+ *
+ * Found on a cold start against the published 0.6.0, 24 August 2026: three
+ * mistakes in one file, and this was the only one the guide could not have
+ * prevented, because the guide is not where the wrong word was learned.
+ *
+ * Not a synonym table that grows. A name belongs here only when this project
+ * taught somebody the wrong one; a key that is merely close to a right one —
+ * `parameters` for `params`, an `endpoint` on a resource — is a mistake a reader
+ * brought with them, and the existing message already names it. The real
+ * resolution is one name for one concept, which is a breaking change and a
+ * decision for a major; see the note of 24 August 2026 on ADR-0013.
+ */
+const THE_OTHER_NAME: ReadonlyMap<string, { readonly field: string; readonly where: string }> =
+  new Map([["relation", { field: "scope", where: "a policy rule" }]]);
+
+/**
+ * The prettified error, plus a line for a key this project taught the reader.
+ *
+ * Appended rather than substituted: the original line says what the schema
+ * refused and where, and that stays the answer to "what is wrong". This adds the
+ * answer to "what did I mean".
+ */
+function withTheOtherName(error: z.ZodError): string {
+  const written = new Set(
+    error.issues.flatMap((issue) => (issue.code === "unrecognized_keys" ? [...issue.keys] : [])),
+  );
+  const hints = [...THE_OTHER_NAME]
+    .filter(([name]) => written.has(name))
+    .map(
+      ([name, { field, where }]) =>
+        `\nThe report prints "${name}" on every finding, and ${where} calls the ` +
+        `same thing "${field}". If that is what you meant, the key is "${field}".`,
+    );
+  return z.prettifyError(error) + hints.join("");
 }
 
 /** Where the published schema answers to, so `$schema:` in a file can find it. */
