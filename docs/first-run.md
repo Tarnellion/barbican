@@ -36,6 +36,9 @@ Include in that message:
 - **`--unsafe-methods`, in its own sentence**, if you intend to pass it. A
   cancelled order stays cancelled after the report is written; barbican does not
   undo what it did.
+- **whether an evidence pack will be drawn from the report, and who may see
+  it.** The report is a document you keep until they have it; a pack is one made
+  in order to leave the room — see item 9.
 
 ## 2. Scope: `allowedHosts`, and a `label` that names the system
 
@@ -180,7 +183,7 @@ and it is a thing to say out loud in the agreement, along with what will stand i
 for the identifier. A set of request conditions that declares a `user-agent`
 attribute of its own stops the run rather than folding two values into one.
 
-## 9. Where the report goes
+## 9. Where the report goes, and where the document drawn from it goes
 
 **Without `--report` the report goes to stdout**, which in a pipeline is the
 build log: readable by everyone who can see the build, kept as long as the build
@@ -194,6 +197,27 @@ platform's authorization does not hold. On somebody else's platform that is a ma
 of their unlocked doors, and it is yours to keep until they have it.
 
 Name a path, or redirect it, and agree where it will live before it exists.
+
+**And the report is not the only document.** `barbican pack <report.json> --out
+<file.html>` draws an **evidence pack** from it: one row per clause of a
+catalogue of external standards, in one self-contained HTML file meant to be
+printed. The difference from the report is the whole reason it belongs on this
+list. A report is a document you hold until its owner has it; a pack is a
+document made **in order to leave the room** — to an auditor, a certifying body,
+the security team of whoever is buying somebody. It is drawn from this same file,
+so it carries the same target, the same identifiers and the same map of what did
+not hold.
+
+Two of the three things that follow belong in the written permission of item 1,
+because a week later is too late to ask: whether such a document may be produced
+at all, and who it may be shown to. The third is yours and cannot be delegated —
+**a clause nothing answered is never a clause that passed.** A pack says so on
+every such row, in as many words, and prints no percentage anywhere for exactly
+this reason; a reader who still takes "green means compliant" away from it has
+been misled by a document you handed them. A pack built from a run that exited
+`2` withholds every claim but the breaches and exits `2` itself, which is the
+part a pipeline can be made to notice. See "Evidence for somebody who was not
+there" in the [guide](guide.md).
 
 ## 10. What an interruption costs, and `--resume`
 
@@ -250,6 +274,19 @@ looks:
 - **The write half**, unless `--unsafe-methods` was passed —
   `coverage.writeMethodsProbed` says which.
 
+An evidence pack drawn from this run repairs none of that, and it is worth being
+exact about which half of it a pack can even see. It refuses to average away the
+part it knows: a clause nothing reached is `unanswered` and never a pass, a run
+that could not be trusted withholds every claim but its breaches, and the four
+qualifications the run does record — an account whose credentials were never
+proved, endpoints that were not probed, a walk cut short, a platform not one
+refusal was observed from — are printed on the clause row they qualify instead of
+in a footnote. The rest of this list is as invisible to a pack as it is to the
+report. What stands in for it is three sentences printed on every pack whatever
+the run did: the policy is a human declaration and not an audit of whether that
+policy is right, the observation is black-box, and the catalogue is bounded, so a
+clause absent from the document is not thereby absent from the standard.
+
 And two costs of the run itself, which belong on this list because they are also
 invisible in the file: the job holds every role's live credentials at once, and a
 run is shaped like a credential attack. Both are written up under "The run's own
@@ -270,6 +307,7 @@ blast radius" in the [guide](guide.md#the-runs-own-blast-radius) and in
 6. `cells / rps` well inside the token's lifetime.
 7. A matrix small enough to be worth reading.
 8. The `runId` sent to whoever is on call.
-9. `--report <path>`, never the build log.
+9. `--report <path>`, never the build log — and, if a pack will be drawn from
+   it, where that document may go and who may read it.
 10. `--resume` available, because `--report` is set.
 11. Everybody who reads the result knows what it does not cover.

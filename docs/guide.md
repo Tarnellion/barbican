@@ -3,6 +3,13 @@
 How to declare what gets checked and how to start a run. How to read the result —
 see [report.md](report.md).
 
+Most of this document is `barbican run`, which is the subcommand that makes the
+traffic. Two more read back what a run left behind and send nothing at all:
+[`barbican diff`](#what-changed-since-the-last-run) compares two saved reports,
+and [`barbican pack`](#evidence-for-somebody-who-was-not-there) draws an evidence
+pack from one. The fourth, `barbican schema`, prints the configuration's JSON
+Schema — see [Completion in the editor](#completion-in-the-editor).
+
 **Running against a platform you do not own?** Read
 [first-run.md](first-run.md) first: the eleven things to settle before the first
 request, in the order they have to be settled. This document explains each of
@@ -1173,6 +1180,366 @@ checked is answerable before anything is sent.
 
 **A check left out is coverage left out**, and the report says which ones ran.
 That is the reason to leave the flag off unless you have one.
+
+## What changed since the last run
+
+```bash
+barbican diff yesterday.json today.json
+```
+
+Two saved reports, read against each other. It answers the two questions a
+*second* run is made for — what moved since the last one, and was that the
+platform or was it me — and both halves of both answers were sitting in the file
+long before anything read them: `configDigest` exists to tell an edit of the
+declaration from a change on the platform, and `defects[].key` was made readable
+and stable across runs precisely so that a ticket could cite one
+([ADR-0050](adr/0050-a-comparison-is-of-defects-not-of-files.md)).
+
+You reach for it in three places. After a ticket comes back "fixed, please
+verify". In a pipeline that walks the matrix nightly, where the useful question
+is never "are there findings" but "is this the same set as yesterday". And before
+handing a second report to the owner of the platform, because "the two we agreed
+on, minus one, and nothing new" is a sentence somebody can act on, and two JSON
+files are not.
+
+**A text diff of the two files answers none of it.** They differ almost
+everywhere and agree on everything worth knowing: `runId`, both timestamps, the
+`at` and `durationMs` of every observation, and every `signals.digest` — the
+digest salt is drawn afresh per run on purpose. Two runs of one matrix against
+one unchanged platform produce two documents `diff(1)` calls entirely different,
+which is a long way of saying nothing.
+
+Against the reference platform, with one of its defects switched off between the
+two runs:
+
+```
+before: run 60007f96-abd1-45c2-8890-1200007bc3bf started 2026-08-24T16:05:21.137Z against barbican reference polygon (a demonstration deployment, not a platform)
+after:  run aa3bc10b-a378-4c49-a87e-196c0361e569 started 2026-08-24T16:05:24.915Z against barbican reference polygon (a demonstration deployment, not a platform)
+The declaration is the same in both runs (configDigest 001c9b98149497b7), so what follows is about the platform.
+Coverage: 144 cells over 6 of 7 endpoints, unchanged.
+Defects: 2 → 1 — 0 new, 1 gone, 0 changed, 1 unchanged.
+Gone (1):
+  orders.read same-tenant baseline — was privilege-escalation, high, 4 cells
+      the second run probed orders.read and found nothing there.
+Run verdicts: 1 → 1.
+Exit code 1: the two runs do not describe the same platform: 1 gone
+```
+
+The comparison itself is a few of those lines; the rest is what makes them worth
+reading: whether the declaration moved, whether the surface is the same one, and
+— on the indented line under each disappearance — whether the second run went
+looking at all. How to read the whole of it is in [report.md](report.md), under
+"Comparing this report with an earlier one". What belongs here is what you have
+to know **before** any of it means anything.
+
+**The two paths are positional, and the order is a claim**: the earlier report
+first. Hand them over the other way round and every "new" below is something that
+went away. The run notices — a report carries `startedAt` — and says so on its own
+line, before the comparison rather than after it:
+
+```
+The second report is older than the first. Every "new" below is something that went away and every "gone" is something that appeared — swap the two arguments, or read it inverted on purpose.
+```
+
+A sentence and not a refusal, because reading a repair backwards is a legitimate
+thing to want and the tool cannot know which of the two you meant.
+
+**`--json` writes the same conclusion to stdout** while the summary stays on
+stderr, so a redirect gives you the document and not the document with a
+paragraph in front of it. Both come out of one comparison and cannot disagree.
+Note the shape of the flag: here it is a switch and the destination is your
+redirect, whereas `barbican pack --json <path>` takes a path. The two commands
+write different kinds of thing and the difference is deliberate — a comparison is
+read on a screen, a pack is a file that gets sent somewhere.
+
+### What "the same defect" means across two runs
+
+A comparison is a join, and a join is worth exactly what its key is worth. Two
+things about this one are worth the space before you trust a line of the output.
+
+**The unit is the defect, not the finding row.** One defect is fifty rows or one,
+depending on the per-defect evidence budget and on how wide your matrix happens
+to be, so a difference in the number of rows is news about the shape of your run
+and not about the platform. `violations`, `accountIds` and `resourceIds` move the
+moment you add an account, and the comparison prints and compares none of them. A
+defect counts as **changed** along three axes only: its set of `kinds`, its
+`severity`, and whether an `accepted:` declaration now holds it out of the
+verdict — that last one because a defect somebody signed for looks, to the exit
+code and to every counter beside it, exactly like a defect that was fixed.
+
+**A defect is its coordinates**: the endpoint, the relation the resource stood in
+(`own`, `same-tenant`, `foreign-tenant`, and the rest), and the set of request
+conditions it was seen under. Those three are what the report grouped the
+findings by when it was written, and the comparison asks the same function the
+same question — so the run that wrote the file and the reading that comes back to
+it a month later agree by construction, and there is no second notion of "the
+same defect" in the tree for the two to drift apart on
+([ADR-0070](adr/0070-a-comparison-joins-on-coordinates.md)).
+
+**It is deliberately not `defects[].key`**, and that distinction cost a real
+reading. The key is those same three coordinates printed for a person to cite,
+joined with a **space** — `orders.read same-tenant baseline` in the transcript
+above, where a defect carrying no resource prints `any-resource` and one seen
+under no declared conditions prints `baseline`. A space is a legal character in
+an identifier, on purpose: refusing it would refuse half the endpoint names a
+specification can carry. So one such string names two different defects whenever
+the parts line up, and they do:
+
+```
+{ endpointId: "a",       relation: "own",         contextId: "b same-tenant d" }
+{ endpointId: "a own b", relation: "same-tenant", contextId: "d" }
+```
+
+Both print `a own b same-tenant d`. It does not take two files to meet this — a
+report this tool writes carries both rows under that one key. Indexed on the key,
+a second run that had fixed one of the two was reported as a single defect whose
+kinds and severity had changed: a sentence about a platform that had done
+neither, with the fix nowhere in the output and the surviving defect matched
+against the wrong twin.
+
+Nothing about the key moved when this was fixed. It is the same string in the
+same place, it is what an `accepted:` entry names a defect by, and it is what you
+paste into a ticket; what changed is what the comparison joins on. A report
+already on disk compares correctly, including one written before the change,
+because the coordinates were always in it.
+
+### What the comparison exits with
+
+| Code | Meaning |
+|---|---|
+| `0` | the same defects, over the same surface |
+| `1` | the two runs do not describe the same platform: a defect appeared, went or changed, or the surface probed is not the same |
+| `2` | **this comparison cannot be trusted** |
+| `64` | the command line was wrong; nothing was read |
+
+`2` outranks `1` for the reason it does on a run: what was not tested is never
+clean. There are six ways to reach it, and [report.md](report.md) lists them with
+their reasons. One is worth naming here, because it is the one you can do by
+accident:
+
+```
+Cannot be trusted: both files record the same run, aa3bc10b-a378-4c49-a87e-196c0361e569. Every difference below is zero because there is only one run here, which reads exactly like "nothing changed".
+Run verdicts: 1 → 1.
+Exit code 2: this comparison cannot be trusted: both files record the same run, aa3bc10b-a378-4c49-a87e-196c0361e569. Every difference below is zero because there is only one run here, which reads exactly like "nothing changed"
+```
+
+A file compared with itself differs from itself in nothing, which on a screen is
+indistinguishable from a quiet week. In a pipeline that names its reports from a
+variable, that is one wrong variable away, and it is the most expensive false
+clean this subcommand can produce.
+
+`64` is what the argument parser rejects and nothing else — the same line `run`
+draws. A path that is not there, a file that is not JSON and a document that is
+not a report are all `2`: conclusions the tool refuses to draw rather than
+mistakes in the invocation, and the message says which of the two arguments it
+was about.
+
+```
+Comparison aborted: the second report cannot be read from "nosuch.json": ENOENT: no such file or directory, open 'nosuch.json'. The system error names neither the argument nor the path
+```
+
+## Evidence for somebody who was not there
+
+```bash
+barbican pack run.json --out evidence.html --json evidence.json
+```
+
+Everything above this section is written for **you**: you declared the policy,
+you chose the matrix, and you can read `coverage.notProbed` and know what it
+costs. An evidence pack is for the other reader — the one who was not there, who
+opens the document once, months later, and takes it as a conclusion. An auditor,
+a certifying body, the security team of whoever is buying your company, your own
+compliance officer.
+
+It draws **one row per clause of a catalogue of external standards**. The three
+this package ships as data — `OWASP-ASVS-5.0`, `OWASP-API-2023` and `CWE` —
+carry sixteen clauses between them. The pack is built *after* the run, from the
+file the run wrote, because JSON is the single source of truth here and a
+document is rendered from it in a separate step; which is also what makes a pack
+of a six-month-old run worth building again today against a catalogue that has
+grown since ([ADR-0067](adr/0067-an-evidence-pack-says-what-it-checked.md),
+[ADR-0068](adr/0068-a-pack-is-drawn-from-the-json.md)).
+
+**Every clause gets a row, including the ones the run never touched.** A pack
+assembled out of what a run happened to cite would be a list of what was checked,
+and the question its reader has is what was not. That is the whole reason the
+catalogue exists as data rather than as a table inside a document.
+
+**A catalogue of your own is a library concern, not a flag.** The CLI builds
+against the three above and there is no option to point it elsewhere: a standard
+whose numbering may not be republished cannot live in a public repository, and
+this is one. A machine that holds such a catalogue registers it beside its own
+checks and calls `evidencePack` directly — [library.md](library.md).
+
+Against the reference platform, from the second of the two reports compared
+above:
+
+```
+Evidence pack for barbican reference polygon (a demonstration deployment, not a platform)
+
+This run walked its matrix and answered for its own trustworthiness — it exited 0 or 1 — so the rows below are evidence about the platform it ran against, within the reservations each row carries.
+
+Clauses in the catalogue: 16. 5 breached, 1 upheld, 0 inconclusive, 0 answered-without-findings, 10 unanswered, 0 withheld
+Cited outside the catalogue: 0
+
+Written: pack.html
+Pack: pack.json
+
+Exit code 0: the pack was built.
+```
+
+Read the tally, not the exit code. That run found five breached clauses and
+upheld exactly one — and **ten of the sixteen were answered by nothing at all**.
+It was a real walk of 144 cells over six endpoints of a seven-endpoint platform,
+and it still leaves most of the catalogue untouched. A document that did not say
+so is the failure this whole subcommand is written against: a run once probed two
+endpoints of eleven and printed "No privilege escalation found" over the other
+nine.
+
+The last line of the tally is the other half of that. `Cited outside the
+catalogue` counts clauses the run named that this catalogue does not carry —
+ordinarily a report from a machine that registered a standard of its own, or one
+from a build whose catalogue has since grown. They get rows of their own, in a
+list of their own, with no title and no boundary, because printing those blank
+would read as a catalogued clause with nothing to say.
+
+### The six claims, and which three are not about the platform
+
+| Claim | What it says |
+|---|---|
+| `breached` | the platform and the declared policy disagree under this clause: this run recorded at least one cell or check finding here |
+| `upheld` | every cell that reached a conclusion under this clause agreed with the declaration — over the cells counted on that row, and no others |
+| `answered-without-findings` | a registered check answers for this clause, it ran, and it reported nothing. What it examined is its own to state |
+| `inconclusive` | the clause was reached and nothing was concluded: every cell counted here failed to answer or was never asked |
+| `unanswered` | nothing in this run answers for this clause — no check cited it, and no cell of the matrix was evidence about it |
+| `withheld` | this run could not be trusted on its own terms, so no claim is made under this clause |
+
+**Three of the six say something about the platform** — `breached`, `upheld`,
+and weakly `answered-without-findings`. **Three say something about this run and
+nothing whatever about the platform**: `inconclusive`, `unanswered`, `withheld`.
+That second group is the half a pack usually lacks, and the half a reader
+mistakes for the first.
+
+So the sentence to be certain of before you send one to anybody: **a clause
+nothing answered is never a clause that passed.** `unanswered` is not a quiet
+`upheld`, and no absence of findings elsewhere in the document applies to it. The
+page says exactly that, in as many words, on every such row.
+
+The order the rules are applied in is the argument, and it descends by confidence
+in what the run actually saw. A disagreement stands whatever else is true — it
+was observed, and no later failure of the run unobserves it. Then a run that
+could not be trusted says nothing further. Then the cells that reached a
+conclusion, which are the only thing `upheld` may rest on, and their denominator
+travels with them on the row. Then cells that concluded nothing, which is
+`inconclusive` and is not silence. Then a check that ran and found nothing, which
+is the weakest row on the page, because nothing in the report says how much that
+check looked at. Whatever is left was answered by nothing at all.
+
+**The qualifications ride on the row they qualify**, not in a footnote at the
+end: an account whose credentials were never proved, endpoints the run did not
+probe, a walk that was cut short, a platform not one observation came back denied
+from. A qualification left in another section is one that did not travel with the
+claim, and a claim that outran its own numbers is what this is all for.
+
+### There is no percentage in it anywhere, and that is a decision
+
+No score, no "clauses passed", no bar across the top. Six meanings do not add up
+to one number, and three of the six are not about the platform at all — a total
+would hide precisely the half that matters. So the tally the CLI prints, and the
+one at the head of the document, names **all six** claims whatever the run
+reached, zeros included. A line listing only the statuses with something in them
+would be a score with the inconvenient half rounded off, and the line it would
+drop is how many clauses nothing answered for.
+
+If a reader takes "green means compliant" away from a pack, the pack has failed,
+and no amount of correct rows elsewhere repairs that.
+
+### A run that exited 2 gives a pack that withholds
+
+The same platform, walked under a `--max-requests` budget that ran out part-way:
+
+```
+Evidence pack for barbican reference polygon (a demonstration deployment, not a platform)
+
+This run exited 2: it describes the state of the network, of the deployment or of its own credentials rather than the platform's access control. A row recording a disagreement still stands — what was found was found — but no clause below is reported as upheld, because a cell that agreed may have agreed for a reason that has nothing to do with access.
+
+Clauses in the catalogue: 16. 5 breached, 0 upheld, 0 inconclusive, 0 answered-without-findings, 0 unanswered, 11 withheld
+Cited outside the catalogue: 0
+
+Written: cut-short.html
+
+Exit code 2: the standing of this pack is "withheld" — see above.
+```
+
+The breaches stand and **every other row on the page becomes `withheld`**,
+whatever it would otherwise have been — the clauses cells agreed under and the
+clauses nothing reached alike. The asymmetry is deliberate and is the one this
+project reasons by everywhere else: a
+positive claim of safety needs a run that answered for itself, a positive finding
+of a hole does not. An escalation seen before the budget ran out is still an
+escalation, and a `200` under a token that may already be dead is worse news
+rather than better.
+
+**Exit `2` here does not mean the pack failed to build.** The file was written
+and is worth opening — it says on its own face that no clause in it is reported
+as upheld. The exit code is the only part of this a pipeline reads, and a job
+that ships such a pack as evidence with nobody noticing is the defect above with
+a document wrapped around it.
+
+### The document, and the two things it will not do
+
+One self-contained HTML file: no script, no external stylesheet, no font, no
+image, and no attribute a browser dereferences. That is structural rather than a
+policy anybody has to keep — the element and attribute names the renderer is able
+to write are closed lists with no `script`, no `href` and no `on…` in them. A
+`javascript:` URL in a clause's published address is therefore not a special
+case; it is printed as text, because there is no element that could make it
+anything else.
+
+Two consequences to expect rather than to be surprised by:
+
+- **The address of a clause's published wording is printed, not linked.** An
+  auditor with a network would have clicked it, and that is a real cost. It is
+  paid because the catalogue may be one a machine registered from a source this
+  tool never saw, so the tool is not in a position to vouch for the string — and
+  because a scheme allowlist would be one more grammar in here modelling somebody
+  else's parser, which is how the address grammar was wrong the first time.
+- **It is meant to be printed.** A PDF is usually the deliverable, and a
+  browser's print dialogue is the PDF writer every auditor already has; producing
+  one directly would mean taking on a PDF library. The page carries print rules —
+  a margin, black on white, a clause row that does not split across a page
+  boundary. Those rules are **declared and not measured**: no browser runs in
+  this repository's test suite, so what is checked is that the properties are in
+  the document, not that any engine honoured them.
+
+`--json <path>` writes the structure the document was drawn from, so a reader who
+wants to check the page against it does not have to re-derive it. Both come out
+of one call, so the file and the page cannot come to different conclusions.
+
+### The flags and the exit codes
+
+| Flag | |
+|---|---|
+| `-o, --out <path>` | **required.** Where the document goes. A document is a file: printing a rendered page to a terminal is not a thing anybody wants, and a command that could produce the structure without the document would be `barbican pack` meaning two different things depending on the flags |
+| `--json <path>` | also write the pack structure the document was drawn from |
+
+| Code | Meaning |
+|---|---|
+| `0` | a pack was built |
+| `2` | the report cannot be read: the path, a file that is not JSON, a `schemaVersion` this build does not read, or a report written before `coverage.clauses` existed |
+| `2` | the pack's standing is `withheld` — above |
+| `64` | the command line was wrong; nothing was read |
+
+```
+Pack aborted: not-a-report.json is not a barbican report this tool can read: "schemaVersion" is not a string. A report file is what `barbican run --report` writes.
+```
+
+**This subcommand sends nothing.** It reads a file and writes a file; a wrong
+`--out` costs a failed local write and no traffic at all. Worth saying out loud,
+because everything else in this guide is about a tool that touches somebody
+else's deployment — and because the thing a pack *does* leave is a document that
+goes to a third party. Where it is allowed to go is item 9 of
+[first-run.md](first-run.md), settled before the run rather than after it.
 
 ## What the tool does not do
 
