@@ -1117,6 +1117,17 @@ run and the tool does not own the screen it is opened on. The package exports
 232 names, one more than before — `spellOut`, so that a consumer building its
 own report has the same rendering rather than a second one.
 
+### Unreleased
+
+**Nothing here changes what a run does.** `SKIP_REASONS` — the two lengths of
+wording the CLI has for every reason an endpoint was not probed — is now keyed by
+the planner's own union of those reasons rather than by `string`. A fifth reason
+can no longer reach a run without reaching the screen that explains it: before,
+it compiled, and both the summary and `--dry-run` fell through to printing the
+raw identifier. Nothing about a run of this version differs from 0.6.0. See the
+note of 24 August 2026 on
+[ADR-0064](docs/adr/0064-a-table-written-twice-is-made-to-agree.md).
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.

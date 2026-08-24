@@ -16,10 +16,12 @@ import { styleText } from "node:util";
 import type { RunIdentity } from "../adapters/http.js";
 import type { Severity } from "../core/index.js";
 import { SEVERITY_ORDER } from "../core/index.js";
+import { lookup } from "../io/untrusted.js";
 import type { AuthenticitySuspicion } from "../report/authenticity.js";
 import type { RunReport, RunVerdict } from "../report/build.js";
 import { WARNINGS } from "../report/build.js";
 import type { ComparisonTone } from "../report/compare.js";
+import type { SkippedEndpoint } from "../runner.js";
 
 /**
  * The three colours this tool paints with.
@@ -56,9 +58,21 @@ export function paint(text: string, format: Ink): string {
  * One map and not two: the summary counts the reasons and `--dry-run` explains
  * them one endpoint at a time, and a second list of the same keys goes stale the
  * first time a reason is added — silently, in the half nobody was editing.
+ *
+ * Keyed by `SkippedEndpoint["reason"]` and not by `string`, which is the move
+ * ADR-0064 made on the reserved check ids: a mapped type over the union fails in
+ * both directions, so a fifth reason pushed by `planEndpoints` does not compile
+ * until it has wording here, and wording for a reason the planner cannot produce
+ * does not compile either. Under `Record<string, …>` neither half of this screen
+ * would have said anything — the summary would have counted `throttled-away 3`
+ * and `--dry-run` would have printed `throttled-away` where it owes a sentence,
+ * the raw identifier for the reason a reader knows least about, which is always
+ * the newest one. Noticed while ADR-0064 was being written, left as out of scope
+ * there, closed on 24 August 2026; that ADR's note of the day carries the two
+ * mutations and what the compiler now says to each.
  */
 export const SKIP_REASONS: Readonly<
-  Record<string, { readonly short: string; readonly long: string }>
+  Record<SkippedEndpoint["reason"], { readonly short: string; readonly long: string }>
 > = {
   "path-parameters": {
     short: "have path parameters",
@@ -83,8 +97,18 @@ function skipBreakdown(report: {
   for (const item of report.skipped) {
     counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1);
   }
+  // `lookup` and not an index: the parameter above is the report's shape, where
+  // a reason is a plain string, and a string does not index a table keyed by the
+  // union. The alternative was a cast, which throws away what that key type was
+  // just given; this is ADR-0024's rule for a record read by a name the tool did
+  // not choose. The `?? reason` outlives the closed key type for the reason the
+  // parameter is widened in the first place: a report is a document, and one
+  // written by another build of this tool — whose planner had that fifth reason —
+  // names it here. Printing the name it used beats printing nothing. No caller
+  // hands this function such a report today, so the fallback is a reserve and an
+  // unreached branch; `vitest.config.ts` counts it among them.
   const parts = [...counts].map(
-    ([reason, count]) => `${SKIP_REASONS[reason]?.short ?? reason} ${count}`,
+    ([reason, count]) => `${lookup(SKIP_REASONS, reason)?.short ?? reason} ${count}`,
   );
   return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
 }

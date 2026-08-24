@@ -380,3 +380,94 @@ document's.
 - **`--checks` is argued about rather than measured.** It changes no request
   count in either half today; a check that issued a request of its own would
   make that argument false, and nothing would fail.
+
+## Note of 2026-08-24: the seventh table, and the two doors it is read through
+
+`SKIP_REASONS` in `src/cli/screen.ts` is a seventh of exactly this shape, and it
+was seen while the six above were being closed. It was left alone then as out of
+scope, which is the whole of why this note exists: an entry of a list one is
+already writing is the cheapest one to leave out, and it is left out silently.
+
+The table gives every reason an endpoint was not probed in two lengths — a noun
+phrase for the summary's count, a sentence for what `--dry-run` prints against
+the endpoint. It was typed `Readonly<Record<string, …>>`, while the reasons it
+describes are the closed union `SkippedEndpoint["reason"]` in
+`src/runner/plan.ts`. The two agreed on the day this was written, which is entry
+2's position exactly.
+
+What the disagreement would have cost is not a crash. A fifth reason pushed by
+`planEndpoints` compiles, and both readers of the table fall through to their
+`?? reason`: the summary prints `throttled-away 3`, `--dry-run` prints
+`throttled-away` where it owes a sentence, and the operator meets the raw
+identifier for the one reason they have least idea about — the newest. Measured
+on the tree before this change, with `"throttled-away"` added to the union and
+pushed by `planEndpoints`: `tsc --noEmit` exited 0, and the suite was 119 files,
+1828 passed, 1 skipped.
+
+### Now held by the compiler, in both directions
+
+`Readonly<Record<SkippedEndpoint["reason"], …>>` — entry 1's mapped type, for
+entry 1's reason. Both mutations were run:
+
+| mutation | before | now |
+| -------- | ------ | --- |
+| a fifth member of `SkippedEndpoint["reason"]`, pushed by `planEndpoints` | compiled, suite green | `TS2741: Property '"throttled-away"' is missing in type … but required in type 'Readonly<Record<"escapes-target" \| "excluded" \| "path-parameters" \| "throttled-away" \| "unsafe-method", …>>'` |
+| wording in `SKIP_REASONS` for a reason the planner cannot produce | compiled | `TS2353: Object literal may only specify known properties, and '"throttled-away"' does not exist in type …` |
+
+### The two readers are not the same door, and only one keeps its fallback
+
+`describePlan` reads the table with a reason out of the plan it has just made
+itself, so its key is one of the four the type names and the `?? reason` under it
+became a fallback nothing can reach. It is deleted rather than described — the
+judgement the `?? ""` and the `?? 1` in that same file got on 23 August, and for
+that reason: an unreachable fallback beside a table reads as a rule about reasons
+this screen has no wording for, and there is no such rule.
+
+`skipBreakdown` keeps its own. It is written against the report's shape —
+`readonly { readonly reason: string }[]` — and not against the planner's union,
+so its key is a plain string, and a `string` no longer indexes a table keyed by
+the union. The two ways out of that are a cast, which throws away precisely what
+the key type was just given, and `lookup()` from `src/io/untrusted.ts`, which is
+[ADR-0024](0024-strings-from-outside.md)'s rule for a record read by a name the
+tool did not choose. It is the rule that decides it here rather than a defect:
+this expression asks the result for `.short` and falls back, so the prototype
+read it replaces — `Object.prototype` for `__proto__`, the constructor for
+`constructor` — would have produced `undefined` for that property and landed on
+the same fallback. The rule is worth following anyway, on the argument the rule
+was written from: eleven point fixes of this shape preceded it because each one
+looked harmless on its own.
+
+The `?? reason` survives the key type being closed, and what it answers for is a
+report this process did not build — one written by another build of this tool,
+whose planner had a fifth reason. Printing that name is worth more than printing
+nothing.
+
+Being precise about that second one, because it is a claim about a path rather
+than about a type: **no caller passes such a report today.** `writeRunSummary`
+takes a `RunReport` assembled in this process, so the four are all this function
+can currently meet, and the fallback is a reserve rather than a live branch. It
+is therefore also a branch no test reaches, which the `src/cli/**` note in
+`vitest.config.ts` counts among the fallbacks of that shape; the arithmetic there
+moved by one with this change.
+
+### Limits
+
+Written after the fact of each, per [ADR-0065](0065-what-a-source-scan-can-hold.md).
+
+- **The wording is not held to the reason.** The compiler counts the keys; it has
+  nothing to say about `excluded` being described as "named in exclude". A short
+  and a long sentence that describe the wrong reason compile and print.
+- **The report's own copy of the reason names is not held by this type.**
+  `countByReason` in `src/report/sections.ts` returns
+  `Readonly<Record<string, number>>` and `coverage.notProbed` carries the reasons
+  as keys of a JSON object, which is what a document can spell any way it likes.
+  This change is about the screen, not about the file.
+- **The canary checks mirror the same set and are not held to it either.**
+  `assertCanariesUsable` raises one error class per reason a canary could point
+  at, and its own comments say which of the four each covers and why
+  `escapes-target` is not among them. That correspondence is prose, as
+  [ADR-0042](0042-a-canary-the-run-will-not-send.md) left it; a fifth reason
+  reaches the compiler here and nothing there.
+- **`skipBreakdown`'s fallback is executed by nothing.** A mistake inside it — a
+  wrong variable, a lost space — is caught by no test in this repository, and
+  would first be read off the screen of whoever ran a report from another build.
