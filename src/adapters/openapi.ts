@@ -63,6 +63,7 @@
 
 import SwaggerParser from "@apidevtools/swagger-parser";
 import { parse as parseYaml } from "yaml";
+import { identifier } from "../core/identifiers.js";
 import type { Endpoint } from "../core/types.js";
 import { HTTP_METHODS } from "../core/types.js";
 import { pathTemplate } from "../io/untrusted.js";
@@ -226,6 +227,15 @@ function toEndpoints(document: unknown): readonly Endpoint[] {
 
       const rawId = operation.operationId;
       const operationId = typeof rawId === "string" && rawId.length > 0 ? rawId : undefined;
+      // The `operationId` becomes the endpoint id, and an endpoint id is a
+      // coordinate of every key this tool builds — the cell, the object, the
+      // defect signature, the acceptance. A specification is an untrusted
+      // document and this field had no grammar at all; see ADR-0066. The
+      // generated fallback needs none: the method comes from a closed set and
+      // the path has been through `pathTemplate` two loops up.
+      if (operationId !== undefined) {
+        identifier(operationId, `The operationId of ${method} ${path}`);
+      }
 
       endpoints.push(
         operationId === undefined

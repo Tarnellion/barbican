@@ -189,12 +189,29 @@ export function citableDefectKey(of: DefectCoordinates): string {
  * of "the same defect" is to ask the grouping what it thinks. A first-N cap over
  * the flat list would let one endpoint leaking to two thousand accounts crowd
  * out the single row of a rarer defect — and the rare one is the interesting one.
+ *
+ * ## Why it takes further parts
+ *
+ * Two keys in this repository are this signature and one more coordinate: the
+ * acceptance index (`acceptanceKeyOf`, signature and kind) and the per-defect
+ * evidence budget in `src/report/findings.ts`. Both used to build theirs by
+ * handing the finished signature back to `joinKey` as a part of a longer key,
+ * and since ADR-0066 that cannot be done: a part of a key is an identifier, and
+ * a signature is a key — it carries separators of its own, which is exactly what
+ * an identifier may not.
+ *
+ * The alternative was for each of them to spell the three coordinates out again,
+ * which is the duplicate ADR-0048 already forbids here in so many words. So the
+ * extension is asked of the function that owns the coordinates: one reading of
+ * what a defect is addressed by, one joining, and a flat key whose every part
+ * went through the grammar. The bytes are unchanged — `a NUL b NUL c` and then
+ * `NUL kind` is the same string either way.
  */
-export function defectSignature(of: DefectCoordinates): string {
+export function defectSignature(of: DefectCoordinates, ...andThen: readonly string[]): string {
   // A separator that never occurs in identifiers: gluing with a hyphen would
   // admit a collision of two different signatures into one string. `joinKey`
   // rather than the character, which does not leave `./keys.js` — ADR-0060.
-  return joinKey(of.endpointId, of.relation ?? "", of.contextId ?? "");
+  return joinKey(of.endpointId, of.relation, of.contextId, ...andThen);
 }
 
 const keyOf = defectSignature;

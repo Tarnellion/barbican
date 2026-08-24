@@ -32,24 +32,43 @@
  * second implementation of the separator and not a second reference to this one,
  * so it drifts the day this one moves. See ADR-0060.
  *
- * `joinKey` is what leaves instead — the joining, not the character. The three
- * modules outside this one that call it each build a **different** key; they are
- * named in `tests/invariants/one-decision-one-home.test.ts` with the key each
- * builds, and pinned to **one call apiece**, so that neither a fourth module nor
- * a second key inside one of the three gets in under an allowance granted for
- * something else. That test enumerates the **import** rather than the text of
- * the call: `import { joinKey as glue }` and `const glue = joinKey` each reduced
- * a count of `joinKey(` to zero, which is how the first version of it was walked
- * around.
+ * `joinKey` is what leaves instead — the joining, not the character. The modules
+ * outside this one that call it each build a **different** key; they are named in
+ * `tests/invariants/one-decision-one-home.test.ts` with the key each builds, and
+ * pinned to **one call apiece**, so that neither a further module nor a second
+ * key inside one of them gets in under an allowance granted for something else.
+ * That test enumerates the **import** rather than the text of the call:
+ * `import { joinKey as glue }` and `const glue = joinKey` each reduced a count of
+ * `joinKey(` to zero, which is how the first version of it was walked around.
+ *
+ * There were three of them until ADR-0066 and there is one, `src/core/defects.ts`.
+ * The other two each built a key that is a defect signature and one coordinate
+ * more, by handing the finished signature back here as a part — which the seam
+ * below now refuses, because a part of a key is an identifier and a signature is
+ * a key. They ask `defectSignature` to extend itself instead, so the coordinates
+ * of a defect are still read in one place and the joining is still done in this
+ * one.
  *
  * `src/core/path-parameters.ts` got this right first: the regular expression it
  * owns is deliberately never handed to a caller, so a caller cannot share its
  * state or copy its source. This module is that module's shape now.
+ *
+ * ## The seam, since ADR-0066
+ *
+ * The sentence over the separator below used to say that the character "never
+ * occurs in an identifier" and nothing made it true. It is true now because
+ * `joinKey` refuses a part that is not one: `./identifiers.js` owns the grammar,
+ * and this is the place it is applied, for the reason ADR-0032 gives about the
+ * address — `joinKey` is the one place a key is built, so a door nobody
+ * remembered is a door this covers anyway. The doors report the same refusal in
+ * an operator's words; this one is the backstop under them.
  */
+
+import { identifier } from "./identifiers.js";
 
 /**
  * The separator between the parts of a key: a character that never occurs in an
- * identifier.
+ * identifier, because `joinKey` refuses one that does.
  *
  * Gluing with a hyphen, or with a space, would admit a collision between two
  * different keys — `a` + `|b` and `a|b` have to be different strings, and an
@@ -83,9 +102,43 @@ const KEY_SEPARATOR = "\u0000";
  * Variadic rather than taking an array, so that a caller cannot hand one over by
  * accident: an array argument is a type error here, and `[a, b].join(separator)`
  * — the form three of the callers used — has no way in at all.
+ *
+ * ## Every part is an identifier, or is absent
+ *
+ * A part may be `undefined`, and that is the coordinate a key does not have — a
+ * cell with no resource, a defect with no conditions. It is written as the empty
+ * string, which is what the callers used to write themselves.
+ *
+ * They wrote `?? ""`, and the difference is the whole reason the parameter type
+ * changed: while absence and the empty string were one value here, the grammar
+ * could not refuse an empty **identifier** without refusing every key that has a
+ * coordinate missing. A resource whose id is `""` and no resource at all are two
+ * different cells, and they had one key. Now absence has a spelling of its own
+ * and the empty string has none.
+ *
+ * A part that is neither is refused — not folded, not escaped. Escaping would be
+ * a second grammar to keep in step with the first, and the tool would then hold
+ * an id it can never print: the string reaches a report a person reads and a
+ * terminal that obeys it, and the honest answer to a name that cannot be printed
+ * is to ask for a different name. See `./identifiers.js` and ADR-0066.
+ *
+ * @throws {UnusableIdentifierError}
  */
-export function joinKey(...parts: readonly string[]): string {
-  return parts.join(KEY_SEPARATOR);
+export function joinKey(...parts: readonly (string | undefined)[]): string {
+  return parts.map(asCoordinate).join(KEY_SEPARATOR);
+}
+
+/**
+ * One part, checked, with absence written the way the callers used to write it.
+ *
+ * The message names no field, because this function cannot know one: which
+ * declaration a coordinate came from is the door's to say, and a door says it.
+ * What this one guarantees is that no route reaches a key without being asked —
+ * including the route ADR-0032 found open twice, a consumer of the library
+ * calling into the core with no adapter between.
+ */
+function asCoordinate(part: string | undefined): string {
+  return part === undefined ? "" : identifier(part, "A coordinate of a key");
 }
 
 /**
@@ -131,7 +184,7 @@ export function cellKey(cell: {
   readonly endpointId: string;
   readonly resourceId?: string | undefined;
 }): string {
-  return joinKey(cell.accountId, cell.endpointId, cell.resourceId ?? "");
+  return joinKey(cell.accountId, cell.endpointId, cell.resourceId);
 }
 
 /**
@@ -163,5 +216,5 @@ export function objectKey(of: {
   readonly endpointId: string;
   readonly resourceId?: string | undefined;
 }): string {
-  return joinKey(of.endpointId, of.resourceId ?? "");
+  return joinKey(of.endpointId, of.resourceId);
 }

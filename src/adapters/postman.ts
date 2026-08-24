@@ -38,6 +38,7 @@
  */
 
 import { parse as parseYaml } from "yaml";
+import { identifier } from "../core/identifiers.js";
 import type { Endpoint, HttpMethod } from "../core/types.js";
 import { HTTP_METHODS } from "../core/types.js";
 import { pathTemplate } from "../io/untrusted.js";
@@ -473,6 +474,13 @@ function collectItems(
         "the item has no non-empty name, and an endpoint identifier is built from names",
       );
     }
+    // Every name becomes part of an endpoint id — the identifier is the folder
+    // path plus the request name — and an endpoint id is a coordinate of every
+    // key this tool builds. A collection is a document the tool was handed, and
+    // this field had no grammar; see ADR-0066. Here rather than over the
+    // assembled location, so that a name carrying a control character is refused
+    // before it is printed into the message of some other refusal.
+    identifier(name.trim(), `The name of an item under ${locationOf(trail)}`);
     const nested = [...trail, name.trim()];
 
     const children = item.item;

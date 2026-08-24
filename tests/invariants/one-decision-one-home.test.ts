@@ -108,9 +108,11 @@
  *   borrow, so a copy is a second implementation that will drift when the one
  *   moves.
  * - **Two keys that glue the *same* coordinates in different orders.** `capRows`
- *   and `acceptanceKeyOf` do exactly that, on purpose; ADR-0059 records it. It is
- *   a question about what is glued, not about how, and no gate of this kind
- *   reaches it.
+ *   and `acceptanceKeyOf` were the example and stopped being one on 24 August
+ *   2026: both ask `defectSignature` to extend its own signature now, so the two
+ *   are one string rather than two orders of one pair (ADR-0066). The limitation
+ *   is unchanged — it is a question about **what** is glued rather than about
+ *   how, and nothing here can see that two tuples are the same tuple.
  * - **Anything outside `src/`, except the raw byte.** `tools/oracle/index.mjs`
  *   has a `cellKey` of its own on purpose — an oracle that shared the tool's code
  *   would agree with itself — and the tests that split `git ls-files -z` output
@@ -196,12 +198,11 @@ const OWNED_NAMES: ReadonlyMap<string, string> = new Map([
  */
 const REACHES_IN: ReadonlyMap<string, { readonly names: readonly string[]; readonly why: string }> =
   new Map([
-    ["src/core/defects.ts", { names: ["joinKey"], why: "a defect signature" }],
-    ["src/core/accepted.ts", { names: ["joinKey"], why: "the acceptance index" }],
     [
-      "src/report/findings.ts",
-      { names: ["cellKey", "joinKey"], why: "the cell a finding names, and its evidence budget" },
+      "src/core/defects.ts",
+      { names: ["joinKey"], why: "a defect signature, and the two keys that extend one" },
     ],
+    ["src/report/findings.ts", { names: ["cellKey"], why: "the cell a finding names" }],
     [
       "src/runner/walk.ts",
       { names: ["cellKey", "objectKey"], why: "the cells walked, and the objects behind them" },
@@ -220,9 +221,15 @@ const REACHES_IN: ReadonlyMap<string, { readonly names: readonly string[]; reado
  * of, rather than a matcher.
  *
  * The **count** is what makes that true of a module already on the list. Without
- * it, a second key builder inside `findings.ts` — the reviewer's `keyOfCell`,
+ * it, a second key builder inside `defects.ts` — the reviewer's `keyOfCell`,
  * moved one file over — would be borrowing an allowance granted for something
  * else. One entry here is one key; a module that needs two needs a reader.
+ *
+ * There were four entries until 24 August 2026. Two of them built a key that is
+ * a defect signature and one coordinate more, by handing the finished signature
+ * back to `joinKey` as a part; ADR-0066 made a part of a key an identifier, and
+ * a signature is not one. Both ask `defectSignature` to extend itself instead,
+ * which is why neither reaches into the owning module any more.
  *
  * The other owned names carry no count, because a count of them would mean
  * nothing: how many times `findings.ts` happens to ask for a cell key is not a
@@ -232,11 +239,14 @@ const REACHES_IN: ReadonlyMap<string, { readonly names: readonly string[]; reado
 const KEY_BUILDERS: ReadonlyMap<string, { readonly calls: number; readonly key: string }> = new Map(
   [
     [KEYS, { calls: 2, key: "the owner: the cell key and the object key" }],
-    ["src/core/defects.ts", { calls: 1, key: "endpoint, relation, conditions — a signature" }],
-    ["src/core/accepted.ts", { calls: 1, key: "signature and kind — the acceptance index" }],
     [
-      "src/report/findings.ts",
-      { calls: 1, key: "kind and signature — the per-defect evidence budget" },
+      "src/core/defects.ts",
+      {
+        calls: 1,
+        key:
+          "endpoint, relation, conditions — a signature, and with a further part " +
+          "the acceptance index and the per-defect evidence budget",
+      },
     ],
   ],
 );
@@ -1221,7 +1231,7 @@ describe("one decision, one home", () => {
     ).toEqual([]);
   });
 
-  it("lets four modules call joinKey, each for one key of its own", () => {
+  it("lets two modules call joinKey, each for one key of its own", () => {
     const wrong = sources
       .map((path) => ({
         path,
@@ -1235,9 +1245,9 @@ describe("one decision, one home", () => {
     expect(
       wrong,
       `joinKey is called somewhere that builds no key of its own, or a module on ` +
-        `the list builds a second one: ${wrong.join(", ")}. Each of the four ` +
+        `the list builds a second one: ${wrong.join(", ")}. Each of the two ` +
         `entries in this file is a different tuple of coordinates and one key; a ` +
-        `fifth entry, or a second key inside one of the four, is exactly what this ` +
+        `third entry, or a second key inside one of the two, is exactly what this ` +
         `gate exists for — whatever the function calls itself. See ADR-0060.`,
     ).toEqual([]);
   });

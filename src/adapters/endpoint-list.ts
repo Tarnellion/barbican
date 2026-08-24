@@ -40,6 +40,7 @@
  */
 
 import { parse as parseYaml } from "yaml";
+import { identifier } from "../core/identifiers.js";
 import type { Endpoint, HttpMethod } from "../core/types.js";
 import { HTTP_METHODS } from "../core/types.js";
 import { pathTemplate } from "../io/untrusted.js";
@@ -166,6 +167,17 @@ function toEndpoint(entry: unknown, index: number): Endpoint {
   const id = entry.id;
   if (typeof id !== "string" || id.trim() === "") {
     throw new InvalidEndpointError(index, "id", "id is required and must be a non-empty string");
+  }
+  // An endpoint id is a coordinate of every key this tool builds, and this door
+  // asked only that the id not be blank — `id: "a\0own"` came through, and one
+  // `acceptanceKeyOf` then answered for two different defects. The grammar is
+  // `identifier` in `src/core/identifiers.ts` (ADR-0066); the entry number is
+  // this file's to add, which is why the refusal is caught and re-thrown, exactly
+  // as it is for `pathTemplate` below.
+  try {
+    identifier(id, "the id");
+  } catch (cause) {
+    throw new InvalidEndpointError(index, "id", describe(cause));
   }
 
   const rawMethod = entry.method;

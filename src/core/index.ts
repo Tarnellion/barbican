@@ -6,6 +6,11 @@ export * from "./checks/types.js";
 export * from "./defects.js";
 export * from "./diff.js";
 export * from "./expected.js";
+// The grammar of an identifier, whole rather than a hand-picked subset of it: a
+// consumer assembling `Endpoint[]` or `Acceptance[]` for the library door is held
+// to this rule by `joinKey`, and a rule a consumer is held to and cannot inspect
+// is the state ADR-0024's note of 21 August 2026 was written from. See ADR-0066.
+export * from "./identifiers.js";
 export * from "./matrix.js";
 export * from "./selectors.js";
 // The catalogue of standard clauses. Reachable from the library door and not

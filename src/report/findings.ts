@@ -34,7 +34,7 @@ import {
   matchingAcceptance,
   SEVERITY_ORDER,
 } from "../core/index.js";
-import { cellKey, joinKey } from "../core/keys.js";
+import { cellKey } from "../core/keys.js";
 import { byCodeUnits } from "../core/order.js";
 import type { JudgedCell } from "../core/standards/coverage.js";
 import type { RequestContextConfig } from "../io/config.js";
@@ -727,18 +727,22 @@ export function capRows(findings: readonly ReportFinding[]): {
     // to demand a whole finding, and it asks for `DefectCoordinates` since
     // ADR-0048 — the same shape an acceptance is written against.
     //
-    // Signature and kind, which is the pair `acceptanceKeyOf` joins as well, in
-    // the other order. Two spellings of one coordinate, and they are left as two
-    // because this map never leaves this function while that key is written by an
-    // operator into the configuration; `joinKey` is at least the one joining, so
-    // neither can glue two different defects into one budget.
-    const signature = joinKey(
-      finding.kind,
-      defectSignature({
+    // Signature and kind, which is the pair `acceptanceKeyOf` joins as well.
+    // They were two spellings of that pair until ADR-0066 — this one glued the
+    // kind on the front, by handing the finished signature back to `joinKey` as
+    // a part. A part of a key is an identifier now, and a signature is not one:
+    // it carries separators, and a grammar reading it could not tell those from
+    // the ones an operator's `kind` had smuggled in. So both keys ask the
+    // function that owns the coordinates to extend its own signature, and the
+    // two are one string rather than two orders of one pair. This map still
+    // never leaves this function; the reason for the change is upstream of it.
+    const signature = defectSignature(
+      {
         endpointId: finding.endpointId,
         ...(finding.relation === undefined ? {} : { relation: finding.relation }),
         ...(finding.contextId === undefined ? {} : { contextId: finding.contextId }),
-      }),
+      },
+      finding.kind,
     );
     const kept = seen.get(signature) ?? 0;
     if (kept >= MAX_ROWS_PER_DEFECT) {
