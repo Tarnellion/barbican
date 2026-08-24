@@ -1046,7 +1046,13 @@ refused before is accepted now; and the package exports three names more, 230
 where it exported 227 — the grammar and the error it throws, because a rule the
 library door holds a consumer to and does not let them inspect is a wall rather
 than a check. The oracle answers as it did over all 29 combinations of the
-reference platform, and every key's bytes are what they were.
+reference platform. One key's bytes did change: the evidence budget in
+`capRows` used to glue `kind` first and now glues it last, because it asks
+`defectSignature` to extend itself rather than handing a finished signature back
+as a part. The tuple is the same and the map is the same size, so nothing a
+report carries moved — but the sentence "every key's bytes are what they were"
+was in this paragraph until an adversarial review measured that one of them was
+not.
 
 ## Example
 
