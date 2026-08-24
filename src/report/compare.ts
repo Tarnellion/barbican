@@ -976,7 +976,7 @@ function countsAt(
 
 function defectAt(source: string, value: unknown, at: string): ComparableDefect {
   if (!isRecord(value)) {
-    throw new UnreadableReportError(source, `"defects" holds something that is not an object`);
+    throw new UnreadableReportError(source, `${at} is not an object`);
   }
   const contextId = optionalStringAt(source, value, "contextId", at);
   // The **vocabulary** is still not checked: a relation this build has not heard
@@ -1046,10 +1046,7 @@ export function toComparableRun(value: unknown, source: string): ComparableRun {
     ),
     observations: arrayAt(source, value, "observations").map((one, index) => {
       if (!isRecord(one)) {
-        throw new UnreadableReportError(
-          source,
-          `"observations" holds something that is not an object`,
-        );
+        throw new UnreadableReportError(source, `observations[${index}] is not an object`);
       }
       return { endpointId: stringAt(source, one, "endpointId", `observations[${index}]`) };
     }),

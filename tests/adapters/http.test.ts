@@ -707,3 +707,44 @@ describe("parseRetryAfter", () => {
     expect(parseRetryAfter("soon", 0)).toBeUndefined();
   });
 });
+
+describe("a header value the platform chose", () => {
+  /**
+   * The platform under test is the untrusted party, by construction.
+   *
+   * A header on the value allowlist travels whole into `observations[].headers`
+   * and from there into the report — the artifact an operator hands to somebody
+   * else. `JSON.stringify` escapes C0 and leaves C1 alone, so a `content-type`
+   * carrying U+009B, a one-character CSI, used to reach `report.json` intact and
+   * drive the terminal of whoever opened it. Measured on 24 August 2026: two raw
+   * C1 characters in a report this tool wrote.
+   *
+   * Spelled out and not redacted, because the value is evidence: a reader still
+   * has to see what arrived. The bytes are not modelled either — `Â` below is
+   * how HTTP's own latin-1 decoding renders the first byte of the UTF-8 sequence
+   * the platform sent, and it is kept because it is not a control character.
+   */
+  it("is spelled out where it is a control character, and kept where it is text", async () => {
+    const csi = String.fromCharCode(0x9b);
+    const server = await startServer((_request, response) => {
+      response.writeHead(200, { "content-type": `application/json; x=${csi}31m` });
+      response.end("{}");
+    });
+    try {
+      const { client } = clientFor();
+      const response = await client.send(GET(server.port, "/v1/me"));
+      const kept = response.headers["content-type"] ?? "";
+
+      expect(kept).toContain("application/json");
+      expect(kept).toContain("\\u009B");
+      expect(
+        [...kept].some((one) => {
+          const code = one.codePointAt(0) ?? 0;
+          return code === 0x1b || (code >= 0x80 && code <= 0x9f);
+        }),
+      ).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+});

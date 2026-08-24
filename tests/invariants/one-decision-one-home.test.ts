@@ -261,6 +261,7 @@ const OWNED_NAMES: ReadonlyMap<string, string> = new Map([
   ["identifier", IDENTIFIERS],
   ["isUsableIdentifier", IDENTIFIERS],
   ["UnusableIdentifierError", IDENTIFIERS],
+  ["spellOut", IDENTIFIERS],
 ]);
 
 /**
@@ -323,6 +324,16 @@ const REACHES_IN: ReadonlyMap<string, { readonly names: readonly string[]; reado
     ["src/core/keys.ts", { names: ["identifier"], why: "the seam every key passes through" }],
     ["src/core/checks/registry.ts", { names: ["identifier"], why: "a registered check's id" }],
     ["src/adapters/endpoint-list.ts", { names: ["identifier"], why: "an entry's id" }],
+    [
+      "src/adapters/http.ts",
+      {
+        names: ["spellOut"],
+        why:
+          "a response header kept by value is the platform's own text, and it " +
+          "travels into the report; JSON escapes C0 and leaves C1, so a control " +
+          "character reaches the file whole",
+      },
+    ],
     ["src/adapters/openapi.ts", { names: ["identifier"], why: "an operationId, and the fallback" }],
     ["src/adapters/postman.ts", { names: ["identifier"], why: "an item's name and folder path" }],
     [
@@ -1329,13 +1340,21 @@ describe("one decision, one home", () => {
   it("hands out the rule and not the class of characters", () => {
     // The same seam one module over. `isNotText` is private, and so is every
     // spelling of what it decides: no set, no array, no expression, no list of
-    // code points. What leaves is three functions that answer the question, so a
+    // code points. What leaves is four functions that answer the question, so a
     // copy elsewhere cannot borrow the class — it has to write the class out, and
     // writing it out is what the scan below reads.
+    //
+    // `spellOut` is the fourth, added 24 August 2026. It hands out a rendering
+    // and not the class: a caller learns which characters are not text only by
+    // reading its output, one string at a time, which is no more than it learns
+    // from `identifier` refusing. It exists because the report carries a response
+    // header value the platform chose, and `JSON.stringify` escapes C0 while
+    // leaving C1 alone — see ADR-0066.
     expect(Object.keys(identifiers).sort()).toEqual([
       "UnusableIdentifierError",
       "identifier",
       "isUsableIdentifier",
+      "spellOut",
     ]);
     expect(
       Object.entries(identifiers)

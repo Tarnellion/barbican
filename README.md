@@ -1103,6 +1103,21 @@ written and run before this sentence; what is still open is in the ADR's
 `Limits`, measured the same way, and includes a copy whose code points are
 computed rather than written.
 
+**A response header the platform chose no longer reaches the report as a control
+character** ([ADR-0066](docs/adr/0066-an-identifier-has-a-grammar.md), note of
+24 August 2026). A header on the value allowlist is kept whole, because the
+verdict needs it — and the platform under test is the untrusted party here by
+construction. `JSON.stringify` escapes C0 and leaves C1 alone, so a
+`content-type` carrying U+009B, a one-character CSI, reached `report.json`
+intact and drove the terminal of whoever opened it: measured, two raw C1
+characters in a report this tool wrote. Such a character is now written out as
+`\u009B` where the value is kept. Spelled out rather than redacted, because the
+value is evidence and a reader has to see what arrived; and at the point the
+value is kept rather than on the way to a screen, because the file outlives the
+run and the tool does not own the screen it is opened on. The package exports
+232 names, one more than before — `spellOut`, so that a consumer building its
+own report has the same rendering rather than a second one.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.

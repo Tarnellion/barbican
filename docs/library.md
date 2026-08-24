@@ -140,7 +140,7 @@ invalidated the digest of every report it wrote until 23 August 2026. See
 
 ## What the rest of the surface is
 
-The package exports 231 values and a comparable number of types. They fall into
+The package exports 232 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,

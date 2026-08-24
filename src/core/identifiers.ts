@@ -96,10 +96,26 @@ function nameOf(code: number): string {
  * and a message that quoted the value as it arrived would carry the escape
  * sequence it is refusing into the very place the refusal exists to protect.
  *
+ * Exported, which ADR-0066 left as an open question — "a fourth name on the
+ * surface for the sake of a message" — because a second caller arrived with a
+ * stronger reason than a message. A response header on the value allowlist is
+ * text the **platform under test** chose, and it travels whole into
+ * `observations[].headers` and from there into the report. `JSON.stringify`
+ * escapes C0 and leaves C1 alone, so a `content-type` carrying U+009B reaches
+ * the file intact: measured on 24 August 2026, two raw C1 characters in a
+ * report this tool wrote. The report is the artifact an operator hands to
+ * somebody else, and this project already refuses to let it carry a body or a
+ * secret; carrying an escape sequence is the same promise.
+ *
+ * Spelled out rather than redacted, because the value is evidence — a reader
+ * still needs to see what the platform sent — and rather than escaped on the
+ * way to a screen, because the tool does not own the screen the file is opened
+ * on. One representation, at the point the value is kept.
+ *
  * Over code units for the reason above, and safely: a character that is passed
  * through is passed through whole, so the halves of a surrogate pair rejoin.
  */
-function spellOut(value: string): string {
+export function spellOut(value: string): string {
   let written = "";
   for (let at = 0; at < value.length; at += 1) {
     const code = value.charCodeAt(at);

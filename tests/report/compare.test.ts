@@ -812,7 +812,7 @@ describe("reading a report off disk", () => {
       ),
     ).toThrow(/"coverage\.notProbed\.excluded" is not a number/);
     expect(() => toComparableRun({ ...MINIMAL, observations: [7] }, "a.json")).toThrow(
-      /"observations" holds something that is not an object/,
+      /observations\[0\] is not an object/,
     );
     expect(() => toComparableRun({ ...MINIMAL, observations: {} }, "a.json")).toThrow(
       /"observations" is missing or is not an array/,

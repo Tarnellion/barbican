@@ -504,7 +504,10 @@ are there because the module is exported whole rather than as a hand-picked
 subset — the note of 21 August 2026 on ADR-0024 says why in the case that
 produced it: a rule a consumer is held to and cannot inspect is a wall, not a
 check. `docs/library.md` names all three and says which door they are for; its
-two counts move with them, to 230 and to 97 error classes.
+two counts move with them, to 231 and to 98 error classes. (This sentence said
+230 and 97 until the door on the saved report added its own error class — the
+second count in one document disagreeing with the first, which is the defect
+ADR-0065 asks to report rather than tidy away.)
 
 `src/core/keys.ts` and `src/core/path-parameters.ts` stay off the surface, and
 the difference is worth stating: those hand out mechanics, this hands out a rule
@@ -713,3 +716,43 @@ copy taken before the edit. On a needle no file carries it prints
 
 and runs no suite, which is what stops a harness from reporting a gate as
 effective when it never mutated anything.
+
+## Note, 24 August 2026: the tenth channel, and why `spellOut` is exported
+
+The Limits section above left a question open — whether `spellOut` should leave
+this module, called there "a fourth name on the surface for the sake of a
+message". A second caller arrived the same day with a stronger reason, and the
+answer is yes.
+
+A response header on `VALUE_PRESERVED_HEADERS` is text the **platform under
+test** chose, and the platform is the untrusted party in this tool by
+construction. The value travels whole into `observations[].headers` and from
+there into the report. `JSON.stringify` escapes C0 and leaves C1 alone, so a
+`content-type` carrying U+009B — a one-character CSI — reaches `report.json`
+intact. Measured: a raw-socket platform answering with that header put **two raw
+C1 characters** into a report this tool wrote, and the report is the artifact an
+operator hands to somebody else. This project already refuses to let that file
+carry a body or a secret; carrying an escape sequence is the same promise.
+
+Three shapes were available and two are wrong:
+
+- **Refuse the run**, as an identifier is refused. Wrong: the tool exists to
+  probe hostile platforms, and refusing to report because one sent an odd
+  `content-type` is refusing to do the job.
+- **Escape on the way to a screen.** Wrong for the reason CLAUDE.md gives about
+  the address: that is modelling somebody else's parser, and the tool does not
+  own the screen the file is opened on. The file outlives the run.
+- **Spell it out where the value is kept.** One representation, at the one place
+  the decision to keep it is made. The value stays evidence — a reader still
+  sees what arrived — and the artifact is inert.
+
+What is *not* modelled: the bytes. HTTP decodes a header value as latin-1, so
+the platform's UTF-8 `0xC2 0x9B` arrives as `Â` followed by U+009B. The `Â` is
+kept, because it is text; only the control character is written out. The tool
+records what reached it, not what it guesses was meant.
+
+The gate tables in `tests/invariants/one-decision-one-home.test.ts` carry the
+fourth name and the new caller with its reason. `spellOut` hands out a rendering
+rather than the class of characters: a caller learns which code points are not
+text only by reading its output one string at a time, which is no more than
+`identifier` already tells them by refusing.

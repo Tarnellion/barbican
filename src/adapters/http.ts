@@ -26,6 +26,7 @@
  *   is present is itself a signal.
  */
 
+import { spellOut } from "../core/identifiers.js";
 import type { HttpMethod } from "../core/types.js";
 import { SAFE_METHODS } from "../core/types.js";
 import type { HeaderName, HeaderValue } from "../io/untrusted.js";
@@ -441,7 +442,13 @@ function toHttpResponse(response: Response): HttpResponse {
       // used to mean the value travelled whole.
       headers[key] = sanitizeChallenge(value);
     } else if (VALUE_PRESERVED_HEADERS.has(key)) {
-      headers[key] = value;
+      // Kept, and spelled out: the value is the platform's text, and the platform
+      // is the untrusted party here by construction. `JSON.stringify` escapes C0
+      // and leaves C1 alone, so a `content-type` carrying U+009B — a one-character
+      // CSI — reaches `report.json` intact and drives the terminal of whoever
+      // opens it. Measured 24 August 2026. Spelled out and not redacted, because
+      // the value is evidence and a reader has to see what arrived.
+      headers[key] = spellOut(value);
     } else if (key === "location") {
       headers[key] = sanitizeLocation(value);
     } else {
