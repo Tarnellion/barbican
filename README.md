@@ -1134,6 +1134,43 @@ must have taught the wrong word: `parameters` for `params` is a mistake a reader
 brought with them and gets no hint, which a test holds. One name for one concept
 is the real fix and belongs to a major —
 [ADR-0013](docs/adr/0013-tenant-hierarchy.md), note of 24 August 2026.
+**The catalogue says which clauses nothing answers, and it was wrong about four
+of them.** `findUncoveredClauses` named the catalogued clauses no registered
+*check* declares, and the matrix channel — privilege escalation and cross-tenant
+access, which is most of what this tool finds — cites clauses too
+([ADR-0041](docs/adr/0041-a-matrix-discrepancy-answers-for-a-clause.md)). Asked
+over the sixteen clauses this repository ships, it answered thirteen; four of
+those thirteen (ASVS 8.1.1, 8.2.1, 8.2.2 and OWASP API5) are cited on every
+finding of the kind that names them. Nine is the answer.
+`findUnansweredClauses(catalog, checks)` replaces it and subtracts both channels;
+`clauseAnswers(catalog, checks)` is the full table it filters, one row per clause
+naming the checks and the discrepancy kinds that can cite it. Neither has a field
+that declares a clause covered — a clause added to the catalogue tomorrow with
+nothing behind it comes back unanswered because there is nothing to declare it
+with. See [ADR-0069](docs/adr/0069-the-catalogue-says-what-is-unanswered.md).
+
+Each of the nine now carries `unansweredBecause`, the sentence saying why nothing
+here answers it — that a field of a record is in a body this tool deliberately
+does not store, that a status code cannot tell a missing authorization check from
+a wrong one, that where a decision was enforced is not visible from outside. Those
+reasons existed, in source comments a reader of a report never sees.
+
+**The clause paraphrases were checked against the published documents**, clause
+by clause, on 24 August 2026. Four ASVS summaries said more or less than their
+requirement does and were narrowed: 8.1.1 said "each role" where the standard
+says permissions and resource attributes, 8.3.1 said "server-side layer" for
+"trusted service layer", 8.3.3 added a "wider" the standard does not, and 8.4.1
+said one tenant's operations never *reach* another where the standard says
+*affect*. The ASVS `scope` line also said the catalogue holds "the requirements a
+black-box probe over HTTP can speak to at all" — it holds eight of chapter V8's
+thirteen, and two of those eight are documentation requirements no probe speaks
+to — and both it and this repository counted fourteen ASVS chapters where 5.0 has
+seventeen.
+
+`DIFF_KINDS` is exported: the four kinds of matrix discrepancy as a list, with
+`DiffKind` derived from it the way `ResourceRelation` already is, so that "which
+clauses can the matrix channel cite" can be asked of every kind there is. The
+package exports 234 names.
 
 ## Example
 

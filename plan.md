@@ -258,10 +258,24 @@ text editor without a trace. `contentDigest` closes the careless half of that an
 says out loud that it does not close the other one — a signature is named there
 as not done, with the questions it needs answered first.
 
+**Which clauses nothing answers is measured, as of 24 August 2026.** It had
+never been. `findUncoveredClauses` subtracted the registered checks and not the
+matrix channel, so over the sixteen bundled clauses it said thirteen where the
+answer is nine: ASVS 8.1.1, 8.2.1, 8.2.2 and OWASP API5 are cited by
+`standardsForDiff` on findings the tool produces every run. It is replaced by
+`findUnansweredClauses`, over a table `clauseAnswers` derives from both channels,
+and each of the nine now carries the sentence saying why nothing here answers it
+— which is also the first thing a pack has to print beside a clause it is silent
+about ([ADR-0069](docs/adr/0069-the-catalogue-says-what-is-unanswered.md)). The
+clause paraphrases were checked against the published documents in the same pass;
+four ASVS summaries and the ASVS boundary statement were narrowed to what their
+source says.
+
 What is still ahead and still unestimated: **the clause-by-clause content
 itself**, and the rendering. The catalogue holds the part of ASVS V8 this tool
-can speak to; deciding what a pack claims per clause, and what a reader of it is
-entitled to conclude, is the work neither ADR does.
+can speak to and now says which of it nothing answers; deciding what a pack
+claims per clause, and what a reader of it is entitled to conclude, is the work
+none of these ADRs does.
 
 ---
 

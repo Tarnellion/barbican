@@ -94,20 +94,28 @@ API Top 10 2023, and the access-control weaknesses under CWE-284. Each entry is
 an identifier, one line of the project's own about what the clause is for, and
 the address of the published text — never the requirement's own wording.
 
-Two functions read it:
+Three functions read it:
 
 - `findUnresolvedStandardRefs(catalog, checks)` returns the references your
   checks declare that no catalogue entry answers to. A misspelt clause number
   otherwise reaches the report as a coverage row for a requirement that does not
   exist, and nothing downstream would ever notice.
-- `findUncoveredClauses(catalog, checks)` returns the catalogued clauses no check
-  answers for — the half an evidence pack cannot be complete without, since a
-  pack built from findings alone lists only what happened to be checked.
+- `clauseAnswers(catalog, checks)` returns one row per catalogued clause with
+  everything in this tool that can cite it: the registered checks that declare
+  it, and the kinds of matrix discrepancy whose mapping cites it. Both are
+  derived — there is no field anywhere that declares a clause covered.
+- `findUnansweredClauses(catalog, checks)` is those rows where both are empty —
+  the half an evidence pack cannot be complete without, since a pack built from
+  findings alone lists only what happened to be checked. Each row's
+  `clause.unansweredBecause` says why nothing answers it. It replaced
+  `findUncoveredClauses`, which asked about registered checks alone and so named
+  four clauses as covered by nothing that the matrix channel cites on every run;
+  see [ADR-0069](adr/0069-the-catalogue-says-what-is-unanswered.md).
 
 A standard whose numbering may not be published goes in through
 `StandardCatalog.register(definition)`, from a source outside this repository and
-beside the private checks that cite it. Both functions then hold it to exactly
-the same terms as the bundled three. See
+beside the private checks that cite it. All three then hold it to exactly the
+same terms as the bundled three. See
 [ADR-0043](adr/0043-a-catalogue-of-clauses.md).
 
 `clauseCoverage({ cells, checksRun, reservations })` is the other direction, and
@@ -140,7 +148,7 @@ invalidated the digest of every report it wrote until 23 August 2026. See
 
 ## What the rest of the surface is
 
-The package exports 232 values and a comparable number of types. They fall into
+The package exports 234 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,

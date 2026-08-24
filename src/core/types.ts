@@ -477,22 +477,48 @@ export type Severity = "info" | "low" | "medium" | "high" | "critical";
  */
 export type ExpectedOutcome = "allowed" | "denied";
 
-/** The nature of the discrepancy between intent and implementation. */
-export type DiffKind =
+/**
+ * Every kind of matrix discrepancy in one list — the **source of truth**.
+ *
+ * The same shape as `RESOURCE_RELATIONS` above and for a reason of its own. The
+ * matrix channel cites clauses of external standards (ADR-0041), and the
+ * question "which clauses can this channel ever cite" is answered by asking
+ * `standardsForDiff` about every kind there is. That answer is only as complete
+ * as the list it iterates, so the list has to be the union rather than a copy of
+ * it: a fifth kind added here is in the enumeration whether or not anybody
+ * remembered, and one added to a union with the list written out separately
+ * would leave a clause quietly reading as answered by nothing. See ADR-0069.
+ *
+ * ADR-0064 rejected `satisfies readonly DiffKind[]` on an array for the half it
+ * does not hold — a member of the union left out of the array still compiles.
+ * Deriving the union from the array is the spelling that has no second half to
+ * lose, and it leaves the `Record<DiffKind, …>` tables that ADR chose exactly as
+ * they are.
+ */
+export const DIFF_KINDS = [
   /** A denial was expected, access was granted. The tool's main finding. */
-  | "privilege-escalation"
+  "privilege-escalation",
   /**
    * Access was expected, a denial came back. Not a vulnerability, but a
    * discrepancy with the intent.
    */
-  | "unexpected-denial"
+  "unexpected-denial",
   /**
    * The "account × endpoint" pair is not covered by observations — no conclusion
    * can be drawn.
    */
-  | "not-observed"
+  "not-observed",
   /** The request ended in an error: access cannot be judged. */
-  | "probe-error";
+  "probe-error",
+] as const;
+
+/**
+ * The nature of the discrepancy between intent and implementation.
+ *
+ * Derived from the list above rather than declared beside it, exactly as
+ * `ResourceRelation` is.
+ */
+export type DiffKind = (typeof DIFF_KINDS)[number];
 
 /** A discrepancy between expected and observed access. */
 export interface AccessDiff {

@@ -9,6 +9,13 @@
  * the direction that does not get audited — nobody checks an evidence pack for
  * clauses it should not have mentioned.
  *
+ * The other half of the catalogue's question — which clauses nothing answers —
+ * was pinned in this file too, over the check channel alone, and four of its
+ * thirteen rows were wrong because the matrix channel cites clauses as well
+ * (ADR-0041). It moved to `a-clause-nothing-answers.test.ts` on 24 August 2026
+ * and is read off both channels there; see ADR-0069. What is left here is the
+ * half this file was always about.
+ *
  * The checks are discovered rather than listed. A second list beside
  * `src/core/checks/` would be the same fact written twice, and this repository
  * has already watched that shape go stale: `describeChecks` exists because the
@@ -20,11 +27,7 @@
 import { describe, expect, it } from "vitest";
 import type { Check } from "../../src/core/checks/types.js";
 import * as api from "../../src/index.js";
-import {
-  createBundledCatalog,
-  findUncoveredClauses,
-  findUnresolvedStandardRefs,
-} from "../../src/index.js";
+import { createBundledCatalog, findUnresolvedStandardRefs } from "../../src/index.js";
 
 /**
  * The check factories the package exports.
@@ -89,55 +92,5 @@ describe("the standard references of the checks this repository ships", () => {
       "unknown-clause",
       "unknown-standard",
     ]);
-  });
-});
-
-/**
- * What nothing checks, named.
- *
- * The shape ADR-0025 took the filter off run-level findings for, and the reason
- * a catalogue had to exist before it could be written: naming an uncovered
- * clause needs a list of clauses to iterate over.
- *
- * Pinned by exact equality rather than counted. This is the current state of
- * Module 2's coverage, and it is the one fact about the evidence pack that must
- * not change quietly — a check added, a check's claims widened, or a clause
- * added to the catalogue all move this list, and all three deserve to be read in
- * a diff. The thirteen below are not a backlog of oversights: `tenant-isolation`
- * says in a comment why it does not claim API3 or CWE-862, and a gap with a
- * reason is still a gap worth printing.
- */
-describe("the catalogued clauses no check answers for", () => {
-  it("are these, and the list moves only on purpose", () => {
-    const uncovered = findUncoveredClauses(CATALOG, CHECKS).map(
-      (row) => `${row.standard}/${row.clause.id}`,
-    );
-
-    expect(uncovered).toEqual([
-      "OWASP-ASVS-5.0/8.1.1",
-      "OWASP-ASVS-5.0/8.1.3",
-      "OWASP-ASVS-5.0/8.2.1",
-      "OWASP-ASVS-5.0/8.2.2",
-      "OWASP-ASVS-5.0/8.2.3",
-      "OWASP-ASVS-5.0/8.3.1",
-      "OWASP-ASVS-5.0/8.3.3",
-      "OWASP-API-2023/API3",
-      "OWASP-API-2023/API5",
-      "CWE/284",
-      "CWE/862",
-      "CWE/863",
-      "CWE/639",
-    ]);
-  });
-
-  /**
-   * And the answer is not the whole catalogue, which is what it would be if
-   * coverage were never subtracted. 8.4.1 is the clause the one registered check
-   * cites, and it is the one that has to be absent from the list above.
-   */
-  it("leaves out the clause the registered check does cover", () => {
-    const uncovered = findUncoveredClauses(CATALOG, CHECKS).map((row) => row.clause.id);
-
-    expect(uncovered).not.toContain("8.4.1");
   });
 });

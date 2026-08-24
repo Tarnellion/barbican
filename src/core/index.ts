@@ -13,6 +13,10 @@ export * from "./expected.js";
 export * from "./identifiers.js";
 export * from "./matrix.js";
 export * from "./selectors.js";
+// Which of the catalogued clauses anything in this tool can cite, and which
+// nothing can. Over both channels: a registered check and the matrix channel's
+// own mapping. See ADR-0069.
+export * from "./standards/answers.js";
 // The catalogue of standard clauses. Reachable from the library door and not
 // only from this repository's own tests, because that is the door a standard
 // whose numbering may not be published comes through: a consumer registers it
