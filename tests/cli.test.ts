@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Severity } from "../src/core/index.js";
 import { checkContentDigest, MAX_ROWS_PER_DEFECT, WARNINGS } from "../src/report/build.js";
+import { FAST_STAND } from "./fixtures/local-stand.js";
 
 /** Every level of the type, so that a level added later is not left off the screen. */
 const SEVERITIES: readonly Severity[] = ["info", "low", "medium", "high", "critical"];
@@ -288,6 +289,7 @@ async function runAgainstStand(options: {
       "--endpoints",
       endpointsPath,
       ...(options.toFile === false ? [] : ["--report", reportPath]),
+      ...FAST_STAND,
       ...(options.flags ?? []),
     );
     const document = options.toFile === false ? result.stdout : await readFile(reportPath, "utf8");
@@ -334,6 +336,7 @@ describe("the severity summary on the screen", () => {
         endpointsPath,
         "--report",
         reportPath,
+        ...FAST_STAND,
       );
 
       const rows = result.stderr.split("\n").find((line) => line.startsWith("Rows by severity:"));
@@ -427,7 +430,6 @@ interface WarningCase {
   readonly why: string;
   readonly config: (port: number) => string;
   readonly endpoints: string;
-  readonly flags?: readonly string[];
 }
 
 /**
@@ -469,9 +471,6 @@ const WARNING_CASES: Readonly<Record<keyof typeof WARNINGS, WarningCase>> = {
     why: "one defect over MAX_ROWS_PER_DEFECT + 1 resources, so a row is dropped",
     config: (port) => configFor(port, { resources: MAX_ROWS_PER_DEFECT + 1 }),
     endpoints: ENDPOINTS_WITH_ITEMS,
-    // Fifty-two cells at the conservative default of five a second is ten seconds
-    // of waiting for a local stand to answer itself.
-    flags: ["--rps", "200", "--concurrency", "8"],
   },
 };
 
@@ -675,10 +674,7 @@ async function runAgainstTenantStand(options: {
       endpointsPath,
       "--report",
       reportPath,
-      "--rps",
-      "200",
-      "--concurrency",
-      "8",
+      ...FAST_STAND,
     );
     const report = JSON.parse(await readFile(reportPath, "utf8")) as ReportFile;
     return { ...result, report };
@@ -898,6 +894,7 @@ describe("what a run says about itself", () => {
         "--endpoints",
         endpointsPath,
         ...(options.toFile === false ? [] : ["--report", reportPath]),
+        ...FAST_STAND,
         ...(options.flags ?? []),
       );
       const document =
