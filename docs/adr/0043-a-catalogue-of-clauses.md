@@ -153,3 +153,34 @@ Revisit when the second standard is real. If registering a private catalogue
 turns out to want a file format and a loader, that is an adapter and an ADR of
 its own — the core's contract is `register`, and it should not learn to read
 files.
+
+## Note of 2026-08-24: the answer subtracted one channel of two
+
+Two sentences above are false, and one number in them.
+
+**"Thirteen of the sixteen catalogued clauses are covered by nothing"** was
+answered by subtracting `Check.standards` alone.
+[ADR-0041](0041-a-matrix-discrepancy-answers-for-a-clause.md) is dated the same
+day as this one and gives the matrix channel a mapping of its own, so ASVS 8.1.1,
+8.2.1, 8.2.2 and OWASP API5 are cited on findings this tool produces on every
+run. Nine is the answer. `findUncoveredClauses` is replaced by
+`findUnansweredClauses`, which subtracts both channels, and the pinned list moved
+to `tests/invariants/a-clause-nothing-answers.test.ts`. The gate this ADR
+describes could not have caught the difference: a change to `standardsForDiff`
+did not move the list it pinned.
+
+**"a check added, a check's claims widened, or a clause added all move it"** is
+the same omission stated as a property. A fourth thing moves it, and it was the
+one nothing watched.
+
+**"ASVS has fourteen chapters"** is v4's count. Version 5.0 has seventeen, V1 to
+V17, and the `scope` string of `OWASP_ASVS_5_0` carried the wrong number into
+every row that quoted it. That string was also inaccurate about its own
+selection; what it says now, and the four clause paraphrases that were narrowed
+against the published text, are in
+[ADR-0069](0069-the-catalogue-says-what-is-unanswered.md).
+
+What this ADR decided is otherwise unchanged, and the part of it that mattered
+most held: because the catalogue is data rather than a list derived from the
+checks, the four wrong rows were a wrong subtraction and not a missing
+vocabulary — the clauses were all there to be counted.

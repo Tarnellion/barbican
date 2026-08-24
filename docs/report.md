@@ -872,7 +872,7 @@ claim it cannot support:
 - **A clause nothing in this run touched is not here.** This section is about
   what a run reached. "Which catalogued clauses does nothing cover" is a
   different question, answered against a catalogue by
-  `findUncoveredClauses`, and it is not in the report.
+  `findUnansweredClauses`, and it is not in the report.
 
 A run that computed no cell verdicts has no `matrixCells` on any row — the same
 silence `cellsMatched` keeps, and for the same reason: a zero would be a claim

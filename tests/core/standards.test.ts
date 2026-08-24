@@ -13,10 +13,10 @@ import { describe, expect, it } from "vitest";
 import type { Check, StandardRef } from "../../src/core/checks/types.js";
 import {
   CWE_ACCESS_CONTROL,
+  clauseAnswers,
   createBundledCatalog,
   DuplicateClauseError,
   DuplicateStandardError,
-  findUncoveredClauses,
   findUnresolvedStandardRefs,
   IncompleteStandardError,
   OWASP_API_2023,
@@ -108,9 +108,12 @@ describe("registering a standard", () => {
    * Every field is refused blank, and each one fails differently when it is not
    * there. A missing `url` leaves a paraphrase of a document this repository
    * does not carry, with nothing to check it against; a missing `scope` turns
-   * "covered by no check" into a claim about a whole standard; a standard with
-   * no clauses answers every question about coverage by having nothing to be
-   * uncovered.
+   * "answered by nothing here" into a claim about a whole standard; a standard
+   * with no clauses answers every question about coverage by having nothing to
+   * be unanswered; and a blank `unansweredBecause` puts an empty cell where a
+   * reader will read a reason. Absent is a state and blank is not — the field is
+   * optional, and the door can only refuse the second, because a catalogue never
+   * sees a check.
    */
   it.each([
     ["an identifier", { ...HOUSE_RULES, id: "  " }],
@@ -119,6 +122,10 @@ describe("registering a standard", () => {
     ["a clause identifier", { ...HOUSE_RULES, clauses: [{ id: "", title: "t", url: "u" }] }],
     ["a clause summary", { ...HOUSE_RULES, clauses: [{ id: "R1", title: " ", url: "u" }] }],
     ["a clause source", { ...HOUSE_RULES, clauses: [{ id: "R1", title: "t", url: "" }] }],
+    [
+      "reason on a clause that declares one",
+      { ...HOUSE_RULES, clauses: [{ id: "R1", title: "t", url: "u", unansweredBecause: " " }] },
+    ],
   ])("refuses a standard with no %s", (_what, definition) => {
     expect(() => {
       new StandardCatalog().register(definition);
@@ -180,71 +187,6 @@ describe("the references a check declares", () => {
   });
 });
 
-describe("the clauses nothing covers", () => {
-  it("is every catalogued clause when nothing is registered", () => {
-    const catalog = new StandardCatalog();
-    catalog.register(HOUSE_RULES);
-
-    expect(findUncoveredClauses(catalog, []).map((row) => row.clause.id)).toEqual(["R1", "R2"]);
-  });
-
-  it("drops the ones a check answers for, and keeps the rest", () => {
-    const catalog = new StandardCatalog();
-    catalog.register(HOUSE_RULES);
-    const covers = check("covers", [{ standard: "HOUSE-RULES", clause: "R1" }]);
-
-    expect(findUncoveredClauses(catalog, [covers]).map((row) => row.clause.id)).toEqual(["R2"]);
-  });
-
-  /**
-   * Coverage is counted per standard, and the two coordinates are never glued
-   * into one key. A clause id is free to repeat across standards — `R1` here in
-   * both — and a separator between the two would be a character either of them
-   * may legally contain: the collision `defectSignature` was caught by, where
-   * two different signatures joined by a hyphen became one string.
-   */
-  it("does not let a clause of one standard cover the same number in another", () => {
-    const catalog = new StandardCatalog();
-    catalog.register(HOUSE_RULES);
-    catalog.register({ ...HOUSE_RULES, id: "OTHER-RULES" });
-    const covers = check("covers", [{ standard: "HOUSE-RULES", clause: "R1" }]);
-
-    expect(
-      findUncoveredClauses(catalog, [covers]).map((row) => `${row.standard}:${row.clause.id}`),
-    ).toEqual(["HOUSE-RULES:R2", "OTHER-RULES:R1", "OTHER-RULES:R2"]);
-  });
-
-  /** Two references to one standard are both counted, not only the first. */
-  it("counts every reference a check makes to one standard", () => {
-    const catalog = new StandardCatalog();
-    catalog.register(HOUSE_RULES);
-    const covers = check("covers", [
-      { standard: "HOUSE-RULES", clause: "R1" },
-      { standard: "HOUSE-RULES", clause: "R2" },
-    ]);
-
-    expect(findUncoveredClauses(catalog, [covers])).toEqual([]);
-  });
-
-  /**
-   * The boundary travels on the row.
-   *
-   * Without it the answer is read as a statement about the standard, and it is
-   * not one: ASVS has fourteen chapters and this catalogue carries part of one.
-   * A pack that lists uncovered clauses and does not say what it looked at is
-   * the same false completeness in a new place.
-   */
-  it("carries the catalogue's own boundary with every answer", () => {
-    const catalog = new StandardCatalog();
-    catalog.register(HOUSE_RULES);
-
-    expect(findUncoveredClauses(catalog, [])[0]?.scope).toBe(HOUSE_RULES.scope);
-    // And the source of the real wording, which is all this repository carries
-    // of the text itself.
-    expect(findUncoveredClauses(catalog, [])[0]?.clause.url).toBe("https://example.test/rules#r1");
-  });
-});
-
 /**
  * A second standard arrives by registration, not by editing this module.
  *
@@ -266,10 +208,13 @@ describe("a standard this repository may not carry", () => {
     catalog.register(HOUSE_RULES);
 
     expect(findUnresolvedStandardRefs(catalog, [private_])).toEqual([]);
-    // And it takes part in the other answer on the same terms.
-    expect(
-      findUncoveredClauses(catalog, [private_]).some((row) => row.standard === "HOUSE-RULES"),
-    ).toBe(true);
+    // And it takes part in the other answer on the same terms: registered, its
+    // clauses are in `clauseAnswers` like anybody else's. `answers.test.ts` is
+    // where that answer is examined; what matters here is that registration is
+    // the only door either question goes through.
+    expect(clauseAnswers(catalog, [private_]).some((row) => row.standard === "HOUSE-RULES")).toBe(
+      true,
+    );
   });
 
   it("gets a catalogue of its own each time, so one run cannot leak into the next", () => {

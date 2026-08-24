@@ -56,9 +56,10 @@ export class DuplicateClauseError extends Error {
  * differently when it is empty, so the blank is refused at the door rather than
  * discovered in a report: a clause with no `url` is an unattributed paraphrase
  * of a document this repository deliberately does not carry, a standard with no
- * `scope` turns "covered by no check" into a claim about a whole standard, and a
- * standard with no clauses at all satisfies every question about coverage by
- * having nothing to be uncovered.
+ * `scope` turns "answered by nothing here" into a claim about a whole standard,
+ * a clause with a blank `unansweredBecause` puts an empty cell where a reader
+ * will read a reason, and a standard with no clauses at all satisfies every
+ * question about coverage by having nothing to be unanswered.
  */
 export class IncompleteStandardError extends Error {
   override readonly name = "IncompleteStandardError";
@@ -92,20 +93,6 @@ export interface UnresolvedStandardRef {
   readonly standard: string;
   readonly clause: string;
   readonly reason: UnresolvedReason;
-}
-
-/** A catalogued clause that no registered check answers for. */
-export interface UncoveredClause {
-  readonly standard: string;
-  /**
-   * The catalogue's own boundary for that standard, carried on the row.
-   *
-   * On the row and not fetched separately, because this is the sentence the
-   * answer is false without: "8.2.3 is covered by nothing" is a fact about the
-   * clauses catalogued here, not about ASVS. See `StandardDefinition.scope`.
-   */
-  readonly scope: string;
-  readonly clause: StandardClause;
 }
 
 interface Registered {
@@ -152,6 +139,17 @@ export class StandardCatalog {
       }
       if (blank(clause.url)) {
         throw new IncompleteStandardError(definition.id, `a source for the clause "${clause.id}"`);
+      }
+      // Absent is a state and blank is not. The field says why nothing here
+      // answers the clause, and a blank one puts an empty cell where a reader
+      // will read a reason — the same failure as a `scope` nobody wrote, one
+      // row down. Whether it should have been present at all is not a question
+      // this door can ask: the catalogue never sees a check.
+      if (clause.unansweredBecause !== undefined && blank(clause.unansweredBecause)) {
+        throw new IncompleteStandardError(
+          definition.id,
+          `a reason on the clause "${clause.id}", which declares that nothing answers it`,
+        );
       }
       if (byClause.has(clause.id)) {
         throw new DuplicateClauseError(definition.id, clause.id);
@@ -210,48 +208,4 @@ export function findUnresolvedStandardRefs(
     }
   }
   return unresolved;
-}
-
-/**
- * The catalogued clauses no registered check answers for.
- *
- * The shape ADR-0025 took the filter off findings for, and the one an evidence
- * pack cannot be complete without: a pack built from findings alone lists what
- * happened to be checked, and the question a reader actually has is what was
- * not.
- *
- * The coverage set is a map of sets rather than one key glued from two strings.
- * A separator between a standard and a clause would be a value both of them may
- * legally contain — the collision `defectSignature` was caught by, where two
- * different signatures joined by a hyphen became one string and two breakages
- * were reported as one. There is nothing to collide here because nothing is
- * joined.
- *
- * Not wired into the report. That is a separate decision about the artifact's
- * shape and about `REPORT_SCHEMA_VERSION`, and the report is being changed on
- * another track; see ADR-0043.
- */
-export function findUncoveredClauses(
-  catalog: StandardCatalog,
-  checks: readonly Check[],
-): readonly UncoveredClause[] {
-  const covered = new Map<string, Set<string>>();
-  for (const check of checks) {
-    for (const ref of check.standards) {
-      const clauses = covered.get(ref.standard) ?? new Set<string>();
-      clauses.add(ref.clause);
-      covered.set(ref.standard, clauses);
-    }
-  }
-
-  const uncovered: UncoveredClause[] = [];
-  for (const definition of catalog.definitions()) {
-    for (const clause of definition.clauses) {
-      if (covered.get(definition.id)?.has(clause.id) === true) {
-        continue;
-      }
-      uncovered.push({ standard: definition.id, scope: definition.scope, clause });
-    }
-  }
-  return uncovered;
 }
