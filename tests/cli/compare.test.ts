@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { diff } from "../../src/cli/compare.js";
+import { UnusableIdentifierError } from "../../src/core/index.js";
 
 let directory: string;
 let stderr: string[];
@@ -153,5 +154,48 @@ describe("two saved reports read against each other", () => {
     const after = await saved("after.json", { hello: "world" });
 
     await expect(diff(before, after, false)).rejects.toThrow();
+  });
+
+  /**
+   * The whole of the ninth door, from a file on disk to what the terminal is
+   * handed.
+   *
+   * Measured on 24 August 2026 against the built tree, before the door existed:
+   * both of these reached `process.stderr` verbatim, so the endpoint id erased
+   * the line the comparison had just printed and the defect key recoloured
+   * everything after it. `src/report/compare.ts` refuses them now — refuses
+   * rather than escapes, because escaping on the way to a terminal is modelling
+   * the terminal, which is the mistake ADR-0032 records about the address.
+   */
+  it("refuses a saved report whose ids would drive the terminal", async () => {
+    const ESCAPE = "\u001b";
+    const before = await saved("before.json", report());
+    const after = await saved(
+      "after.json",
+      report({
+        runId: "22222222-2222-4222-8222-222222222222",
+        startedAt: "2026-08-21T09:00:00.000Z",
+        defects: [{ ...REGRESSION, key: `${ESCAPE}[31mRECOLOURED own none` }],
+        observations: [{ endpointId: `orders.list${ESCAPE}[2K\rSPOOFED` }],
+      }),
+    );
+
+    await expect(diff(before, after, false)).rejects.toThrow(UnusableIdentifierError);
+    // The field, the file, and the character — and the value spelled out rather
+    // than quoted, so that the refusal does not carry what it is refusing.
+    await expect(diff(before, after, false)).rejects.toThrow(
+      /defects\[0\]\.key in the report ".*after\.json" carries U\+001B/,
+    );
+    try {
+      await diff(before, after, false);
+      expect.unreachable("the report was compared");
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain('the value is "\\u001B[31mRECOLOURED own none"');
+      expect(message).not.toContain(ESCAPE);
+    }
+    // And nothing of either file reached the screen before the refusal.
+    expect(stderr.join("")).not.toContain(ESCAPE);
+    expect(stdout).toEqual([]);
   });
 });

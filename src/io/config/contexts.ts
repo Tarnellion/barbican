@@ -81,6 +81,43 @@ export class UnknownContextAccountError extends Error {
 }
 
 /**
+ * Two matrix rows that compose to one identifier.
+ *
+ * The paragraph over `CONTEXT_SEPARATOR` said a collision with a declared account
+ * "will not pass silently: building the matrix rejects duplicate identifiers". It
+ * is rejected, and it is not silent, and both of those were true too late.
+ * Measured on 24 August 2026 against the built tree, with account `a`, account
+ * `a@b`, context `b@c` and context `c` — all four legal identifiers, all four
+ * composing to `a@b@c`:
+ *
+ * - the attribute map is keyed by the composed id, so the second row's headers
+ *   replaced the first's before anything was sent, and the whole run went out
+ *   under one context's conditions while answering for both;
+ * - `barbican run` spent the entire walk — four requests of four — and only then
+ *   met `DuplicateIdError`, whose sentence is `Duplicate account with id "a@b@c"`
+ *   and which says nothing about the substitution;
+ * - `barbican run --dry-run` never builds a matrix, so it printed `Matrix rows: 4
+ *   (declared accounts 2)` and exited 0 with no refusal at all.
+ *
+ * So the refusal moves to where the id is minted, which is before any traffic and
+ * on every path that derives a row. See ADR-0066.
+ */
+export class AmbiguousContextRowError extends Error {
+  constructor(id: string, first: string, second: string) {
+    super(
+      `Two matrix rows are both named "${id}": ${first} and ${second}. An account ` +
+        `under conditions is a row of its own, and its id is the account's and the ` +
+        `context's joined with "${CONTEXT_SEPARATOR}" — a character an account id may ` +
+        `legally carry, because accounts are often named by email addresses. Nothing ` +
+        `downstream can tell the two apart: the attributes are keyed by this id, so ` +
+        `one row's headers replace the other's before a single request goes out, and ` +
+        `the run then answers for conditions it never applied. Rename one of the two.`,
+    );
+    this.name = "AmbiguousContextRowError";
+  }
+}
+
+/**
  * Brings the declared conditions into working form and rejects the unfit ones.
  *
  * Every check here is about silent substitution: conditions that rewrote a
@@ -240,9 +277,15 @@ export function normalizeContexts(
  * The separator in the identifier of an account under conditions.
  *
  * An account under conditions is a matrix row of its own, and it needs an
- * identifier of its own. A collision with an actually declared account (for
- * example, when accounts are named by email addresses) will not pass silently:
- * building the matrix rejects duplicate identifiers.
+ * identifier of its own.
+ *
+ * `@` is a legal character in an account id and in a context id — accounts are
+ * often named by email addresses — so this composition is **ambiguous**, and it
+ * is not made unambiguous by picking a different character: whatever is chosen,
+ * an id may carry it. What makes it safe is that the composition is checked
+ * where it happens. `AmbiguousContextRowError` above is that check and carries
+ * the measurement; until 24 August 2026 the paragraph here said the matrix would
+ * reject the collision, which it does, after the walk.
  */
 const CONTEXT_SEPARATOR = "@";
 
@@ -271,6 +314,12 @@ export function toAccounts(
   const base = baseAccounts(config);
   const attributes = new Map<string, ContextAttributes>();
   const derived: Account[] = [];
+  // A `Map` and not an object: the ids are an operator's and a document's, and a
+  // row named `__proto__` would be written into an object literal as nothing at
+  // all — the collision this exists to catch, uncaught. ADR-0024.
+  const taken = new Map<string, string>(
+    base.map((account) => [account.id, `the declared account "${account.id}"`]),
+  );
 
   for (const context of config.contexts) {
     for (const account of base) {
@@ -278,6 +327,12 @@ export function toAccounts(
         continue;
       }
       const id = `${account.id}${CONTEXT_SEPARATOR}${context.id}`;
+      const row = `account "${account.id}" under context "${context.id}"`;
+      const already = taken.get(id);
+      if (already !== undefined) {
+        throw new AmbiguousContextRowError(id, already, row);
+      }
+      taken.set(id, row);
       derived.push({
         ...account,
         id,

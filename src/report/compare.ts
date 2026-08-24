@@ -30,8 +30,19 @@
  *
  * Pure, like the rest of what a report is built from: the CLI reads the files
  * and this decides what the pair means.
+ *
+ * ## The other side of this module is a document
+ *
+ * `toComparableRun` is a **door**, and until 24 August 2026 it was not treated as
+ * one. A saved report can come from another machine, an earlier build or somebody
+ * else, exactly like an OpenAPI file — and its strings are printed straight onto a
+ * terminal and used as map keys. ADR-0032 is the record of this repository placing
+ * a grammar on the ways in and missing the door with no adapter on it; ADR-0066
+ * listed five parsers, the library door and the resume stream, and missed this
+ * one. See `readable` at the foot of the file.
  */
 
+import { identifier } from "../core/identifiers.js";
 import type { ResourceRelation } from "../core/index.js";
 import { SEVERITY_ORDER } from "../core/index.js";
 import { byCodeUnits } from "../core/order.js";
@@ -812,18 +823,84 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function stringAt(source: string, holder: Readonly<Record<string, unknown>>, key: string): string {
-  const value = holder[key];
-  if (typeof value !== "string") {
-    throw new UnreadableReportError(source, `"${key}" is not a string`);
-  }
-  return value;
+/**
+ * Where in the document a value sits, as the operator reads the file.
+ *
+ * `""` at the root, `defects[3]` inside the fourth defect. It is threaded through
+ * the readers below so that every refusal names the line rather than the field
+ * name alone: `"key" is not a string` is unactionable in a file with forty
+ * defects in it, and so is `The value at key carries U+001B`.
+ */
+function pathTo(holder: string, key: string): string {
+  return holder === "" ? key : `${holder}.${key}`;
 }
 
-function numberAt(source: string, holder: Readonly<Record<string, unknown>>, key: string): number {
+/**
+ * Every string this reader lifts out of a saved report goes through the identifier
+ * grammar, and this is the one place that happens.
+ *
+ * A saved report is a document the tool was handed — from another machine, an
+ * earlier build, or somebody else — exactly like an OpenAPI file or a Postman
+ * collection, and this module is the door with no adapter on it. ADR-0032 is the
+ * record of the same shape twice: a grammar placed on the ways in rather than on
+ * the place the value is used, and the one door nobody enumerated. ADR-0066 named
+ * five parsers, the library door and the resume stream, and missed this one.
+ *
+ * **Every** string, and not only the ones ADR-0066 calls identifiers. Each of
+ * them is printed to a terminal by `renderComparison`, keyed on by `compareRuns`,
+ * or both: `defects[].key` indexes the defect comparison, `observations[].endpointId`
+ * indexes the probed set, a `notProbed` key indexes the skip table, and `runId`,
+ * `startedAt`, `configDigest`, `verdict.reason`, `target.label` and the rest are
+ * printed verbatim. Measured on 24 August 2026: an endpoint id carrying
+ * `U+001B [2K` and a carriage return erases the line it was printed on, and a
+ * defect key carrying `U+001B [31m` recolours the rest of the screen.
+ * None of them has a use for a character that is not text, and none is ever the
+ * empty string in a report this tool wrote — `target.label` is `min(1)` in the
+ * configuration schema, a digest is 64 hex characters, and `citableDefectKey`
+ * writes `any-resource` and `baseline` where a coordinate is missing.
+ *
+ * Refused rather than escaped, for the reason CLAUDE.md gives about the address:
+ * escaping on the way to a terminal is modelling the terminal, and the tool would
+ * then hold an id it can never print back. See ADR-0066.
+ */
+function readable(source: string, path: string, value: string): string {
+  return identifier(value, `${path} in the report "${source}"`);
+}
+
+function stringAt(
+  source: string,
+  holder: Readonly<Record<string, unknown>>,
+  key: string,
+  at = "",
+): string {
+  const path = pathTo(at, key);
+  const value = holder[key];
+  if (typeof value !== "string") {
+    throw new UnreadableReportError(source, `"${path}" is not a string`);
+  }
+  return readable(source, path, value);
+}
+
+/** A field a report may leave out, checked when it is there. */
+function optionalStringAt(
+  source: string,
+  holder: Readonly<Record<string, unknown>>,
+  key: string,
+  at = "",
+): string | undefined {
+  const value = holder[key];
+  return typeof value === "string" ? readable(source, pathTo(at, key), value) : undefined;
+}
+
+function numberAt(
+  source: string,
+  holder: Readonly<Record<string, unknown>>,
+  key: string,
+  at = "",
+): number {
   const value = holder[key];
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new UnreadableReportError(source, `"${key}" is not a number`);
+    throw new UnreadableReportError(source, `"${pathTo(at, key)}" is not a number`);
   }
   return value;
 }
@@ -832,10 +909,11 @@ function objectAt(
   source: string,
   holder: Readonly<Record<string, unknown>>,
   key: string,
+  at = "",
 ): Readonly<Record<string, unknown>> {
   const value = holder[key];
   if (!isRecord(value)) {
-    throw new UnreadableReportError(source, `"${key}" is missing or is not an object`);
+    throw new UnreadableReportError(source, `"${pathTo(at, key)}" is missing or is not an object`);
   }
   return value;
 }
@@ -844,10 +922,11 @@ function arrayAt(
   source: string,
   holder: Readonly<Record<string, unknown>>,
   key: string,
+  at = "",
 ): readonly unknown[] {
   const value = holder[key];
   if (!Array.isArray(value)) {
-    throw new UnreadableReportError(source, `"${key}" is missing or is not an array`);
+    throw new UnreadableReportError(source, `"${pathTo(at, key)}" is missing or is not an array`);
   }
   return value;
 }
@@ -856,12 +935,14 @@ function stringsAt(
   source: string,
   holder: Readonly<Record<string, unknown>>,
   key: string,
+  at = "",
 ): readonly string[] {
-  return arrayAt(source, holder, key).map((one) => {
+  const path = pathTo(at, key);
+  return arrayAt(source, holder, key, at).map((one, index) => {
     if (typeof one !== "string") {
-      throw new UnreadableReportError(source, `"${key}" holds something that is not a string`);
+      throw new UnreadableReportError(source, `"${path}" holds something that is not a string`);
     }
-    return one;
+    return readable(source, `${path}[${index}]`, one);
   });
 }
 
@@ -870,44 +951,53 @@ function countsAt(
   source: string,
   holder: Readonly<Record<string, unknown>>,
   key: string,
+  at = "",
 ): Readonly<Record<string, number>> {
-  const value = objectAt(source, holder, key);
+  const path = pathTo(at, key);
+  const value = objectAt(source, holder, key, at);
   // `openRecord`, not `{}`: the keys are a saved file's, and a reason literally
   // named `__proto__` is swallowed by an object literal — the assignment is a
   // no-op and the row silently disappears from the comparison. ADR-0024.
   const counts = openRecord<number>();
   for (const [reason, count] of Object.entries(value)) {
+    // The key before the count. It is printed — `endpoints skipped as "…"` — and
+    // it indexes the table `compareNotProbed` builds, so it is a string out of a
+    // document doing both the things `readable` is about. Named by its position
+    // rather than by itself, because a message that quoted it would carry what it
+    // is refusing onto the terminal the refusal exists to protect.
+    readable(source, `a key of ${path}`, reason);
     if (typeof count !== "number" || !Number.isFinite(count)) {
-      throw new UnreadableReportError(source, `"${key}.${reason}" is not a number`);
+      throw new UnreadableReportError(source, `"${path}.${reason}" is not a number`);
     }
     counts[reason] = count;
   }
   return counts;
 }
 
-function defectAt(source: string, value: unknown): ComparableDefect {
+function defectAt(source: string, value: unknown, at: string): ComparableDefect {
   if (!isRecord(value)) {
     throw new UnreadableReportError(source, `"defects" holds something that is not an object`);
   }
-  const relation = value["relation"];
-  const contextId = value["contextId"];
+  const contextId = optionalStringAt(source, value, "contextId", at);
+  // The **vocabulary** is still not checked: a relation this build has not heard
+  // of is a report from another vintage, and printing the word back is more use
+  // than refusing the file over it. The characters are, like every other string
+  // lifted out of a document here — see `readable`.
+  const relation = optionalStringAt(source, value, "relation", at);
   const acceptedKinds = value["acceptedKinds"];
   return {
-    key: stringAt(source, value, "key"),
-    endpointId: stringAt(source, value, "endpointId"),
-    kinds: stringsAt(source, value, "kinds"),
-    severity: stringAt(source, value, "severity"),
-    accountIds: stringsAt(source, value, "accountIds"),
-    resourceIds: stringsAt(source, value, "resourceIds"),
-    violations: numberAt(source, value, "violations"),
-    ...(typeof contextId === "string" ? { contextId } : {}),
-    // Not checked against the vocabulary of the core: a relation this build has
-    // not heard of is a report from another vintage, and printing the word back
-    // is more use than refusing the file over it.
-    ...(typeof relation === "string" ? { relation: relation as ResourceRelation } : {}),
+    key: stringAt(source, value, "key", at),
+    endpointId: stringAt(source, value, "endpointId", at),
+    kinds: stringsAt(source, value, "kinds", at),
+    severity: stringAt(source, value, "severity", at),
+    accountIds: stringsAt(source, value, "accountIds", at),
+    resourceIds: stringsAt(source, value, "resourceIds", at),
+    violations: numberAt(source, value, "violations", at),
+    ...(contextId === undefined ? {} : { contextId }),
+    ...(relation === undefined ? {} : { relation: relation as ResourceRelation }),
     ...(acceptedKinds === undefined
       ? {}
-      : { acceptedKinds: stringsAt(source, value, "acceptedKinds") }),
+      : { acceptedKinds: stringsAt(source, value, "acceptedKinds", at) }),
   };
 }
 
@@ -923,14 +1013,18 @@ function defectAt(source: string, value: unknown): ComparableDefect {
  * the comparison makes, with the two versions named, rather than an error that
  * loses which was which.
  *
+ * Every string it does lift goes through the identifier grammar. That is the
+ * ninth door, and the reasoning is on `readable` above.
+ *
  * @throws {UnreadableReportError} naming the file, because a comparison takes two
+ * @throws {UnusableIdentifierError} naming the field and the file it was read from
  */
 export function toComparableRun(value: unknown, source: string): ComparableRun {
   if (!isRecord(value)) {
     throw new UnreadableReportError(source, "the document is not a JSON object");
   }
   const target = objectAt(source, value, "target");
-  const label = target["label"];
+  const label = optionalStringAt(source, target, "label", "target");
   const coverage = objectAt(source, value, "coverage");
   const verdict = objectAt(source, value, "verdict");
   const truncated = value["truncated"];
@@ -944,28 +1038,30 @@ export function toComparableRun(value: unknown, source: string): ComparableRun {
     startedAt: stringAt(source, value, "startedAt"),
     truncated,
     target: {
-      baseUrl: stringAt(source, target, "baseUrl"),
-      ...(typeof label === "string" ? { label } : {}),
+      baseUrl: stringAt(source, target, "baseUrl", "target"),
+      ...(label === undefined ? {} : { label }),
     },
-    defects: arrayAt(source, value, "defects").map((one) => defectAt(source, one)),
-    observations: arrayAt(source, value, "observations").map((one) => {
+    defects: arrayAt(source, value, "defects").map((one, index) =>
+      defectAt(source, one, `defects[${index}]`),
+    ),
+    observations: arrayAt(source, value, "observations").map((one, index) => {
       if (!isRecord(one)) {
         throw new UnreadableReportError(
           source,
           `"observations" holds something that is not an object`,
         );
       }
-      return { endpointId: stringAt(source, one, "endpointId") };
+      return { endpointId: stringAt(source, one, "endpointId", `observations[${index}]`) };
     }),
     coverage: {
-      endpointsTotal: numberAt(source, coverage, "endpointsTotal"),
-      endpointsProbed: numberAt(source, coverage, "endpointsProbed"),
-      cellsObserved: numberAt(source, coverage, "cellsObserved"),
-      notProbed: countsAt(source, coverage, "notProbed"),
+      endpointsTotal: numberAt(source, coverage, "endpointsTotal", "coverage"),
+      endpointsProbed: numberAt(source, coverage, "endpointsProbed", "coverage"),
+      cellsObserved: numberAt(source, coverage, "cellsObserved", "coverage"),
+      notProbed: countsAt(source, coverage, "notProbed", "coverage"),
     },
     verdict: {
-      code: numberAt(source, verdict, "code"),
-      reason: stringAt(source, verdict, "reason"),
+      code: numberAt(source, verdict, "code", "verdict"),
+      reason: stringAt(source, verdict, "reason", "verdict"),
     },
   };
 }

@@ -1,14 +1,18 @@
 /**
  * A decision with one home, and a gate that says what it holds.
  *
- * Two decisions in this repository were each written out several times, each was
- * collapsed into one module on 23 August 2026, and each was given a test to keep
- * it collapsed:
+ * Three decisions in this repository were each written out several times, or
+ * could be, and each has one module and an entry in the tables below:
  *
  * - the **key separator** and the keys glued with it (`src/core/keys.ts`,
  *   ADR-0059);
  * - the **`{name}` grammar** of a path template (`src/core/path-parameters.ts`,
- *   the note of 23 August on ADR-0024).
+ *   the note of 23 August on ADR-0024);
+ * - the **grammar of an identifier** (`src/core/identifiers.ts`, ADR-0066), added
+ *   here on 24 August 2026. It landed with one home and no gate, and a reviewer
+ *   measured what that costs the same day: a second, independent copy of the
+ *   grammar plus a new export `looksLikeAnIdentifier` in `src/report/findings.ts`
+ *   left the whole suite green — 119 files, 1814 passed, 1 skipped.
  *
  * The first gate could be walked around two ways and the second did not exist. A
  * reviewer put a second `cellKey` under another name into `src/report/`, and a
@@ -34,9 +38,10 @@
  *
  * 1. **The raw material does not leave its module.** `KEY_SEPARATOR` is not
  *    exported; `joinKey` is. `path-parameters.ts` never handed out its `RegExp`
- *    and does not start now. A copy elsewhere therefore cannot borrow the
- *    decision — it has to write the decision out again, or reach into the owning
- *    module by name.
+ *    and does not start now. `identifiers.ts` exports three functions and no
+ *    character class — no set, no array, no expression. A copy elsewhere
+ *    therefore cannot borrow the decision — it has to write the decision out
+ *    again, or reach into the owning module by name.
  * 2. **Writing it out again is what the scan reads.** Not one spelling of it: the
  *    sources are tokenised here and the escapes inside their literals are
  *    decoded, so every way of writing the code point zero **into a source
@@ -47,6 +52,16 @@
  *    — the owner's grammar byte for byte — was a literal with no brace in it. A
  *    character computed rather than written is a different matter and is the
  *    first entry under "What it cannot see".
+ *
+ *    The identifier grammar's raw material is **three code points**, read the
+ *    same way in both of the places a copy can put them: as a character inside a
+ *    literal, and as a **numeric literal** in whatever base — `0x9f`, `159`,
+ *    `0b10011111`, `0o237` are one thing here. `U+009F`, `U+2028` and `U+2029`
+ *    are what separates this class from the address grammar's in
+ *    `src/io/untrusted.ts`, which refuses a backslash, the C0 range and DEL and
+ *    stops there; `0x20` and `0x7f` are shared between the two and so are not
+ *    counted, and the three that are not shared are enough, because a copy
+ *    faithful enough to be a copy has to write all three.
  * 3. **Reaching in is enumerated at the import, not at the call.** The first
  *    version of this check counted the text `joinKey(` per module, and
  *    `import { joinKey as glue }` reduced that count to zero — as would
@@ -56,6 +71,16 @@
  *    because the imported name is written in the import whatever the local name
  *    becomes; the local name is banned from differing at all, so that a reader
  *    grepping for `joinKey` still finds every use of it.
+ *
+ *    **A barrel that re-exports an owner is a second address for its names**, and
+ *    it is enumerated as one. `src/core/index.ts` does `export * from
+ *    "./identifiers.js"` on purpose — the three names are on the published
+ *    surface (ADR-0066) — so seven modules could import `identifier` from the
+ *    barrel and never name the owner at all. `CONDUITS` is that allowance,
+ *    written down with the module it stands for, and an import of a watched name
+ *    through it is held to the same table as an import of it from the owner. The
+ *    conduit is also pinned to re-exporting its owner exactly once, in both
+ *    directions.
  * 4. **An owned name outside its owner is an import of it or a call of it, in
  *    any syntactic form.** Not "a declaration in the shapes we listed": the
  *    tokeniser classifies every occurrence, so a `function`, a `const`, a class
@@ -141,6 +166,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import * as identifiers from "../../src/core/identifiers.js";
 import * as keys from "../../src/core/keys.js";
 import { cellKey, joinKey, objectKey } from "../../src/core/keys.js";
 
@@ -154,6 +180,9 @@ const KEYS = "src/core/keys.ts";
 
 /** The module that owns the `{name}` grammar. */
 const GRAMMAR = "src/core/path-parameters.ts";
+
+/** The module that owns the grammar of an identifier. */
+const IDENTIFIERS = "src/core/identifiers.ts";
 
 /**
  * The files that may spell the separator, and how many times each.
@@ -172,7 +201,34 @@ const SEPARATOR_HOMES: ReadonlyMap<string, number> = new Map([
   ["src/adapters/signals.ts", 3],
 ]);
 
-/** Every name one of the two owning modules is the sole home of. */
+/**
+ * The code points that make the identifier class and no other class in this tree.
+ *
+ * `U+009F` closes the C1 range, and `U+2028`/`U+2029` are the two Unicode line
+ * separators. The address grammar in `src/io/untrusted.ts` refuses a backslash,
+ * everything under `U+0020` and DEL, and none of these three — so a module that
+ * writes one of them is either the owner or a second answer to the owner's
+ * question. `0x20` and `0x7f` are deliberately **not** here: both grammars write
+ * them, counting them would put `untrusted.ts` on the list for a reason that is
+ * not this one, and a copy of the identifier class cannot be a copy without all
+ * three of these.
+ */
+const CLASS_POINTS: ReadonlySet<number> = new Set([0x9f, 0x2028, 0x2029]);
+
+/**
+ * The files that may write one of them, and how many times each.
+ *
+ * Exact in both directions, like `SEPARATOR_HOMES`: a fourth mention in the owner
+ * is a widened class nobody argued for, and a mention that disappears means the
+ * scanner has stopped seeing.
+ */
+const CLASS_HOMES: ReadonlyMap<string, number> = new Map([
+  // The owner: the three that are not shared with the address grammar, on the one
+  // line of `isNotText`.
+  [IDENTIFIERS, 3],
+]);
+
+/** Every name one of the three owning modules is the sole home of. */
 const OWNED_NAMES: ReadonlyMap<string, string> = new Map([
   ["joinKey", KEYS],
   ["cellKey", KEYS],
@@ -180,6 +236,33 @@ const OWNED_NAMES: ReadonlyMap<string, string> = new Map([
   ["hasPathParameters", GRAMMAR],
   ["pathParameterNames", GRAMMAR],
   ["fillPathParameters", GRAMMAR],
+  ["identifier", IDENTIFIERS],
+  ["isUsableIdentifier", IDENTIFIERS],
+  ["UnusableIdentifierError", IDENTIFIERS],
+]);
+
+/**
+ * A module that re-exports an owner, and so is a second address for its names.
+ *
+ * One entry, and it is a decision rather than an oversight: ADR-0066 puts
+ * `UnusableIdentifierError`, `isUsableIdentifier` and `identifier` on the
+ * published surface, because the library door holds a consumer to this grammar
+ * and a rule a consumer cannot inspect is a wall rather than a check. `KEYS` and
+ * `GRAMMAR` are on nobody's barrel and must stay off one — an entry added here
+ * for either of them is that decision being made silently.
+ *
+ * An import of a **watched** name through a conduit is held to `REACHES_IN`
+ * exactly as an import from the owner is; every other name the barrel carries is
+ * none of this file's business.
+ */
+const CONDUITS: ReadonlyMap<string, { readonly owner: string; readonly why: string }> = new Map([
+  [
+    "src/core/index.ts",
+    {
+      owner: IDENTIFIERS,
+      why: "the three names are the published surface of the grammar (ADR-0066)",
+    },
+  ],
 ]);
 
 /**
@@ -211,6 +294,28 @@ const REACHES_IN: ReadonlyMap<string, { readonly names: readonly string[]; reado
     ["src/runner/plan.ts", { names: ["hasPathParameters"], why: "what a run can address" }],
     ["src/runner/canaries.ts", { names: ["hasPathParameters"], why: "a canary is not templated" }],
     ["src/runner/address.ts", { names: ["fillPathParameters"], why: "substitution into a path" }],
+    // The seam, and then the doors under it. ADR-0066's table is this list read
+    // the other way round, and the two must not drift: a door that stops asking
+    // still leaves the seam, and a **seventh** door added tomorrow with no entry
+    // here is a module reaching into the owner without a reader having agreed.
+    ["src/core/keys.ts", { names: ["identifier"], why: "the seam every key passes through" }],
+    ["src/core/checks/registry.ts", { names: ["identifier"], why: "a registered check's id" }],
+    ["src/adapters/endpoint-list.ts", { names: ["identifier"], why: "an entry's id" }],
+    ["src/adapters/openapi.ts", { names: ["identifier"], why: "an operationId, and the fallback" }],
+    ["src/adapters/postman.ts", { names: ["identifier"], why: "an item's name and folder path" }],
+    [
+      "src/io/config/parse.ts",
+      { names: ["identifier"], why: "an account, a resource and an acceptance" },
+    ],
+    ["src/io/config/contexts.ts", { names: ["identifier"], why: "a context id" }],
+    [
+      "src/report/compare.ts",
+      { names: ["identifier"], why: "every string lifted out of a saved report" },
+    ],
+    [
+      "src/report/write.ts",
+      { names: ["identifier"], why: "the header and the cells of a resume stream" },
+    ],
   ]);
 
 /**
@@ -637,6 +742,45 @@ function spellsTheSeparator(body: string): number {
   return decodeEscapes(body).split(RAW_SEPARATOR).length - 1;
 }
 
+/**
+ * A word token read as a numeric literal, or `NaN`.
+ *
+ * The tokeniser above makes `0x9f`, `159`, `0b10011111` and `0o237` one word
+ * apiece, because every character of each is in `IDENTIFIER`. `Number` reads all
+ * four as 159, which is the point: a copy of the class may write its code points
+ * in any base, and the base is not the decision.
+ *
+ * The leading-digit guard is what keeps `Number("")` — which is 0 — and an
+ * ordinary name out of it. A numeric separator (`1_59`) reads as `NaN` and is
+ * under "What it cannot see".
+ */
+function numberOf(text: string): number {
+  return /^[0-9]/.test(text) ? Number(text) : Number.NaN;
+}
+
+/**
+ * How many times a source writes one of the identifier class's code points.
+ *
+ * Both places a copy can put one: inside a literal as the character itself, in
+ * any escape spelling (`decodeEscapes` is the same decoder the separator scan
+ * uses), and in code as a numeric literal in any base. A comment is neither, so
+ * prose naming `U+2028` is not a finding — which matters, because the owner's own
+ * header explains the class in words.
+ */
+function spellsTheClass(tokens: readonly Token[]): number {
+  let total = 0;
+  for (const token of tokens) {
+    if (isLiteral(token)) {
+      for (const character of decodeEscapes(token.body)) {
+        if (CLASS_POINTS.has(character.codePointAt(0) ?? -1)) total += 1;
+      }
+      continue;
+    }
+    if (token.kind === "word" && CLASS_POINTS.has(numberOf(token.text))) total += 1;
+  }
+  return total;
+}
+
 /** A repetition count, which is the one thing a brace means that is not a grammar. */
 const QUANTIFIER = /\{\d+(?:,\d*)?\}/g;
 
@@ -914,6 +1058,39 @@ describe("the scanner this gate reads with", () => {
     expect(FROM_A_CODE_POINT.test("String.fromCharCode(one - one)")).toBe(false);
   });
 
+  it("reads a code point of the identifier class in any base, and as the character", () => {
+    const written = (text: string): number => spellsTheClass(tokensOf(text, "<sample>"));
+
+    // In code, in four bases, and the owner's own line.
+    expect(written("const a = 0x9f;")).toBe(1);
+    expect(written("const a = 159;")).toBe(1);
+    expect(written("const a = 0b10011111;")).toBe(1);
+    expect(written("const a = 0o237;")).toBe(1);
+    expect(written("return code >= 0x7f && code <= 0x9f;")).toBe(1);
+    expect(written("return c === 0x2028 || c === 0x2029;")).toBe(2);
+    expect(written("return c === 8232 || c === 8233;")).toBe(2);
+    // In a literal, as the character. The decoder is the one the separator scan
+    // reads with, so the class written out as a character range is caught however
+    // it is spelled. The samples write escapes rather than the characters
+    // themselves, for the reason the separator is never written raw: a control
+    // character in a tracked file makes the file binary to a search over it.
+    expect(written(String.raw`const re = /[\u009f\u2028\u2029]/;`)).toBe(3);
+    expect(written(String.raw`const re = /[\x9f]/;`)).toBe(1);
+    expect(written(String.raw`const s = "\u{2028}";`)).toBe(1);
+    // And the character itself, built rather than written, so that the sample is
+    // the one thing in this file that proves the decoding is not all there is.
+    expect(written(`const s = "${String.fromCodePoint(0x2029)}";`)).toBe(1);
+    // And the neighbours are not it: the two shared with the address grammar, a
+    // decimal that only looks like one, and prose in a comment.
+    expect(written("return code < 0x20 || code === 0x7f;")).toBe(0);
+    expect(written("const a = 2028;")).toBe(0);
+    expect(written("// the two line separators are 0x2028 and 0x2029")).toBe(0);
+    // The limit, pinned so that nobody reads the scan as more than it is.
+    expect(written("const a = 0x9e + 1;")).toBe(0);
+    expect(written('const a = Number.parseInt("9f", 16);')).toBe(0);
+    expect(written("const a = 1_59;")).toBe(0);
+  });
+
   it("tells a grammar of braces from a quantifier", () => {
     const grammar = (body: string): boolean => isBraceGrammar({ kind: "regex", body, line: 1 });
     expect(grammar("\\{([^}]+)\\}")).toBe(true);
@@ -1059,6 +1236,9 @@ describe("one decision, one home", () => {
     for (const path of KEY_BUILDERS.keys()) expect(sources).toContain(path);
     for (const path of BRACE_GRAMMARS.keys()) expect(sources).toContain(path);
     for (const path of REGEXP_MENTIONS.keys()) expect(sources).toContain(path);
+    for (const path of CLASS_HOMES.keys()) expect(sources).toContain(path);
+    for (const path of CONDUITS.keys()) expect(sources).toContain(path);
+    for (const owner of new Set(OWNED_NAMES.values())) expect(sources).toContain(owner);
     // And that the widened scope really does reach past `src/`, which is where
     // the byte ADR-0059 could not see was sitting.
     expect(everything.filter((path) => path.startsWith("docs/adr/")).length).toBeGreaterThan(50);
@@ -1124,23 +1304,73 @@ describe("one decision, one home", () => {
     ).toEqual([]);
   });
 
+  it("hands out the rule and not the class of characters", () => {
+    // The same seam one module over. `isNotText` is private, and so is every
+    // spelling of what it decides: no set, no array, no expression, no list of
+    // code points. What leaves is three functions that answer the question, so a
+    // copy elsewhere cannot borrow the class — it has to write the class out, and
+    // writing it out is what the scan below reads.
+    expect(Object.keys(identifiers).sort()).toEqual([
+      "UnusableIdentifierError",
+      "identifier",
+      "isUsableIdentifier",
+    ]);
+    expect(
+      Object.entries(identifiers)
+        .filter(([, value]) => typeof value !== "function")
+        .map(([name]) => name),
+      "Something other than a function leaves src/core/identifiers.ts. A code " +
+        "point, a set of them or an expression over them is the raw material, and " +
+        "handing it out is how a second implementation becomes a second reference " +
+        "that nobody notices. See ADR-0066.",
+    ).toEqual([]);
+  });
+
+  it("writes the identifier class's code points in one module", () => {
+    const written = sources
+      .map((path) => ({ path, count: spellsTheClass(tokensFor(path)) }))
+      .filter((file) => file.count !== (CLASS_HOMES.get(file.path) ?? 0))
+      .map((file) => `${file.path} (${file.count})`);
+
+    expect(
+      written,
+      `A code point of the identifier class is written where it should not be, or ` +
+        `is no longer written where it should: ${written.join(", ")}. U+009F, ` +
+        `U+2028 and U+2029 are what tells this class from the address grammar's, ` +
+        `and every base and every escape spelling of one is the same thing here. ` +
+        `There is no class to import: call identifier or isUsableIdentifier. ` +
+        `See ADR-0066.`,
+    ).toEqual([]);
+  });
+
   it("lets the listed modules reach into an owning module, and no others", () => {
     const wrong: string[] = [];
     for (const path of sources) {
-      if (owners.has(path)) continue;
       const allowed = REACHES_IN.get(path)?.names ?? [];
       for (const declaration of importsFor(path)) {
-        if (declaration.module === undefined || !owners.has(declaration.module)) continue;
+        const module = declaration.module;
+        // A conduit is the owner's second address, so an import of a watched name
+        // through it is the same reach; every other name a barrel carries is not
+        // this file's business.
+        const conduit = module === undefined ? undefined : CONDUITS.get(module);
+        if (module === undefined || (!owners.has(module) && conduit === undefined)) continue;
+        // An owner importing from itself cannot happen, and an owner importing
+        // from another owner is a reach like any other: `src/core/keys.ts` asks
+        // `identifiers.ts` for the seam, and that is an entry in the table.
+        if (module === path) continue;
         if (declaration.namespace) {
-          wrong.push(`${path}:${declaration.line} imports ${declaration.module} as a namespace`);
+          wrong.push(`${path}:${declaration.line} imports ${module} as a namespace`);
           continue;
         }
         for (const one of declaration.names) {
+          if (conduit !== undefined && !OWNED_NAMES.has(one.name)) continue;
           if (one.local !== one.name) {
             wrong.push(`${path}:${one.line} imports ${one.name} under the name ${one.local}`);
           }
           if (!allowed.includes(one.name)) {
-            wrong.push(`${path}:${one.line} imports ${one.name}`);
+            wrong.push(
+              `${path}:${one.line} imports ${one.name}${conduit === undefined ? "" : ` through ${module}`}`,
+            );
           }
         }
       }
@@ -1155,17 +1385,30 @@ describe("one decision, one home", () => {
     ).toEqual([]);
   });
 
-  it("mentions an owning module's path only in an import of it", () => {
+  it("mentions an owning module's path only in an import of it, or in the one conduit", () => {
     const wrong: string[] = [];
+    const reExported = new Map<string, number>();
     for (const path of sources) {
       const declarations = importsFor(path);
       for (const [at, token] of tokensFor(path).entries()) {
         if (!isLiteral(token) || token.kind !== "string") continue;
         const target = moduleOf(path, token.body);
         if (target === undefined || !owners.has(target) || target === path) continue;
-        if (!declarations.some((one) => one.last === at)) {
-          wrong.push(`${path}:${token.line} names ${target} outside an import`);
+        if (declarations.some((one) => one.last === at)) continue;
+        if (CONDUITS.get(path)?.owner === target) {
+          reExported.set(path, (reExported.get(path) ?? 0) + 1);
+          continue;
         }
+        wrong.push(`${path}:${token.line} names ${target} outside an import`);
+      }
+    }
+    // Exact in both directions, like every count in this file. A conduit that has
+    // stopped re-exporting its owner means the surface ADR-0066 argued for is
+    // gone; a second mention means the barrel is doing something else with it.
+    for (const [path, conduit] of CONDUITS) {
+      const times = reExported.get(path) ?? 0;
+      if (times !== 1) {
+        wrong.push(`${path} re-exports ${conduit.owner} ${times} times rather than once`);
       }
     }
 
@@ -1173,20 +1416,27 @@ describe("one decision, one home", () => {
       wrong,
       `An owning module's path is written somewhere that is not an import of it: ` +
         `${wrong.join("; ")}. \`export … from\` and a dynamic import both put the ` +
-        `owner's names somewhere the import table cannot see them.`,
+        `owner's names somewhere the import table cannot see them — which is why ` +
+        `the one barrel allowed to do it is in CONDUITS, with the reason and a ` +
+        `count, and why an import through it is held to REACHES_IN all the same.`,
     ).toEqual([]);
   });
 
   it("uses an owned name outside its owner only by calling what was imported", () => {
     const wrong: string[] = [];
     for (const path of sources) {
-      if (owners.has(path)) continue;
       const imported = new Set(
         importsFor(path)
-          .filter((one) => one.module !== undefined && owners.has(one.module))
+          .filter(
+            (one) =>
+              one.module !== undefined && (owners.has(one.module) || CONDUITS.has(one.module)),
+          )
           .flatMap((one) => one.names.map((name) => name.name)),
       );
       for (const one of occurrencesOf(tokensFor(path), importsFor(path), watched, path)) {
+        // Per name rather than per file: three owners now, and one of them —
+        // `src/core/keys.ts` — both owns names and calls another owner's.
+        if (OWNED_NAMES.get(one.name) === path) continue;
         if (one.role === "import") continue;
         if (one.role !== "call") {
           wrong.push(

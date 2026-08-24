@@ -30,6 +30,7 @@ export {
   MethodOverrideInContextError,
 } from "./config/basis.js";
 export {
+  AmbiguousContextRowError,
   DuplicateContextIdError,
   toAccounts,
   UnknownContextAccountError,
