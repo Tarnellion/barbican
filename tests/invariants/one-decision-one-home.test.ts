@@ -198,7 +198,6 @@ const REACHES_IN: ReadonlyMap<string, { readonly names: readonly string[]; reado
   new Map([
     ["src/core/defects.ts", { names: ["joinKey"], why: "a defect signature" }],
     ["src/core/accepted.ts", { names: ["joinKey"], why: "the acceptance index" }],
-    ["src/io/config/parse.ts", { names: ["joinKey"], why: "the duplicate-acceptance refusal" }],
     [
       "src/report/findings.ts",
       { names: ["cellKey", "joinKey"], why: "the cell a finding names, and its evidence budget" },
@@ -235,10 +234,6 @@ const KEY_BUILDERS: ReadonlyMap<string, { readonly calls: number; readonly key: 
     [KEYS, { calls: 2, key: "the owner: the cell key and the object key" }],
     ["src/core/defects.ts", { calls: 1, key: "endpoint, relation, conditions — a signature" }],
     ["src/core/accepted.ts", { calls: 1, key: "signature and kind — the acceptance index" }],
-    [
-      "src/io/config/parse.ts",
-      { calls: 1, key: "citable defect and kind — the duplicate-acceptance refusal" },
-    ],
     [
       "src/report/findings.ts",
       { calls: 1, key: "kind and signature — the per-defect evidence budget" },
@@ -1226,7 +1221,7 @@ describe("one decision, one home", () => {
     ).toEqual([]);
   });
 
-  it("lets five modules call joinKey, each for one key of its own", () => {
+  it("lets four modules call joinKey, each for one key of its own", () => {
     const wrong = sources
       .map((path) => ({
         path,

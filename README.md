@@ -940,6 +940,18 @@ further sentences were false about history and are corrected: this repository is
 twelve days old, so no duplicate in it has "agreed for months", and neither
 ADR-0024 nor ADR-0032 describes a report that said `match: true`.
 
+**A configuration that names one defect twice is still refused, and one that
+does not is no longer refused with it**
+([ADR-0048](docs/adr/0048-a-finding-can-be-known-and-still-reported.md), note of
+24 August 2026). The duplicate check keyed on the citable form of a defect's
+coordinates — the string meant for a person to paste into a ticket, which joins
+with a space and writes `baseline` where there is no context — while the report
+matches a finding on the NUL-joined signature. Nothing reserves the word
+`baseline` or forbids a space in an id, so a file could be refused for naming one
+defect twice when it named two. The check now asks the same function the report
+does; the message still prints the citable string, because that is what the
+operator wrote.
+
 Three things changed behaviour. Two are in the safe direction: an acceptance whose
 `until` names a day that does not exist — `2026-11-31` — used to roll over into
 the next day through the library door and now reads as lapsed, and the same

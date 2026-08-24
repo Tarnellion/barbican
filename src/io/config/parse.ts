@@ -17,6 +17,7 @@ import type { AuthScheme } from "../../adapters/credentials.js";
 import { assertAuthSchemeIsSound, DEFAULT_AUTH_SCHEME } from "../../adapters/credentials.js";
 import type { Acceptance, ExpectedAccessPolicy, Resource } from "../../core/index.js";
 import {
+  acceptanceKeyOf,
   assertIndependentMemberships,
   assertPolicyIsSound,
   BODY_OVER_LIMIT_SIGNAL,
@@ -28,7 +29,6 @@ import {
   FLAT_HIERARCHY,
   isUsablePathSegment,
 } from "../../core/index.js";
-import { joinKey } from "../../core/keys.js";
 import { FORBIDDEN_QUERY_KEYS, ForbiddenResourceQueryError, WRITE_METHOD_WORDS } from "./basis.js";
 import { normalizeContexts } from "./contexts.js";
 import { parseConfigDocument } from "./schema.js";
@@ -608,15 +608,26 @@ export function parseRunConfig(source: string): RunConfig {
       until: declared.until,
       ...(declared.ticket === undefined ? {} : { ticket: declared.ticket }),
     };
-    // The citable key and the kind, which is exactly what the report matches a
-    // finding on. Composed from the same function `defects[].key` is, so "two
-    // entries for one defect" here means the same thing it means there.
+    // Keyed by `acceptanceKeyOf` — the function the report matches a finding
+    // with — and not by the citable form, which is what this did until
+    // 24 August 2026 and which is a different key.
+    //
+    // The citable form joins with a space and writes `baseline` for an absent
+    // context; the signature joins with NUL and writes nothing. `context` is any
+    // non-empty string, so it can be spelled `baseline`, and then an acceptance
+    // with no context and one naming the context `baseline` had the same citable
+    // key and different signatures: refused here as one entry twice, while the
+    // report would have matched them to two different findings. A space is a
+    // separator that occurs in the parts, which is why the signature does not
+    // use one — this check had borrowed the human-readable string as a map key.
+    //
+    // The citable form is still what the message prints, because that is the
+    // string the operator wrote and will search their file for.
     const defect = citableDefectKey(acceptance);
-    const key = joinKey(defect, acceptance.kind);
-    if (acceptedKeys.has(key)) {
+    if (acceptedKeys.has(acceptanceKeyOf(acceptance, acceptance.kind))) {
       throw new DuplicateAcceptanceError(where, defect, acceptance.kind);
     }
-    acceptedKeys.add(key);
+    acceptedKeys.add(acceptanceKeyOf(acceptance, acceptance.kind));
     accepted.push(acceptance);
   }
 

@@ -35,6 +35,36 @@ function config(accepted: string) {
   return parseRunConfig(`${HEAD}accepted:\n${accepted}`);
 }
 
+/**
+ * The same, with two contexts declared, each with the policy rule the format
+ * requires of a declared context.
+ *
+ * The names are the point: `baseline` is what the citable key writes where there
+ * is no context at all, and `same-tenant` is a relation, so a space-joined key
+ * cannot tell `relation: own, context: same-tenant` from `relation: same-tenant`
+ * with no context. Nothing reserves either name.
+ */
+function configWithContexts(accepted: string) {
+  return parseRunConfig(
+    `
+target: { baseUrl: "https://a.test", allowedHosts: [a.test] }
+accounts:
+  - { id: alice, role: user, tenant: t-a, tokenEnv: A }
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [orders.list], context: baseline, outcome: denied }
+    - { roles: "*", endpoints: [orders.list], context: "c", outcome: denied }
+    - { roles: "*", endpoints: [orders.list], context: "same-tenant c", outcome: denied }
+contexts:
+  - { id: baseline, endpoints: [orders.list], headers: { x-note: one } }
+  - { id: "c", endpoints: [orders.list], headers: { x-note: two } }
+  - { id: "same-tenant c", endpoints: [orders.list], headers: { x-note: three } }
+accepted:
+` + accepted,
+  );
+}
+
 describe("a declared acceptance", () => {
   it("carries the coordinates of a defect, a reason and a deadline", () => {
     const parsed = config(`
@@ -145,6 +175,49 @@ describe("a declared acceptance", () => {
   - { endpoint: orders.list, kind: privilege-escalation, reason: second, until: 2027-01-01 }
 `),
     ).toThrow(DuplicateAcceptanceError);
+  });
+
+  /**
+   * The check that refuses a second entry has to be the one the report matches
+   * with, and until 24 August 2026 it was not.
+   *
+   * It keyed on the citable form — the string an operator pastes into a ticket —
+   * which joins with a space and writes `baseline` where there is no context.
+   * The report keys on `acceptanceKeyOf`, which joins with NUL and writes
+   * nothing. A `context` is any non-empty string, so it can be called
+   * `baseline`: the two entries below then had one citable key and two
+   * signatures. The file was refused, and had it been accepted the report would
+   * have matched each to a different finding. The stricter check was not the
+   * safer one — it refused a declaration the tool can act on.
+   */
+  it("is a different declaration under a context spelled like the absent one", () => {
+    expect(
+      configWithContexts(`
+  - { endpoint: orders.list, kind: privilege-escalation, reason: a, until: 2026-11-30 }
+  - { endpoint: orders.list, context: baseline, kind: privilege-escalation, reason: b, until: 2026-11-30 }
+`).accepted,
+    ).toHaveLength(2);
+  });
+
+  /**
+   * The separator itself. A space joins the citable form and occurs inside the
+   * parts it joins, so two different triples can spell one string:
+   *
+   *     "orders.list own" + same-tenant + "c"    -> "orders.list own same-tenant c"
+   *     "orders.list"     + own         + "same-tenant c"
+   *
+   * An endpoint id and a context id are each `z.string().min(1)`, so both are
+   * legal. The signature joins with NUL, which no identifier holds, and tells
+   * them apart. This is the collision the comment above `defectSignature` says
+   * it exists to avoid, reached through the key the duplicate check was using.
+   */
+  it("is a different declaration where the citable forms collide", () => {
+    expect(
+      configWithContexts(`
+  - { endpoint: "orders.list own", relation: same-tenant, context: "c", kind: privilege-escalation, reason: a, until: 2026-11-30 }
+  - { endpoint: orders.list, relation: own, context: "same-tenant c", kind: privilege-escalation, reason: b, until: 2026-11-30 }
+`).accepted,
+    ).toHaveLength(2);
   });
 
   it("is a different declaration under a different relation", () => {

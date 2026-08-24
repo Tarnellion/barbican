@@ -182,3 +182,40 @@ Revisit if the deadline turns out to be the wrong bound in practice — if teams
 routinely extend the same entry, the honest reading is that the deadline is
 theatre and the entry is a policy rule that nobody wants to write. The number to
 watch is `summary.accepted.expired` across runs.
+
+## Note, 24 August 2026: the duplicate check was reading the human form
+
+Two acceptances of one defect are refused, because two deadlines on one finding
+would leave the file's meaning to the order of its lines. That check keyed on
+`citableDefectKey` — the string this ADR exported for people to paste into a
+ticket — while the report matches a finding with `acceptanceKeyOf`, built on
+`defectSignature`. Two keys, one described in the code as being "exactly what the
+report matches a finding on". It was not.
+
+They differ in both parts. The citable form writes `any-resource` and `baseline`
+where a coordinate is absent, and joins with a space; the signature writes
+nothing and joins with NUL. Nothing reserves either sentinel, and both an
+endpoint id and a context id are `z.string().min(1)`, so:
+
+- an acceptance with no context and one naming a context called `baseline` had
+  one citable key and two signatures — refused as a duplicate, though the report
+  would have matched each to a different finding;
+- `"orders.list own" + same-tenant + "c"` and `"orders.list" + own +
+  "same-tenant c"` are one citable string and two signatures — the collision the
+  comment above `defectSignature` says the NUL exists to avoid, reached through
+  the key the check was using.
+
+The check now uses `acceptanceKeyOf`, and the message still prints the citable
+form, because that is the string the operator wrote and will search their file
+for. Both cases are in `tests/io/accepted.test.ts` and both go red under the old
+key — measured, not argued.
+
+This is a change in which configurations are accepted, in the permissive
+direction: files that were refused are now parsed. Nothing that was accepted
+becomes refused, because the signature separates every triple the citable form
+separates and two it does not.
+
+The general lesson is the one ADR-0059 is about, in the direction nobody was
+watching: a string built for people to read had become a map key. A form meant
+for a human is allowed to be ambiguous — that is what makes it readable — and
+that is exactly what disqualifies it from deciding identity.
