@@ -134,7 +134,7 @@ npm install barbican
 barbican run --help
 ```
 
-`0.5.0` is the current release, and the one to install. Publishing goes through
+`0.6.0` is the current release, and the one to install. Publishing goes through
 CI with provenance, so `npm audit signatures` verifies it against this repository
 and the workflow that built it.
 
@@ -618,11 +618,10 @@ refusals this tool cannot recognise. **Nothing in it is a percentage** — a
 percentage hides its denominator, and claiming a clause covered over a surface
 the tool could not see is the same class of lie as a falsely clean run.
 
-### Unreleased
+### What changed in 0.6.0
 
-On `main`, not on npm. `0.5.0` is what `npm install barbican` gives you. Most of
-the work below changes nothing a consumer can observe; the last entry does, and
-says exactly what.
+Most of the work below changes nothing a consumer can observe; the entries that
+do say exactly what, and there are four of them.
 
 **The modules that were half the source are split by what they do.**
 `report/build`, `io/config`, `cli` and `runner` were 3012, 2832, 1872 and 1726
@@ -1368,7 +1367,7 @@ A release is three edits and a tag, in one commit:
 
 ```bash
 # the tag must match package.json's version — the workflow verifies it
-git tag v0.5.0 && git push origin v0.5.0
+git tag v0.6.0 && git push origin v0.6.0
 ```
 
 The tag triggers [`release.yml`](https://github.com/Tarnellion/barbican/blob/main/.github/workflows/release.yml): it runs the same
