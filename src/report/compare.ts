@@ -348,8 +348,7 @@ function compareCoverage(
   after: ComparableRun,
   probed: ProbedEndpoints,
 ): CoverageDifference {
-  const probedBefore = probed.before;
-  const probedAfter = probed.after;
+  const { before: probedBefore, after: probedAfter } = probed;
   const noLongerProbed = [...probedBefore].filter((id) => !probedAfter.has(id)).sort(byCodeUnits);
   const newlyProbed = [...probedAfter].filter((id) => !probedBefore.has(id)).sort(byCodeUnits);
   // Two ways of looking at less, and the endpoint set is the one the defect
@@ -475,8 +474,7 @@ function compareDefects(
   // this is not `defects[].key`.
   const beforeBySignature = new Map(before.defects.map((one) => [defectIdentity(one), one]));
   const afterBySignature = new Map(after.defects.map((one) => [defectIdentity(one), one]));
-  const probedBefore = probed.before;
-  const probedAfter = probed.after;
+  const { before: probedBefore, after: probedAfter } = probed;
 
   const gone: DefectAppearance[] = [];
   const changed: ChangedDefect[] = [];

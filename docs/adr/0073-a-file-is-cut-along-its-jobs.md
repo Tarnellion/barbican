@@ -22,6 +22,11 @@ measured before anything was decided:
 | `src/report/pack.ts` | 855 | 353 | 40 | 462 |
 | `src/report/findings.ts` | 793 | 342 | 24 | 427 |
 
+Taken before this round's own change, which is why `compare.ts` is 1 023 lines in
+the tree this document lands in: the paragraph it grew is the one on
+`ProbedEndpoints`. A file that gets longer by being explained is the thing this
+table is about.
+
 The first row is the whole argument about `shape.ts`: **77% of it is prose.** It
 is a type graph with the reasoning written beside each field, and the reasoning
 is what makes it worth reading. Splitting a type graph puts a field on one side
@@ -52,12 +57,13 @@ on:
   to make true — every string out of a saved report goes through the identifier
   grammar — and its header says what stays with each reader above it: *"Each
   reader above it names the fields it needs and stops there."* Naming the fields
-  a pack needs is the pack's business, and it is 85 lines.
+  a pack needs is the pack's business: 156 lines, 114 of them code, and every one
+  of them a field name and the type it must be.
 - **`compare.ts` — comparing, rendering the comparison, and reading a saved
   report.** This is the one with a defensible second seam: the directory already
   pairs a builder with a renderer twice, `build.ts` with `write.ts` and `pack.ts`
-  with `page.ts`, and `renderComparison` is 195 lines that decide nothing. It is
-  still not cut, for two reasons. The file is six commits old and nothing has
+  with `page.ts`, and the render half is 197 lines — 149 of them code — that
+  decide nothing. It is still not cut, for two reasons. The file is six commits old and nothing has
   gone wrong in it that a seam would have prevented; and the render half reads
   the comparison types and writes none of them, so a reader following a sentence
   back to the number it prints would cross a module boundary that buys them
