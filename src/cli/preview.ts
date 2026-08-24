@@ -71,10 +71,17 @@ export function describePlan(
   const byId = new Map(skipped.map((entry) => [entry.endpointId, entry.reason]));
   const rows = endpoints.map((endpoint) => {
     const reason = byId.get(endpoint.id);
+    // Indexed, with no `?? reason` under it. The reason came from the plan this
+    // function just made, so it is one of the four the table is now keyed by, and
+    // a fallback nothing can reach reads as a rule about reasons this screen has
+    // no wording for — the same unreachable-fallback-as-policy the `?? ""` and
+    // the `?? 1` in this file were deleted for on 23 August 2026. The summary's
+    // half of the same table keeps its fallback, because the report it reads from
+    // is a document and its reasons are plain strings; see `skipBreakdown`.
     const mark =
       reason === undefined
         ? paint("probe", "green")
-        : `${paint("skip", "yellow")}: ${SKIP_REASONS[reason]?.long ?? reason}`;
+        : `${paint("skip", "yellow")}: ${SKIP_REASONS[reason].long}`;
     return `  ${endpoint.id}  (${endpoint.method} ${endpoint.path})  ${mark}`;
   });
 
