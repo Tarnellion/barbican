@@ -216,6 +216,104 @@ describe("the walk a resumed run carries in", () => {
   });
 });
 
+/**
+ * A stream is a document the tool was handed, and it is read back by a door now.
+ *
+ * ADR-0066's table listed it as covered by "the seam only": `joinKey` refuses a
+ * coordinate that is not an identifier, so nothing hostile in a stream can glue
+ * two cells into one entry. What the seam cannot do is name the file — it says
+ * `A coordinate of a key carries U+0000` from inside `cellKey`, half a walk
+ * after `--resume` read the line. Every string this reader lifts is also printed
+ * back at an operator: `version` and `declaration` in the two refusals above,
+ * `runId` and `startedAt` because a resumed run adopts them, and `runId` again on
+ * the wire in the `run=` marker.
+ */
+describe("a stream carrying something that cannot be a name", () => {
+  const ESCAPE = "\u001b";
+  const NUL = "\u0000";
+
+  /** A stream written by hand, because `openObservationStream` writes valid ones. */
+  async function handWritten(lines: readonly object[]): Promise<string> {
+    const path = join(directory, "hostile.stream.ndjson");
+    await writeFile(path, `${lines.map((one) => JSON.stringify(one)).join("\n")}\n`, "utf8");
+    return path;
+  }
+
+  const resume = async (path: string): Promise<unknown> =>
+    readCarriedWalk({ streamPath: path, resume: true, declaration: DECLARATION, version: VERSION });
+
+  it("names the cell and the file, rather than leaving it to the seam", async () => {
+    const path = await handWritten([
+      { kind: "header", ...HEADER },
+      { kind: "cell", ...cell("orders.list") },
+      { kind: "cell", ...cell(`invoices${NUL}list`) },
+    ]);
+
+    await expect(resume(path)).rejects.toThrow(
+      /The endpointId of cell 2 in the observation stream ".*hostile\.stream\.ndjson" carries U\+0000/,
+    );
+  });
+
+  it("asks about the account and the resource of a cell too", async () => {
+    const withAccount = await handWritten([
+      { kind: "header", ...HEADER },
+      { kind: "cell", ...cell("orders.list"), accountId: `player${ESCAPE}[2K` },
+    ]);
+    await expect(resume(withAccount)).rejects.toThrow(/The accountId of cell 1 .* carries U\+001B/);
+
+    const withResource = await handWritten([
+      { kind: "header", ...HEADER },
+      { kind: "cell", ...cell("orders.list"), resourceId: `o-1${NUL}` },
+    ]);
+    await expect(resume(withResource)).rejects.toThrow(
+      /The resourceId of cell 1 .* carries U\+0000/,
+    );
+  });
+
+  /**
+   * Before the comparison, because the comparison prints what it refuses: the
+   * version mismatch quotes `header.version` straight onto the terminal, and so
+   * does the declaration mismatch.
+   */
+  it("asks about the header before printing any of it back", async () => {
+    // Every field of `ObservationStreamHeader`, one per iteration. The reader
+    // walks a written-out list of names rather than the keys of the parsed
+    // object — a key out of a document has no business in a message — so this
+    // loop is what says the list still covers the interface: a field added to
+    // one and not the other fails here.
+    const each = [
+      ["format", `${OBSERVATION_STREAM_FORMAT}\n`, "000A"],
+      ["tool", `barbican${ESCAPE}[2K`, "001B"],
+      ["version", `9.9.9${ESCAPE}[31m`, "001B"],
+      ["declaration", `${DECLARATION}${ESCAPE}[2K`, "001B"],
+      ["runId", `8b1f0a4e${NUL}`, "0000"],
+      ["startedAt", `2026-08-21T10:00:00.000Z${NUL}`, "0000"],
+    ] as const;
+    expect(each.map(([field]) => field)).toEqual(Object.keys(HEADER));
+
+    for (const [field, value, code] of each) {
+      const path = await handWritten([
+        { kind: "header", ...HEADER, [field]: value },
+        { kind: "cell", ...cell("orders.list") },
+      ]);
+
+      await expect(resume(path), field).rejects.toThrow(
+        new RegExp(`The ${field} in the header of the observation stream ".*" carries U\\+${code}`),
+      );
+    }
+  });
+
+  /** And a stream this tool wrote is read as it always was. */
+  it("carries a healthy stream in unchanged", async () => {
+    const path = join(directory, "healthy.stream.ndjson");
+    await leftBehind(path);
+
+    await expect(resume(path)).resolves.toMatchObject({
+      from: { runId: HEADER.runId, startedAt: HEADER.startedAt },
+    });
+  });
+});
+
 describe("the stream a run leaves behind", () => {
   const opened = {
     version: VERSION,

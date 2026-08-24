@@ -38,8 +38,11 @@ import {
 } from "../../src/core/index.js";
 import { cellKey, joinKey, objectKey } from "../../src/core/keys.js";
 import { parseRunConfig } from "../../src/io/config.js";
+import { toComparableRun } from "../../src/report/compare.js";
 
 const NUL = "\u0000";
+/** `U+001B`, which opens a sequence a terminal obeys. An escape, for the reason above. */
+const ESCAPE = "\u001b";
 
 describe("the grammar", () => {
   it("takes a name a person would write, in any script", () => {
@@ -305,6 +308,49 @@ describe("the doors", () => {
     ).rejects.toThrow(/The operationId of GET \/v1\/orders carries U\+0000/);
   });
 
+  /**
+   * The fallback, which the door said it did not have to ask about.
+   *
+   * The comment over the call read: "The generated fallback needs none: the
+   * method comes from a closed set and the path has been through `pathTemplate`
+   * two loops up." Measured false on 24 August 2026 — the two grammars refuse
+   * different classes. `isNeverInAPath` refuses a backslash, the C0 range and
+   * DEL; this one refuses those and the C1 range and the two line separators, so
+   * `U+0085` and `U+2028` walk through the first and are stopped by the second.
+   * The id then reached the seam in `joinKey` mid-walk, as `A coordinate of a
+   * key`, with no operation named.
+   */
+  it("the specification: the id generated where there is no operationId", async () => {
+    const parser = createOpenApiParser();
+    const spec = (path: string): string =>
+      `openapi: 3.0.0\n` +
+      `info: { title: t, version: "1" }\n` +
+      `paths:\n` +
+      `  "${path}":\n` +
+      `    get:\n` +
+      `      responses: { "200": { description: ok } }\n`;
+
+    // Admitted by the address grammar and refused by this one, both of them. The
+    // sentence names no path: the value is the method and the path, so the
+    // spelled-out form is the location — and it is the only safe way to give it,
+    // because a message quoting the path would carry the character it refuses.
+    for (const [character, name] of [
+      ["\\u0085", "0085"],
+      ["\\u2028", "2028"],
+    ] as const) {
+      const refusal = parser.parse(spec(`/v1/a${character}b`));
+      await expect(refusal).rejects.toThrow(
+        `The id generated for an operation that declares no operationId carries U+${name}`,
+      );
+      await expect(refusal).rejects.toThrow(`the value is "GET /v1/a${character}b"`);
+    }
+    // And the path that is only unusual: a space is a legal character in a name,
+    // so the generated id is one.
+    await expect(parser.parse(spec("/v1/a b"))).resolves.toEqual([
+      { id: "GET /v1/a b", method: "GET", path: "/v1/a b" },
+    ]);
+  });
+
   it("the collection: the name an endpoint id is built out of", async () => {
     const parser = createPostmanCollectionParser();
     const collection = JSON.stringify({
@@ -320,6 +366,120 @@ describe("the doors", () => {
     await expect(parser.parse(collection)).rejects.toThrow(
       /The name of an item under <collection root> carries U\+0000/,
     );
+  });
+
+  /**
+   * The ninth door: a saved report, read back by `barbican diff`.
+   *
+   * ADR-0066 counted five parsers, the library door and the resume stream, and
+   * missed this one — the same shape ADR-0032 records twice, a guard on the ways
+   * in and nothing on the door with no adapter behind it. Measured on 24 August
+   * 2026 against the built tree: `U+001B` `[2K` and a carriage return in
+   * `observations[].endpointId` erased the line the comparison printed it on, and
+   * `U+001B` `[31m` in `defects[].key` recoloured everything after it.
+   *
+   * Every string is asked, not only the two that were measured. Each of them is
+   * printed by `renderComparison`, keyed on by `compareRuns`, or both.
+   */
+  it("a saved report: every string the comparison lifts out of it", () => {
+    const report = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+      schemaVersion: "2",
+      runId: "11111111-1111-4111-8111-111111111111",
+      configDigest: "a".repeat(64),
+      startedAt: "2026-08-24T09:00:00.000Z",
+      truncated: false,
+      target: { baseUrl: "https://api.test", label: "staging" },
+      defects: [],
+      observations: [],
+      coverage: { endpointsTotal: 1, endpointsProbed: 1, cellsObserved: 1, notProbed: {} },
+      verdict: { code: 0, reason: "no discrepancy with the declared policy" },
+      ...over,
+    });
+    const fullDefect = {
+      key: "orders.list any-resource baseline",
+      endpointId: "orders.list",
+      kinds: ["privilege-escalation"],
+      severity: "critical",
+      accountIds: ["carol-b"],
+      resourceIds: [],
+      violations: 4,
+    };
+
+    // The two the reviewer measured, at the field and in the file they came from.
+    expect(() =>
+      toComparableRun(
+        report({ defects: [{ ...fullDefect, key: `${ESCAPE}[31mRECOLOURED own none` }] }),
+        "after.json",
+      ),
+    ).toThrow(/defects\[0\]\.key in the report "after\.json" carries U\+001B/);
+    expect(() =>
+      toComparableRun(
+        report({ observations: [{ endpointId: `orders.list${ESCAPE}[2K\rSPOOFED` }] }),
+        "after.json",
+      ),
+    ).toThrow(/observations\[0\]\.endpointId in the report "after\.json" carries U\+001B/);
+
+    // And the rest of them, each named by where it sits rather than by its name
+    // alone: a report with forty defects in it needs the index.
+    expect(() => toComparableRun(report({ runId: `run${NUL}` }), "a.json")).toThrow(
+      /runId in the report "a\.json" carries U\+0000/,
+    );
+    expect(() => toComparableRun(report({ startedAt: `2026\n` }), "a.json")).toThrow(
+      /startedAt in the report "a\.json" carries U\+000A/,
+    );
+    expect(() =>
+      toComparableRun(report({ target: { baseUrl: `https://a\r.test` } }), "a.json"),
+    ).toThrow(/target\.baseUrl in the report "a\.json" carries U\+000D/);
+    expect(() =>
+      toComparableRun(
+        report({ target: { baseUrl: "https://a.test", label: `s${ESCAPE}g` } }),
+        "a.json",
+      ),
+    ).toThrow(/target\.label in the report "a\.json" carries U\+001B/);
+    expect(() =>
+      toComparableRun(report({ verdict: { code: 0, reason: `clean${ESCAPE}[2K` } }), "a.json"),
+    ).toThrow(/verdict\.reason in the report "a\.json" carries U\+001B/);
+    expect(() =>
+      toComparableRun(
+        report({
+          coverage: {
+            endpointsTotal: 1,
+            endpointsProbed: 0,
+            cellsObserved: 0,
+            notProbed: { [`excluded${ESCAPE}[2K`]: 1 },
+          },
+        }),
+        "a.json",
+      ),
+    ).toThrow(/a key of coverage\.notProbed in the report "a\.json" carries U\+001B/);
+    expect(() =>
+      toComparableRun(
+        report({ defects: [{ ...fullDefect, kinds: ["ok", `bad${ESCAPE}`] }] }),
+        "a.json",
+      ),
+    ).toThrow(/defects\[0\]\.kinds\[1\] in the report "a\.json" carries U\+001B/);
+    expect(() =>
+      toComparableRun(report({ defects: [{ ...fullDefect, contextId: `geo${NUL}` }] }), "a.json"),
+    ).toThrow(/defects\[0\]\.contextId in the report "a\.json" carries U\+0000/);
+
+    // A report this tool wrote is unaffected, which is the other half of the
+    // decision: none of these fields is ever empty or carries a control
+    // character in one, so the door refuses only documents it did not write.
+    expect(() =>
+      toComparableRun(
+        report({
+          defects: [{ ...fullDefect, contextId: "geo-blocked", relation: "own" }],
+          observations: [{ endpointId: "orders.list" }],
+          coverage: {
+            endpointsTotal: 1,
+            endpointsProbed: 1,
+            cellsObserved: 1,
+            notProbed: { excluded: 1 },
+          },
+        }),
+        "a.json",
+      ),
+    ).not.toThrow();
   });
 
   it("the registry: the id of a check, which becomes a finding's kind", () => {

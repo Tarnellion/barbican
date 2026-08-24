@@ -1032,12 +1032,11 @@ a context id and a finding's kind — are now held to a rule: no C0 control, no
 DEL, no C1 control, neither Unicode line separator, and not the empty string,
 which is how a key writes a coordinate it does not have. A space, punctuation,
 any script and an emoji are all still names. The rule is applied at `joinKey`,
-the one place a key is built, because that is the seam that covers the two doors
+the one place a key is built, because that is the seam that covers the door
 nobody enumerates — a consumer of the library handing `Endpoint[]` straight to
-the core, and a resume stream read back off disk — and it is applied again at
-each of the six doors that can name the line of the file to change. Refusing the
-NUL alone would have been a point fix on whichever character the separator
-happens to be.
+the core — and it is applied again at each of the eight doors that can name the
+line of the file to change. Refusing the NUL alone would have been a point fix on
+whichever character the separator happens to be.
 
 What changes for a consumer: a configuration or a document carrying one of those
 characters in one of those five fields is refused where it used to be accepted,
@@ -1053,6 +1052,56 @@ as a part. The tuple is the same and the map is the same size, so nothing a
 report carries moved — but the sentence "every key's bytes are what they were"
 was in this paragraph until an adversarial review measured that one of them was
 not.
+
+**A saved report is a document too, and `barbican diff` read two of them without
+a grammar between.** The paragraph above counted five parsers, the library door
+and a resume stream, and missed the ninth: `toComparableRun` lifted every string
+out of a saved report and handed it on — `defects[].key` to index the comparison,
+`observations[].endpointId` to index the probed set, and both of them onto the
+terminal verbatim. Measured against the built tree: `U+001B` `[2K` and a carriage
+return in an endpoint id erase the line the comparison printed it on, and
+`U+001B` `[31m` in a defect key recolours the rest of the screen. That file can
+come from another machine, an earlier build or somebody else, exactly like an
+OpenAPI file, and it is the shape
+[ADR-0032](docs/adr/0032-the-grammar-sits-at-the-seam.md) records twice: a guard
+on the ways in, and nothing on the door with no adapter behind it.
+
+Every string `toComparableRun` reads now goes through the grammar — not only the
+two that were measured, because `runId`, `verdict.reason`, `target.label`, a skip
+reason and the digest are all printed too, and none of them is ever empty or
+carries a control character in a report this tool wrote. **Refused, not escaped:**
+escaping on the way to a terminal is modelling the terminal, which is the mistake
+ADR-0032 records about the address. The refusal names the field with its index,
+the file it came from and the character, and spells the value out. The cost is
+stated in the ADR: a report written before this change can carry such an id, and
+it will not compare until the id is fixed where it is declared.
+
+Three more from the same review. The observation stream `--resume` reads has a
+door of its own now, so a hostile line is named by its cell and its file rather
+than by the seam half a walk later, and the header is asked before the version
+and declaration mismatches print it back. The OpenAPI parser said its generated
+fallback id needed no check because the path had already been through
+`pathTemplate` — measured false, because that grammar admits `U+0085`, the C1
+range and the two line separators, so `/a` `U+0085` `b` with no `operationId`
+produced an id the seam refused mid-walk with no operation named. And
+`alice-a@geo-blocked` is a composition on a character an account id may legally
+carry: account `a` under context `b@c` and account `a@b` under context `c` both
+give `a@b@c`, the attribute map held one entry for the two rows, `run` spent all
+four of its requests before `DuplicateIdError` and `--dry-run` printed `Matrix
+rows: 4` and exited 0. It is refused where the id is minted now, before any
+traffic, naming both rows — one name more on the published surface, 231 where it
+was 230.
+
+`src/core/identifiers.ts` was a decision with one home and no gate, which
+CLAUDE.md's rule does not allow: a second copy of the grammar plus a new export
+`looksLikeAnIdentifier` in `src/report/findings.ts` left the whole suite green.
+`tests/invariants/one-decision-one-home.test.ts` holds the third owner now, by
+the three code points that tell this class from the address grammar's and by the
+names it owns — including through `src/core/index.ts`, which re-exports it on
+purpose and is enumerated as the one conduit that may. Nine ways past it were
+written and run before this sentence; what is still open is in the ADR's
+`Limits`, measured the same way, and includes a copy whose code points are
+computed rather than written.
 
 ## Example
 

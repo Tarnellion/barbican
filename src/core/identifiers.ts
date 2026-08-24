@@ -31,7 +31,7 @@
  *
  * Its own module rather than more lines in `./types.js`, following
  * `./path-parameters.ts`: the doors that report a refusal in an operator's words
- * are in three layers, and a module they can all import without dragging the
+ * are in four layers, and a module they can all import without dragging the
  * whole of the core's vocabulary with it is the cheaper import.
  *
  * ## What it refuses, and why the line is there

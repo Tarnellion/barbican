@@ -227,20 +227,38 @@ function toEndpoints(document: unknown): readonly Endpoint[] {
 
       const rawId = operation.operationId;
       const operationId = typeof rawId === "string" && rawId.length > 0 ? rawId : undefined;
-      // The `operationId` becomes the endpoint id, and an endpoint id is a
-      // coordinate of every key this tool builds — the cell, the object, the
-      // defect signature, the acceptance. A specification is an untrusted
-      // document and this field had no grammar at all; see ADR-0066. The
-      // generated fallback needs none: the method comes from a closed set and
-      // the path has been through `pathTemplate` two loops up.
+      // The endpoint id is a coordinate of every key this tool builds — the cell,
+      // the object, the defect signature, the acceptance — and it is printed onto
+      // a terminal. A specification is an untrusted document and this field had no
+      // grammar at all; see ADR-0066.
+      //
+      // The **generated fallback is asked as well**, and the sentence that used to
+      // stand here said it needed no check because "the method comes from a closed
+      // set and the path has been through `pathTemplate` two loops up". Measured on
+      // 24 August 2026 and false: the two grammars refuse different classes.
+      // `isNeverInAPath` refuses a backslash, the C0 controls and DEL; the
+      // identifier grammar refuses those and the C1 range and the two Unicode line
+      // separators. A path of `/a` `U+0085` `b` with no `operationId` produced the
+      // id `GET /a` `U+0085` `b`, which `isUsableIdentifier` answers false for — so
+      // the fallback reached the seam in `joinKey` and was refused there, mid-walk,
+      // as `A coordinate of a key`. Asked here, it names the operation instead.
       if (operationId !== undefined) {
         identifier(operationId, `The operationId of ${method} ${path}`);
       }
+      const id = operationId ?? `${method} ${path}`;
+      if (operationId === undefined) {
+        // The path is deliberately not in this sentence, although the branch
+        // above puts it in its own. Here the value **is** the method and the
+        // path, so the refusal spells the location out for free — and it spells
+        // it out safely, which quoting the path a second time would not: what
+        // reaches here has been through `pathTemplate`, and that grammar admits
+        // `U+0085`, the C1 range and the two line separators. ADR-0066 lists what
+        // the other branch therefore still carries.
+        identifier(id, "The id generated for an operation that declares no operationId");
+      }
 
       endpoints.push(
-        operationId === undefined
-          ? { id: `${method} ${path}`, method, path }
-          : { id: operationId, method, path, operationId },
+        operationId === undefined ? { id, method, path } : { id, method, path, operationId },
       );
     }
   }

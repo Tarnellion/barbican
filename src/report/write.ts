@@ -45,6 +45,7 @@
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { readFile, rename, rm } from "node:fs/promises";
+import { identifier } from "../core/identifiers.js";
 import { byCodeUnits } from "../core/order.js";
 import type { CellRecord } from "../runner.js";
 
@@ -151,6 +152,26 @@ export interface ObservationStreamHeader {
   readonly runId: string;
   readonly startedAt: string;
 }
+
+/**
+ * The names above, for the one loop that reads them off a file.
+ *
+ * Written out because the interface is erased before the reader runs, and the
+ * reader has to walk the fields of a document rather than of a value: an
+ * `Object.keys` over what was parsed would put a key somebody else chose into a
+ * message. `satisfies` holds every name here to being one of the interface's;
+ * that a name of the interface is *missing* here is what
+ * `tests/cli/stream.test.ts` asserts, by asking the reader about each of the six
+ * in turn and comparing the list it asked about with the header's own keys.
+ */
+const HEADER_FIELDS = [
+  "format",
+  "tool",
+  "version",
+  "declaration",
+  "runId",
+  "startedAt",
+] as const satisfies readonly (keyof ObservationStreamHeader)[];
 
 /** One line of the stream: a header, a resumption, or a cell that was walked. */
 interface StreamLine {
@@ -319,6 +340,20 @@ export async function readObservationStream(path: string): Promise<{
     );
   }
   const header = first as unknown as ObservationStreamHeader;
+  // Before the comparison below, because the comparison prints what it refuses.
+  // Every one of these six is printed back at an operator — `format` two lines
+  // down, `version` and `declaration` in the two refusals `readCarriedWalk`
+  // raises, `runId` and `startedAt` because a resumed run adopts them and the
+  // report then carries them — and `runId` goes on the wire as well, in the
+  // `run=` marker of the identity header. A field that is missing or is not a
+  // string is left exactly as it was: it is the shape of the file that is wrong
+  // then, and the sentences below are the ones that say so.
+  for (const name of HEADER_FIELDS) {
+    const value = (header as unknown as Readonly<Record<string, unknown>>)[name];
+    if (typeof value === "string") {
+      identifier(value, `The ${name} in the header of the observation stream "${path}"`);
+    }
+  }
   if (header.format !== OBSERVATION_STREAM_FORMAT) {
     throw new Error(
       `The observation stream "${path}" is in format "${String(header.format)}", and this ` +
@@ -338,7 +373,26 @@ export async function readObservationStream(path: string): Promise<{
   return { header, records, incomplete };
 }
 
-/** One `cell` line, or a sentence saying why the file cannot be resumed from. */
+/**
+ * One `cell` line, or a sentence saying why the file cannot be resumed from.
+ *
+ * ## The three ids are checked here, and not only under the seam
+ *
+ * ADR-0066's table lists a resume stream read back off disk as covered by "the
+ * seam only": `joinKey` refuses a coordinate that is not an identifier, so a
+ * hostile stream cannot glue two cells into one entry, and it never could reach a
+ * key without being asked. What the seam cannot do is say which line of which
+ * file to look at — it reports `A coordinate of a key carries U+0000` from inside
+ * `cellKey`, half a walk later.
+ *
+ * A stream is a document the tool was handed in exactly the sense an OpenAPI file
+ * is: it sits on disk between two processes, and `--resume` is a flag an operator
+ * points at a path. So it gets a door, like the five parsers, and the door names
+ * the cell. The division is ADR-0032's: the seam makes the refusal certain, the
+ * door makes it useful.
+ *
+ * @throws {UnusableIdentifierError} naming the cell and the stream it came from
+ */
 function asCellRecord(line: StreamLine, path: string, index: number): CellRecord {
   const candidate = line as unknown as Record<string, unknown>;
   const observation = candidate.observation;
@@ -355,6 +409,12 @@ function asCellRecord(line: StreamLine, path: string, index: number): CellRecord
         `observation of a cell. Nothing can be resumed from it — delete the file and ` +
         `start a fresh run.`,
     );
+  }
+  const where = `of cell ${index + 1} in the observation stream "${path}"`;
+  identifier(candidate.accountId, `The accountId ${where}`);
+  identifier(candidate.endpointId, `The endpointId ${where}`);
+  if (candidate.resourceId !== undefined) {
+    identifier(candidate.resourceId, `The resourceId ${where}`);
   }
   return candidate as unknown as CellRecord;
 }

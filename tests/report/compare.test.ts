@@ -768,18 +768,21 @@ describe("reading a report off disk", () => {
     expect(() => toComparableRun({ ...MINIMAL, defects: ["orders.list"] }, "after.json")).toThrow(
       /not an object/,
     );
-    expect(() =>
-      toComparableRun(
-        { ...MINIMAL, defects: [{ ...FULL_DEFECT, violations: "many" }] },
-        "after.json",
-      ),
-    ).toThrow(/"violations" is not a number/);
+    expect(
+      () =>
+        toComparableRun(
+          { ...MINIMAL, defects: [{ ...FULL_DEFECT, violations: "many" }] },
+          "after.json",
+        ),
+      // The path and not the field name alone: a report with forty defects in it
+      // says nothing to a reader who is told only that "violations" is wrong.
+    ).toThrow(/"defects\[0\]\.violations" is not a number/);
     expect(() =>
       toComparableRun({ ...MINIMAL, defects: [{ ...FULL_DEFECT, kinds: [7] }] }, "after.json"),
-    ).toThrow(/"kinds" holds something that is not a string/);
+    ).toThrow(/"defects\[0\]\.kinds" holds something that is not a string/);
     expect(() =>
       toComparableRun({ ...MINIMAL, defects: [{ ...FULL_DEFECT, kinds: "one" }] }, "after.json"),
-    ).toThrow(/"kinds" is missing or is not an array/);
+    ).toThrow(/"defects\[0\]\.kinds" is missing or is not an array/);
   });
 
   /**
@@ -801,13 +804,13 @@ describe("reading a report off disk", () => {
         { ...MINIMAL, coverage: { ...MINIMAL.coverage, cellsObserved: null } },
         "a.json",
       ),
-    ).toThrow(/"cellsObserved" is not a number/);
+    ).toThrow(/"coverage\.cellsObserved" is not a number/);
     expect(() =>
       toComparableRun(
         { ...MINIMAL, coverage: { ...MINIMAL.coverage, notProbed: { excluded: "three" } } },
         "a.json",
       ),
-    ).toThrow(/"notProbed.excluded" is not a number/);
+    ).toThrow(/"coverage\.notProbed\.excluded" is not a number/);
     expect(() => toComparableRun({ ...MINIMAL, observations: [7] }, "a.json")).toThrow(
       /"observations" holds something that is not an object/,
     );

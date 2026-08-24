@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  AmbiguousContextRowError,
   assertContextsCannotWrite,
   ConfigValidationError,
   ForbiddenContextHeaderError,
@@ -490,5 +491,96 @@ contexts:
   /** A skipped resolution step must be audible, not travel on as an object. */
   it("refuses to build accounts when the values are not resolved", () => {
     expect(() => toAccounts(parseRunConfig(CONFIG))).toThrow(MissingContextValueError);
+  });
+});
+
+/**
+ * `alice-a@geo-blocked` is a composition, and `@` composes ambiguously.
+ *
+ * ADR-0066 named the derived id as one of the places an account id comes from,
+ * and a reviewer measured on 24 August 2026 that the composition is not
+ * injective: account `a` under context `b@c`, and account `a@b` under context
+ * `c`, both give `a@b@c`, and all four parts are legal identifiers under that
+ * grammar — `@` has to be legal in an account id, because accounts are often
+ * named by email addresses.
+ *
+ * What happened before this refusal, measured on each path rather than assumed:
+ *
+ * - the attribute map is keyed by the composed id, so it held **one** entry for
+ *   two rows and the second context's headers went out for both;
+ * - `barbican run` reached `DuplicateIdError` only in `buildAccessMatrix`, which
+ *   runs after the walk: four requests of four spent, `x-one` never sent at all,
+ *   and a message about a duplicate id that says nothing about the substitution;
+ * - `barbican run --dry-run` builds no matrix, so it printed `Matrix rows: 4
+ *   (declared accounts 2)` and exited 0 with no refusal anywhere.
+ */
+describe("an account and a context whose ids compose to one row", () => {
+  const ambiguous = (): string => `
+target: { baseUrl: "https://api.test", allowedHosts: [api.test] }
+accounts:
+  - { id: a, role: user, tenant: tenant-a }
+  - { id: "a@b", role: user, tenant: tenant-a }
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [orders.list], context: "b@c", outcome: denied }
+    - { roles: "*", endpoints: [orders.list], context: "c", outcome: denied }
+contexts:
+  - { id: "b@c", headers: { x-one: one }, endpoints: [orders.list], accounts: [a] }
+  - { id: "c", headers: { x-two: two }, endpoints: [orders.list], accounts: ["a@b"] }
+`;
+
+  it("refuses where the id is minted, naming both rows", () => {
+    const parsed = parseRunConfig(ambiguous());
+
+    expect(() => toAccounts(parsed)).toThrow(AmbiguousContextRowError);
+    expect(() => toAccounts(parsed)).toThrow(
+      /Two matrix rows are both named "a@b@c": account "a" under context "b@c" and account "a@b" under context "c"/,
+    );
+  });
+
+  /**
+   * The other half of the same collision, and the one the paragraph over
+   * `CONTEXT_SEPARATOR` used to promise the matrix would catch: a derived row
+   * landing on a **declared** account. It is the reason accounts named by email
+   * address were called out there in the first place.
+   */
+  it("refuses a derived row that lands on a declared account", () => {
+    const parsed = parseRunConfig(`
+target: { baseUrl: "https://api.test", allowedHosts: [api.test] }
+accounts:
+  - { id: alice, role: user, tenant: tenant-a }
+  - { id: "alice@geo", role: user, tenant: tenant-a }
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [orders.list], context: geo, outcome: denied }
+contexts:
+  - { id: geo, headers: { cf-ipcountry: AQ }, endpoints: [orders.list] }
+`);
+
+    expect(() => toAccounts(parsed)).toThrow(
+      /Two matrix rows are both named "alice@geo": the declared account "alice@geo" and account "alice" under context "geo"/,
+    );
+  });
+
+  /** And an ordinary declaration still derives its rows. */
+  it("leaves a declaration that composes to nothing else alone", () => {
+    const parsed = parseRunConfig(`
+target: { baseUrl: "https://api.test", allowedHosts: [api.test] }
+accounts:
+  - { id: "alice@corp.test", role: user, tenant: tenant-a }
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [orders.list], context: geo, outcome: denied }
+contexts:
+  - { id: geo, headers: { cf-ipcountry: AQ }, endpoints: [orders.list] }
+`);
+
+    expect(toAccounts(parsed).accounts.map((one) => one.id)).toEqual([
+      "alice@corp.test",
+      "alice@corp.test@geo",
+    ]);
   });
 });
