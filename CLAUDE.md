@@ -4,8 +4,10 @@
 
 `barbican` is a CLI for checking RBAC and tenant isolation in the APIs of multi-tenant platforms.
 
-- **Module 1 (current):** the "role × endpoint" matrix, privilege escalation, BOLA/IDOR, cross-tenant leaks.
-- **Module 2 (later):** an evidence pack against external standards. Added by registering checks, not by rewriting the core.
+- **Module 1 (shipped):** the "role × endpoint" matrix, privilege escalation, BOLA/IDOR, cross-tenant leaks.
+- **Module 2 (shipped in 0.7.0, 24 August 2026):** an evidence pack against external standards — `evidencePack` builds the structure, `barbican pack <report.json> --out <file.html>` draws it, one row per clause of the catalogue. It was added by registering checks and a catalogue rather than by rewriting the core, which was the prediction the two-module split was made on. These two lines said "(current)" and "(later)" until the day phase 5 closed.
+
+Both are shipped and published, and `plan.md` has no phase 6. What is left there is smaller than a phase — crAPI, which never ran, and the open questions that need an ADR.
 
 ## Stack
 
@@ -51,7 +53,7 @@ pnpm run typecheck    # tsc --noEmit
 pnpm run test         # vitest run
 pnpm run test:watch   # vitest in watch mode
 pnpm run test:coverage # the coverage gate: it runs vitest and answers for what it measured
-pnpm run build        # tsc -> dist, + the executable bit on cli.js
+pnpm run build        # tsc -> dist, the executable bit on cli.js, and the check that no shipped declaration imports from a package
 pnpm run schema       # regenerate schema/barbican.run.schema.json (needs a build)
 pnpm run deps:behind  # what is behind, and what the cooldown is holding (needs the network)
 pnpm run check        # lint + typecheck + test:coverage + build. Not everything CI runs

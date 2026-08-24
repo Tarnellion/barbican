@@ -49,7 +49,7 @@ Every cell's response reduces to one of four outcomes:
 |---|---|---|
 | 2xx | `allowed` | access granted |
 | 401, 403, 451 | `denied` | access refused |
-| 404 | `not-found` | **not** a denial: the resource is absent, or it is being hidden |
+| 404, 410 | `not-found` | **not** a denial: the resource is absent, or it is being hidden |
 | everything else | `error` | no conclusion can be drawn |
 
 451 stands next to 401 and 403 not for the sake of completeness: "unavailable
@@ -62,6 +62,13 @@ behaves correctly.
 defensive move, but it is indistinguishable from "the resource does not exist",
 and recording it as a successful denial would pass ignorance off as proof of
 protection. For the same reason 3xx, 5xx and 400 land in `error`, not in `denied`.
+
+**410 stands beside it since 21 August 2026**, and this table said `404` alone
+until 24 August. "Gone" says what 404 says and says it harder — the resource was
+not served, and it will not be — so reading it as an `error` left a refusal the
+platform had actually issued outside the verdict, as a low-severity
+`probe-error` that no exit code counts. It changes verdicts in both directions.
+See [ADR-0046](adr/0046-410-is-a-refusal-and-the-rest-is-named.md).
 
 ## One list of findings
 
@@ -473,7 +480,7 @@ from `observations[].endpointId`, which is what a run really asked about rather
 than what it was handed:
 
 ```
-Coverage shrank: 144 cells over 7 of 7 endpoints → 12 cells over 1 of 7 endpoints.
+Coverage shrank: 144 cells over 7 of 7 endpoints → 12 cells over 2 of 7 endpoints.
   no longer probed: invoices.list, orders.list, payouts.list, reports.list, users.list
   endpoints skipped as "excluded": 0 → 5
 A defect gone from a run that did not go looking for it was not fixed. Read the
@@ -531,8 +538,12 @@ in it to stand on.
 which endpoint. If `authenticated: false`, the run stops before any observations
 are collected: a 401 reads as a denial, a denial agrees with the expectation
 wherever access is not meant to be granted, and the report would come out
-spotless having tested nothing. An empty list means no canaries were declared;
-then "clean" rests on nothing.
+spotless having tested nothing. An empty list means no canaries were declared —
+and since 19 August 2026 that is only reachable where **no** account carries a
+`tokenEnv`, because an account with credentials and no canary that passed exits
+2 and is named in `verdict.reason`. So an empty list on a run with credentials
+in it is a report you should not be holding; an empty list on a run of anonymous
+accounts alone is honest, and "clean" there rests on nothing anyway.
 
 **`byKind["not-observed"]`.** A cell the policy declared but which could not be
 observed. A non-zero value is a hole in coverage.
@@ -739,7 +750,13 @@ differ in every one of them:
       "checkIds": ["identical-response-across-tenants"],   // reached by a check and not by the matrix
       "reservations": ["endpoints-not-probed"]             // no matrixCells: see below
     }
-    // …and one row like the first for each of 8.2.1, 8.2.2 and 8.4.1.
+    // …and four rows more, six in all. 8.2.1 and 8.2.2 look like the first, over
+    // the cells those clauses reach rather than over the whole matrix — 54 and 90
+    // conclusive against 8.1.1's 144, measured on a clean run of the same polygon
+    // on 24 August 2026. 8.4.1 carries **both** halves, `checkIds` and
+    // `matrixCells`, because the check cites it and the matrix reaches it. And
+    // OWASP API1 is a second row shaped like the CWE one: the same check cites it,
+    // and the matrix never does.
   ],
   "byCheck": [                            // what each check examined, in its own terms
     {
@@ -874,7 +891,10 @@ claim it cannot support:
 - **A clause nothing in this run touched is not here.** This section is about
   what a run reached. "Which catalogued clauses does nothing cover" is a
   different question, answered against a catalogue by
-  `findUnansweredClauses`, and it is not in the report.
+  `findUnansweredClauses`, and it is not in the report. It is what
+  `barbican pack <report.json> --out <file.html>` answers from this same file:
+  one row per clause of the catalogue, where a clause no check cited and no cell
+  was evidence about is `unanswered` and never a pass.
 
 A run that computed no cell verdicts has no `matrixCells` on any row — the same
 silence `cellsMatched` keeps, and for the same reason: a zero would be a claim
@@ -1042,8 +1062,11 @@ anything and there is nothing to contradict.
   in a header — and it carries no credential, which is why it stays. But it is a
   scalar derived from content, it is present on endpoints you declared nothing
   about, and lengths can be compared across accounts by anyone holding the file.
-  On the reference platform's clean run, `orders.read` shows three distinct
-  lengths across seven responses. Weighed and kept on 17 August 2026: an empty
+  On the reference platform's clean run, `orders.read` shows six distinct
+  lengths across 72 responses — re-counted on 24 August 2026, where the same
+  sentence had said three across seven since 17 August: the count of responses
+  had followed the matrix as request conditions widened it, and the count of
+  lengths followed the responses. Weighed and kept on 17 August 2026: an empty
   200 and a four-kilobyte 200 are different findings, and dropping the number to
   close a channel the tool never opened would cost more than it buys. Saying so
   is the part that was missing.
@@ -1313,10 +1336,11 @@ matters. Fixed on 23 August 2026 —
 ### `runId` is also what the platform's own logs recorded
 
 Unless the run was made with `--no-identify`, every request it sent carried this
-`user-agent`:
+`user-agent`, with the version being whatever build wrote the report — `0.7.0`
+here, and `tool.version` in the file beside it is the number to read:
 
 ```
-barbican/0.4.0 (+https://github.com/Tarnellion/barbican#readme; run=<runId>)
+barbican/0.7.0 (+https://github.com/Tarnellion/barbican#readme; run=<runId>)
 ```
 
 That is there for the party who agreed to the run and then has to live with it in
@@ -1538,9 +1562,9 @@ and pointing at the first match would name the wrong source of the verdict.
 ## A finding that names no cell
 
 Most findings are about a cell: this account, this endpoint, this resource. Some
-are about the run — "this clause is covered by nothing at all" — and those carry
-neither `accountId` nor `endpointId`. Nothing is put in their place: an endpoint
-id there would tell you a request was made to it.
+are about the run, and those carry neither `accountId` nor `endpointId`. Nothing
+is put in their place: an endpoint id there would tell you a request was made to
+it.
 
 Two consequences worth knowing before you write a parser:
 
@@ -1552,8 +1576,20 @@ Two consequences worth knowing before you write a parser:
   So the identity is `sum(defects[].violations) + findings with no cell ===
   summary.findings`.
 
-No check registered today produces one; the shape exists because the evidence
-pack is made of them.
+**The check registered today does produce one — when it fails.** A check that
+throws takes only itself out of the run, and the failure becomes a finding
+rather than a log line, because a check that crashed and a check that found
+nothing are otherwise the same report. It is `severity: "high"`, its title says
+the check "failed and judged nothing", and its evidence is
+`{ "error": "TypeError", "checkFailed": true }` — the class of the error and
+never its message, which is a string from a check this project has not audited
+for credentials.
+
+This paragraph said *No check registered today produces one; the shape exists
+because the evidence pack is made of them* until 24 August 2026. Both halves
+were wrong by then: the failure path above had been there since 0.5.0, and the
+pack was built and does not read this distinction at all — it narrows a finding
+row to five fields, and none of them is a coordinate.
 
 ## What the report still does not have
 

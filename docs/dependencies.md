@@ -9,9 +9,15 @@ rule. Found by the audit of 14 August 2026 (F-9).
 This file is the record. **A package added without a row here has not been
 vetted**, whatever anybody remembers.
 
-The figures below were taken on 16 August 2026 from the npm registry. They go
-stale; the point of writing them down is that the next reader can see what was
-true when the decision was taken, and re-take it if it no longer is.
+The **Last release** and **Maintainers** columns were taken on 16 August 2026
+from the npm registry. They go stale; the point of writing them down is that the
+next reader can see what was true when the decision was taken, and re-take it if
+it no longer is.
+
+The **Version** and **Direct deps** columns, and the lockfile total below them,
+are not registry figures and do not need the network: they were re-measured
+against `package.json` and `pnpm-lock.yaml` on 24 August 2026, which is the date
+to move whenever this file is checked again.
 
 ## Runtime — what ships in the package
 
@@ -34,7 +40,10 @@ true when the decision was taken, and re-take it if it no longer is.
 | `lefthook` | 2.1.10 | — | — | 0 | Git hooks. Its postinstall is refused in `allowBuilds` and the same step is run explicitly instead. |
 | `@types/node` | 22.20.1 | — | — | 1 | Pinned to the 22 line by `engines`. Types from a newer Node would smuggle in APIs that do not exist on 22 and the typecheck would stop reflecting reality. |
 
-157 packages in the lockfile in total.
+148 packages in the lockfile in total, counted from `pnpm-lock.yaml` itself. It
+said 157 from 16 August until 24 August 2026, which is the shape of drift this
+whole file is against: a number nobody re-counts after the tree it describes has
+moved.
 
 ## What was considered and rejected
 
@@ -42,6 +51,7 @@ true when the decision was taken, and re-take it if it no longer is.
 |---|---|
 | `changesets` | 40 transitive packages for a changelog on a project whose version moves by hand every few days. |
 | `pdf-lib` | 57 months without a release. Recorded in `plan.md` against the phase 5 rendering decision. |
+| `pdfkit` | The other candidate for that decision, and active. Not needed: [ADR-0068](adr/0068-a-pack-is-drawn-from-the-json.md) chose one self-contained HTML file, printed to PDF by the reader's own browser, so phase 5 closed on 24 August 2026 having added no runtime dependency at all. |
 
 ## The rules this record serves
 
@@ -52,9 +62,16 @@ true when the decision was taken, and re-take it if it no longer is.
 - **`minimumReleaseAge: 10080`** — nothing younger than seven days is installed.
   This applies to the pinned CI binaries too, by hand: see the note on
   `OSV_VERSION` in `ci.yml`.
-- **`strictDepBuilds`** — an install that fails because of a lifecycle script is
-  the protection firing, not an obstacle. The right reaction is to read the
-  script and do the needed thing explicitly.
+- **`strictDepBuilds`**, and an `allowBuilds` holding `lefthook: false` — an
+  install that fails because of a lifecycle script is the protection firing, not
+  an obstacle. The right reaction is to read the script and do the needed thing
+  explicitly. The one entry is a refusal written down rather than an absence, and
+  it is the whole map: no package in this tree is permitted to run a build
+  script.
+- **`overrides` is empty today.** `pnpm-workspace.yaml` carries the rule and no
+  entry — the nanoid pin it was written for came out on 17 August 2026 when the
+  tree stopped needing it. An entry added here carries the condition for its own
+  removal, because an override nobody removes is a pin nobody notices.
 
 See [ADR-0004](adr/0004-supply-chain-hardening.md) for the reasoning behind all
 of it.

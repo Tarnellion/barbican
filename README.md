@@ -9,7 +9,10 @@ BOLA/IDOR, and cross-tenant leaks.
 
 ## Status
 
-Early development, but end-to-end: `barbican run` walks a live API and writes a report.
+Early development, but end-to-end: `barbican run` walks a live API and writes a
+report, `barbican diff` says what changed between two of those reports, and
+`barbican pack` draws one from a saved report into a page an auditor can read
+with no network.
 Validated against four targets — [crAPI](docs/polygons/crapi.md),
 [VAmPI](docs/polygons/vampi.md), [Juice Shop](docs/polygons/juice-shop.md), and a
 [reference platform](https://github.com/Tarnellion/barbican/tree/main/polygon) with switchable defects and a hand-written oracle.
@@ -21,7 +24,9 @@ Validated against four targets — [crAPI](docs/polygons/crapi.md),
   express), write methods behind `--unsafe-methods` with the skip recorded when the
   flag is absent, a `--dry-run` that shows the plan without sending anything, a JSON
   Schema for editor completion, a per-cell verdict in the report, JSON report and
-  exit codes.
+  exit codes, `--resume` for a walk that was cut short, an `accepted:` section for a
+  finding somebody has signed for, a comparison of two saved reports, and an evidence
+  pack against a catalogue of sixteen clauses drawn into one self-contained HTML page.
 - **Not yet** — see the limitation below, plus [tasks.md](https://github.com/Tarnellion/barbican/blob/main/tasks.md).
 
 ### Declare your tenant tree, or the old failure mode is still yours
@@ -123,9 +128,18 @@ where two language versions disagree, the English files are the source of truth.
 - **[docs/library.md](docs/library.md)** — using the package as a library: the
   four entry points, which of the exported names are a contract and which are
   there because the CLI is built from the same modules.
+- **[docs/dependencies.md](docs/dependencies.md)** — every package this project
+  installs, why it is here, and what was weighed and rejected. A package with no
+  row there has not been vetted, whatever anybody remembers.
 
 See [plan.md](https://github.com/Tarnellion/barbican/blob/main/plan.md) for the roadmap and [docs/adr/](docs/adr/) for the reasoning
 behind each design decision.
+
+A hole **in this tool** — a request the run was not told to make, data leaving
+where it must not, a clean verdict over something that was never tested — goes
+to the private channel in [SECURITY.md](https://github.com/Tarnellion/barbican/blob/main/SECURITY.md), not to the issue tracker.
+A finding this tool reports about your platform is not that, and belongs in the
+open where it can be argued.
 
 ## Install
 
@@ -138,12 +152,19 @@ barbican run --help
 CI with provenance, so `npm audit signatures` verifies it against this repository
 and the workflow that built it.
 
-Of the four versions before it, none is worth having. **`0.1.0` is a stub whose
-CLI registers no commands**, published by hand before the release pipeline
-existed; `0.2.0` ships a tarball with no guide and no examples, and a CLI that
-speaks Russian around English documentation; `0.3.0` and `0.4.0` both answer
-`0` — "tested, and clean" — to runs that tested nothing, by the six roads the
-section below closes.
+Six versions came before it, and none of them is worth having. **`0.1.0` is a
+stub whose CLI registers no commands**, published by hand before the release
+pipeline existed; `0.2.0` ships a tarball with no guide and no examples, and a
+CLI that speaks Russian around English documentation; `0.3.0` and `0.4.0` both
+answer `0` — "tested, and clean" — to runs that tested nothing, by the six roads
+the section below closes. The two most recent are weaker rather than broken, and
+each fails at exactly the thing it was published to do: `0.5.0` writes a
+`contentDigest` that never checks out, so the one field saying "this is the file
+the run wrote" answers `false` about every report it produced; and `0.6.0` merges
+two defects that print the same key when it compares two runs, and answers "which
+catalogued clauses does nothing cover" with thirteen where the answer is nine.
+This paragraph counted four until 24 August 2026, having been written when four
+was the whole history.
 
 ### What changed in 0.3.0
 
@@ -1376,6 +1397,7 @@ to confuse:
 | `2` | **the result cannot be trusted** — no observations were made, the run was cut short, or the accounts were not authenticated |
 | `64` | the command line was wrong — an unknown flag, a missing required one, a bad value. Nothing was sent |
 | `130` | interrupted from the keyboard, part-way through the walk |
+| `143` | stopped by SIGTERM, which is how CI kills a job past its timeout. The walk stops, the report it has is written, and the signal is re-raised so the status a pipeline reads is still the signal's |
 
 `64` is `EX_USAGE` from `sysexits.h`, and it exists because the alternative was
 worse: a typo in a flag name used to exit `1`, which in CI is indistinguishable
@@ -1461,8 +1483,16 @@ conservative and enforced by construction rather than by flags you have to remem
 corepack enable pnpm
 pnpm install
 pnpm run hooks:install   # git hooks; requires gitleaks (brew install gitleaks)
-pnpm run check           # lint + typecheck + test + build
+pnpm run check           # lint + typecheck + coverage gate + build
 ```
+
+`test:coverage` and not `test`: the thresholds in `vitest.config.ts` are part of
+the gate rather than a report to read, and `build` ends by asserting that no
+shipped declaration imports from any package. It is four of CI's steps and not
+all of them — the reference-platform oracle, the secret scan over the full
+history, the two vulnerability scans, the checks on the packed tarball and the
+CLI on the declared Node floor run there and not here, each for a reason worth
+knowing before it is moved.
 
 ## How much traffic it makes
 

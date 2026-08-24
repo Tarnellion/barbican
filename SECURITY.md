@@ -47,9 +47,17 @@ matters here is barbican doing something it promised not to:
   one, a cell counted that was never sent. A false `match: true` from a tool
   people use to decide their platform is safe is the worst thing this project can
   ship — see [ADR-0033](docs/adr/0033-a-canary-is-per-account.md).
-- **A document that takes over the run.** A crash, a hang, a file read or a
-  network call out of an OpenAPI or Postman document — external `$ref`s are not
-  resolved for exactly this reason, and a hole in that is a report.
+- **A document that takes over the run, the terminal or the report.** A crash, a
+  hang, a file read or a network call out of an OpenAPI or Postman document —
+  external `$ref`s are not resolved for exactly this reason, and a hole in that
+  is a report. A saved `run.json` is a document in the same sense: `barbican
+  diff` and `barbican pack` read one that may come from another machine, an
+  earlier build or somebody else, and `--resume` reads an observation stream the
+  same way. Every string lifted out of any of them goes through one grammar,
+  which **refuses** a control character rather than escaping it on the way to a
+  screen — see [ADR-0066](docs/adr/0066-an-identifier-has-a-grammar.md), which
+  was written after an endpoint id carrying `U+001B` `[2K` and a carriage return
+  erased the line the comparison had printed it on.
 - **The supply chain.** The published tarball not matching this repository, a
   lifecycle script, a dependency pulled in without the cooldown, provenance that
   does not verify.
