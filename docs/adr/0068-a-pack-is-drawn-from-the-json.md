@@ -318,23 +318,31 @@ who reads the rendered document.
 **What the print assertions do not see.** Everything. They are declarations, and
 the section above says so.
 
-**Measured on 25 August 2026**, against the tree of this change, by a harness that
-refuses a replacement which does not land the intended number of times. Each of
-the mutations below was applied to `src/report/page.ts` and the whole suite run:
+**Measured on 25 August 2026**, against the tree of this change, by a harness
+that refuses a replacement which does not land the intended number of times —
+shown refusing once, on a deliberately misspelt needle, before any of these were
+trusted. Restoration was from a byte copy taken before the first edit. Each
+mutation was applied alone and the **whole** suite run, 1918 tests over 124
+files:
 
 | mutation | what happened |
 | --- | --- |
-| `words` returns the value without `spellOut` | **caught**: 2 failed, 1 file |
-| `words` returns the value without the markup escaping | **caught**: 6 failed, 3 files |
-| `marked` no longer escapes `"` (attribute values only) | **caught**: 3 failed, 2 files |
-| the reservations moved off the row into a section of their own | **caught**: 2 failed, 1 file |
-| an unknown claim printed bare instead of refused | **caught**: 2 failed, 2 files |
-| `href` added to `Attribute` and the clause address emitted as a link | **caught**: 4 failed, 2 files |
+| `words` returns the value without `spellOut` | **caught**: 1 failed, 1 file |
+| `words` returns the value without the markup escaping | **caught**: 5 failed, 1 file |
+| `marked` no longer escapes `"` — attribute values only | **caught**: 3 failed, 1 file |
+| the reservations no longer reach the clause row | **caught**: 3 failed, 2 files |
+| an unknown claim printed bare instead of refused | **caught**: 2 failed, 1 file |
+| `href` added to `Attribute`, the clause address emitted as a link | **caught**: 5 failed, 2 files |
 | the tally prints only the claims with a count above zero | **caught**: 1 failed, 1 file |
-| `writeDocumentFile` writes with `w` and mode 0644 | **caught**: 1 failed, 1 file |
+| `writeArtifact` writes with `w`, mode 0644, and no `chmod` after | **caught**: 3 failed, 2 files |
 
-The exact figures are in the report of this change and are re-measured at its
-final commit.
+One measurement worth keeping. The first spelling of the third mutation replaced
+`case '"'` with `case "\u0000"`, and that failed
+`tests/invariants/one-decision-one-home.test.ts` as well — the separator gate
+catching a NUL written into a module that is not allowed to write one, in a
+throwaway edit by a test harness. It was respelled with an ordinary character so
+that the row above measures the escaping and not the gate next door. The figure
+in the table is the second run.
 
 ## Consequences
 
