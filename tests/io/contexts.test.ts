@@ -12,6 +12,7 @@ import {
   AmbiguousContextRowError,
   assertContextsCannotWrite,
   ConfigValidationError,
+  DuplicateContextIdError,
   ForbiddenContextHeaderError,
   ForbiddenContextQueryError,
   InvalidContextValueError,
@@ -21,6 +22,7 @@ import {
   resolveContextValues,
   toAccounts,
   UncarriableKeyError,
+  UnknownContextAccountError,
   UnknownContextReferenceError,
   UnusedContextError,
 } from "../../src/io/config.js";
@@ -84,6 +86,56 @@ contexts:
       "bob",
       "alice@geo-blocked",
     ]);
+  });
+});
+
+/**
+ * Two refusals `normalizeContexts` has always made and nothing ever ran.
+ *
+ * Both were found by reading the coverage report on 24 August 2026. Five
+ * statements of `src/io/config/contexts.ts` were unreached: these two `throw`s,
+ * the two constructors above them, and the query-value refusal further down this
+ * file, which is the third case added in the same pass. The classes these two
+ * raise — `DuplicateContextIdError` and `UnknownContextAccountError` — were two
+ * of the four error classes on the published surface that no test and no
+ * document named anywhere. An exported class nothing exercises is a promise on
+ * the evidence of a `throw` statement somebody read.
+ *
+ * Reachable through the supported door, which is why they are tested here and
+ * not deleted: `parseRunConfig` is the only way in, and neither the zod schema
+ * nor anything before `normalizeContexts` asks either question.
+ */
+describe("conditions the declaration cannot mean", () => {
+  /**
+   * Which of the two applies decides which headers go out, so there is no
+   * harmless answer — the same argument the duplicate-account and
+   * duplicate-endpoint checks are made on.
+   */
+  it("rejects a context id declared twice", () => {
+    const twice = config(`${GEO_RULE}
+contexts:
+  - { id: geo-blocked, headers: { cf-ipcountry: AQ }, endpoints: [orders.list] }
+  - { id: geo-blocked, headers: { cf-ipcountry: AR }, endpoints: [orders.list] }
+`);
+
+    expect(() => parseRunConfig(twice)).toThrow(DuplicateContextIdError);
+    // The id, because that is what the operator searches the file for.
+    expect(() => parseRunConfig(twice)).toThrow(/"geo-blocked"/);
+  });
+
+  /**
+   * A typo in `accounts` narrows the context to nobody. It fails in the
+   * direction that reads as success: fewer rows, no complaint, and a report
+   * answering for conditions that were never sent.
+   */
+  it("rejects a context naming an account that is not declared", () => {
+    const stranger = config(`${GEO_RULE}
+contexts:
+  - { id: geo-blocked, headers: { cf-ipcountry: AQ }, endpoints: [orders.list], accounts: [carol] }
+`);
+
+    expect(() => parseRunConfig(stranger)).toThrow(UnknownContextAccountError);
+    expect(() => parseRunConfig(stranger)).toThrow(/"carol"/);
   });
 });
 
@@ -349,6 +401,26 @@ contexts:
     // replacement would make the check prove nothing.
     expect(() => parseRunConfig(withContext("bad", 'headers: { x-note: "日本語" }'))).toThrow(
       ForbiddenContextHeaderError,
+    );
+  });
+
+  /**
+   * And the same value one field over, which had no test at all.
+   *
+   * The header half above was held; the query half beside it was written, was
+   * reachable from the same door, and nothing ran it — found by reading the
+   * coverage report on 24 August 2026 rather than by anything going wrong. A
+   * query attribute is substituted into the address, so a value the URL cannot
+   * carry costs every cell of that context an opaque request failure, which is
+   * the shape of the header case and the reason it is refused at the parse gate
+   * rather than at the wire.
+   */
+  it("rejects a query value that will not go into an address", () => {
+    expect(() => parseRunConfig(withContext("bad", 'query: { flavour: "日本語" }'))).toThrow(
+      ForbiddenContextQueryError,
+    );
+    expect(() => parseRunConfig(withContext("bad", 'query: { flavour: "日本語" }'))).toThrow(
+      /a request URL cannot carry/,
     );
   });
 

@@ -767,6 +767,50 @@ policy:
   });
 
   /**
+   * The two remaining fields that name endpoints, which nothing ran.
+   *
+   * `assertReferencesResolve` raises `UnknownEndpointReferenceError` from eight
+   * places — a policy rule, a resource, a context, an acceptance, a canary,
+   * `responseMustDifferByTenant`, a body signal and `compareSubtree` — and asks
+   * the same question at each. Five were held, one is unreachable and says so in
+   * the source, and these two were reachable from this same door with no test at
+   * all. Found by reading the coverage report on 24 August 2026, which is the
+   * only thing that would find it: a guard nothing exercises cannot fail, so it
+   * agrees with every tree it is compiled into.
+   *
+   * A typo here costs what a typo in a rule costs. A context whose endpoint does
+   * not exist adds a matrix row that reaches nothing, and the conditions the run
+   * was made for are silently not tested; a signal whose endpoint does not exist
+   * is a body comparison nobody performs, on the endpoint the operator picked out
+   * as the one worth comparing.
+   */
+  it("rejects a context that names an endpoint the run does not have", () => {
+    const typo = parseRunConfig(
+      `${base}    - { roles: [player], endpoints: [orders.read], context: geo, outcome: denied }
+contexts:
+  - { id: geo, headers: { cf-ipcountry: AQ }, endpoints: [orders.raed] }
+`,
+    );
+
+    expect(() => assertReferencesResolve(typo, endpoints)).toThrow(UnknownEndpointReferenceError);
+    // Which context, since a file may declare several.
+    expect(() => assertReferencesResolve(typo, endpoints)).toThrow(/Context "geo"/);
+  });
+
+  it("rejects a body signal that names an endpoint the run does not have", () => {
+    const typo = parseRunConfig(
+      `${base}bodySignals:
+  responseMustDifferByTenant: [orders.read]
+  signals:
+    - { name: count, kind: count, path: items, endpoints: [orders.raed] }
+`,
+    );
+
+    expect(() => assertReferencesResolve(typo, endpoints)).toThrow(UnknownEndpointReferenceError);
+    expect(() => assertReferencesResolve(typo, endpoints)).toThrow(/Signal "count"/);
+  });
+
+  /**
    * G-9 of the audit of 14 August 2026. The rule index is zero-based — it is the
    * position in `policy.rules` and the same number the report carries as
    * `ruleIndex` — and it used to be printed as `Policy rule #1` for the second
