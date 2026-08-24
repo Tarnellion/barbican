@@ -1303,6 +1303,35 @@ raw identifier. Nothing about a run of this version differs from 0.6.0. See the
 note of 24 August 2026 on
 [ADR-0064](docs/adr/0064-a-table-written-twice-is-made-to-agree.md).
 
+### Unreleased
+
+On `main`, not on npm. `0.7.0` is what `npm install barbican` gives you.
+
+**The guide covers every subcommand.** It documented `barbican run` and nothing
+else: `diff` shipped in `0.5.0` and `pack` in `0.7.0`, so the main document a
+person reads had been a version behind twice over. Both halves are written now,
+with transcripts produced by running them rather than composed, and the `pack`
+section is built around what the document refuses to claim — a clause nothing
+answers is never a clause that passed. `docs/first-run.md` gained the
+consideration a pack introduces: a report is a thing you hold until the platform's
+owner has it, and a pack is made in order to leave the room.
+
+**The working log has the four days it did not have**, and the documents say what
+is in the tree. Thirty corrections across six of them: counts the tree had moved
+past, cross-references into modules that were cut into directories on 23 August,
+and claims about what a gate holds that survived from before
+[ADR-0065](docs/adr/0065-what-a-source-scan-can-hold.md). Two of the corrections
+are to sentences written the same day by this work and caught by review of it —
+one said crAPI had never run, eleven days after it ran.
+
+**`barbican diff --help` said `--json` writes the comparison "instead of a
+summary".** The summary still goes to stderr; the line now says so. That is the
+only change under `src/` in this entry.
+
+**A version number in an example is a placeholder now.** Two documents printed
+`barbican/0.4.0` in the `user-agent` the tool sends, three releases after that
+stopped being true. A line nobody can check is a line that dates itself.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.

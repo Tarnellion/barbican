@@ -903,11 +903,14 @@ you. Such a run says so before the walk, and an interruption costs it everything
 Every request carries a `user-agent` naming the tool, its version and the run:
 
 ```
-barbican/0.4.0 (+https://github.com/Tarnellion/barbican#readme; run=3f2a…)
+barbican/<version> (+https://github.com/Tarnellion/barbican#readme; run=3f2a…)
 ```
 
-`run=` is the `runId` of the report the run produces, and that is the whole
-point. The owner who agreed to this can find the run in an access log or a SIEM,
+`<version>` is the package's, and `run=` is the `runId` of the report the run
+produces — that second one is the whole point. The version is written as a
+placeholder here rather than as a number: it was `0.4.0` in this block until
+24 August 2026, three releases after that stopped being true, in two documents
+at once. A line nobody can check is a line that dates itself. The owner who agreed to this can find the run in an access log or a SIEM,
 filter it out of an availability graph, show an anti-fraud rule what it was — and
 tie all of it to the specific JSON document you hand them. Without it the only
 thing connecting your report to their records is the clock.

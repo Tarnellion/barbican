@@ -7,7 +7,7 @@
 - **Module 1 (shipped):** the "role × endpoint" matrix, privilege escalation, BOLA/IDOR, cross-tenant leaks.
 - **Module 2 (shipped in 0.7.0, 24 August 2026):** an evidence pack against external standards — `evidencePack` builds the structure, `barbican pack <report.json> --out <file.html>` draws it, one row per clause of the catalogue. It was added by registering checks and a catalogue rather than by rewriting the core, which was the prediction the two-module split was made on. These two lines said "(current)" and "(later)" until the day phase 5 closed.
 
-Both are shipped and published, and `plan.md` has no phase 6. What is left there is smaller than a phase — crAPI, which never ran, and the open questions that need an ADR.
+Both are shipped and published, and `plan.md` has no phase 6. What is left there is smaller than a phase: Juice Shop, the third polygon, and one open question about a shared ground-truth format. crAPI is **not** on that list — it passed on 13 August 2026 and was re-verified against `0.7.0` on 24 August; `plan.md` called it unrun for eleven days, and this sentence said so too until the same day.
 
 ## Stack
 

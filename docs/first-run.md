@@ -164,7 +164,7 @@ a small matrix is also the polite one.
 Every request carries a `user-agent` naming the tool, its version and the run:
 
 ```
-barbican/0.4.0 (+https://github.com/Tarnellion/barbican#readme; run=3f2a…)
+barbican/<version> (+https://github.com/Tarnellion/barbican#readme; run=3f2a…)
 ```
 
 `run=` is the `runId` of the report the run produces, and that is the point of

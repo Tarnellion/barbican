@@ -98,7 +98,7 @@ program
   .description("Compare two saved reports: what changed, and whether it was the platform")
   .argument("<before>", "the earlier report, written by `run --report`")
   .argument("<after>", "the later one")
-  .option("--json", "write the comparison to stdout as JSON instead of a summary")
+  .option("--json", "write the comparison to stdout as JSON; the summary still goes to stderr")
   .action(async (before: string, after: string, flags: { readonly json?: boolean }) => {
     try {
       process.exitCode = await diff(before, after, flags.json === true);

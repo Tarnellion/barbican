@@ -444,8 +444,9 @@ thing and nowhere says so.
       express", with the workaround named as forbidden and the reason. The gap itself
       stays open — the likely shape below is a guess, not a decision, and it is not
       promised anywhere.
-      Checked 24 August 2026 in `src/io/config/schema.ts`: `baseUrl` is declared on
-      `tenants[]` and nowhere else, and `authSchemes` is still
+      Checked 24 August 2026 in `src/io/config/schema.ts`: `baseUrl` is declared
+      twice — required on `target` (line 269) and optional on `tenants[]`
+      (line 415), which is the pair the item is about — and `authSchemes` is still
       `z.record(z.string().min(1), authSchema)`. Open, unchanged.
 - [ ] **Granted access is not a relation.** The five relations describe **belonging**
       — whose the resource is and how the tenants are related. They cannot say
@@ -2289,7 +2290,7 @@ recorded underneath.
       the compiler over the three `tokens.mjs` with this repository's own options
       gives **47 diagnostics**: 31 `TS7006` (an implicit `any` parameter), 7
       `TS2339`, 6 `TS18046`, and one each of `TS2554`, `TS2532` and `TS2322`. The
-      last two of those are the ones the item means by "real": `vampi/tokens.mjs`
+      first and the last of those are the ones the item means by "real": `vampi/tokens.mjs`
       line 110 calls something with one argument that takes none, and line 123
       assigns a one-parameter function where a zero-parameter one is asked for. It
       is three polygons now and not two — crAPI has its own.
@@ -2756,7 +2757,7 @@ session's real finding and it is worth the space (ADR-0063).
       is no no-limits mode — and what the build says it is. **None of them is
       argument parsing**, and `src/cli/compare.ts` was executed by no test in this
       process at all.
-- [x] **Forty-two minutes earlier, the runner cut had added its own directory to
+- [x] **Forty-two minutes later, the runner cut added its own directory to
       that same list**, with a comment three lines below the `cli` gap saying why
       naming only the barrel would be "the gate being lowered by a move, not by a
       decision". The sentence was written above the very list that had already lost
@@ -3128,9 +3129,13 @@ was written on, not carried over from a commit message.
   states and `tests/public-surface.test.ts` holds it to.
 - The bundled standards catalogue: **3 standards, 16 clauses**, of which
   `findUnansweredClauses` returns **9** against an empty check registry.
-- `docs/adr/` holds **71 files**, 0000 through 0070.
-- Between the commit that last touched this file and this one: **196 commits, 143
-  of them not merges**, over four days.
+- `docs/adr/` holds **72 files**, 0000 through 0071.
+- Between `9e716e4`, the commit that last touched this file, and `29f99d7`, which
+  added this line: **197 commits, 144 of them not merges**, over four days. Both
+  ends are named on purpose. "The commit that last touched this file and this one"
+  is a range that moves every time the file is touched, so the count under it was
+  wrong within the hour — which is the same defect as a census of the repository
+  written into the repository, corrected in `README.md` on the same day.
 
 ## Adversarial review of 18 August 2026 (the gate itself)
 
