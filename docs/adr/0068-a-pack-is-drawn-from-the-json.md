@@ -322,7 +322,7 @@ the section above says so.
 that refuses a replacement which does not land the intended number of times —
 shown refusing once, on a deliberately misspelt needle, before any of these were
 trusted. Restoration was from a byte copy taken before the first edit. Each
-mutation was applied alone and the **whole** suite run, 1918 tests over 124
+mutation was applied alone and the **whole** suite run, 1919 tests over 124
 files:
 
 | mutation | what happened |
