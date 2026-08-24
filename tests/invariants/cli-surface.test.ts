@@ -37,6 +37,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { FAST_STAND } from "../fixtures/local-stand.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CLI = resolve(ROOT, "dist/cli.js");
@@ -1012,6 +1013,7 @@ ${exclude}`;
       join(dir, "endpoints.yaml"),
       "-r",
       report,
+      ...FAST_STAND,
     ]);
     // A walk that produced no defects would make every assertion below pass
     // for the wrong reason.
@@ -1249,6 +1251,7 @@ describe("packing a saved report", () => {
       join(dir, "endpoints.yaml"),
       "-r",
       report,
+      ...FAST_STAND,
     ]);
     expect(outcome.status).toBe(expected);
     return report;
