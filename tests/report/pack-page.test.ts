@@ -292,6 +292,18 @@ describe("a document drawn from a pack", () => {
     expect(readAs(page)).toContain("and one about &amp;<b>bold</b>");
   });
 
+  /**
+   * The clause and its claim are two words, in the markup and not only in the CSS.
+   *
+   * They are adjacent spans held apart by a margin, so a reader that drops the
+   * stylesheet — a browser's reading mode, a screen reader, anything that copies
+   * the text out — reads `8.1.1breached` from the margin alone. Found by reading a
+   * real pack rather than by reasoning about one.
+   */
+  it("separates the clause from its claim without the stylesheet", () => {
+    expect(page).toContain('</span> <span class="claim">');
+  });
+
   it("says the same thing twice running", () => {
     expect(renderPack(pack)).toBe(page);
   });

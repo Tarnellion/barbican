@@ -455,7 +455,15 @@ function clause(row: CitedClause, catalogued: ClaimedClause | undefined, at: num
   const heading = tag(
     "h3",
     [],
-    [line("span", "ref", `${row.standard} ${row.clause}`), line("span", "claim", row.claim)],
+    [
+      line("span", "ref", `${row.standard} ${row.clause}`),
+      // A space in the markup and not only the margin in the stylesheet. The two
+      // spans are adjacent, so a reader that drops the CSS — a browser's reading
+      // mode, a screen reader, anything that copies the text out — gets
+      // `8.1.1breached` from the margin alone. Measured on a real pack.
+      words(" "),
+      line("span", "claim", row.claim),
+    ],
   );
   const figures: Markup[] = [];
   if (catalogued !== undefined) {
