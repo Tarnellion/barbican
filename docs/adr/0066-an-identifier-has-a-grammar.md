@@ -297,4 +297,95 @@ refuses to run anything unless every replacement lands the number of times it wa
 declared to land, and each was restored from a byte copy taken before the edit.
 The refusal the harness prints on a needle no file carries is quoted at the end.
 
-_(the measurements are recorded in the section below, added after they were run)_
+The tree they were run against is the commit this ADR belongs to, whose suite is
+**119 files, 1814 passed, 1 skipped**.
+
+- **A back door inside the grammar, keyed on the value.** Measured:
+  `if (value.startsWith("legacy:")) { return undefined; }` at the head of
+  `refusalOf` passes **the whole suite** — 119 files, 1814 passed, 1 skipped —
+  with `pnpm exec biome check src/core/identifiers.ts` clean on the file.
+  Nothing pins the text of these three functions the way
+  `tests/invariants/written-once.test.ts` pins the address grammar's, and pinning
+  them is the blob nobody reads
+  ([ADR-0061](0061-a-rule-is-written-in-one-place-and-read-in-two.md) reaches the
+  same conclusion about its own predicates).
+
+  The neighbouring form — a code point quietly let out of the class,
+  `if (code === 0x0b) { return false; }` inside `isNotText` — is **closed**, and
+  it is worth saying which of the two the tests reach. `tests/core/identifiers.test.ts`
+  asks the grammar about every code point up to `U+2100` one at a time, so that
+  mutation goes red on the code point it exempts: 1 failed, 1813 passed, 1
+  skipped, naming `U+000B`. A back door on the *value* is past that scan, because
+  the scan varies the character and not the string around it.
+
+- **A key built without `joinKey`.** The seam holds what goes through it, and
+  nothing makes a module go through it. Measured: a second index in
+  `mergeFindings`, keyed by `` `${accountId}|${endpointId}|${resourceId ?? ""}` ``,
+  passes the whole suite — 119 files, 1814 passed, 1 skipped — with Biome clean on
+  `src/report/findings.ts`. `tests/invariants/one-decision-one-home.test.ts` reads
+  for the **separator** and for the owned names, and a pipe is neither. What holds
+  against the class is what ADR-0060 says holds: such a key is a second
+  implementation rather than a second reference, and it drifts the day the first
+  one moves.
+
+- **The doors are a list of tests, not a table.** Measured in the direction that
+  can be measured: deleting `identifier(check.id, …)` from `CheckRegistry.register`
+  fails exactly one test — 1 failed, 1813 passed, 1 skipped — the one written for
+  that door. So a door that stops asking is caught, and a door that never asked is
+  caught by nothing except the seam under it: the run still refuses, and the
+  operator gets `A coordinate of a key carries U+0000` instead of the line of
+  their file. A seventh endpoint source added tomorrow with no `identifier` call
+  is safe and unhelpful, and nothing says so.
+
+  For completeness in the other direction: removing the seam itself — `asCoordinate`
+  returning the part unchecked — fails three tests, 1811 passed, 1 skipped, all
+  three in the `the seam` block. The seam is what the two unenumerated doors rest
+  on, so it is held by more than one witness on purpose.
+
+- **`citableDefectKey` is still a map key one layer out, and still ambiguous.**
+  This grammar covers the keys `joinKey` builds. The citable form joins the same
+  three coordinates **with a space**, and `src/report/compare.ts` indexes two
+  saved reports on `defects[].key`, which is that form. Measured against the
+  built tree:
+
+  ```
+  A = { endpointId: "a",       relation: "own",         contextId: "b same-tenant d" }
+  B = { endpointId: "a own b", relation: "same-tenant", contextId: "d" }
+  citable A: "a own b same-tenant d"
+  citable B: "a own b same-tenant d"      one citable key: true
+                                          one signature:   false
+  ```
+
+  Every string in both is a legal identifier under this grammar, because a space
+  is a legal character in a name and that is a decision, not a gap. Two different
+  defects therefore merge into one row when two reports are compared. It is the
+  same class as the defect this ADR is about — a form written for people used to
+  decide identity, which is the note of 24 August on ADR-0048 — one layer further
+  out, and it is left open here rather than fixed in passing, because fixing it
+  means deciding what `defects[].key` is for.
+
+- **Two identifiers that read alike are still two identifiers.** A homoglyph, a
+  zero-width joiner, a bidirectional override: all admitted, and
+  `tests/core/identifiers.test.ts` asserts that `U+202A` and `U+202E` pass. This
+  is the decision above and not an omission — a key is compared by code points,
+  so nothing merges — but a report can be made to *read* misleadingly, and the
+  grammar answers about identity rather than about legibility.
+
+- **Arity is still the caller's.** `joinKey` refuses a part that carries a
+  separator; it does not know how many parts a key of a given kind should have,
+  so two builders could in principle produce one string. Nothing needs them not
+  to today: no map in this repository holds two kinds of key, and `cellKey`,
+  `objectKey` and `defectSignature` each own theirs. A gate reading source text
+  cannot see this either, which is the same limit
+  `tests/invariants/one-decision-one-home.test.ts` states about *what* is glued.
+
+Every mutation above was applied by a harness that refuses to run anything unless
+each replacement lands the declared number of times, and restores from a byte
+copy taken before the edit. On a needle no file carries it prints
+
+> REFUSED. The needle was expected 1 time(s) in `src/core/identifiers.ts` and is
+> there 0. Nothing was run: a mutation that did not apply is a green run that
+> proves nothing.
+
+and runs no suite, which is what stops a harness from reporting a gate as
+effective when it never mutated anything.
