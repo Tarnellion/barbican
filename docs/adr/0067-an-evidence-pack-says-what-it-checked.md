@@ -305,11 +305,11 @@ change.
 
 | form | what happened |
 | --- | --- |
-| a plain copy of `CLAIMS.unanswered`, continued across lines with `+` as the table itself writes it | **caught**: 1 of 3 tests in the file red |
-| the same copy with one word replaced by a template interpolation — `` `…for this ${WORD}: …` `` | passes; the scan reads literals and folds only the `+` join |
-| a paraphrase: `claim === "upheld" ? "PASS" : "FAIL"` | passes, and so do all 10 invariant files (201 tests) |
-| the sentence rebuilt at run time from the table: `CLAIMS.unanswered.split(":")[0]` | passes; there is no literal to find |
-| the copy in an **untracked** module under `src/` | passes; the scan reads `git ls-files` |
+| a plain copy of `CLAIMS.unanswered`, continued across lines with `+` as the table itself writes it | **caught**: "is written in one module, and that module is the one that owns it" red, 1 failed of 3 in the file |
+| the same copy with one word replaced by a template interpolation — `` `…for this ${WORD}: …` `` | passes; `tests/invariants/` green, 10 files, 201 passed and 1 skipped |
+| a paraphrase: `claim === "upheld" ? "PASS" : "FAIL"` | passes; same, 10 files, 201 passed and 1 skipped |
+| the sentence rebuilt at run time from the table: `CLAIMS.unanswered.split(":")[0]` | passes; same, 10 files, 201 passed and 1 skipped |
+| the copy in an **untracked** module under `src/` | passes; same, 10 files, 201 passed and 1 skipped — the scan reads `git ls-files` |
 
 The paraphrase is the largest of these by a distance, and it is not a spelling
 trick. A renderer that prints `PASS` beside an `upheld` row says something the
