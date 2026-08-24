@@ -134,7 +134,7 @@ npm install barbican
 barbican run --help
 ```
 
-`0.6.0` is the current release, and the one to install. Publishing goes through
+`0.7.0` is the current release, and the one to install. Publishing goes through
 CI with provenance, so `npm audit signatures` verifies it against this repository
 and the workflow that built it.
 
@@ -1117,9 +1117,7 @@ run and the tool does not own the screen it is opened on. The package exports
 232 names, one more than before — `spellOut`, so that a consumer building its
 own report has the same rendering rather than a second one.
 
-### Unreleased
-
-On `main`, not on npm. `0.6.0` is what `npm install barbican` gives you.
+### What changed in 0.7.0
 
 **A refusal names the word this tool taught you.** A cold start against the
 published `0.6.0` — installed from the registry, driven against a two-tenant
@@ -1169,15 +1167,15 @@ seventeen.
 
 `DIFF_KINDS` is exported: the four kinds of matrix discrepancy as a list, with
 `DiffKind` derived from it the way `ResourceRelation` already is, so that "which
-clauses can the matrix channel cite" can be asked of every kind there is. The
-package exports 234 names.
+clauses can the matrix channel cite" can be asked of every kind there is.
 **A saved report can be turned into an evidence pack: the structure a document
 about external standards is drawn from**
 ([ADR-0067](docs/adr/0067-an-evidence-pack-says-what-it-checked.md)). This is the
 first half of Module 2, and it is pure — `evidencePack({ run, catalog })` takes a
 report that has already been written and the catalogue it is to be read against,
-and returns one row per clause. Nothing renders anything yet and no subcommand
-builds one; JSON stays the single source of truth and a document is drawn from it
+and returns one row per clause. It renders nothing itself — the entry below
+draws the document, and this half stays pure so that the structure can be tested
+without a page; JSON stays the single source of truth and a document is drawn from it
 in a separate step.
 
 The structure is the small half. What the change actually decides is **what such
@@ -1246,7 +1244,8 @@ margin, black on white — are **declared and not measured**: no browser runs in
 this repository's suite, and the test asserts that the properties are in the
 document rather than that an engine honoured them.
 
-The package exports 240 names: `renderPack` and `UnrenderableClaimError` beside
+The package exports 242 names, counted on the tree this section describes:
+`renderPack` and `UnrenderableClaimError` beside
 the six above. The second is the renderer's one decision — a claim outside the
 vocabulary is refused rather than printed as a bare word.
 **`barbican diff` no longer merges two defects that print the same key**
@@ -1533,7 +1532,7 @@ A release is three edits and a tag, in one commit:
 
 ```bash
 # the tag must match package.json's version — the workflow verifies it
-git tag v0.6.0 && git push origin v0.6.0
+git tag v0.7.0 && git push origin v0.7.0
 ```
 
 The tag triggers [`release.yml`](https://github.com/Tarnellion/barbican/blob/main/.github/workflows/release.yml): it runs the same
