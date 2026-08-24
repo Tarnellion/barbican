@@ -74,12 +74,26 @@ absent for a reason no check will ever close — from outside a platform, a miss
 authorization check and a wrong one give the same answer — and that is worth
 reading. Filed beside four rows that are simply wrong, it is not.
 
-**The gate could not have noticed.** `standard-refs.test.ts` pinned the thirteen
-"so that a check added, a check's claims widened, or a clause added all move it".
-A change to `standardsForDiff` moved nothing at all: the entire matrix mapping
-could have been deleted with that list unchanged and `pnpm run check` green. The
-gate meant to make a change of coverage visible was blind to the channel that
-produces most of this tool's findings.
+**The answer could not move when the fact did.** `standard-refs.test.ts` pinned
+the thirteen "so that a check added, a check's claims widened, or a clause added
+all move it". A fourth thing changes what that list should say and moved it by
+nothing: a change to `standardsForDiff`.
+
+This is not the claim that the mapping was unwatched — it was.
+`tests/core/clause-coverage.test.ts` and
+`tests/report/matrix-findings-carry-clauses.test.ts` pin what
+`controlClausesForCell` returns by exact equality, and both mutations run against
+the tree before this change (3 and 5 in the table below) were caught there. The
+claim is narrower and worse. Under mutation 3, ASVS 8.2.1 genuinely stopped being
+answered by anything at all, and the list whose entire job is to name such
+clauses **printed exactly the same thirteen rows**: it had been listing 8.2.1
+wrongly, and went on listing it, now rightly, with nothing anywhere recording
+that its meaning had inverted. Under mutation 5 the reverse — the matrix channel
+began citing 8.1.3 — and the same thirteen rows came back, with 8.1.3 still on
+them and now falsely.
+
+A list that gives the same answer whether or not the fact is true is not evidence
+about the fact. That is what an evidence pack would have been quoting.
 
 ## Decision
 
@@ -240,26 +254,47 @@ Three further inaccuracies, none of them a clause title:
   `report.coverage.clauses[].clause`. Changing it is a report-content change and
   belongs with a `schemaVersion` decision, not here.
 
-### The gate, and the four ways past it that were run
+### The gate, and the seven mutations it was put to
 
 `tests/invariants/a-clause-nothing-answers.test.ts` pins the nine by exact
 equality, holds `unansweredBecause` and the derivation to agree in both
-directions, and shows the derivation is not vacuous. Attacked before it was
-trusted; each mutation was applied to a committed tree by a harness that refuses
-to run when its needle does not match the expected number of times, and restored
-from a byte copy afterwards.
+directions, and shows the derivation is not vacuous.
 
-| # | mutation | before | after |
+Attacked before it was trusted. Every mutation below was applied to a committed
+tree by a harness that reads the file, counts the needle, and **refuses to write
+anything at all unless the count is the one the spec declares** — a replacement
+that landed somewhere other than where it was aimed proves nothing about the gate
+it was aimed at. Shown refusing once on a needle that matches nothing (`id:
+"8.9.9"`): exit 3, no file written, no backup taken. Every file touched is copied
+byte for byte before the first write and restored from that copy in a `finally`;
+never `git checkout --`, which restores what the index holds rather than what was
+there a second ago. The backups live outside the repository, because the first
+run put a `bundled.ts.mutation-backup` next to its original and
+`tools/coverage-gate.mjs` correctly refused an unrecognised extension under
+`src/` — the harness was littering in the tree it was measuring.
+
+Two of the seven were also run against the tree before this change, extracted from
+the release commit into a scratch directory. That tree is not a git checkout, so
+the twelve test files that read `git ls-files` fail there for a reason of their
+own; the pre-change column below is from a run of the five files that bear on
+this question, and the failures listed are that run's.
+
+| # | mutation | on the tree before | on this tree |
 |---|---|---|---|
-| 1 | a sixteenth clause added to CWE with nothing behind it and no reason | — | **red**, this file, on the pinned list and on the missing reason |
-| 2 | `unansweredBecause` added to ASVS 8.4.1, which a check and the matrix both answer | — | **red**, this file, on the "no clause something answers" direction |
-| 3 | `ASVS_FUNCTION_LEVEL_ACCESS` (8.2.1) removed from `controlClausesForCell` | **green** everywhere, including the old pinned list | **red**, this file and four others |
-| 4 | `identical-response-across-tenants` stripped of all three of its clauses | — | **red**, this file, on the check channel being non-empty |
+| 1 | a sixteenth clause (CWE-732) added to the catalogue, nothing behind it and no reason | — | **red**: four assertions here — the count, the pinned list, the missing reason, the length floor — and `standards.test.ts` |
+| 2 | `unansweredBecause` added to ASVS 8.4.1, which both channels answer | — | **red**: "is on no clause something answers" |
+| 3 | the matrix channel stops citing ASVS 8.2.1 | **the pinned list of uncovered clauses did not move.** `standard-refs.test.ts` and `standards.test.ts` green; three other files red on the mapping itself | **red**: five assertions here, plus the same three files |
+| 4 | the one registered check declares no clause at all | — | **red**: "reaches clauses down both channels", plus four other files |
+| 5 | the matrix channel starts citing ASVS 8.1.3, which the catalogue says nothing answers | **the pinned list did not move.** `standard-refs.test.ts` green; `clause-coverage.test.ts` red on the mapping | **red**: three assertions here, plus `clause-coverage.test.ts` |
+| 6 | the enumeration stops looping and asks about one `DiffKind` | — | **red**: "asks the matrix channel about every kind there is". The clause *set* is unchanged — `privilege-escalation` cites a superset — so only the anti-vacuity assertion catches it |
+| 7 | a reason that is present, long enough and says nothing | — | **green**, and deliberately: one of the entries under "what the gate does not hold", run rather than imagined |
 
-Mutation 3 is the one that matters: it is the defect this ADR is about, run as an
-experiment. On the tree before this change, gutting the matrix mapping left every
-gate in the repository green because the only pinned list of uncovered clauses
-never read that channel.
+Mutations 3 and 5 are the experiment this ADR exists for. Neither is the claim
+that the mapping was unwatched: it is pinned by exact equality in two other
+files, and both mutations were caught there. What neither of those files can say
+is what the *catalogue's* answer becomes, and that answer — the list a pack
+quotes — came back identical in both directions, once when it had newly become
+right and once when it had newly become wrong.
 
 ### What the gate does not hold
 
@@ -276,8 +311,9 @@ scan — it reads the exported surface — so its blind spots are the surface's.
   consumer's catalogue the same question — is not a gate this repository can run,
   and `clauseAnswers` is exported precisely so that a consumer can run it.
 - **A reason that is present, non-blank and wrong.** Nothing reads what the
-  sentence says. `unansweredBecause: "nobody got round to it"` passes every
-  assertion, and the length floor is arithmetic rather than judgement.
+  sentence says. Run as mutation 7: CWE-862's reason replaced with "Nobody has
+  got round to this one, and this sentence is long enough to clear the floor" —
+  1841 tests passed. The length floor is arithmetic and not judgement.
 - **Whether the catalogue's boundary is the right one.** `scope` is a human
   judgement about which clauses to carry; this file asks nothing about it. The
   paraphrase audit above is what a human does instead, and it found the boundary
