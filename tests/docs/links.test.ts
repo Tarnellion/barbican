@@ -129,11 +129,19 @@ function relativeLinks(repoPath: string): readonly string[] {
  *
  * That is worse here than a dead link. An ADR number is working currency in this
  * repository — comments cite one, commit messages cite one, `CLAUDE.md` cites
- * nine — and none of those citations is a link anything can follow. A reader who
- * takes "ADR-0041" from a sentence and goes looking for it lands on a decision
- * about matrix discrepancies answering for a clause, when the sentence was about
- * a catalogue of clauses. The link was the one place the two numbers could be
- * compared, and nothing compared them.
+ * them throughout — and none of those citations is a link anything can follow. A
+ * reader who takes "ADR-0041" from a sentence and goes looking for it lands on a
+ * decision about matrix discrepancies answering for a clause, when the sentence
+ * was about a catalogue of clauses. The link was the one place the two numbers
+ * could be compared, and nothing compared them.
+ *
+ * The last of those three figures was an exact count until 24 August 2026, and it
+ * read "nine". It was nine on 23 August, the day it was written, and thirteen the
+ * day after, and nothing had noticed. That is this file's own subject one level
+ * up, and about a file it does scan: the scan below reads every tracked file, but
+ * it collects links, and a bare "ADR-0024" in a sentence is not one — which is
+ * why the citations counted here are the ones nothing can follow in the first
+ * place. A count no gate reads drifts, so it is no longer spelled.
  *
  * What follows is the population: any inline link, with the label and everything
  * the parentheses hold.

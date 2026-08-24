@@ -31,6 +31,14 @@ to break unnoticed while caught up in a task.
   sources, and do not "normalise" a backslash or a control character instead of
   refusing it: the URL parser reads those differently than a split on `/` does,
   and modelling its normalisation is how the first version was wrong (ADR-0032).
+- **The identifier grammar.** `identifier` in `src/core/identifiers.ts`, applied in
+  `joinKey` — the seam where a key is built — and at the eight doors that name
+  the field and the file. It refuses the C0 controls, DEL, the C1 controls, the two
+  Unicode line separators and the empty string. Do not narrow it to the NUL: that
+  makes the sentence in `keys.ts` true by naming one character, and only until the
+  separator moves. Do not escape one of these on the way to a terminal or into the
+  report instead of refusing it — escaping is modelling somebody else's terminal,
+  and it leaves the tool holding an id it can never print back (ADR-0066).
 - **A canary per account.** Every account with a `tokenEnv` needs one that passed, or
   the run exits 2. Weakening this to "the run has a canary" is exactly the state
   ADR-0033 was written from: an account with a dead token, denied everywhere by the
