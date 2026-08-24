@@ -368,8 +368,16 @@ export interface CitedClause {
    * surface", from the report and not recomputed.
    *
    * On the row for the reason `clauseReservationsOf` gives: a qualification left
-   * behind in another section is one that did not travel with the claim. Empty
-   * on a row the run never reached, where there is no claim for one to qualify.
+   * behind in another section is one that did not travel with the claim.
+   *
+   * Empty where the report carried no clause row to read them off — a clause
+   * reached only by a finding that cites it, and a clause the run never reached
+   * at all. Neither makes a claim of coverage for a reservation to qualify: one
+   * is a disagreement that was observed, the other is `unanswered`. Nothing is
+   * substituted in, because the alternative is deriving them a second time, which
+   * is the reading `clauseReservationsOf` exists to be the only one of. The
+   * run-level statement is not lost either way — it is in {@link PackedRun}'s
+   * `warnings`, in the tool's own words.
    */
   readonly reservations: readonly string[];
 }

@@ -109,8 +109,21 @@ off the clause row and carries them onto its own row unchanged, including a code
 this build has never heard of — dropping one would silently strengthen the claim,
 which is the one direction a pack must never move in.
 
-A row the run never reached carries none, because there is no claim there for one
-to qualify.
+A row with no clause row behind it carries none — a clause reached only by a
+finding that cites it, and a clause the run never reached at all. Neither makes a
+claim of coverage for a reservation to qualify: one is a disagreement that was
+observed, the other is `unanswered`. Nothing is substituted in, because the
+substitute would be a second derivation of the thing `clauseReservationsOf`
+exists to be the only one of; and the run-level statement is not lost either way,
+since `run.warnings` carries it in the tool's own words.
+
+That is visible on a real pack. A run against the reference platform with two of
+its defects on reports `OWASP-ASVS-5.0 8.2.1` as breached over 54 conclusive
+cells with `endpoints-not-probed` beside it, and `OWASP-API-2023 API5` — the
+defect class the same escalation cites — as breached with no reservations and no
+cell count, because the defect class reached the pack through the finding and
+never had a row of its own (ADR-0052 is why it does not: a clean cell is not
+credited with having searched for improper authorization).
 
 ### The wording is a decision, not a string
 

@@ -212,6 +212,47 @@ describe("a document that is not one", () => {
       ),
     ).toThrow(/carries no "coverage\.clauses"/);
   });
+
+  /**
+   * A row of an array that is not an object at all.
+   *
+   * Three arrays carry rows a pack reads, and each of them is a place a document
+   * may hold a number, a string or a `null` where a row belongs. Named by its
+   * position, because a file with forty clause rows in it needs the index — and
+   * asserted one by one, because the three readers are three functions and a
+   * missing guard in any of them is an object index on something that is not an
+   * object.
+   */
+  it("is refused where a row of an array is not an object", () => {
+    const cases: readonly [string, (one: Record<string, unknown>) => void, RegExp][] = [
+      [
+        "a clause row",
+        (one) => {
+          (one["coverage"] as Record<string, unknown>)["clauses"] = [42];
+        },
+        /coverage\.clauses\[0\] is not an object/,
+      ],
+      [
+        "a finding row",
+        (one) => {
+          one["findings"] = [null];
+        },
+        /findings\[0\] is not an object/,
+      ],
+      [
+        "a clause reference on a finding",
+        (one) => {
+          const findings = one["findings"] as Record<string, unknown>[];
+          one["findings"] = [{ ...findings[0], standards: ["OWASP-ASVS-5.0 8.1.1"] }];
+        },
+        /findings\[0\]\.standards\[0\] is not an object/,
+      ],
+    ];
+
+    for (const [what, edit, message] of cases) {
+      expect(() => toPackableRun(onDisk(edit), "broken.json"), what).toThrow(message);
+    }
+  });
 });
 
 /**
