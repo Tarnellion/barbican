@@ -73,8 +73,14 @@ export function isRecord(value: unknown): value is Readonly<Record<string, unkno
  * the readers below so that every refusal names the line rather than the field
  * name alone: `"key" is not a string` is unactionable in a file with forty
  * defects in it, and so is `The value at key carries U+001B`.
+ *
+ * Module-private, like `readable` under it. It was exported when this file was
+ * cut out of `compare.ts` and no reader outside ever asked for it: what a reader
+ * above wants is `stringAt` and the rest, which build the path themselves so that
+ * every refusal spells a position the same way. A second caller composing its own
+ * `at` string would be the second speller.
  */
-export function pathTo(holder: string, key: string): string {
+function pathTo(holder: string, key: string): string {
   return holder === "" ? key : `${holder}.${key}`;
 }
 
