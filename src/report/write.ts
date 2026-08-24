@@ -159,8 +159,10 @@ export interface ObservationStreamHeader {
  * Written out because the interface is erased before the reader runs, and the
  * reader has to walk the fields of a document rather than of a value: an
  * `Object.keys` over what was parsed would put a key somebody else chose into a
- * message. A field added to the interface and not here is checked by nothing,
- * which `tests/report/write.test.ts` asserts against.
+ * message. `satisfies` holds every name here to being one of the interface's;
+ * that a name of the interface is *missing* here is what
+ * `tests/cli/stream.test.ts` asserts, by asking the reader about each of the six
+ * in turn and comparing the list it asked about with the header's own keys.
  */
 const HEADER_FIELDS = [
   "format",

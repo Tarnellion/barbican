@@ -692,9 +692,16 @@ a Limits section describing a tree that no longer exists is the defect
   is a different question — the collision measured there is between two keys both
   made of perfectly legal identifiers.
 
-- **`--json` was never the channel and is not one now.** `JSON.stringify` escapes
-  a control character, so the machine-readable half of `diff` printed `\u001B`
-  throughout. The check is about the screen, and about the map keys.
+- **`--json` was a narrower channel, not a safe one**, and the first version of
+  this entry said "never the channel" on the assumption that `JSON.stringify`
+  escapes control characters. Measured: it escapes code points **below `U+0020`
+  only**. `U+001B` came out as `\u001b`; DEL, the whole C1 range and both line
+  separators came out raw — and `U+009B` is CSI to a terminal reading 8-bit
+  controls, which is a pipeline printing `barbican diff --json` to a screen. The
+  door closes that half too, because it runs before either half is written. What
+  the door does not reach is a consumer's own printing of a `RunComparison` it
+  built from `compareRuns` on two `RunReport`s it holds in memory: those went
+  through the doors of the run that produced them.
 
 Every mutation above was applied by a harness that refuses to run anything unless
 each replacement lands the declared number of times, and restores from a byte

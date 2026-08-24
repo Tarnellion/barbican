@@ -276,12 +276,22 @@ describe("a stream carrying something that cannot be a name", () => {
    * does the declaration mismatch.
    */
   it("asks about the header before printing any of it back", async () => {
-    for (const [field, value, code] of [
+    // Every field of `ObservationStreamHeader`, one per iteration. The reader
+    // walks a written-out list of names rather than the keys of the parsed
+    // object — a key out of a document has no business in a message — so this
+    // loop is what says the list still covers the interface: a field added to
+    // one and not the other fails here.
+    const each = [
+      ["format", `${OBSERVATION_STREAM_FORMAT}\n`, "000A"],
+      ["tool", `barbican${ESCAPE}[2K`, "001B"],
       ["version", `9.9.9${ESCAPE}[31m`, "001B"],
       ["declaration", `${DECLARATION}${ESCAPE}[2K`, "001B"],
       ["runId", `8b1f0a4e${NUL}`, "0000"],
-      ["format", `${OBSERVATION_STREAM_FORMAT}\n`, "000A"],
-    ] as const) {
+      ["startedAt", `2026-08-21T10:00:00.000Z${NUL}`, "0000"],
+    ] as const;
+    expect(each.map(([field]) => field)).toEqual(Object.keys(HEADER));
+
+    for (const [field, value, code] of each) {
       const path = await handWritten([
         { kind: "header", ...HEADER, [field]: value },
         { kind: "cell", ...cell("orders.list") },
