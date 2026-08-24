@@ -173,6 +173,21 @@ describe("a report drawn into a pack", () => {
   });
 
   /**
+   * A run that named no system under test still has to be nameable.
+   *
+   * `target.label` is optional, and a pack whose first line was blank would be an
+   * evidence pack that does not say what was tested. The address stands in — it is
+   * the only thing the report carries that identifies the deployment at all.
+   */
+  it("names the address when the run named no deployment", async () => {
+    const from = await saved("unlabelled.json", { target: { baseUrl: "http://127.0.0.1:8962" } });
+
+    await pack(from, { out: join(directory, "pack.html") });
+
+    expect(stderr.join("")).toContain("Evidence pack for http://127.0.0.1:8962");
+  });
+
+  /**
    * The artifact is written the way the report is: 0600, and through a rename.
    *
    * A pack carries every address, the label of the deployment and the identifiers
