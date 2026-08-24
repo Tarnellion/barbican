@@ -48,6 +48,68 @@ you drove yourself needs no conversion. A report that came back off disk is
 JSON and is not one until something has checked it: `toComparableRun(value,
 source)` is that check, and it throws `UnreadableReportError` naming the file.
 
+## Building an evidence pack
+
+`evidencePack({ run, catalog })` turns a saved run into the structure a document
+about external standards is drawn from: one row per clause of the catalogue,
+saying what this run did about it and — where it did nothing — saying that in a
+way a reader cannot take for a pass. It is pure and renders nothing; JSON is the
+source of truth and a document is a separate step.
+
+`createBundledCatalog()` is the catalogue this repository ships — the
+authorization chapter of OWASP ASVS 5.0, three entries of the API Top 10 and the
+CWE-284 hierarchy. It is a fresh instance each time on purpose, so you can
+register a standard of your own into it — that is what `StandardCatalog`'s own
+`register` method is for: a standard whose numbering may not be published belongs
+on the machine that holds it and not in a public repository. Whatever you
+register gets rows like the rest.
+
+The input is what came back off disk: `toPackableRun(value, source)` is the check,
+and it throws the same `UnreadableReportError`, naming the field and the file.
+A `RunReport` is deliberately **not** assignable to `PackableRun` — a file may
+carry a severity or a reservation code this build has never heard of, and typing
+those as the report's own unions would be a promise made by a cast.
+
+Every sentence a pack prints comes out of `CLAIMS`, `STANDINGS` and
+`DISCLAIMERS`. A row carries the code and you read the sentence from the table:
+they are assertions the tool makes to somebody who was not there, and a second
+copy of one is a second assertion the day it is improved. Read
+[ADR-0067](adr/0067-an-evidence-pack-says-what-it-checked.md) before rendering
+one — what a pack may claim, and what it refuses to, is the whole of that
+decision.
+
+## Drawing the document
+
+`renderPack(pack)` returns one self-contained HTML document as a string: no
+external stylesheet, no font, no image, no script, and no attribute a browser
+dereferences — the address of a clause's published wording is printed as text,
+because an auditor opens this with no network and the tool does not vouch for a
+string it was handed. It is pure, so two renderings of one pack are the same
+bytes on every machine, and it is the same document `barbican pack` writes.
+
+Everything a page says comes out of the pack. The sentences are `notes` and
+`CLAIMS`, read from the table; the rest is labels and numbers. It will not print
+a claim it has no sentence for: a `claim` outside the vocabulary — a pack from a
+later build, or one parsed back out of a `--json` file — raises
+`UnrenderableClaimError` rather than putting a bare word in front of a third
+party.
+
+Write it yourself if you like, but write it the way this tool does: a pack
+carries every address and every account identifier, so `barbican pack` writes it
+0600 and through a rename. See
+[ADR-0068](adr/0068-a-pack-is-drawn-from-the-json.md).
+
+```ts
+import { createBundledCatalog, evidencePack, renderPack, toPackableRun } from "barbican";
+
+const saved = JSON.parse(await readFile("run.json", "utf8"));
+const pack = evidencePack({
+  run: toPackableRun(saved, "run.json"),
+  catalog: createBundledCatalog(),
+});
+await writeFile("pack.html", renderPack(pack), { encoding: "utf8", mode: 0o600 });
+```
+
 ## Running the walk yourself
 
 `collectObservations` performs it: it takes the endpoints, the accounts, a
@@ -148,13 +210,13 @@ invalidated the digest of every report it wrote until 23 August 2026. See
 
 ## What the rest of the surface is
 
-The package exports 234 values and a comparable number of types. They fall into
+The package exports 242 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,
    `Endpoint`, `Resource`, `RunConfig`, `AccessObservation`, `AccessDiff`,
    `RunReport` and their neighbours.
-2. **98 error classes.** These are public on purpose: catching an error and
+2. **99 error classes.** These are public on purpose: catching an error and
    naming it is the only way to tell a configuration mistake from a network
    failure, and `instanceof` needs the class. They are grouped by the module that
    throws them.

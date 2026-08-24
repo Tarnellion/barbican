@@ -45,18 +45,24 @@ export async function readNamedFile(flag: string, path: string): Promise<string>
 /**
  * A report file, read and parsed, with the argument that named it.
  *
- * `readNamedFile` above names the four flags a run takes; a comparison takes two
- * positional paths, and "EISDIR: illegal operation on a directory" says which of
- * them no better here than it did there.
+ * `readNamedFile` above names the four flags a run takes, and "EISDIR: illegal
+ * operation on a directory" says which argument went wrong no better here than it
+ * did there. `role` is the caller's word for the one it is reading.
  *
- * @throws {Error} naming which of the two arguments failed
+ * Two subcommands read a saved report — `diff` takes two positional paths and
+ * `pack` takes one — so the sentence below names neither of them. It said "a
+ * comparison takes two paths" until 25 August 2026, which was a comparison's
+ * sentence in the mouth of a function that two commands call: the same defect
+ * `UnreadableReportError` was carrying next door (ADR-0067), one layer out.
+ *
+ * @throws {Error} naming which argument failed
  */
 export async function readReport(role: string, path: string): Promise<unknown> {
   const text = await readFile(path, "utf8").catch((cause: unknown) => {
     throw new Error(
       `the ${role} report cannot be read from "${path}": ${
         cause instanceof Error ? cause.message : String(cause)
-      }. A comparison takes two paths, and the system error names neither`,
+      }. The system error names neither the argument nor the path`,
     );
   });
   try {
@@ -145,6 +151,32 @@ export async function writeChunks(destination: NodeJS.WritableStream, chunks: It
  * then wrote it world-readable on a shared build agent.
  */
 export async function writeReportFile(path: string, report: object): Promise<void> {
+  await writeArtifact(path, reportChunks(report));
+}
+
+/**
+ * A rendered document, written under the same discipline as the report.
+ *
+ * The evidence pack and the page drawn from it are artifacts of the same run and
+ * carry the same things: every address, every account and resource identifier,
+ * the label of the deployment. ADR-0058's rule is that a guarantee holds where
+ * the artifact goes, and a second writer with weaker rules would be that rule
+ * broken by the second file rather than by the first. So this is
+ * {@link writeReportFile} with a different source of chunks, and the discipline
+ * itself is written once in {@link writeArtifact}.
+ */
+export async function writeDocumentFile(path: string, text: string): Promise<void> {
+  await writeArtifact(path, [text]);
+}
+
+/**
+ * An artifact of a run, written where it either lands whole or not at all.
+ *
+ * The body of what `writeReportFile` was until 25 August 2026, extracted when a
+ * second artifact needed the same four properties rather than a second set of
+ * three of them. What it holds is spelled out on the two callers above.
+ */
+async function writeArtifact(path: string, chunks: Iterable<string>): Promise<void> {
   const staging = `${path}.partial`;
   // Removed first, then created exclusively. Without `wx` the open follows a
   // symlink sitting at the staging path — the report, with every address and
@@ -157,7 +189,7 @@ export async function writeReportFile(path: string, report: object): Promise<voi
   await rm(staging, { force: true });
   await writeChunks(
     createWriteStream(staging, { encoding: "utf8", flags: "wx", mode: 0o600 }),
-    reportChunks(report),
+    chunks,
   );
   await rename(staging, path);
   await chmod(path, 0o600);

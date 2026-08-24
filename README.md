@@ -1171,6 +1171,84 @@ seventeen.
 `DiffKind` derived from it the way `ResourceRelation` already is, so that "which
 clauses can the matrix channel cite" can be asked of every kind there is. The
 package exports 234 names.
+**A saved report can be turned into an evidence pack: the structure a document
+about external standards is drawn from**
+([ADR-0067](docs/adr/0067-an-evidence-pack-says-what-it-checked.md)). This is the
+first half of Module 2, and it is pure — `evidencePack({ run, catalog })` takes a
+report that has already been written and the catalogue it is to be read against,
+and returns one row per clause. Nothing renders anything yet and no subcommand
+builds one; JSON stays the single source of truth and a document is drawn from it
+in a separate step.
+
+The structure is the small half. What the change actually decides is **what such
+a pack is allowed to say**, and every rule of it points the same way:
+
+- **A clause no check cited and no cell was evidence about is `unanswered`, never
+  a pass**, and the sentence beside it says so. The catalogue is what makes that
+  sayable at all: a pack built from what a run happened to cite lists what was
+  checked, and the question a reader has is what was not.
+- **`upheld` carries its denominator and its reservations on the row** — the cells
+  that concluded, the cells that concluded nothing by reason, and why "exercised"
+  falls short of "holds across the surface". Those come out of the report's own
+  `coverage.clauses` rather than being computed a second time.
+- **A run that exited 2 reports what it found and reports nothing as upheld.** It
+  describes the network, the deployment or its own credentials rather than the
+  platform, so a cell that agreed may have agreed for a reason that has nothing to
+  do with access — while a hole found before the budget ran out is still a hole.
+- **A pack states, on every pack, that it is evidence about a policy a human
+  declared** ([ADR-0006](docs/adr/0006-expected-access-declaration.md)), that every
+  conclusion in it is drawn from status codes seen from outside, and that the
+  catalogue it was read against is bounded. None of the three can ever be
+  discharged by running the tool again.
+
+The eleven sentences a pack prints live in one table, for the reason `WARNINGS`
+does: two copies of an assertion become two assertions the day one of them is
+improved. `tests/invariants/a-claim-has-one-wording.test.ts` is the gate on that,
+and what it does **not** catch — a paraphrase above all — is measured and listed
+in the ADR's `Limits`.
+
+Reading a saved report is now one module, `src/report/document.ts`, shared by the
+comparison's door and the pack's: every string lifted out of a file still goes
+through the identifier grammar
+([ADR-0066](docs/adr/0066-an-identifier-has-a-grammar.md)), and a rendered
+document is a new sink for one. Six names go onto the published surface —
+`evidencePack`, `toPackableRun`, `PACK_SCHEMA_VERSION`, `CLAIMS`, `STANDINGS`
+and `DISCLAIMERS`.
+
+**And the pack can be drawn into a document an auditor opens:
+`barbican pack <report.json> --out <file.html>`**
+([ADR-0068](docs/adr/0068-a-pack-is-drawn-from-the-json.md)). One
+self-contained HTML file — no external stylesheet, no font, no image, no script
+— because it is read on a machine with no network and printed to PDF through a
+browser. `--json <path>` writes the structure the document was drawn from, so the
+document can be checked against it rather than taken on trust. It exits 0 when a
+pack was built, 2 when the report cannot be read, **and 2 when the run behind it
+exited 2**: such a pack is worth reading and says on its face that no clause in
+it is upheld, and a pipeline that ships one as evidence unnoticed is the same
+defect this whole artifact is written against.
+
+Everything the page says comes out of the pack. The sentences are the pack's
+`notes` and `CLAIMS`; the rest is labels, numbers and the reservations, which sit
+**on the clause row they qualify** rather than in a footnote — a qualification
+left behind in another section is one that did not travel with the claim. The
+page has no way to reach anywhere and no way to run anything: the element and
+attribute names the renderer can write are closed unions with no `href`, no `src`
+and no `on…` in them, so a clause's published address is printed as text and a
+`javascript:` URL is never the scheme of anything. Text from outside is spelled
+out by the identifier grammar and then escaped for markup — two jobs, composed,
+neither rewritten. `tests/report/pack-page.test.ts` feeds a `<script>`, an
+`onerror=`, a `</style>`, a `javascript:` URL and a U+2028 through every channel
+the page draws from and then asks the rendered bytes which elements and which
+attributes are in them.
+
+The print rules — a clause row that does not split across a page boundary, a
+margin, black on white — are **declared and not measured**: no browser runs in
+this repository's suite, and the test asserts that the properties are in the
+document rather than that an engine honoured them.
+
+The package exports 240 names: `renderPack` and `UnrenderableClaimError` beside
+the six above. The second is the renderer's one decision — a claim outside the
+vocabulary is refused rather than printed as a bare word.
 
 ## Example
 

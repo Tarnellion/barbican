@@ -341,13 +341,39 @@ const REACHES_IN: ReadonlyMap<string, { readonly names: readonly string[]; reado
       { names: ["identifier"], why: "an account, a resource and an acceptance" },
     ],
     ["src/io/config/contexts.ts", { names: ["identifier"], why: "a context id" }],
+    // One entry and not two, although two modules read a saved report. The
+    // comparison held this allowance until 25 August 2026, when `evidencePack`
+    // became a second reader of the same kind of file; the reading half moved to
+    // `src/report/document.ts` rather than being written out again, so the
+    // number of modules reaching into the owner went from one to one instead of
+    // to two. A third reader of a saved report asks `document.ts` for `stringAt`
+    // and needs no entry here at all. See ADR-0067.
     [
-      "src/report/compare.ts",
+      "src/report/document.ts",
       { names: ["identifier"], why: "every string lifted out of a saved report" },
     ],
     [
       "src/report/write.ts",
       { names: ["identifier"], why: "the header and the cells of a resume stream" },
+    ],
+    // The second reach for `spellOut`, and the second sink. `src/adapters/http.ts`
+    // above holds one for a header value at the point it is kept; this one is a
+    // rendered page, where a control character arrives from two channels the
+    // report's own door never sees — a catalogue a consumer registered from a
+    // private source (ADR-0043), and a `PackableRun` a consumer assembled, which
+    // is a structural type and not a checked one. Importing it is the point of
+    // the entry: a renderer that spelled out a control character itself would be
+    // a second reading of "what is not text", which is the twelfth point fix
+    // ADR-0024 counts. Markup escaping is a different job for a different sink
+    // and stays in the renderer; see ADR-0068.
+    [
+      "src/report/page.ts",
+      {
+        names: ["spellOut"],
+        why:
+          "a rendered page is a sink, and two of its inputs — a registered " +
+          "catalogue and a consumer-built run — never passed the report's door",
+      },
     ],
   ]);
 

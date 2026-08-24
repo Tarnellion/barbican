@@ -39,15 +39,42 @@
  * terminal and used as map keys. ADR-0032 is the record of this repository placing
  * a grammar on the ways in and missing the door with no adapter on it; ADR-0066
  * listed five parsers, the library door and the resume stream, and missed this
- * one. See `readable` at the foot of the file.
+ * one.
+ *
+ * The reading half of that door left this file on 25 August 2026, when
+ * `evidencePack` became a second reader of the same kind of file: it is
+ * `src/report/document.ts`, and `readable` there is the sentence that used to be
+ * written here. What is left below names the fields a comparison needs and stops,
+ * which is the half that belongs to comparing. See ADR-0067.
  */
 
-import { identifier } from "../core/identifiers.js";
 import type { ResourceRelation } from "../core/index.js";
 import { SEVERITY_ORDER } from "../core/index.js";
 import { byCodeUnits } from "../core/order.js";
-import { lookup, openRecord } from "../io/untrusted.js";
+import { lookup } from "../io/untrusted.js";
 import { REPORT_SCHEMA_VERSION } from "./build.js";
+import {
+  arrayAt,
+  countsAt,
+  isRecord,
+  numberAt,
+  objectAt,
+  optionalStringAt,
+  stringAt,
+  stringsAt,
+  UnreadableReportError,
+} from "./document.js";
+
+/**
+ * Thrown by the reader at the foot of this file, and declared next door.
+ *
+ * Re-exported rather than moved off the surface: `docs/library.md` tells a
+ * consumer to catch it beside `toComparableRun`, and an import that worked
+ * yesterday should not need a new module name today. It is one class with one
+ * declaration — `src/report/document.ts` — and this is a second address for it,
+ * not a second class. See ADR-0067.
+ */
+export { UnreadableReportError } from "./document.js";
 
 /**
  * The version of this comparison's own shape, for `--json`.
@@ -230,23 +257,6 @@ export interface RunComparison {
   readonly coverage: CoverageDifference;
   readonly defects: DefectDifference;
   readonly verdict: { readonly code: number; readonly reason: string };
-}
-
-/**
- * A file that is not a report this tool can compare.
- *
- * Public, like the rest of this package's error classes: telling a mistyped
- * path from a report of another vintage is something a consumer has to be able
- * to do in a `catch`, and `instanceof` needs the class.
- */
-export class UnreadableReportError extends Error {
-  override readonly name = "UnreadableReportError";
-  constructor(source: string, why: string) {
-    super(
-      `${source} is not a barbican report this tool can compare: ${why}. ` +
-        `Both arguments are report files written by \`barbican run --report\`.`,
-    );
-  }
 }
 
 /** Severity as a sort key over a string that came out of a file. */
@@ -818,162 +828,6 @@ export function renderComparison(comparison: RunComparison): readonly Comparison
   return lines;
 }
 
-/** Whether a parsed value is an object worth reading fields off. */
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * Where in the document a value sits, as the operator reads the file.
- *
- * `""` at the root, `defects[3]` inside the fourth defect. It is threaded through
- * the readers below so that every refusal names the line rather than the field
- * name alone: `"key" is not a string` is unactionable in a file with forty
- * defects in it, and so is `The value at key carries U+001B`.
- */
-function pathTo(holder: string, key: string): string {
-  return holder === "" ? key : `${holder}.${key}`;
-}
-
-/**
- * Every string this reader lifts out of a saved report goes through the identifier
- * grammar, and this is the one place that happens.
- *
- * A saved report is a document the tool was handed — from another machine, an
- * earlier build, or somebody else — exactly like an OpenAPI file or a Postman
- * collection, and this module is the door with no adapter on it. ADR-0032 is the
- * record of the same shape twice: a grammar placed on the ways in rather than on
- * the place the value is used, and the one door nobody enumerated. ADR-0066 named
- * five parsers, the library door and the resume stream, and missed this one.
- *
- * **Every** string, and not only the ones ADR-0066 calls identifiers. Each of
- * them is printed to a terminal by `renderComparison`, keyed on by `compareRuns`,
- * or both: `defects[].key` indexes the defect comparison, `observations[].endpointId`
- * indexes the probed set, a `notProbed` key indexes the skip table, and `runId`,
- * `startedAt`, `configDigest`, `verdict.reason`, `target.label` and the rest are
- * printed verbatim. Measured on 24 August 2026: an endpoint id carrying
- * `U+001B [2K` and a carriage return erases the line it was printed on, and a
- * defect key carrying `U+001B [31m` recolours the rest of the screen.
- * None of them has a use for a character that is not text, and none is ever the
- * empty string in a report this tool wrote — `target.label` is `min(1)` in the
- * configuration schema, a digest is 64 hex characters, and `citableDefectKey`
- * writes `any-resource` and `baseline` where a coordinate is missing.
- *
- * Refused rather than escaped, for the reason CLAUDE.md gives about the address:
- * escaping on the way to a terminal is modelling the terminal, and the tool would
- * then hold an id it can never print back. See ADR-0066.
- */
-function readable(source: string, path: string, value: string): string {
-  return identifier(value, `${path} in the report "${source}"`);
-}
-
-function stringAt(
-  source: string,
-  holder: Readonly<Record<string, unknown>>,
-  key: string,
-  at = "",
-): string {
-  const path = pathTo(at, key);
-  const value = holder[key];
-  if (typeof value !== "string") {
-    throw new UnreadableReportError(source, `"${path}" is not a string`);
-  }
-  return readable(source, path, value);
-}
-
-/** A field a report may leave out, checked when it is there. */
-function optionalStringAt(
-  source: string,
-  holder: Readonly<Record<string, unknown>>,
-  key: string,
-  at = "",
-): string | undefined {
-  const value = holder[key];
-  return typeof value === "string" ? readable(source, pathTo(at, key), value) : undefined;
-}
-
-function numberAt(
-  source: string,
-  holder: Readonly<Record<string, unknown>>,
-  key: string,
-  at = "",
-): number {
-  const value = holder[key];
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new UnreadableReportError(source, `"${pathTo(at, key)}" is not a number`);
-  }
-  return value;
-}
-
-function objectAt(
-  source: string,
-  holder: Readonly<Record<string, unknown>>,
-  key: string,
-  at = "",
-): Readonly<Record<string, unknown>> {
-  const value = holder[key];
-  if (!isRecord(value)) {
-    throw new UnreadableReportError(source, `"${pathTo(at, key)}" is missing or is not an object`);
-  }
-  return value;
-}
-
-function arrayAt(
-  source: string,
-  holder: Readonly<Record<string, unknown>>,
-  key: string,
-  at = "",
-): readonly unknown[] {
-  const value = holder[key];
-  if (!Array.isArray(value)) {
-    throw new UnreadableReportError(source, `"${pathTo(at, key)}" is missing or is not an array`);
-  }
-  return value;
-}
-
-function stringsAt(
-  source: string,
-  holder: Readonly<Record<string, unknown>>,
-  key: string,
-  at = "",
-): readonly string[] {
-  const path = pathTo(at, key);
-  return arrayAt(source, holder, key, at).map((one, index) => {
-    if (typeof one !== "string") {
-      throw new UnreadableReportError(source, `"${path}" holds something that is not a string`);
-    }
-    return readable(source, `${path}[${index}]`, one);
-  });
-}
-
-/** The counts a `notProbed` record carries, over keys the runner chose. */
-function countsAt(
-  source: string,
-  holder: Readonly<Record<string, unknown>>,
-  key: string,
-  at = "",
-): Readonly<Record<string, number>> {
-  const path = pathTo(at, key);
-  const value = objectAt(source, holder, key, at);
-  // `openRecord`, not `{}`: the keys are a saved file's, and a reason literally
-  // named `__proto__` is swallowed by an object literal — the assignment is a
-  // no-op and the row silently disappears from the comparison. ADR-0024.
-  const counts = openRecord<number>();
-  for (const [reason, count] of Object.entries(value)) {
-    // The key before the count. It is printed — `endpoints skipped as "…"` — and
-    // it indexes the table `compareNotProbed` builds, so it is a string out of a
-    // document doing both the things `readable` is about. Named by its position
-    // rather than by itself, because a message that quoted it would carry what it
-    // is refusing onto the terminal the refusal exists to protect.
-    readable(source, `a key of ${path}`, reason);
-    if (typeof count !== "number" || !Number.isFinite(count)) {
-      throw new UnreadableReportError(source, `"${path}.${reason}" is not a number`);
-    }
-    counts[reason] = count;
-  }
-  return counts;
-}
-
 function defectAt(source: string, value: unknown, at: string): ComparableDefect {
   if (!isRecord(value)) {
     throw new UnreadableReportError(source, `${at} is not an object`);
@@ -1014,7 +868,8 @@ function defectAt(source: string, value: unknown, at: string): ComparableDefect 
  * loses which was which.
  *
  * Every string it does lift goes through the identifier grammar. That is the
- * ninth door, and the reasoning is on `readable` above.
+ * ninth door, and the reasoning is on `readable` in `src/report/document.ts`,
+ * which is where every reader of a saved report gets it from.
  *
  * @throws {UnreadableReportError} naming the file, because a comparison takes two
  * @throws {UnusableIdentifierError} naming the field and the file it was read from

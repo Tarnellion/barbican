@@ -1056,3 +1056,70 @@ describe("the digest on the artifact the command produced", () => {
     expect(checkContentDigest(edited).ok).toBe(false);
   });
 });
+
+/**
+ * `barbican pack`, run in this process over a report this command just wrote.
+ *
+ * The subcommand's own behaviour is `tests/cli/pack.test.ts` and its exit codes
+ * through a spawned process are `tests/invariants/cli-surface.test.ts`. What
+ * belongs here is the half neither of those reaches: the lines of `src/cli.ts`
+ * that declare the flags and catch what the subcommand throws. Those lines are
+ * the reason this file exists — a fourth action handler added to the entry point
+ * with nothing driving it in-process is the entry point's coverage threshold
+ * quietly falling, which is the shape ADR-0063 was written from.
+ *
+ * And it is the only place the whole chain runs end to end in one process: a real
+ * walk, the report it wrote, the door that reads it back, the pack, and the page.
+ * The pack's door names its fields as string literals, so nothing but a report
+ * `buildReport` actually produced keeps them level with `shape.ts`.
+ */
+describe("the document drawn from the report the command wrote", () => {
+  it("is written where --out says, and the command leaves with 0", async () => {
+    const { report } = await runAgainstStand({ config: configFor, endpoints: ENDPOINTS });
+    const directory = await mkdtemp(join(tmpdir(), "barbican-cli-pack-"));
+    const reportPath = join(directory, "report.json");
+    const out = join(directory, "pack.html");
+    const json = join(directory, "pack.json");
+    await writeFile(reportPath, JSON.stringify(report), "utf8");
+
+    const result = await runCli("pack", reportPath, "--out", out, "--json", json);
+
+    expect(result.exitCode).toBe(0);
+    const page = await readFile(out, "utf8");
+    expect(page.startsWith("<!doctype html>")).toBe(true);
+    // The run's own identifier ties the document to the report, and the pack's
+    // own structure is beside it.
+    expect(page).toContain(report.runId);
+    expect(JSON.parse(await readFile(json, "utf8"))).toMatchObject({ schemaVersion: "1" });
+    // A document is a file. Nothing of it goes to stdout, so redirecting stdout
+    // does not produce a page with a summary in front of it.
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Exit code 0: the pack was built.");
+  }, 30_000);
+
+  /**
+   * And a path that is not a report is 2, not 64.
+   *
+   * The line `docs/report.md` draws is where the work starts: what the argument
+   * parser rejects is a usage error, and everything after it is a conclusion the
+   * tool refuses to draw. This is the `catch` in the subcommand's action, which
+   * nothing else in this process reaches.
+   */
+  it("refuses a path that is not a report, with 2 and without a stack", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "barbican-cli-pack-no-"));
+
+    const result = await runCli(
+      "pack",
+      join(directory, "nowhere.json"),
+      "--out",
+      join(directory, "pack.html"),
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("Pack aborted:");
+    expect(result.stderr).toContain("nowhere.json");
+    // The message and nothing behind it: the frames print absolute paths of the
+    // machine the run happened on into whatever a pipeline captures.
+    expect(result.stderr).not.toMatch(/^\s+at\s/m);
+  }, 30_000);
+});
