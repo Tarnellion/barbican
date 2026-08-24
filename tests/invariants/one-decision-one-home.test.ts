@@ -12,7 +12,9 @@
  *   here on 24 August 2026. It landed with one home and no gate, and a reviewer
  *   measured what that costs the same day: a second, independent copy of the
  *   grammar plus a new export `looksLikeAnIdentifier` in `src/report/findings.ts`
- *   left the whole suite green — 119 files, 1814 passed, 1 skipped.
+ *   left the whole suite green — that was their measurement, on the tree the ADR
+ *   landed on. Written against this tree the same copy fails **1 test of 1828**,
+ *   which is the assertion three functions down.
  *
  * The first gate could be walked around two ways and the second did not exist. A
  * reviewer put a second `cellKey` under another name into `src/report/`, and a
@@ -138,6 +140,26 @@
  *   are one string rather than two orders of one pair (ADR-0066). The limitation
  *   is unchanged — it is a question about **what** is glued rather than about
  *   how, and nothing here can see that two tuples are the same tuple.
+ * - **A copy of the identifier grammar that refuses a *narrower* class.** The
+ *   class scan reads the three code points that are not shared with the address
+ *   grammar, which is what makes it about this class rather than about any
+ *   character test. A `looksLikeAnIdentifier` in `src/report/findings.ts`
+ *   refusing only the C0 range and DEL therefore passes: measured, 119 files,
+ *   1827 passed, 1 skipped. That is the right answer as far as the scan goes —
+ *   `isNeverInAPath` is exactly such a function and is deliberate — and it is a
+ *   hole all the same, because a narrower copy answering "can this be a name" is
+ *   a second decision doing the first one's job.
+ * - **The three code points computed rather than written.** `0x9e + 1` and
+ *   `0x2027 + 1` give a faithful copy that writes none of them: measured, 119
+ *   files, 1827 passed, 1 skipped. The same class as the separator above, with
+ *   the same answer, and the same one enumerated courtesy: a numeric literal is
+ *   read in any base, and `1_59` is past it.
+ * - **A back door inside the grammar itself.** `if (value.startsWith("legacy:"))
+ *   { return undefined; }` at the head of `refusalOf` passes the whole suite —
+ *   119 files, 1827 passed, 1 skipped — because nothing pins the text of those
+ *   three functions and `tests/core/identifiers.test.ts` varies the character
+ *   rather than the string around it. ADR-0066 carries this one; it is repeated
+ *   here because this file is now the gate a reader will look at first.
  * - **Anything outside `src/`, except the raw byte.** `tools/oracle/index.mjs`
  *   has a `cellKey` of its own on purpose — an oracle that shared the tool's code
  *   would agree with itself — and the tests that split `git ls-files -z` output
