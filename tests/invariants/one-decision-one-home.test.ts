@@ -323,6 +323,16 @@ const REACHES_IN: ReadonlyMap<string, { readonly names: readonly string[]; reado
     // here is a module reaching into the owner without a reader having agreed.
     ["src/core/keys.ts", { names: ["identifier"], why: "the seam every key passes through" }],
     ["src/core/checks/registry.ts", { names: ["identifier"], why: "a registered check's id" }],
+    [
+      "src/core/standards/catalog.ts",
+      {
+        names: ["identifier"],
+        why:
+          "the id of a standard and of a clause, which key the rows of " +
+          "coverage.clauses; a private catalogue is registered from code this " +
+          "repository never sees, so this is a door and not an internal call",
+      },
+    ],
     ["src/adapters/endpoint-list.ts", { names: ["identifier"], why: "an entry's id" }],
     [
       "src/adapters/http.ts",

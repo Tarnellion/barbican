@@ -196,9 +196,17 @@ answer today, and no document here says otherwise.
 One light palette and no `prefers-color-scheme` block. Browsers print the light
 rendering, a second palette is a second thing to keep level for a reader who will
 not see it, and "no dark-on-dark" is then true by there being no dark at all.
-Colour is never the only carrier of anything: the claim is a word on the row and
-the tint beside it repeats that word, so the page says the same thing in
-monochrome.
+Colour is never the only carrier of anything: the claim is a word on the row, and
+the page says the same thing in monochrome.
+
+The tint beside the word does not repeat it one-for-one, and the first version of
+this paragraph said it did. Six claims, five tones: `unanswered` and
+`inconclusive` share a grey on purpose — both say the run reached no conclusion,
+and the word separates why — while `answered-without-findings` has a tone of its
+own that is deliberately not the green of `upheld`, because a check that ran and
+found nothing has no denominator behind it. An adversarial review found the sixth
+claim rendering with no rule at all, falling through to the default border; that
+is fixed, and the sentence now describes the mapping instead of an idea of it.
 
 ### The subcommand
 

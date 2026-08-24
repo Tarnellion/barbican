@@ -28,7 +28,7 @@
  * ## Two things deliberately not here
  *
  * **A clause the catalogue holds and this run never touched.** That question is
- * `findUncoveredClauses` next door, and it is a different one: it is answered
+ * `findUnansweredClauses` next door, and it is a different one: it is answered
  * against a catalogue, and it is a statement about what the tool was asked to
  * cover rather than about what a run reached. Rows here come only from what
  * actually cited a clause during the run.
@@ -146,7 +146,7 @@ export interface ClauseCoverage {
    * Why "exercised" is not "holds across the surface".
    *
    * Repeated on every row rather than stated once in the file, for the reason
-   * `UncoveredClause.scope` is carried on every row of its own: a row is what
+   * `UnansweredClause` carries its own reason on every row: a row is what
    * gets pulled out of a report and into a pack about one clause, and a
    * qualification left behind in another section is one that did not travel with
    * the claim.
@@ -177,7 +177,7 @@ interface Row {
  * What this run did about every clause either channel reached.
  *
  * Rows are keyed by a standard and a clause held apart rather than glued into
- * one string, the same way `findUncoveredClauses` keys its coverage set: a
+ * one string, the same way `findUnansweredClauses` keys its answer set: a
  * separator would be a character both halves may legally contain, and that is
  * the collision `defectSignature` was caught by. Nothing is joined, so nothing
  * can collide.

@@ -314,6 +314,12 @@ function stylesheet(): Markup {
     ".claim-unanswered { border-left-color: #6b6f78; }",
     ".claim-withheld { border-left-color: #8a5a12; }",
     ".claim-inconclusive { border-left-color: #6b6f78; }",
+    // `answered-without-findings` had no rule of its own until 24 August 2026,
+    // so one claim of six fell through to the default border. Its own tone, and
+    // not the green of `upheld`: a check that ran and found nothing has no
+    // denominator behind it (ADR-0052 refused to invent one), and it must not
+    // read as the stronger statement standing beside it.
+    ".claim-answered-without-findings { border-left-color: #4a6b78; }",
     ".says { color: #2c313a; margin: 0 0 .6rem; }",
     ".reservations { color: #6b3f0a; }",
     "footer { margin-top: 2.5rem; padding-top: .7rem; border-top: 1px solid #d5dae2;",

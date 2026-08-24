@@ -17,6 +17,7 @@
  */
 
 import type { Check, StandardRef } from "../checks/types.js";
+import { identifier } from "../identifiers.js";
 import type { StandardClause, StandardDefinition } from "./types.js";
 
 export class DuplicateStandardError extends Error {
@@ -119,6 +120,15 @@ export class StandardCatalog {
     if (blank(definition.id)) {
       throw new IncompleteStandardError("(unnamed)", "an identifier");
     }
+    // The grammar every other identifier in this tool passes. A standard id and
+    // a clause id key the rows of `coverage.clauses` and travel into a pack, so
+    // they are coordinates and not prose. This door had only a blankness check
+    // until 24 August 2026: a private catalogue is registered from code this
+    // repository never sees (ADR-0043), which is the same kind of door as a
+    // consumer handing `Endpoint[]` to the core — the one ADR-0032 was written
+    // about. `title`, `url` and `scope` are prose and are not held here; what
+    // that leaves open is named in ADR-0069.
+    identifier(definition.id, `The id of the standard "${definition.id}"`);
     if (this.#standards.has(definition.id)) {
       throw new DuplicateStandardError(definition.id);
     }
@@ -134,6 +144,7 @@ export class StandardCatalog {
       if (blank(clause.id)) {
         throw new IncompleteStandardError(definition.id, "an identifier on one of its clauses");
       }
+      identifier(clause.id, `The id of clause "${clause.id}" of "${definition.id}"`);
       if (blank(clause.title)) {
         throw new IncompleteStandardError(definition.id, `a summary for the clause "${clause.id}"`);
       }

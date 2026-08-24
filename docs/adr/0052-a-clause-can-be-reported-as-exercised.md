@@ -203,3 +203,26 @@ question at all.
 `checksRun` carries what `clauses` carries for it, and this section should be
 reconsidered as a whole rather than left to say the same thing twice — which is
 the failure `WARNINGS` and `RESOURCE_RELATIONS` were each caught by.
+
+## Note, 24 August 2026: `findUncoveredClauses` is gone
+
+Three sentences above name `findUncoveredClauses` and one names
+`UncoveredClause.scope`. Neither exists any more. ADR-0069 replaced them with
+`findUnansweredClauses` and `UnansweredClause`, because the old function asked a
+narrower question than its name promised: it read the registered checks and no
+other channel, so a clause that a **matrix discrepancy** answers for — which
+ADR-0041 established is an answer — counted as uncovered. Four of the thirteen
+clauses it called uncovered were answered all along.
+
+The sentences stay as written, because this document records what was decided on
+21 August and reconstructing it would lose the reasoning that led there. What
+they point at has moved: read `findUnansweredClauses` in
+`src/core/standards/answers.ts` for the live version, and ADR-0069 for why the
+question changed.
+
+Found by the adversarial review of the branch that made the change — the doc
+comments in `src/core/standards/coverage.ts` still named the deleted function
+too, and those are shipped into `dist/core/standards/coverage.d.ts`, so the
+stale name was reaching consumers' editors. Those three are corrected in place;
+these are not, and the difference is the difference between a comment and a
+record.
