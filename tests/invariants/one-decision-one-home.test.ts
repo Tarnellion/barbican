@@ -356,6 +356,25 @@ const REACHES_IN: ReadonlyMap<string, { readonly names: readonly string[]; reado
       "src/report/write.ts",
       { names: ["identifier"], why: "the header and the cells of a resume stream" },
     ],
+    // The second reach for `spellOut`, and the second sink. `src/adapters/http.ts`
+    // above holds one for a header value at the point it is kept; this one is a
+    // rendered page, where a control character arrives from two channels the
+    // report's own door never sees — a catalogue a consumer registered from a
+    // private source (ADR-0043), and a `PackableRun` a consumer assembled, which
+    // is a structural type and not a checked one. Importing it is the point of
+    // the entry: a renderer that spelled out a control character itself would be
+    // a second reading of "what is not text", which is the twelfth point fix
+    // ADR-0024 counts. Markup escaping is a different job for a different sink
+    // and stays in the renderer; see ADR-0068.
+    [
+      "src/report/page.ts",
+      {
+        names: ["spellOut"],
+        why:
+          "a rendered page is a sink, and two of its inputs — a registered " +
+          "catalogue and a consumer-built run — never passed the report's door",
+      },
+    ],
   ]);
 
 /**

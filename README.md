@@ -1159,9 +1159,44 @@ Reading a saved report is now one module, `src/report/document.ts`, shared by th
 comparison's door and the pack's: every string lifted out of a file still goes
 through the identifier grammar
 ([ADR-0066](docs/adr/0066-an-identifier-has-a-grammar.md)), and a rendered
-document is a new sink for one. The package exports 238 names, six more than
-before — `evidencePack`, `toPackableRun`, `PACK_SCHEMA_VERSION`, `CLAIMS`,
-`STANDINGS` and `DISCLAIMERS`.
+document is a new sink for one. Six names go onto the published surface —
+`evidencePack`, `toPackableRun`, `PACK_SCHEMA_VERSION`, `CLAIMS`, `STANDINGS`
+and `DISCLAIMERS`.
+
+**And the pack can be drawn into a document an auditor opens:
+`barbican pack <report.json> --out <file.html>`**
+([ADR-0068](docs/adr/0068-a-pack-is-drawn-from-the-json.md)). One
+self-contained HTML file — no external stylesheet, no font, no image, no script
+— because it is read on a machine with no network and printed to PDF through a
+browser. `--json <path>` writes the structure the document was drawn from, so the
+document can be checked against it rather than taken on trust. It exits 0 when a
+pack was built, 2 when the report cannot be read, **and 2 when the run behind it
+exited 2**: such a pack is worth reading and says on its face that no clause in
+it is upheld, and a pipeline that ships one as evidence unnoticed is the same
+defect this whole artifact is written against.
+
+Everything the page says comes out of the pack. The sentences are the pack's
+`notes` and `CLAIMS`; the rest is labels, numbers and the reservations, which sit
+**on the clause row they qualify** rather than in a footnote — a qualification
+left behind in another section is one that did not travel with the claim. The
+page has no way to reach anywhere and no way to run anything: the element and
+attribute names the renderer can write are closed unions with no `href`, no `src`
+and no `on…` in them, so a clause's published address is printed as text and a
+`javascript:` URL is never the scheme of anything. Text from outside is spelled
+out by the identifier grammar and then escaped for markup — two jobs, composed,
+neither rewritten. `tests/report/pack-page.test.ts` feeds a `<script>`, an
+`onerror=`, a `</style>`, a `javascript:` URL and a U+2028 through every channel
+the page draws from and then asks the rendered bytes which elements and which
+attributes are in them.
+
+The print rules — a clause row that does not split across a page boundary, a
+margin, black on white — are **declared and not measured**: no browser runs in
+this repository's suite, and the test asserts that the properties are in the
+document rather than that an engine honoured them.
+
+The package exports 240 names: `renderPack` and `UnrenderableClaimError` beside
+the six above. The second is the renderer's one decision — a claim outside the
+vocabulary is refused rather than printed as a bare word.
 
 ## Example
 

@@ -3,7 +3,7 @@
 /**
  * The CLI entry point: the command line, and nothing that happens after it.
  *
- * The three subcommands are declared here and implemented in `src/cli/`, which
+ * The four subcommands are declared here and implemented in `src/cli/`, which
  * is what keeps this file readable as what it is — the surface an operator and a
  * pipeline touch. Every flag the tool accepts is on this page; what any of them
  * costs is a module away.
@@ -18,6 +18,7 @@
 import { Command, CommanderError } from "commander";
 import { diff } from "./cli/compare.js";
 import { positiveInteger, type RunFlags } from "./cli/flags.js";
+import { pack } from "./cli/pack.js";
 import { run } from "./cli/run.js";
 import { paint } from "./cli/screen.js";
 import { version } from "./cli/version.js";
@@ -108,6 +109,30 @@ program
       // a path that is not there, a file that is not JSON, a document that is
       // not a report — is a conclusion the tool refuses to draw.
       process.stderr.write(`${paint("Comparison aborted:", "red")} ${message}\n`);
+      process.exitCode = 2;
+    }
+  });
+
+program
+  .command("pack")
+  .description("Draw an evidence pack from a saved report: one clause of the catalogue per row")
+  .argument("<report>", "the report, written by `run --report`")
+  // Required, and the alternative was letting --json stand alone. The product of
+  // this subcommand is the document; the pack is what the document was drawn
+  // from, and a command that could produce the second without the first would be
+  // `barbican pack` meaning two different things depending on the flags.
+  .requiredOption("-o, --out <path>", "where to write the document (one self-contained HTML file)")
+  .option("--json <path>", "also write the pack structure the document was drawn from")
+  .action(async (report: string, flags: { readonly out: string; readonly json?: string }) => {
+    try {
+      process.exitCode = await pack(report, flags);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // The same line `run` and `diff` draw: what the argument parser rejects is
+      // a usage error, and everything past it — a path that is not there, a file
+      // that is not JSON, a report of a shape this build cannot read — is a
+      // conclusion the tool refuses to draw.
+      process.stderr.write(`${paint("Pack aborted:", "red")} ${message}\n`);
       process.exitCode = 2;
     }
   });

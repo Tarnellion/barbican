@@ -78,6 +78,38 @@ copy of one is a second assertion the day it is improved. Read
 one — what a pack may claim, and what it refuses to, is the whole of that
 decision.
 
+## Drawing the document
+
+`renderPack(pack)` returns one self-contained HTML document as a string: no
+external stylesheet, no font, no image, no script, and no attribute a browser
+dereferences — the address of a clause's published wording is printed as text,
+because an auditor opens this with no network and the tool does not vouch for a
+string it was handed. It is pure, so two renderings of one pack are the same
+bytes on every machine, and it is the same document `barbican pack` writes.
+
+Everything a page says comes out of the pack. The sentences are `notes` and
+`CLAIMS`, read from the table; the rest is labels and numbers. It will not print
+a claim it has no sentence for: a `claim` outside the vocabulary — a pack from a
+later build, or one parsed back out of a `--json` file — raises
+`UnrenderableClaimError` rather than putting a bare word in front of a third
+party.
+
+Write it yourself if you like, but write it the way this tool does: a pack
+carries every address and every account identifier, so `barbican pack` writes it
+0600 and through a rename. See
+[ADR-0068](adr/0068-a-pack-is-drawn-from-the-json.md).
+
+```ts
+import { createBundledCatalog, evidencePack, renderPack, toPackableRun } from "barbican";
+
+const saved = JSON.parse(await readFile("run.json", "utf8"));
+const pack = evidencePack({
+  run: toPackableRun(saved, "run.json"),
+  catalog: createBundledCatalog(),
+});
+await writeFile("pack.html", renderPack(pack), { encoding: "utf8", mode: 0o600 });
+```
+
 ## Running the walk yourself
 
 `collectObservations` performs it: it takes the endpoints, the accounts, a
@@ -170,13 +202,13 @@ invalidated the digest of every report it wrote until 23 August 2026. See
 
 ## What the rest of the surface is
 
-The package exports 238 values and a comparable number of types. They fall into
+The package exports 240 values and a comparable number of types. They fall into
 three groups, and only the first is a contract:
 
 1. **The names above**, plus the domain types they take and return — `Account`,
    `Endpoint`, `Resource`, `RunConfig`, `AccessObservation`, `AccessDiff`,
    `RunReport` and their neighbours.
-2. **98 error classes.** These are public on purpose: catching an error and
+2. **99 error classes.** These are public on purpose: catching an error and
    naming it is the only way to tell a configuration mistake from a network
    failure, and `instanceof` needs the class. They are grouped by the module that
    throws them.

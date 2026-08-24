@@ -74,4 +74,11 @@ export * from "./report/compare.js";
 // out of it a consumer catches, `UnreadableReportError`, reaches here through
 // `compare.js`, which is the module that has always declared it.
 export * from "./report/pack.js";
+// The page drawn from that pack (ADR-0068): one self-contained HTML document,
+// and one exported name, `renderPack`. The markup primitives under it stay
+// private on purpose — `Markup` is a brand whose whole point is that nothing
+// outside the module can construct one, and exporting the type would let a
+// consumer write `"" as Markup` and splice a raw string into a document this
+// tool put its name on.
+export * from "./report/page.js";
 export * from "./runner.js";

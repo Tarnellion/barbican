@@ -1189,3 +1189,137 @@ ${exclude}`;
     expect(absent.stderr).toContain("nowhere.json");
   }, 120_000);
 });
+
+/**
+ * `barbican pack`, driven end to end over a report the tool itself wrote.
+ *
+ * `tests/cli/pack.test.ts` holds the subcommand against hand-written reports,
+ * which is where the awkward shapes belong. What cannot be asked there is the
+ * pair this file exists for: the exit code a pipeline reads, and whether the
+ * report a real run produces can be packed at all — the pack's door names its
+ * fields as string literals, so nothing but a report `buildReport` wrote keeps
+ * them level with `shape.ts`.
+ *
+ * The usage case is the one this file was written for. `program.exitOverride()`
+ * is applied by walking `program.commands`, so a subcommand registered after that
+ * loop keeps commander's own `process.exit(1)` — this tool's "the platform
+ * disagrees with the declared policy", reported for a forgotten flag. `pack` is
+ * the fourth subcommand and the first one added since that trap was written down.
+ */
+describe("packing a saved report", () => {
+  let server: Server;
+  let port = 0;
+  let dir = "";
+  /** The paths the stub answers 200 to. Everything else is refused. */
+  let open: ReadonlySet<string> = new Set();
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "barbican-pack-"));
+    server = createServer((request, response) => {
+      response.writeHead(open.has((request.url ?? "").split("?")[0] ?? "") ? 200 : 403).end();
+    });
+    await new Promise<void>((settle) => {
+      server.listen(0, "127.0.0.1", settle);
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("the pack stub deployment did not start");
+    }
+    port = address.port;
+    await writeFile(join(dir, "endpoints.yaml"), ENDPOINTS, "utf8");
+    await writeFile(join(dir, "config.yaml"), anonymousConfig(port), "utf8");
+  }, 60_000);
+
+  afterAll(async () => {
+    await new Promise<void>((settle, fail) => {
+      server.closeAllConnections();
+      server.close((error) => (error ? fail(error) : settle()));
+    });
+  });
+
+  /** One run against the stub as it stands, written to a report file of its own. */
+  async function walk(name: string, openPaths: readonly string[], expected: number) {
+    open = new Set(openPaths);
+    const report = join(dir, `${name}.json`);
+    const outcome = await cli([
+      "run",
+      "-c",
+      join(dir, "config.yaml"),
+      "-e",
+      join(dir, "endpoints.yaml"),
+      "-r",
+      report,
+    ]);
+    expect(outcome.status).toBe(expected);
+    return report;
+  }
+
+  it("writes one document, and leaves with 0 over a clean run", async () => {
+    const report = await walk("clean", [], 0);
+    const out = join(dir, "clean.html");
+
+    const outcome = await cli(["pack", report, "--out", out]);
+
+    expect(outcome.status).toBe(0);
+    const page = await readFile(out, "utf8");
+    expect(page.startsWith("<!doctype html>")).toBe(true);
+    // Sixteen catalogued clauses, and a clean run answers for a handful of them.
+    // The rest are unanswered, which is the row a pack exists to print.
+    expect(page).toContain("unanswered");
+    expect(page).not.toContain("<script");
+    // The document is a file: stdout carries nothing, so `barbican pack … > x`
+    // does not produce a page with a summary in front of it.
+    expect(outcome.stdout).toBe("");
+    expect(outcome.stderr).toContain("Exit code 0: the pack was built.");
+  }, 120_000);
+
+  it("leaves with 2 when the run it was built from could not answer for itself", async () => {
+    // `--max-requests 1` stops the walk with cells still ahead, which is verdict
+    // 2 and standing `withheld`.
+    open = new Set();
+    const report = join(dir, "cut.json");
+    const stopped = await cli([
+      "run",
+      "-c",
+      join(dir, "config.yaml"),
+      "-e",
+      join(dir, "endpoints.yaml"),
+      "-r",
+      report,
+      "--max-requests",
+      "1",
+    ]);
+    expect(stopped.status).toBe(2);
+
+    const outcome = await cli(["pack", report, "--out", join(dir, "cut.html")]);
+
+    expect(outcome.status).toBe(2);
+    expect(outcome.stderr).toContain('the standing of this pack is "withheld"');
+  }, 120_000);
+
+  it("exits 64 on a command line it cannot parse", async () => {
+    const report = await walk("usage", [], 0);
+
+    const noOut = await cli(["pack", report]);
+    const noReport = await cli(["pack", "--out", join(dir, "x.html")]);
+    const unknownFlag = await cli(["pack", report, "--out", join(dir, "x.html"), "--jsn", "y"]);
+
+    // 64 and not 1. Both of the ways `USAGE_ERROR` is lost land on "this
+    // deployment has a privilege escalation", for a typo in a flag.
+    expect(noOut.status).toBe(64);
+    expect(noReport.status).toBe(64);
+    expect(unknownFlag.status).toBe(64);
+  }, 120_000);
+
+  it("exits 2 on a file that is not a report, and writes no document", async () => {
+    const notJson = join(dir, "endpoints.yaml");
+    const out = join(dir, "never.html");
+
+    const outcome = await cli(["pack", notJson, "--out", out]);
+
+    expect(outcome.status).toBe(2);
+    expect(outcome.stderr).toContain("Pack aborted:");
+    expect(outcome.stderr).toContain("is not JSON");
+    expect(await readdir(dir)).not.toContain("never.html");
+  }, 120_000);
+});
