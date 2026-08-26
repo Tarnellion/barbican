@@ -123,7 +123,8 @@ exist.
    session on 26 August was told to treat it as open.
 
    The numbers are second-hand and said so. The build and its first run are
-   `tasks.md:181` — ten defects, twenty-five cells, agreeing on the first attempt.
+   `tasks.md:181` — ten defects and twenty-five findings over sixty-nine cells,
+   agreeing on the first attempt.
    The adversarial review of 19 August then widened the oracle to eleven defects
    over twenty-eight expected findings across sixty-nine cells and proved the new
    rows by mutation. Read out of `polygons/juice-shop/ground-truth.json` on 26
@@ -465,8 +466,8 @@ genuinely left is the two that remain:
 2. ~~**The format of the machine-readable ground truth.**~~ **Closed 12 August 2026** —
    [ADR-0012](docs/adr/0012-ground-truth-format.md), written the day the second oracle
    diverged from the first. **This item said "to be decided in phase 2" until 26 August
-   2026**, fourteen days after it was decided and five days after phase 2's own last
-   item closed, while phase 2 item 2 and item 3 above both cite the deciding ADR by name
+   2026**, fourteen days after it was decided and eight days after phase 2's own last
+   item closed — Juice Shop, on 18 August — while phase 2 item 2 and item 3 above both cite the deciding ADR by name
    for the format their oracles are written in. A document can hold a question and its
    answer at once as long as nothing reads it end to end, and until 26 August nothing
    had. One shape, `tools/oracle/index.mjs`, and four oracles on it: the reference
@@ -621,9 +622,10 @@ no empty directories "for the future" in the repository. Still true on 26 August
 `find src tests -type d -empty` returns nothing.
 
 **The table was written as a plan and never turned into a description**, so it
-described four of the six directories under `src/` and two of the eleven under
-`tests/`, with a rightmost column still saying which phase would create things that
-have existed for a fortnight. Rewritten 26 August 2026 against the tree; the two
+described four of the six directories under `src/` and, under `tests/`, one of the
+eleven that exist plus one that never did — `tests/integration`, which the same
+table marks "never created". Its rightmost column still said which phase would
+create things that have existed for a fortnight. Rewritten 26 August 2026 against the tree; the two
 missing `src` rows were added, and the "Appears" column becomes "Since", because a
 directory that exists has a date and not a promise.
 
@@ -652,8 +654,11 @@ directory. `find src tests -maxdepth 1 -type d` is the answer that cannot go sta
 
 Read line by line on 26 August 2026, after two wrong decisions in one day were
 traced to two lines of it. Nineteen claims came back false or misleading. The
-interesting part is not any one of them but that they failed the same way, and that
-the three other documents in this repository do not.
+interesting part is not any one of them but that they failed the same way, and
+that the three documents it is usually read beside — `README.md`, `tasks.md` and
+the ADRs — do not. This repository tracks 107 markdown files; "the three other
+documents" was this sentence's first version, and it meant the three it is read
+beside rather than the three that exist.
 
 | # | The claim | Wrong since | Days |
 |---|---|---|---|
@@ -680,23 +685,33 @@ the three other documents in this repository do not.
 **`tasks.md` is a log and rots harmlessly.** Every entry is past tense and carries
 the date it was measured on, so an entry that no longer describes the tree is simply
 an old entry — which is what it always was. Its Juice Shop entry still says ten
-defects and twenty-five cells; the oracle has held eleven and twenty-eight since
-19 August; nothing there is wrong, because the entry never claimed to be about now.
+defects and twenty-five findings; the oracle has held eleven and twenty-eight
+since 19 August, over the same sixty-nine cells it walked then and walks today —
+the cell count never moved, and calling twenty-five a count of cells was this
+document's own slip, corrected 26 August; nothing there is wrong, because the entry never claimed to be about now.
 **`README.md` has a gate** — `tests/docs/release-readme.test.ts`, which holds the
 `### Unreleased` section and asserts that the sentence naming a current release names
 the version in `package.json`. **ADRs are dated records that are not supposed to
 move**, and ADR-0065 makes the rule explicit: where an earlier version claimed too
 much, the correction stays visible rather than being edited away.
 
-`plan.md` is the only document here written in the **present tense** about a tree
-that changes daily, and the only one with no gate over what it *claims*. That
-distinction was itself nearly written down wrong. This file is not ungated:
-`tests/docs/language.test.ts` holds its language and
-`tests/docs/links.test.ts` holds every link in it — which is why all twenty of its
-link targets resolve today and none of the nineteen failures below is a dead link.
+`plan.md` is written in the **present tense** about a tree that changes daily,
+and nothing gates what it *claims*. `CLAUDE.md` is in the same position and is
+not an exception to be quiet about — no test reads its assertions either, and it
+carried "crAPI, which never ran" for part of 24 August because a session copied
+this file's error into it.
+
+This file is not ungated: `tests/docs/language.test.ts` holds its language and
+`tests/docs/links.test.ts` holds its links — which is why all twenty of its link
+targets resolve today and none of the nineteen failures below is a dead link.
+"Every link in it" is what this sentence said until the review measured it: a
+link whose target is carried onto the next line is not collected, so the gate
+holds every link written on one line.
 What no gate reads is the sentences. Present tense plus no gate over the claims is
 the whole mechanism, and it explains the direction as well as the fact:
-every one of the nineteen drifted **towards claiming less had been done**. "Next",
+eighteen of the nineteen drifted **towards claiming less had been done** — the
+nineteenth is the freshness of somebody else's package in a registry, which is
+not about work done here at all. "Next",
 "on leftover time", "one criterion left", "this is the next phase", "to be decided
 in phase 2" — a sentence written while something is open stays written when it
 closes, because closing it is work somewhere else and nobody's checklist ends at
@@ -705,8 +720,10 @@ crAPI, a session was told Juice Shop was unbuilt, and one of them copied the err
 into `CLAUDE.md`, where it survived eleven days.
 
 **Is it worth a gate? Mostly no, and the "mostly" is worth being precise about.**
-Fifteen of the nineteen are not mechanically checkable by anything short of reading
-the repository: no scan can know that a phase closed, that a choice was made, or that
+Fifteen of the nineteen are, by inspection, not mechanically checkable by anything
+short of reading the repository — inspection, and not a gate written and run
+against them, which is the weaker kind of evidence and is named as such because
+ADR-0065 asks for exactly that distinction elsewhere in this document: no scan can know that a phase closed, that a choice was made, or that
 a sentence describing an intention should now describe a record. A gate that cannot
 see fifteen of nineteen, described as guarding this file, would be the exact defect
 ADR-0065 was written against — a rule that tells the reader not to look while no

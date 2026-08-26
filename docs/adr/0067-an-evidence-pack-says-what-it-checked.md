@@ -1,7 +1,11 @@
 # 0067. An evidence pack says what it checked, and what it did not
 
 - **Status:** accepted
-- **Date:** 2026-08-25
+- **Date:** 2026-08-24
+- **Corrected:** 2026-08-26 — this line read `2026-08-25`. The work was
+  committed on 24 August and shipped in `0.7.0`, tagged the same day; the
+  session that wrote it dated it a day forward. A date in an ADR is what a
+  reader anchors everything else in it to.
 
 ## Context
 
