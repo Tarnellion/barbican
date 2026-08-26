@@ -1443,7 +1443,7 @@ comments of tracked modules and measures each such count against the tree the
 suite is running on, which before a commit is the tree that commit will have.
 
 Four populations, each with something that can enumerate it: the lines of a named
-file, the files under a named directory, the values the package exports, and the
+file, the files **directly** under a named directory, the values the package exports, and the
 commits between two named commits. The tense is the claim — a count in the past
 tense is a record of a measurement and does not go stale, and only the present
 tense drifts — and a sentence naming one commit is measured at that commit

@@ -78,8 +78,11 @@ The tense lives in the grammar rather than in a judgement made afterwards:
 
 A count in the past tense was true when it was taken and stays true; there is
 nothing in it to drift. A count in the present tense is a claim about the tree
-now, and the tree moves under it. Drift is the entire defect, so the gate reads
-the second kind.
+now, and the tree moves under it. Drift is the entire defect, so **the gate checks
+the present tense against the tree** and lets the past tense stand. ("The second
+kind" is what this sentence said until 26 August, and in the block above the
+second line is the past tense — so the sentence read backwards to anybody looking
+at the example while reading it.)
 
 The counterpart falls out of it, and it is the more useful half: **a document
 that records a decision speaks about the tree it was decided on, in the past
@@ -204,6 +207,33 @@ same paragraph is the reason to reconsider if these scanners grow again.
   it is deliberate: what ships is what git tracks.
 
 ## Limits
+
+**Added 26 August 2026, after the review of this gate.** Four forms, each written
+into a tracked ADR and run against `tests/docs/a-count-of-this-tree.test.ts` with
+a deliberately wrong bold claim beside them as a control, so that "it passed"
+means the gate read the document and not that the harness read nothing. The first
+version of this measurement was taken through a shell that ate the backticks and
+reported all four as passing, including the one that fires — which is why the
+control is there.
+
+- **A comma as the thousands separator.** `` `src/report/shape.ts` is 1,129 lines ``
+  passes. `COUNT` knows a space and bare digits; the repository writes `1 128`
+  everywhere, so the form has never occurred, and widening the grammar for a
+  spelling nobody uses buys a false positive on a real comma.
+- **Anything between the subject and the verb but a comma or `which`.**
+  `` `src/report/shape.ts` (the type graph) is 1 129 lines `` passes.
+- **A claim inside a markdown table cell.** `` | `src/report/shape.ts` | is 1 129 lines | ``
+  passes: paragraph-flattening leaves ` | ` between the subject and the verb, which
+  is the limit above wearing a different hat. `CLAUDE.md` has tables.
+- **A conditional that does not open the sentence.** "cut it again if it is 1 500
+  lines" is read as a claim, and so is anything hedged with "suppose" or "were it".
+  Only a sentence opening with `If`, `Unless` or `Whether` is skipped — which is
+  the fix for the one false positive the review found, and the fix is deliberately
+  narrower than the English.
+
+The first three share a cause worth naming: the grammars read a subject
+immediately followed by a verb, and every way of putting something in between is
+a way past. That is the shape of the whole gate, not four separate holes.
 
 ADR-0065 is the reasoning for this section and it applies here without amendment.
 Every form below was written into a tracked document, the whole suite was run, and

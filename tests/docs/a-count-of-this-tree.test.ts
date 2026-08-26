@@ -217,6 +217,24 @@ interface Sentence {
 }
 
 /**
+ * A sentence that supposes rather than states.
+ *
+ * "If `src/report/shape.ts` is 1 500 lines after the next cut, cut it again" is a
+ * hypothesis about a tree that does not exist, and this gate read it as a claim
+ * about the one that does — measured on 26 August 2026, red against a file of
+ * 1 128 lines. That direction is the one worth being strict about: a gate that
+ * fires on a sentence nobody meant as an assertion is a gate people learn to
+ * silence, and a silenced gate catches nothing at all.
+ *
+ * Only the opening word, and only these three. A conditional buried mid-sentence
+ * — "cut it again if it is 1 500 lines" — is still read, and so is "suppose",
+ * "were it" and every other way English has of not committing. Both directions of
+ * that are named in ADR-0075's limits, because a rule about grammar written by
+ * somebody who is not a grammarian should say how far it reaches.
+ */
+const SUPPOSES = /^(?:If|Unless|Whether)\b/;
+
+/**
  * The sentences of a document, each with the line to cite it by.
  *
  * A paragraph is flattened before it is split, because the markdown here is hard
@@ -240,6 +258,9 @@ function sentencesOf(lines: readonly string[]): readonly Sentence[] {
       return;
     }
     for (const text of flat.split(/(?<=[.!?])\s+/)) {
+      if (SUPPOSES.test(text)) {
+        continue;
+      }
       found.push({ line: opensOn, text });
     }
   };
