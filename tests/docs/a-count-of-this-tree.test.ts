@@ -23,16 +23,23 @@
  *
  * ## What it catches
  *
- * A count of one of the populations in `READERS` below, written in the present
- * tense about a subject this file can resolve, that the tree does not answer
- * with. Four populations: the lines of a named file, the files directly under a
- * named directory, the values the package exports, and the commits between two
- * named commits. A subject that resolves to no tracked file, or to more than one,
- * is a failure of its own — a reader cannot follow it either.
+ * A count of one of the populations in `READERS` below, about a subject this file
+ * can resolve, that the tree it is measured against does not answer with. Four
+ * populations: the lines of a named file, the files directly under a named
+ * directory, the values the package exports, and the commits between two named
+ * commits. A subject that resolves to no tracked file, or to more than one, is a
+ * failure of its own — a reader cannot follow it either.
  *
- * The tense is in the grammar rather than in a separate judgement, and that is the
- * boundary this gate is drawn on. **A count in the past tense is a record of a
- * measurement and does not go stale**: `build.ts` was 3 012 lines on the day
+ * Which tree it is measured against is the rest of the rule, and there are three
+ * answers. A sentence that names exactly one commit is measured **at that
+ * commit**, whatever tense it is in. A sentence in the present tense with no
+ * commit named is measured against **this tree**, the one the suite is running on.
+ * A sentence in the past tense with no commit named is a record and is not
+ * measured at all.
+ *
+ * The tense is in the grammar rather than in a judgement made afterwards, and that
+ * is the boundary this gate is drawn on. **A count in the past tense is a record
+ * of a measurement and does not go stale**: `build.ts` was 3 012 lines on the day
  * ADR-0054 cut it, and it will have been 3 012 lines for as long as the document
  * lasts. A count in the present tense is a claim about the tree now, and the tree
  * moves under it. Only the second kind drifts, and drift is the whole defect.
@@ -40,7 +47,8 @@
  * The counterpart is that a document which records a decision speaks about the
  * tree it was decided on, in the past tense, and this file is what makes that a
  * rule rather than a habit. A present-tense count in such a document goes red on
- * the day the tree moves, and the edit it asks for is one word.
+ * the day the tree moves, and the edit it asks for is one word — or one anchor,
+ * which keeps the number checked instead of retiring it.
  *
  * ## What it cannot see
  *
@@ -49,12 +57,12 @@
  * run, and the outcome is recorded in ADR-0075's `Limits` section with its
  * counts. The three that matter most:
  *
- * - **A count in the past tense**, including one wearing a date — "there were 195
- *   of them on 23 August 2026". That is the shape of the first of the four
- *   defects above, and this gate does not read it. A date is not an anchor: a day
- *   holds many commits and a population moves inside it, so there is no tree to
- *   measure against. Naming the commit is what makes such a sentence checkable,
- *   and `tasks.md` has one written that way.
+ * - **A count in the past tense with no commit named**, including one wearing a
+ *   date — "there were 195 of them on 23 August 2026". That is the shape of the
+ *   first of the four defects above, and this gate does not read it. A date is not
+ *   an anchor: a day holds many commits and a population moves inside it, so there
+ *   is no tree to measure against. Naming the commit is what makes such a sentence
+ *   checkable, and `tasks.md`'s census bullets are written that way.
  * - **A population that is not in the table.** "eleven point fixes", "eight
  *   doors", "nine shapes" — every one of them a count of this repository, and
  *   nothing enumerates them. A pattern for a population with no oracle would flag
