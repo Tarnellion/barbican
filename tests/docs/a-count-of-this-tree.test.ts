@@ -39,9 +39,11 @@
  *
  * The tense is in the grammar rather than in a judgement made afterwards, and that
  * is the boundary this gate is drawn on. **A count in the past tense is a record
- * of a measurement and does not go stale**: `build.ts` was 3 012 lines on the day
- * ADR-0054 cut it, and it will have been 3 012 lines for as long as the document
- * lasts. A count in the present tense is a claim about the tree now, and the tree
+ * of a measurement and does not go stale**: `build.ts` was 3 012 lines at
+ * `4fca59d`, the commit ADR-0054 was written against, and it will have been 3 012
+ * lines there for as long as the repository lasts. Not "on the day it was cut":
+ * the cut itself is `7531bff`, where the file is 301 lines, and the same calendar
+ * day holds both numbers. A day is not an anchor, which is the rule below. A count in the present tense is a claim about the tree now, and the tree
  * moves under it. Only the second kind drifts, and drift is the whole defect.
  *
  * The counterpart is that a document which records a decision speaks about the
@@ -275,6 +277,26 @@ function unquoted(sentence: string): string {
  */
 const COUNT = String.raw`\d{1,3}(?: \d{3})+|\d+`;
 
+/**
+ * Emphasis around a number or its subject, which Markdown allows anywhere.
+ *
+ * Written once and spliced into all three grammars below. It was in
+ * `DIRECTORY_CLAIM` alone until 26 August 2026, and the review of this gate found
+ * what that cost: a lines-claim naming a real module, with a wrong number in bold,
+ * passed green — the two grammars that had no `**` in them stopped matching at the
+ * asterisk. Measured by writing one into a tracked ADR, not argued.
+ *
+ * The example is described here rather than written out, because writing it out
+ * makes it a claim: the first version of this comment spelled the sentence, and
+ * the gate flagged its own doc comment on the run that closed the hole. Which is
+ * the gate working, and the reason the sentence is gone.
+ *
+ * The lesson is the one this repository keeps relearning: a rule written into two
+ * of three places is a rule that holds in two of three places. Splicing beats
+ * repeating, and the repeating is what let the third drift.
+ */
+const EMPHASIS = String.raw`(?:\*\*)?`;
+
 function numberIn(written: string): number {
   return Number(written.replace(/ /g, ""));
 }
@@ -299,7 +321,7 @@ const PATH_IN_PROSE = String.raw`\`([^\s\`]+\.[a-z]+)\``;
  * scanner is how prose starts serving the gate instead of the reader.
  */
 const LINES_CLAIM = new RegExp(
-  `${PATH_IN_PROSE},? (?:which )?(?:(is|are)|(at)|(was|were)) (?:now |still )?(${COUNT}) lines\\b`,
+  `${EMPHASIS}${PATH_IN_PROSE}${EMPHASIS},? (?:which )?(?:(is|are)|(at)|(was|were)) (?:now |still )?${EMPHASIS}(${COUNT})${EMPHASIS} lines\\b`,
   "g",
 );
 
@@ -322,12 +344,16 @@ const PAST_AUXILIARY = /\b(?:was|were|had|been)\b/;
 /** `docs/adr/` **holds** N files, optionally with the range of names it holds. */
 const DIRECTORY_CLAIM = new RegExp(
   String.raw`\`([^\s\`]+/)\` (?:(?:holds|has|carries|contains)|(held|had|carried|contained)) ` +
-    String.raw`(?:\*\*)?(${COUNT}) files(?:\*\*)?(?:,? (\d{4}) through (\d{4}))?`,
+    `${EMPHASIS}(${COUNT})${EMPHASIS} files` +
+    String.raw`(?:,? (\d{4}) through (\d{4}))?`,
   "g",
 );
 
 /** The package **exports** N names — the one population with no subject to resolve. */
-const EXPORTS_CLAIM = new RegExp(`package (?:still )?exports (${COUNT}) (?:names|values)\\b`, "g");
+const EXPORTS_CLAIM = new RegExp(
+  `package (?:still )?exports ${EMPHASIS}(${COUNT})${EMPHASIS} (?:names|values)\\b`,
+  "g",
+);
 
 /** N **commits**, in a sentence that names the two ends of the range. */
 const COMMITS_CLAIM = new RegExp(`(${COUNT}) commits\\b`, "g");

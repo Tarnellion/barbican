@@ -1324,6 +1324,35 @@ millisecond, and twenty-nine tests were spending it while asserting about a
 screen or an exit code. They now pass `--rps 200 --concurrency 8` from one named
 fixture, and nothing about the pace stopped being tested.
 
+**A number this repository writes about itself is now measured where it is
+written** ([ADR-0075](docs/adr/0075-a-count-of-this-tree-is-measured-where-it-is-written.md)).
+Four times in one day a document asserted a count of the tree and was wrong by the
+commit that asserted it — a link count, an export count, a commit count, and a
+file's own line count inside the ADR that changed that file. None of them was
+carelessness; each was the same structure, a measurement of a thing by something
+inside it.
+
+The gate reads tracked prose and answers four populations it can enumerate: the
+lines of a named file, the files directly under a named directory, the values the
+package exports, and the commits between two named commits. The tense is the
+claim: present tense is about the tree now and is checked against it, past tense
+is a record of a measurement and does not go stale, and a sentence naming one
+commit is answered on that commit. A date is not an anchor — a day holds many
+commits — which is why the weakest and commonest form is the one it declines to
+read. Counts of a *design* are out by construction: "five relations" is not a
+count of this tree, and a gate that flagged it is a gate people learn to silence.
+
+It found eleven wrong claims on its first run, all fixed, and its own review found
+two more: a bold number slipped past two of the three grammars, and the gate then
+caught the illustration inside its own comment. Both are closed, and the second
+one is why the illustration is now described rather than written.
+
+**And the roadmap says what is in the tree.** `plan.md` misled twice in one day —
+"crAPI — next" eleven days after crAPI passed, and Juice Shop implied unfinished
+when it has a full polygon — so it was read line by line against the tree: nineteen
+claims corrected with dates. It was the only document meant to describe the present
+with nothing checking it.
+
 **Every ground truth this project has now runs from one command**, and the reason
 it did not is measured. `pnpm run polygons` walks the reference platform, VAmPI,
 Juice Shop and crAPI in turn and prints what each answered. Until now each was a

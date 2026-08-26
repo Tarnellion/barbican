@@ -212,8 +212,16 @@ which somebody would think to re-check it. `npm install barbican` gives `0.7.0`,
 measured on 26 August 2026.
 
 **Phase 4 closed on 17 August 2026 with the release of `0.3.0`**, which was its
-stated exit criterion. `barbican@0.3.0` is on npm as `latest`, published through
-the pipeline with provenance.
+stated exit criterion. `0.3.0` was published through the pipeline with provenance,
+and it was `latest` on npm until `0.4.0` followed the next day.
+
+The sentence above said "`barbican@0.3.0` is on npm as `latest`" in the present
+tense for eight days, through four more releases. It was corrected on 26 August by
+the review of the pass that audited this file — which had declared this class of
+staleness closed twenty-two lines above. Present tense about a moving thing is the
+defect [ADR-0075](docs/adr/0075-a-count-of-this-tree-is-measured-where-it-is-written.md) is about, and a version on
+a registry moves without anybody in this repository touching a file, which is why
+no gate here can catch it and why it is written in the past tense now.
 
 `0.4.0` followed on 18 August: the raw zod schema is no longer in the published
 types, the signal extractor is exported at last, and `basis` travels on
@@ -585,9 +593,12 @@ REST only.
 but two entries needed narrowing and one needs a note.
 
 - **Monorepo and workspaces** holds. `pnpm-workspace.yaml` exists and is easy to
-  misread as the opposite: it carries the supply-chain settings — `minimumReleaseAge`,
-  `strictDepBuilds`, `allowBuilds`, `engineStrict`, `overrides` — and has no `packages:`
-  key. One package, one `src`.
+  misread as the opposite: it carries the supply-chain settings —
+  `minimumReleaseAge`, `minimumReleaseAgeExclude`, `strictDepBuilds`,
+  `allowBuilds`, `engineStrict` and `savePrefix` — and has no `packages:` key. One
+  package, one `src`. (`overrides` was in this list until 26 August and is not a
+  key of that file; the enumeration was written from the rule about overrides in
+  `CLAUDE.md` rather than from the file.)
 - **A web interface** holds, and `barbican pack` is not one. It writes a single
   self-contained HTML file with nothing fetched from anywhere (ADR-0068) — a document
   the reader opens, not a server, not a page that talks to the tool. `src/report/page.ts`
@@ -622,7 +633,7 @@ directory that exists has a date and not a promise.
 | `src/adapters` | The HTTP client, the spec and Postman parsers, credentials, signals, throttling — behind the ports in `ports.ts` | 11 August 2026, ports first and implementations in phase 1 |
 | `src/io` | Reading configuration and accounts, writing JSON, and `untrusted.ts` — the grammar every string from outside passes through | 12 August 2026; `config/` became a directory of its own on 23 August, ADR-0055 |
 | `src/report` | Building the JSON report and its verdict, and drawing the evidence pack | 12 August 2026; HTML rendering arrived with ADR-0068 in `0.7.0`, and PDF never will — the reader's browser prints it |
-| `src/cli` | The option grammar, the wording an operator reads, and the three subcommands | 23 August 2026, ADR-0056 — cut out of a `src/cli.ts` that had reached 1872 lines |
+| `src/cli` | The option grammar, the wording an operator reads, and the four subcommands — `run`, `diff`, `pack`, `schema` | 23 August 2026, ADR-0056 — cut out of a `src/cli.ts` that had reached 1872 lines |
 | `src/runner` | The walk itself: planning it, addressing it, streaming it, the canaries | 23 August 2026, ADR-0057 |
 | `tests/fixtures` | Core fixtures, no network | 11 August 2026, phase 1 session 2 |
 | `tests/docs` | The gates over the documentation: the repository language, every link in every tracked markdown file, README's release section, and the worked examples the guides print | 14 August 2026 |

@@ -135,8 +135,10 @@ tree.
 ### What this cost the documents
 
 Eleven claims failed on the tree the gate was first run against, and every one is
-fixed rather than excused. Three ADRs and one README release section gave the
-size of the published surface in the present tense where all four are records.
+fixed rather than excused. Three documents — two ADRs and one README release
+section — gave the size of the published surface in the present tense where all
+three are records. (The first version of this paragraph said four, which is the
+defect this ADR is about, in the ADR that is about it.)
 `README.md` gave `shape.ts` as one line longer than it is. Four ADRs gave a line
 count for a module that was exact at that ADR's own commit and is not exact now —
 `compare.ts`, `parse.ts`, `run.ts` and `walk.ts` — and all four are anchored to
