@@ -3180,12 +3180,14 @@ is the reasoning; `tests/docs/a-count-of-this-tree.test.ts` is the gate.
       gate: a count of zero, in a document about a gate, checked by nobody.
 - [x] **Twenty mutations run against the gate**, each applied alone with the suite
       run and the file restored from a byte copy — never `git checkout --`, which
-      would take the rest of the working tree with it. Eight get past it and are
-      listed in `Limits` with the past tense first among them, one word wide; eleven
-      it catches; one turned out not to be an attack at all — ADR-0056's anchor
-      moved to another commit where `src/cli/run.ts` was the same size — and it is
-      recorded, because a `Limits` section holding only the mutations that behaved
-      is a section somebody edited afterwards.
+      would take the rest of the working tree with it. Ten it catches. Ten it does
+      not, and one of those ten was not an attack at all: ADR-0056's anchor moved to
+      another commit where `src/cli/run.ts` happened to be the same size, so the
+      claim stayed true and the gate was right to stay green. The nine that are
+      genuine ways past are in `Limits` under eight headings, the past tense first
+      among them and one word wide — and the non-attack is recorded there too,
+      because a `Limits` section holding only the mutations that behaved is a
+      section somebody edited afterwards.
 
 ### Where the tree stands, at `d8c279e`
 
