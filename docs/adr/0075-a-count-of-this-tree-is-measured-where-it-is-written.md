@@ -206,9 +206,18 @@ same paragraph is the reason to reconsider if these scanners grow again.
 ADR-0065 is the reasoning for this section and it applies here without amendment.
 Every form below was written into a tracked document, the whole suite was run, and
 the outcome is what is recorded — no entry here is reasoned about rather than
-executed. Seventeen mutations were run in all; the suite stood at 127 test files
-and 1 966 passing, 1 skipped, so a green run below is that figure and a red one is
-one failure against it.
+executed. Twenty mutations were run in all: the first seventeen against the whole
+suite, 127 test files and 1 966 passing with 1 skipped, so a green run there is
+that figure and a red one is one failure against it; the last three against
+`tests/docs` alone, 17 files and 164 passing, which is where this gate lives.
+
+Those figures are anchored the way this decision asks for, in the commit after the
+one they describe, because a commit cannot name itself: they are the tree at
+`d8c279e`, where `docs/adr/` held 76 files, 0000 through 0075, and the published
+surface was the same 242 values `0.7.0` shipped. `node polygon/verify.mjs` answered
+29 combinations with 0 mismatches on that tree, on port 9101. Only the third of
+those four figures is one this gate reads; the others are here for a reader with
+`git`, which is what an anchor is for.
 
 **Green — these get past the gate:**
 
@@ -243,6 +252,10 @@ one failure against it.
   before it is read, so both are one count.
 - An anchor moved to a commit where the file is a different size.
 - An anchor that names no commit at all.
+- An anchored count of a directory, and of the last name in it, off by one against
+  a commit that answers exactly — which is the form the census in `tasks.md` and
+  the paragraph above now use, so the two places this decision demonstrates itself
+  are both held rather than trusted.
 - A claim whose subject the tree does not carry, or carries twice: `compare.ts`
   answers for two files, and a reader following it has the same problem the gate
   does.

@@ -3178,13 +3178,36 @@ is the reasoning; `tests/docs/a-count-of-this-tree.test.ts` is the gate.
       in, the file held sixteen exported error classes of its own and the string
       eighty-four times. Found by hand while anchoring the line counts, not by the
       gate: a count of zero, in a document about a gate, checked by nobody.
-- [x] **Seventeen mutations run against the gate**, each applied alone with the
-      whole suite run and the file restored from a byte copy. Eight get past it and
-      are listed in `Limits` with the past tense first among them; eight it catches;
-      one turned out not to be an attack at all — ADR-0056's anchor moved to another
-      commit where `src/cli/run.ts` was the same size — and it is recorded, because
-      a `Limits` section holding only the mutations that behaved is a section
-      somebody edited afterwards.
+- [x] **Twenty mutations run against the gate**, each applied alone with the suite
+      run and the file restored from a byte copy — never `git checkout --`, which
+      would take the rest of the working tree with it. Eight get past it and are
+      listed in `Limits` with the past tense first among them, one word wide; eleven
+      it catches; one turned out not to be an attack at all — ADR-0056's anchor
+      moved to another commit where `src/cli/run.ts` was the same size — and it is
+      recorded, because a `Limits` section holding only the mutations that behaved
+      is a section somebody edited afterwards.
+
+### Where the tree stands, at `d8c279e`
+
+Anchored to a commit and not to a date, and written in the commit after the one it
+describes, because a commit cannot name itself — which is the shape the bullet
+four sections up was corrected into, and the reason this section is named the way
+it is rather than "measured on 26 August 2026".
+
+- `pnpm run check` green: **127 test files, 1 966 passed, 1 skipped**.
+- `node polygon/verify.mjs`, on port 9101: **29 combinations, 0 mismatches**.
+- The published surface, off `Object.keys` over `src/index.ts`: **242 values**,
+  unchanged by this round — no name was added or removed.
+- `docs/adr/` held **76 files**, 0000 through 0075, at `d8c279e`.
+
+Only the last of the four is read by `tests/docs/a-count-of-this-tree.test.ts`,
+and the three above it are each a different reason why not. The suite and the
+oracle are not populations a table can enumerate without running them. The
+published surface is a population the gate does read — `docs/library.md` states it
+in the present tense and is held to it — but not at a commit: reading it means
+running the code, and the code that runs is this tree's, so an anchored claim
+about it is left alone rather than answered against the wrong tree. Which is the
+boundary ADR-0075 draws, seen from the inside of a census.
 
 ## Adversarial review of 18 August 2026 (the gate itself)
 
