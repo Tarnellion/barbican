@@ -61,6 +61,7 @@
     "test:coverage": "node tools/coverage-gate.mjs",
     "build": "tsc -p tsconfig.build.json && node tools/executable-bit.mjs && node tools/no-dependency-in-declarations.mjs",
     "schema": "node dist/cli.js schema > schema/barbican.run.schema.json && biome check --write schema",
+    "polygons": "node tools/verify-polygons.mjs",
     "deps:behind": "node tools/dependency-cooldown.mjs",
     "check": "pnpm run lint && pnpm run typecheck && pnpm run test:coverage && pnpm run build",
     "hooks:install": "lefthook install"

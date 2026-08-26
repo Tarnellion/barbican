@@ -13,6 +13,24 @@ export default defineConfig({
     // Deleting this line is refused by `tests/invariants/coverage-gate.test.ts`.
     // See ADR-0063.
     globalSetup: ["./tools/coverage-gate.mjs"],
+    // Thirty-nine tests spawn the built CLI, and a spawn is not a unit test: it
+    // pays for a process, for Node's own start-up and for loading `dist/`. The
+    // default of 5 s is chosen for something else, and it has now been hit twice
+    // — on CI's Node 26 in a run whose pace was the default five a second, and on
+    // 24 August 2026 under nothing more exotic than a loaded laptop, where
+    // `barbican schema` took 5023 ms and the suite went from green to seven
+    // failures. Measured: eight busy cores beside it is enough, and CI's runners
+    // are shared by construction.
+    //
+    // Fifteen seconds, and not because anything takes fifteen: a timeout is a
+    // bound on the absurd, not a performance budget. A test that genuinely hangs
+    // still fails, three times slower than before, which costs a contributor
+    // ten seconds once and buys a suite that does not lie when the machine is
+    // busy. What this does **not** do is make a slow test visible — that is what
+    // the durations in the reporter are for, and ADR-0072 is the record of
+    // reading them.
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
     coverage: {
       provider: "v8",
       // Everything the package ships, as one pattern rather than a list of the

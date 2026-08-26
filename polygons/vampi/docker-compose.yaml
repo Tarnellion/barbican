@@ -7,7 +7,20 @@
 
 services:
   vampi:
-    image: erev0s/vampi:latest
+    # Pinned by digest, the way `polygons/juice-shop` is, and for the reason that
+    # polygon's comment gives: a tag that moves under an oracle which is a
+    # hand-written list of one build's defects turns an upstream change into a
+    # failure of this tool rather than of the image.
+    #
+    # This was `:latest` until 24 August 2026. On that day a `docker pull` fetched
+    # a newer image — docker said so in as many words — and the oracle matched
+    # anyway. That is luck, and it is recorded here as luck: the next move of the
+    # tag is the one that costs a morning working out whether the tool broke.
+    # Resolved 24 August 2026.
+    #
+    # To move it: pull the tag you want, read the digest out of
+    # `docker image inspect`, put it here, and re-derive the oracle.
+    image: erev0s/vampi@sha256:0a5a224b6e14ae7da6a6ea265178ff71286ff903aec74adee98f660bb0e4ca12
     container_name: barbican-vampi
     ports:
       # Loopback only. The polygon is deliberately vulnerable: anybody without a

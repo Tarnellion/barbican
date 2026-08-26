@@ -55,6 +55,7 @@ pnpm run test:watch   # vitest in watch mode
 pnpm run test:coverage # the coverage gate: it runs vitest and answers for what it measured
 pnpm run build        # tsc -> dist, the executable bit on cli.js, and the check that no shipped declaration imports from a package
 pnpm run schema       # regenerate schema/barbican.run.schema.json (needs a build)
+pnpm run polygons     # every ground truth: the reference platform, VAmPI, Juice Shop, crAPI
 pnpm run deps:behind  # what is behind, and what the cooldown is holding (needs the network)
 pnpm run check        # lint + typecheck + test:coverage + build. Not everything CI runs
 pnpm run hooks:install # git hooks (lefthook)
@@ -84,6 +85,16 @@ Windows has no command for, and while every job in the file was `ubuntu-latest`
 nothing would ever have said so (audit of 14 August 2026, K-7). A green `check`
 on one machine is therefore evidence about one of four configurations, and this
 repository has already been bitten by the difference.
+
+`pnpm run polygons` is the whole regression story and it is in neither `check`
+nor CI: it brings four deployments up — measured 24 August 2026 at about two
+minutes for the reference platform, 16 s for VAmPI, 8 s for Juice Shop and around
+five for crAPI, which is skipped unless `CRAPI_DEPLOY_DIR` points at its
+`deploy/docker` because that project is not vendored here. It exists because each
+of the four used to be a command somebody had to remember, and the cost of that
+was measured rather than imagined: crAPI went eleven days unrun, across the whole
+week of cutting modules apart, while `plan.md` said it had never been run at all.
+Run it after a stretch of work, not before a commit.
 
 The one thing on the table above a laptop can run unaided is the oracle:
 `node polygon/verify.mjs`. Run it after anything that touches `src/runner/`,
