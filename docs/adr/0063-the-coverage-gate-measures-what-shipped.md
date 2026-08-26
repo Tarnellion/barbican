@@ -568,6 +568,15 @@ split distributed the classes to the five modules that throw them. Neither
 decision is rewritten. A pointer that now misdirects is a different thing from a
 decision that was wrong.
 
+> **Note, 26 August 2026.** The second half of that sentence is wrong, and was on
+> the day it was written. `src/io/config/parse.ts` kept sixteen exported error
+> classes of its own through ADR-0055's split, and at `bea20d6` — the commit the
+> note it repeats was written in — the string `Error` was in it eighty-four times.
+> The note in ADR-0055 is corrected there. Found while anchoring this family's line
+> counts to the commits they were measured at, which is ADR-0075, and the shape is
+> the one that document says is hardest to see: a claim about the tree, made
+> inside a document about a gate, checked by nobody.
+
 **The guard's glob vocabulary is deliberately small.** A pattern shape it does
 not know fails the suite with a message naming the pattern. That is a nuisance
 exactly once per new shape, and the alternative is the failure mode this whole

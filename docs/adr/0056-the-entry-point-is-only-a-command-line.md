@@ -69,11 +69,11 @@ be counted as this run's, and what this run writes so the next process can prove
 the same thing about it. ADR-0047 in one file instead of two halves of a long
 function.
 
-`run.ts` is 663 lines and stays one module. Nearly every comment in it is about a
-line's **position** — validation before the first request, the report path before
-the traffic is spent, the canaries before the preview claims to have checked
-everything, the second canary pass after the walk. Cut further, those reasons
-would be spread over files that cannot enforce them.
+`run.ts` was 663 lines at `339fd42` and stays one module. Nearly every comment in
+it is about a line's **position** — validation before the first request, the
+report path before the traffic is spent, the canaries before the preview claims
+to have checked everything, the second canary pass after the walk. Cut further,
+those reasons would be spread over files that cannot enforce them.
 
 ### What was not allowed to change, and did not
 

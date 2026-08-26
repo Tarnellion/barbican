@@ -3129,13 +3129,87 @@ was written on, not carried over from a commit message.
   states and `tests/public-surface.test.ts` holds it to.
 - The bundled standards catalogue: **3 standards, 16 clauses**, of which
   `findUnansweredClauses` returns **9** against an empty check registry.
-- `docs/adr/` holds **72 files**, 0000 through 0071.
+- `docs/adr/` held **71 files**, 0000 through 0070, at `29f99d7`. This bullet read
+  "72 files, 0000 through 0071" until 26 August 2026: ADR-0071 was on a branch the
+  commit this section was written in does not carry, so the census counted a file
+  the tree it names does not hold. Anchoring it is what makes it checkable —
+  `tests/docs/a-count-of-this-tree.test.ts` reads this line and measures it at that
+  commit, and the two bullets above it are still figures nothing reads.
 - Between `9e716e4`, the commit that last touched this file, and `29f99d7`, which
   added this line: **197 commits, 144 of them not merges**, over four days. Both
   ends are named on purpose. "The commit that last touched this file and this one"
   is a range that moves every time the file is touched, so the count under it was
   wrong within the hour — which is the same defect as a census of the repository
   written into the repository, corrected in `README.md` on the same day.
+
+## A count of this tree, measured where it is written (26 August 2026)
+
+The four censuses corrected on 24 August were treated as four lapses of care. They
+are one structure, and care is what it defeats: the author counts the tree, writes
+the number into the tree, and the writing is what makes the number wrong. ADR-0075
+is the reasoning; `tests/docs/a-count-of-this-tree.test.ts` is the gate.
+
+- [x] **A gate over tracked prose.** It reads the markdown git tracks and the
+      comments of the modules git tracks, finds the counts stated about this
+      repository, and measures each against the tree the suite runs on — before a
+      commit, the tree that commit will have, which is the whole of the cure for
+      the self-reference. Four populations, admitted because something can
+      enumerate each: the lines of a named file, the files directly under a named
+      directory, the values the package exports, the commits between two named
+      commits.
+- [x] **The boundary, and it is the tense.** A count in the past tense is a record
+      of a measurement and does not go stale; a count in the present tense is a
+      claim about the tree now. Only the second drifts, so only the second is read.
+      A sentence naming exactly one commit is measured **at that commit** whatever
+      tense it is in, which is what makes a record checkable; a date is refused,
+      because a day holds many commits and a population moves inside it. What that
+      leaves open is in the ADR's `Limits`, each entry run before it was written.
+- [x] **Eleven claims failed on the tree it first ran against, and all eleven are
+      fixed.** The size of the published surface in the present tense in ADR-0024,
+      ADR-0069 and a `README.md` release section, where all three are records;
+      `shape.ts` given as one line longer than it is; `compare.ts`, `parse.ts`,
+      `run.ts` and `walk.ts` each given a line count exact at that ADR's own commit
+      and not now, all four anchored to that commit rather than restated; and the
+      `docs/adr/` bullet above, which counted a file the commit it names does not
+      carry.
+- [x] **Two sentences corrected that the gate does not reach.** ADR-0055's note of
+      23 August said the split left `parse.ts` containing the string `Error` not
+      once, and ADR-0063 repeated it. At `bea20d6`, the commit that note was written
+      in, the file held sixteen exported error classes of its own and the string
+      eighty-four times. Found by hand while anchoring the line counts, not by the
+      gate: a count of zero, in a document about a gate, checked by nobody.
+- [x] **Twenty mutations run against the gate**, each applied alone with the suite
+      run and the file restored from a byte copy — never `git checkout --`, which
+      would take the rest of the working tree with it. Ten it catches. Ten it does
+      not, and one of those ten was not an attack at all: ADR-0056's anchor moved to
+      another commit where `src/cli/run.ts` happened to be the same size, so the
+      claim stayed true and the gate was right to stay green. The nine that are
+      genuine ways past are in `Limits` under eight headings, the past tense first
+      among them and one word wide — and the non-attack is recorded there too,
+      because a `Limits` section holding only the mutations that behaved is a
+      section somebody edited afterwards.
+
+### Where the tree stands, at `d8c279e`
+
+Anchored to a commit and not to a date, and written in the commit after the one it
+describes, because a commit cannot name itself — which is the shape the bullet
+four sections up was corrected into, and the reason this section is named the way
+it is rather than "measured on 26 August 2026".
+
+- `pnpm run check` green: **127 test files, 1 966 passed, 1 skipped**.
+- `node polygon/verify.mjs`, on port 9101: **29 combinations, 0 mismatches**.
+- The published surface, off `Object.keys` over `src/index.ts`: **242 values**,
+  unchanged by this round — no name was added or removed.
+- `docs/adr/` held **76 files**, 0000 through 0075, at `d8c279e`.
+
+Only the last of the four is read by `tests/docs/a-count-of-this-tree.test.ts`,
+and the three above it are each a different reason why not. The suite and the
+oracle are not populations a table can enumerate without running them. The
+published surface is a population the gate does read — `docs/library.md` states it
+in the present tense and is held to it — but not at a commit: reading it means
+running the code, and the code that runs is this tree's, so an anchored claim
+about it is left alone rather than answered against the wrong tree. Which is the
+boundary ADR-0075 draws, seen from the inside of a census.
 
 ## Adversarial review of 18 August 2026 (the gate itself)
 
