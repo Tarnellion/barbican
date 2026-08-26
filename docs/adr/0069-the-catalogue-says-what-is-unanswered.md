@@ -207,7 +207,7 @@ can answer is a mirror.
   `findUncoveredClauses` is gone. `DIFF_KINDS` is exported for the reason
   `RESOURCE_RELATIONS` and `SAFE_METHODS` are: a consumer reading
   `AccessDiff.kind` has the same need for the list that this module does.
-- The package exports 234 values, up from 232. `docs/library.md` answers for the
+- The package exported 234 values, up from 232. `docs/library.md` answers for the
   count and gains the two functions.
 - `StandardClause` gains one optional field. A consumer's `StandardDefinition`
   still compiles unchanged, and `register` refuses it blank.

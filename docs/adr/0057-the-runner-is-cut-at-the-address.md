@@ -112,9 +112,10 @@ written twice.
 so that the sentence `unreadableStatusReason` answers to is on the same page as
 the answer.
 
-### `walk.ts` is 801 lines and stays one module
+### `walk.ts` stays one module
 
-The same argument `run.ts` made in ADR-0056. Nearly every comment inside
+The same argument `run.ts` made in ADR-0056, at the same size: `walk.ts` was 801
+lines at `8e12a1e`. Nearly every comment inside
 `collectObservations` is about the **position** of a line: the resume gate after
 the shape of the matrix is known and before the first request; the attribute
 check before the credentials are merged over it; the stop honoured before a cell

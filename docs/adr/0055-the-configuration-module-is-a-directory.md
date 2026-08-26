@@ -114,18 +114,24 @@ subject. Three other comments of the same kind — for `ReservedSignalNameError`
 the declaration they were glued to, and were left exactly as they were: moving
 them is a fix, and a fix does not belong in a move.
 
-**The next thing to revisit** is `parse.ts` at 660 lines. Nineteen of its error
-classes are one paragraph each, and the argument for splitting them off is that
-they are read in the terminal rather than in the file. The argument against is
-that an error that fires where nobody can see the reason is exactly what this
-repository keeps finding, and the reason is in the class.
+**The next thing to revisit** is `parse.ts`, which was 659 lines at `b75afa8`.
+Nineteen of its error classes are one paragraph each, and the argument for
+splitting them off is that they are read in the terminal rather than in the file.
+The argument against is that an error that fires where nobody can see the reason
+is exactly what this repository keeps finding, and the reason is in the class.
 
-> **Note, 23 August 2026.** A reader following that pointer finds nothing there:
-> `parse.ts` is 659 lines and contains the string `Error` not once. This split
-> distributed the error classes to the modules that throw them — five in
-> `schema.ts`, five in `environment.ts`, four each in `contexts.ts`,
-> `references.ts` and `basis.ts` — so the paragraph describes the file as it was
-> before the decision above, not after it. The decision stands; the pointer does
-> not. Whether nineteen paragraphs of error prose want a module of their own is
-> now a question about `schema.ts` and `environment.ts`, and nobody has asked
-> it.
+> **Note, 23 August 2026, corrected 26 August 2026.** This split distributed some
+> of the error classes to the modules that throw them — five to `schema.ts`, five
+> to `environment.ts`, four each to `contexts.ts`, `references.ts` and `basis.ts`.
+> Whether nineteen paragraphs of error prose want a module of their own is now a
+> question about those modules as much as about this one, and nobody has asked it.
+>
+> Two things this note said until the second date were wrong, and both are the
+> subject of ADR-0075. It said the pointer above sends a reader to a file that
+> "contains the string `Error` not once": at `bea20d6`, the commit this note was
+> written in, `parse.ts` held sixteen exported error classes of its own and the
+> string eighty-four times — a claim about the tree that was false on the day it
+> was written, in the note whose whole purpose was correcting one. And the pointer
+> above read "`parse.ts` at 660 lines", which the file was later that day and not
+> at `b75afa8`, the commit this decision landed in. The decision stands; what was
+> wrong was twice the prose around it.

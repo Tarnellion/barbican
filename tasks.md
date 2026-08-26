@@ -3129,7 +3129,12 @@ was written on, not carried over from a commit message.
   states and `tests/public-surface.test.ts` holds it to.
 - The bundled standards catalogue: **3 standards, 16 clauses**, of which
   `findUnansweredClauses` returns **9** against an empty check registry.
-- `docs/adr/` holds **72 files**, 0000 through 0071.
+- `docs/adr/` held **71 files**, 0000 through 0070, at `29f99d7`. This bullet read
+  "72 files, 0000 through 0071" until 26 August 2026: ADR-0071 was on a branch the
+  commit this section was written in does not carry, so the census counted a file
+  the tree it names does not hold. Anchoring it is what makes it checkable —
+  `tests/docs/a-count-of-this-tree.test.ts` reads this line and measures it at that
+  commit, and the two bullets above it are still figures nothing reads.
 - Between `9e716e4`, the commit that last touched this file, and `29f99d7`, which
   added this line: **197 commits, 144 of them not merges**, over four days. Both
   ends are named on purpose. "The commit that last touched this file and this one"

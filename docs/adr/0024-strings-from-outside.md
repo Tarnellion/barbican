@@ -182,7 +182,7 @@ it.** One rule, one place, at the address the layering allows.
 Its own module rather than a few more lines in `src/core/types.ts`, following
 `src/core/order.ts` — off `src/core/index.ts` and so off the published surface,
 because how the tool reads a template it was handed is not something a consumer
-is promised. The package still exports 227 values and `src/index.ts` is
+is promised. The package still exported 227 values and `src/index.ts` was
 untouched.
 
 ### The trap inside the tidying

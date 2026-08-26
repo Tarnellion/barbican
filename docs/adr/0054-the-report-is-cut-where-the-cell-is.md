@@ -25,8 +25,9 @@ two counters that counted the same rows twice. All three are closed. What they
 say about the file is that a reader has to hold five vocabularies at once to
 review one change to it, and that is the cost being paid down here.
 
-The size alone would not be an argument. `compare.ts` is 971 lines and does one
-thing. The argument is the five vocabularies.
+The size alone would not be an argument. `src/report/compare.ts` was 971 lines at
+`7531bff`, the commit this decision landed in, and does one thing. The argument is
+the five vocabularies.
 
 ## Decision
 

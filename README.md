@@ -1134,7 +1134,7 @@ characters in a report this tool wrote. Such a character is now written out as
 `\u009B` where the value is kept. Spelled out rather than redacted, because the
 value is evidence and a reader has to see what arrived; and at the point the
 value is kept rather than on the way to a screen, because the file outlives the
-run and the tool does not own the screen it is opened on. The package exports
+run and the tool does not own the screen it is opened on. The package exported
 232 names, one more than before — `spellOut`, so that a consumer building its
 own report has the same rendering rather than a second one.
 
@@ -1357,7 +1357,7 @@ the reference platform's 29 reports are the same bytes.
 
 **The four largest files in the report layer were read and left alone**, which is
 [ADR-0073](docs/adr/0073-a-file-is-cut-along-its-jobs.md). `src/report/shape.ts`
-is 1 129 lines of which 873 are prose and 234 are code — a type graph with the
+is 1 128 lines of which 873 are prose and 234 are code — a type graph with the
 reasoning beside each field — and the other three hold one job each. The ADR
 also records three changes that measurement argued *against* making, so the next
 reader does not have to measure them again.
