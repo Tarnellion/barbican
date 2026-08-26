@@ -1378,6 +1378,28 @@ the only edit under `src/` is a comment recording why a loop in
 `assertReferencesResolve` cannot be reached today and what would make it live
 again.
 
+**A number that counts this repository is now measured where it is written**
+([ADR-0075](docs/adr/0075-a-count-of-this-tree-is-measured-where-it-is-written.md)).
+Four documents stated a count of the tree on 24 August and were wrong by the
+commit that stated it — a link count, the size of the published surface, a commit
+count over a range with a moving end, and a module's line count in the commit that
+shortened it. One structure, not four mistakes: the author counts the tree, writes
+the number into the tree, and the writing is what makes the number wrong.
+`tests/docs/a-count-of-this-tree.test.ts` reads the tracked markdown and the
+comments of tracked modules and measures each such count against the tree the
+suite is running on, which before a commit is the tree that commit will have.
+
+Four populations, each with something that can enumerate it: the lines of a named
+file, the files under a named directory, the values the package exports, and the
+commits between two named commits. The tense is the claim — a count in the past
+tense is a record of a measurement and does not go stale, and only the present
+tense drifts — and a sentence naming one commit is measured at that commit
+whatever tense it is in, which is what makes a record checkable. A date is refused
+as an anchor, because a day holds many commits. Eleven claims failed on the tree
+this was first run against and all eleven are fixed here, four of them by anchoring
+an ADR's line count to the commit that ADR landed in rather than restating it. What
+gets past the gate is measured and listed in the ADR's `Limits`.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.

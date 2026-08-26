@@ -473,8 +473,11 @@ function groundFor(sentence: string, past: boolean): Ground {
   if (commit === undefined) {
     return past ? { at: "nothing", why: RECORD_REASON } : { at: "this tree" };
   }
-  if (SHALLOW && !carriesCommit(commit)) {
-    return { at: "nothing", why: SHALLOW_REASON };
+  if (!carriesCommit(commit)) {
+    // A shallow clone is missing history through nobody's fault, and is told so.
+    // A full clone that cannot find the commit has been given a name that is not
+    // one, which is the same defect as a link to a file that does not exist.
+    return { at: "nothing", why: SHALLOW ? SHALLOW_REASON : `names no commit: ${commit}` };
   }
   return { at: "a commit", commit };
 }
@@ -832,6 +835,22 @@ describe("the grammar of a count", () => {
     const dated = `${quote(shape)} was 1 128 lines on 23 August 2026.`;
 
     expect(verdictsIn(files, dated)).toEqual([]);
+  });
+
+  /**
+   * A name that is not a commit is the same defect as a link to a file that is not
+   * there, and it is said in the same words.
+   *
+   * Held apart from the shallow-clone case on purpose: one is a repository this
+   * reader was not given, the other is a sentence this reader wrote.
+   */
+  it("says so when an anchor names no commit", () => {
+    const nowhere = "0".repeat(40);
+    const verdicts = verdictsIn(files, `${quote(shape)} was 1 128 lines at ${quote(nowhere)}.`);
+
+    expect(verdicts).toHaveLength(1);
+    expect(verdicts[0]?.measured).toBeUndefined();
+    expect(verdicts[0]?.why).toBe(SHALLOW ? SHALLOW_REASON : `names no commit: ${nowhere}`);
   });
 
   it("reads a directory's file count and the last name in it", () => {

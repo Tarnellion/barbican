@@ -3142,6 +3142,50 @@ was written on, not carried over from a commit message.
   wrong within the hour — which is the same defect as a census of the repository
   written into the repository, corrected in `README.md` on the same day.
 
+## A count of this tree, measured where it is written (26 August 2026)
+
+The four censuses corrected on 24 August were treated as four lapses of care. They
+are one structure, and care is what it defeats: the author counts the tree, writes
+the number into the tree, and the writing is what makes the number wrong. ADR-0075
+is the reasoning; `tests/docs/a-count-of-this-tree.test.ts` is the gate.
+
+- [x] **A gate over tracked prose.** It reads the markdown git tracks and the
+      comments of the modules git tracks, finds the counts stated about this
+      repository, and measures each against the tree the suite runs on — before a
+      commit, the tree that commit will have, which is the whole of the cure for
+      the self-reference. Four populations, admitted because something can
+      enumerate each: the lines of a named file, the files directly under a named
+      directory, the values the package exports, the commits between two named
+      commits.
+- [x] **The boundary, and it is the tense.** A count in the past tense is a record
+      of a measurement and does not go stale; a count in the present tense is a
+      claim about the tree now. Only the second drifts, so only the second is read.
+      A sentence naming exactly one commit is measured **at that commit** whatever
+      tense it is in, which is what makes a record checkable; a date is refused,
+      because a day holds many commits and a population moves inside it. What that
+      leaves open is in the ADR's `Limits`, each entry run before it was written.
+- [x] **Eleven claims failed on the tree it first ran against, and all eleven are
+      fixed.** The size of the published surface in the present tense in ADR-0024,
+      ADR-0069 and a `README.md` release section, where all three are records;
+      `shape.ts` given as one line longer than it is; `compare.ts`, `parse.ts`,
+      `run.ts` and `walk.ts` each given a line count exact at that ADR's own commit
+      and not now, all four anchored to that commit rather than restated; and the
+      `docs/adr/` bullet above, which counted a file the commit it names does not
+      carry.
+- [x] **Two sentences corrected that the gate does not reach.** ADR-0055's note of
+      23 August said the split left `parse.ts` containing the string `Error` not
+      once, and ADR-0063 repeated it. At `bea20d6`, the commit that note was written
+      in, the file held sixteen exported error classes of its own and the string
+      eighty-four times. Found by hand while anchoring the line counts, not by the
+      gate: a count of zero, in a document about a gate, checked by nobody.
+- [x] **Seventeen mutations run against the gate**, each applied alone with the
+      whole suite run and the file restored from a byte copy. Eight get past it and
+      are listed in `Limits` with the past tense first among them; eight it catches;
+      one turned out not to be an attack at all — ADR-0056's anchor moved to another
+      commit where `src/cli/run.ts` was the same size — and it is recorded, because
+      a `Limits` section holding only the mutations that behaved is a section
+      somebody edited afterwards.
+
 ## Adversarial review of 18 August 2026 (the gate itself)
 
 Two more attackers, on what the reviews of 17 August did not touch: the polygon
