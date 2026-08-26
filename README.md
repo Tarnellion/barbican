@@ -1324,6 +1324,30 @@ millisecond, and twenty-nine tests were spending it while asserting about a
 screen or an exit code. They now pass `--rps 200 --concurrency 8` from one named
 fixture, and nothing about the pace stopped being tested.
 
+**Every ground truth this project has now runs from one command**, and the reason
+it did not is measured. `pnpm run polygons` walks the reference platform, VAmPI,
+Juice Shop and crAPI in turn and prints what each answered. Until now each was a
+command somebody had to remember, and the cost of that showed up on 24 August:
+crAPI had gone eleven days unrun — across the whole week of cutting four modules
+into directories — while `plan.md` said it had never been run at all. All four
+match today. It is in neither `pnpm run check` nor CI, because it brings four
+deployments up; crAPI is skipped, loudly, unless `CRAPI_DEPLOY_DIR` points at a
+tree this repository does not vendor.
+
+**The suite stopped failing on a busy machine.** Thirty-nine tests spawn the built
+CLI, and a spawn pays for a process, for Node's start-up and for loading `dist/`,
+against a five-second default chosen for something else. Eight busy cores beside
+it was enough: `barbican schema` took 5023 ms and seven tests went red, on a tree
+where nothing was wrong. The timeout is fifteen seconds now — a bound on the
+absurd rather than a performance budget — and three loaded runs that used to fail
+now pass, at no cost to the green case.
+
+**VAmPI is pinned by digest**, the way `polygons/juice-shop` already was. It was
+`:latest`, and on 24 August a `docker pull` fetched a newer image and the oracle
+matched anyway. That is luck, and the comment beside the pin now records it as
+luck: an oracle that is a hand-written list of one build's defects turns an
+upstream change into a failure of this tool rather than of the image.
+
 **The guide covers every subcommand.** It documented `barbican run` and nothing
 else: `diff` shipped in `0.5.0` and `pack` in `0.7.0`, so the main document a
 person reads had been a version behind twice over. Both halves are written now,
