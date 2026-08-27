@@ -220,7 +220,9 @@ The sentence above said "`barbican@0.3.0` is on npm as `latest`" in the present
 tense for eight days, through four more releases. It was corrected on 26 August by
 the review of the pass that audited this file — which had declared this class of
 staleness closed twenty-two lines above. Present tense about a moving thing is the
-defect [ADR-0075](docs/adr/0075-a-count-of-this-tree-is-measured-where-it-is-written.md) is about, and a version on
+defect
+[ADR-0075](docs/adr/0075-a-count-of-this-tree-is-measured-where-it-is-written.md)
+is about, and a version on
 a registry moves without anybody in this repository touching a file, which is why
 no gate here can catch it and why it is written in the past tense now.
 
@@ -467,16 +469,19 @@ genuinely left is the two that remain:
    [ADR-0012](docs/adr/0012-ground-truth-format.md), written the day the second oracle
    diverged from the first. **This item said "to be decided in phase 2" until 26 August
    2026**, fourteen days after it was decided and eight days after phase 2's own last
-   item closed — Juice Shop, on 18 August — while phase 2 item 2 and item 3 above both cite the deciding ADR by name
+   item closed — Juice Shop, on 18 August — while phase 2 item 2 and item 3
+   above both cite the deciding ADR by name
    for the format their oracles are written in. A document can hold a question and its
    answer at once as long as nothing reads it end to end, and until 26 August nothing
    had. One shape, `tools/oracle/index.mjs`, and four oracles on it: the reference
    platform, VAmPI, crAPI, Juice Shop.
 
-Closed: where the expected matrix comes from — [ADR-0006](docs/adr/0006-expected-access-declaration.md),
+Closed: where the expected matrix comes from —
+[ADR-0006](docs/adr/0006-expected-access-declaration.md),
 the configuration format — [ADR-0008](docs/adr/0008-run-configuration-format.md),
 the ground-truth format — [ADR-0012](docs/adr/0012-ground-truth-format.md), and
-identifiers from response bodies — [ADR-0071](docs/adr/0071-an-identifier-from-a-body-is-not-worth-a-pool.md).
+identifiers from response bodies —
+[ADR-0071](docs/adr/0071-an-identifier-from-a-body-is-not-worth-a-pool.md).
 
 **Nothing on this list is open as of 26 August 2026.** Both numbered items are struck
 through, and the section keeps its heading and its struck entries rather than being
@@ -489,7 +494,7 @@ part worth having.
 
 | What | Condition | Where we go |
 |---|---|---|
-| `@apidevtools/swagger-parser` | 18 months without a release. The latest is 12.1.0 of 14.10.2025, so the threshold arrives around **April 2027** | `@readme/openapi-parser` (7.0.1 of 07.08.2026, active) |
+| `@apidevtools/swagger-parser` | 18 months without a release. The latest was 12.1.0 of 14.10.2025 when this row was written, and still is on 27 August 2026, so the threshold arrives around **April 2027** | `@readme/openapi-parser` — 8.0.1 of 27.08.2026, and very active: the row said 7.0.1 of 07.08.2026 and was two majors behind within three weeks |
 | TypeScript 7 | this project starts importing the compiler as a library while its API is still exported under `unstable/`, or a platform in use stops getting a binary | back to 6.x, or to whatever ships a stable API |
 | The build through `tsc` | CJS or a bundle is needed | `tsup`, then `tsdown` |
 | Biome | rules are missing | ESLint 9 flat + `oxlint` in CI |
@@ -497,8 +502,12 @@ part worth having.
 | `pdfkit` | not installed, and now not needed: ADR-0068 chose one self-contained HTML file, printed to PDF by the reader's own browser. The row stays as the record of a candidate that was weighed and dropped | — |
 | Any dependency | a supply-chain incident | a 7-day cooldown gives time for a version to be pulled |
 
-Check on every dependency update, and at least once a quarter. The last review is
-below; the next one is due by 18 November 2026.
+Check on every dependency update, and at least once a quarter. Two reviews are
+below, the most recent first: a re-measurement on 26 August 2026 that answered the
+four rows a registry can answer, and the full review of 18 August. A quarter from
+the full one puts the next by **18 November 2026**; the re-measurement does not
+reset that clock, because it read four rows and not the reasoning behind the
+others.
 
 ### Re-measured 26 August 2026
 
@@ -682,13 +691,20 @@ beside rather than the three that exist.
 | 18 | Directory boundaries: four of six `src` directories, and a column promising phases already past | 23 Aug, when `src/cli` and `src/runner` appeared | 3 |
 | 19 | Risks: three risks written before phase 3, none marked settled | 17 Aug | 9 |
 
+Eighteen of the nineteen carry a day the claim stopped being true and a count
+of days it stood. Row 17 carries neither, and the dash is the honest entry: a
+scope line saying "until Module 1 is stable" did not become false on a date —
+its condition arrived, which is a different thing, and picking a day for it
+would be inventing one to fill a column.
+
 **`tasks.md` is a log and rots harmlessly.** Every entry is past tense and carries
 the date it was measured on, so an entry that no longer describes the tree is simply
 an old entry — which is what it always was. Its Juice Shop entry still says ten
 defects and twenty-five findings; the oracle has held eleven and twenty-eight
 since 19 August, over the same sixty-nine cells it walked then and walks today —
 the cell count never moved, and calling twenty-five a count of cells was this
-document's own slip, corrected 26 August; nothing there is wrong, because the entry never claimed to be about now.
+document's own slip, corrected 26 August; nothing there is wrong, because the
+entry never claimed to be about now.
 **`README.md` has a gate** — `tests/docs/release-readme.test.ts`, which holds the
 `### Unreleased` section and asserts that the sentence naming a current release names
 the version in `package.json`. **ADRs are dated records that are not supposed to
@@ -703,7 +719,8 @@ this file's error into it.
 
 This file is not ungated: `tests/docs/language.test.ts` holds its language and
 `tests/docs/links.test.ts` holds its links — which is why all twenty of its link
-targets resolve today and none of the nineteen failures below is a dead link.
+targets resolve today and none of the nineteen failures in the table above is a
+dead link.
 "Every link in it" is what this sentence said until the review measured it: a
 link whose target is carried onto the next line is not collected, so the gate
 holds every link written on one line.
@@ -723,7 +740,8 @@ into `CLAUDE.md`, where it survived eleven days.
 Fifteen of the nineteen are, by inspection, not mechanically checkable by anything
 short of reading the repository — inspection, and not a gate written and run
 against them, which is the weaker kind of evidence and is named as such because
-ADR-0065 asks for exactly that distinction elsewhere in this document: no scan can know that a phase closed, that a choice was made, or that
+ADR-0065 asks for exactly that distinction elsewhere in this document: no scan
+can know that a phase closed, that a choice was made, or that
 a sentence describing an intention should now describe a record. A gate that cannot
 see fifteen of nineteen, described as guarding this file, would be the exact defect
 ADR-0065 was written against — a rule that tells the reader not to look while no
@@ -732,7 +750,8 @@ longer holding.
 Four are mechanically checkable — 3, 5, 8 and 9 — and all four have one shape:
 **this file restated a fact whose home is another file that already has a gate.** The
 current release lives in README's Install section, under a gate, and this file named
-`0.2.0` and then `0.4.0` — the gate is a file away, and it was never pointed here. The combination count lives in `polygon/ground-truth.json`,
+`0.2.0` and then `0.4.0` — the gate is a file away, and it was never pointed
+here. The combination count lives in `polygon/ground-truth.json`,
 gated in CI by `verify.mjs --check-readme`, and this file kept its own copy of the
 number — a copy that then survived a search-and-replace because a line wrap split the
 phrase in two. That is not a gap in the gates. It is a second home for a decision,
