@@ -410,6 +410,9 @@
               ]
             }
           },
+          "originIsForeign": {
+            "type": "boolean"
+          },
           "query": {
             "type": "object",
             "propertyNames": {

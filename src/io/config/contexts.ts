@@ -20,7 +20,7 @@ import type { AuthScheme } from "../../adapters/credentials.js";
 import type { ContextAttributes } from "../../adapters/ports.js";
 import type { Account, ExpectedAccessPolicy } from "../../core/index.js";
 import { describePolicyRule, identifier } from "../../core/index.js";
-import { isHeaderName, isHeaderValue, safeHeaders } from "../untrusted.js";
+import { isHeaderName, isHeaderValue, isWebOrigin, safeHeaders } from "../untrusted.js";
 import {
   ForbiddenContextHeaderError,
   ForbiddenContextQueryError,
@@ -77,6 +77,27 @@ export class UnknownContextAccountError extends Error {
         `the declared accounts. The context would simply apply to nobody.`,
     );
     this.name = "UnknownContextAccountError";
+  }
+}
+
+/**
+ * A context marked `originIsForeign` whose `origin` header cannot be called one.
+ *
+ * Three ways, and each is a marker that would otherwise mean nothing: no header to
+ * mark, a value that lives only in the environment, and a string that is not an
+ * origin as a browser writes it. The check that reads the marker compares the
+ * declared origin byte for byte with what the platform echoed, so a marker on
+ * anything else is a finding about a request no browser makes (ADR-0078).
+ */
+export class ForeignOriginError extends Error {
+  override readonly name = "ForeignOriginError";
+  constructor(contextId: string, reason: string) {
+    super(
+      `Context "${contextId}" says originIsForeign: true, but ${reason}. A context marks as ` +
+        `foreign the origin it sends in its "origin" header, and the check compares that ` +
+        `string with what the platform echoed — so it has to be a literal origin as a ` +
+        `browser writes it, for example https://attacker.example.`,
+    );
   }
 }
 
@@ -223,6 +244,34 @@ export function normalizeContexts(
       headers[lower] = value;
     }
 
+    // The marker is checked against the header it marks, after every header has
+    // been admitted: it is a statement about a value that has already passed the
+    // header grammar, so the message below may print it. `headers` has no
+    // prototype, so `origin` here cannot be an inherited one.
+    let foreignOrigin: string | undefined;
+    if (context.originIsForeign === true) {
+      const origin = headers["origin"];
+      if (origin === undefined) {
+        throw new ForeignOriginError(context.id, 'it declares no "origin" header');
+      }
+      if (typeof origin !== "string") {
+        throw new ForeignOriginError(
+          context.id,
+          `its origin comes from the environment (${origin.env}), and the report has to ` +
+            `say which origin was called foreign`,
+        );
+      }
+      if (!isWebOrigin(origin)) {
+        throw new ForeignOriginError(
+          context.id,
+          `"${origin}" is not an origin in the form a browser sends: a scheme, a ` +
+            `lower-case host and a port only when it is not the default, with no path, ` +
+            `no trailing slash and no credentials`,
+        );
+      }
+      foreignOrigin = origin;
+    }
+
     for (const [key, value] of Object.entries(context.query ?? {})) {
       const credentials = forbiddenQueryKeyReason(key);
       if (credentials !== undefined) {
@@ -264,6 +313,7 @@ export function normalizeContexts(
       id: context.id,
       ...(context.description === undefined ? {} : { description: context.description }),
       headers,
+      ...(foreignOrigin === undefined ? {} : { foreignOrigin }),
       query: context.query ?? {},
       endpointIds: context.endpoints,
       accountIds: context.accounts ?? [],

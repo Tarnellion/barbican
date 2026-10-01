@@ -1242,7 +1242,7 @@ What to look for in the report:
 
 | Where | What it says |
 |---|---|
-| `inputs.contexts` | which conditions are declared and with which attributes — without them there is nothing to reproduce a finding with |
+| `inputs.contexts` | which conditions are declared and with which attributes — without them there is nothing to reproduce a finding with. `foreignOrigin` is present on a context the operator marked `originIsForeign`, and is the same string as its `origin` header ([ADR-0078](adr/0078-an-origin-is-called-foreign-by-the-operator.md)) |
 | `accounts[].contextId` | that this row is an account under conditions, not a separate account |
 | `accounts[].baseAccountId` | who this really is: the same account, the same credentials, the same scheme |
 | `findings[].request.contextHeaders` | the attributes without which the row reproduces the **base** case, not the one that was found |

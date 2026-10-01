@@ -15,6 +15,7 @@ import {
   DuplicateContextIdError,
   ForbiddenContextHeaderError,
   ForbiddenContextQueryError,
+  ForeignOriginError,
   InvalidContextValueError,
   MethodOverrideInContextError,
   MissingContextValueError,
@@ -654,5 +655,147 @@ contexts:
       "alice@corp.test",
       "alice@corp.test@geo",
     ]);
+  });
+});
+
+/**
+ * `originIsForeign` (ADR-0078).
+ *
+ * A marker on the `origin` header a context already sends, not a second place to
+ * write an origin — so what went over the wire and what was called foreign cannot
+ * be two strings. Every refusal here is a marker that would otherwise mean
+ * nothing: it is read by a check that compares the declared origin byte for byte
+ * with what the platform echoed.
+ */
+describe("an origin declared foreign", () => {
+  const RULE = `
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [orders.list], context: foreign, outcome: allowed }
+`;
+
+  function declare(context: string): string {
+    return config(`${RULE}
+contexts:
+  - ${context}
+`);
+  }
+
+  it("is carried as the origin the context sends", () => {
+    const parsed = parseRunConfig(
+      declare(
+        '{ id: foreign, headers: { origin: "https://attacker.example" }, originIsForeign: true, endpoints: [orders.list] }',
+      ),
+    );
+
+    expect(parsed.contexts[0]?.foreignOrigin).toBe("https://attacker.example");
+    // Still sent: the marker changes what the run concludes, not what it sends.
+    expect(parsed.contexts[0]?.headers.origin).toBe("https://attacker.example");
+  });
+
+  it("finds the header whatever case its name was written in", () => {
+    const parsed = parseRunConfig(
+      declare(
+        '{ id: foreign, headers: { Origin: "https://attacker.example" }, originIsForeign: true, endpoints: [orders.list] }',
+      ),
+    );
+
+    expect(parsed.contexts[0]?.foreignOrigin).toBe("https://attacker.example");
+  });
+
+  it("is absent unless the declaration said so", () => {
+    const unmarked = parseRunConfig(
+      declare(
+        '{ id: foreign, headers: { origin: "https://partner.example" }, endpoints: [orders.list] }',
+      ),
+    );
+    const explicitlyNot = parseRunConfig(
+      declare(
+        '{ id: foreign, headers: { origin: "https://partner.example" }, originIsForeign: false, endpoints: [orders.list] }',
+      ),
+    );
+
+    // A partner's origin is not foreign, and the absence is the statement.
+    expect(unmarked.contexts[0]).not.toHaveProperty("foreignOrigin");
+    expect(explicitlyNot.contexts[0]).not.toHaveProperty("foreignOrigin");
+  });
+
+  it("asks nothing of a context that does not mark one", () => {
+    // `originIsForeign: false` needs no origin to exist.
+    const parsed = parseRunConfig(
+      declare("{ id: foreign, originIsForeign: false, endpoints: [orders.list] }"),
+    );
+
+    expect(parsed.contexts[0]).not.toHaveProperty("foreignOrigin");
+  });
+
+  it("is refused where there is no origin header to mark", () => {
+    expect(() =>
+      parseRunConfig(declare("{ id: foreign, originIsForeign: true, endpoints: [orders.list] }")),
+    ).toThrow(ForeignOriginError);
+    expect(() =>
+      parseRunConfig(
+        declare(
+          "{ id: foreign, headers: { x-channel: web }, originIsForeign: true, endpoints: [orders.list] }",
+        ),
+      ),
+    ).toThrow(/declares no "origin" header/);
+  });
+
+  it("is refused when the origin lives only in the environment", () => {
+    // The report has to say which origin was called foreign, and a value that is
+    // only in a variable cannot be said.
+    expect(() =>
+      parseRunConfig(
+        declare(
+          "{ id: foreign, headers: { origin: { env: FOREIGN_ORIGIN } }, originIsForeign: true, endpoints: [orders.list] }",
+        ),
+      ),
+    ).toThrow(/comes from the environment \(FOREIGN_ORIGIN\)/);
+  });
+
+  it("is refused for a string that is not an origin as a browser writes it", () => {
+    for (const bad of [
+      "https://attacker.example/",
+      "https://Attacker.example",
+      "https://attacker.example:443",
+      "https://user@attacker.example",
+      "attacker.example",
+      "null",
+      "*",
+    ]) {
+      expect(
+        () =>
+          parseRunConfig(
+            declare(
+              `{ id: foreign, headers: { origin: "${bad}" }, originIsForeign: true, endpoints: [orders.list] }`,
+            ),
+          ),
+        bad,
+      ).toThrow(ForeignOriginError);
+    }
+  });
+
+  it("names the context and the string it refused", () => {
+    expect(() =>
+      parseRunConfig(
+        declare(
+          '{ id: foreign, headers: { origin: "https://attacker.example/" }, originIsForeign: true, endpoints: [orders.list] }',
+        ),
+      ),
+    ).toThrow(/Context "foreign" says originIsForeign: true[\s\S]*"https:\/\/attacker.example\/"/);
+  });
+
+  it("does not loosen the header rules the context already lives under", () => {
+    // The marker is checked after the header grammar and the forbidden lists, so
+    // a header those refuse is refused first, for its own reason.
+    expect(() =>
+      parseRunConfig(
+        declare(
+          '{ id: foreign, headers: { host: "https://attacker.example" }, originIsForeign: true, endpoints: [orders.list] }',
+        ),
+      ),
+    ).toThrow(ForbiddenContextHeaderError);
   });
 });

@@ -158,6 +158,19 @@ export interface RequestContextConfig {
   readonly id: string;
   readonly description?: string | undefined;
   readonly headers: Readonly<Record<string, ContextAttributeValue>>;
+  /**
+   * The origin these conditions send, **declared foreign** — an origin the
+   * platform must not trust with credentials (ADR-0078).
+   *
+   * Present exactly when the declaration said `originIsForeign: true`, and then it
+   * is the literal value of `headers.origin`, already checked to be an origin in
+   * the form a browser sends. Resolved here, once, so that nothing downstream has
+   * to re-read a header to learn which origin was called foreign — a second
+   * lookup is a second place for the two to drift. The report restates it, because
+   * "declared foreign" is a marking and a reader of a saved report has to see it
+   * as one.
+   */
+  readonly foreignOrigin?: string | undefined;
   /** Literals only: a query value is printed in the report, so it cannot be a secret. */
   readonly query: Readonly<Record<string, string>>;
   /** The endpoints the conditions apply on. Never empty. */
@@ -185,6 +198,8 @@ export interface DeclaredContext {
   readonly id: string;
   readonly description?: string | undefined;
   readonly headers?: Readonly<Record<string, ContextAttributeValue>> | undefined;
+  /** Marks `headers.origin` as an origin the platform must not trust. ADR-0078. */
+  readonly originIsForeign?: boolean | undefined;
   /** A literal: the schema admits no `{ env: … }` here, and the report prints it. */
   readonly query?: Readonly<Record<string, string>> | undefined;
   readonly endpoints: readonly string[];

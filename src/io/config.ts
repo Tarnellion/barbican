@@ -32,6 +32,7 @@ export {
 export {
   AmbiguousContextRowError,
   DuplicateContextIdError,
+  ForeignOriginError,
   toAccounts,
   UnknownContextAccountError,
   UnknownContextReferenceError,

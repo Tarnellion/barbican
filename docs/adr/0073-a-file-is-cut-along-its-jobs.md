@@ -117,8 +117,7 @@ argument for nothing.
 - The report layer keeps four files over 800 lines, and this document is the
   answer to "why has nobody cut these".
 - Line count stops being evidence on its own in this repository. The number that
-  decides is how many jobs a file holds; `shape.ts` at 1 128 lines and 234 of
-  code is the example to reach for.
+  decides is how many jobs a file holds; `shape.ts`, 1 128 lines at `99958e7` of which 234 were code, is the example to reach for.
 - The `compare.ts` render seam is written down as *not taken*, with the condition
   that would take it: something written twice across it.
 - Two things were changed in the same round, both measured, neither a cut: the

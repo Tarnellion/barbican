@@ -248,7 +248,16 @@ export async function run(flags: RunFlags): Promise<number> {
   // about it is a preview that hides the mistake it exists to surface.
   const registry = new CheckRegistry();
   registry.register(createIdenticalResponseCheck());
-  registry.register(createCorsCheck());
+  // The origins an operator declared foreign, by the context that sends each
+  // (ADR-0078). Taken from the parsed contexts, where the marker has already been
+  // checked against the header it marks — the check never re-reads a header to
+  // learn which origin was called foreign.
+  const foreignOrigins = new Map(
+    config.contexts.flatMap((context) =>
+      context.foreignOrigin === undefined ? [] : [[context.id, context.foreignOrigin] as const],
+    ),
+  );
+  registry.register(createCorsCheck({ foreignOrigins }));
   const selected = registry.select(flags.checks);
 
   // Built here rather than beside the client: the preview needs the limits that

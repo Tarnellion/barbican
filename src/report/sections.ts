@@ -181,12 +181,17 @@ export function reportedAccount(account: ConfiguredAccountRow, config: RunConfig
  * go missing here in silence.
  */
 export function reportedContext(context: RequestContextConfig): ReportedContext {
-  const { id, description, headers, query, endpointIds, accountIds, ...unnamed } = context;
+  const { id, description, headers, foreignOrigin, query, endpointIds, accountIds, ...unnamed } =
+    context;
   nothingLeftUnnamed(unnamed);
   return {
     id,
     ...(description === undefined ? {} : { description }),
     headers,
+    // The marking, restated: `headers.origin` says what was sent and this says it
+    // was declared foreign, and a saved report is read by somebody who never saw
+    // the declaration. ADR-0078.
+    ...(foreignOrigin === undefined ? {} : { foreignOrigin }),
     query,
     endpointIds,
     accountIds,

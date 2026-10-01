@@ -137,3 +137,15 @@ what it misses as much as by what it holds (ADR-0065):
 - **`Access-Control-Allow-Methods` and the preflight.** The check reads the
   simple-request response, not the `OPTIONS` preflight; a policy permissive only
   on a non-simple method is not seen.
+
+## Addendum: reflection, closed under a declaration (ADR-0078)
+
+The first limit above, reflection of an arbitrary origin, is no longer wholly out of
+reach. [ADR-0078](0078-an-origin-is-called-foreign-by-the-operator.md) adds a
+context field by which an operator declares the origin it sends to be one the
+platform must not trust, and the check then judges a platform that echoes it. What
+this record decided stands as written: the check still does not flag a specific
+origin that nobody declared foreign, for the reason given, and that case is still
+the largest gap. What changed is that the premise this record could not supply, which
+origin is not to be trusted, now has a place to be declared.
+

@@ -20,21 +20,30 @@
  *   script in one. Echoing `null` and allowing credentials hands the response to
  *   exactly those, so this one is exploitable from a browser as it stands.
  *
- * ## What this check deliberately does not claim
+ * ## Reflection, and why it needs a declaration
  *
  * **Reflection of an arbitrary origin** — the common and more dangerous case,
  * where the platform copies whatever `Origin` it was sent into
- * `Access-Control-Allow-Origin` and allows credentials — is **not** found here,
- * and cannot be from the matrix alone. A conclusive verdict needs the origin
- * that was sent, and in the core an observation carries the response but not the
- * request's `Origin`: that attribute lives in the adapters (ADR-0019), and the
- * core knows a request condition only by its `contextId` label. A specific
- * origin echoed back with credentials is indistinguishable here from a
- * legitimately allowlisted partner, so flagging it would be a guess, and this
- * tool does not guess about access (the false-positives risk in `plan.md`). The
- * two cases above need no sent origin: `*` and `null` are wrong whatever was
- * asked. Closing the reflection gap means carrying the sent origin into the
- * matrix, which is a decision of its own — see ADR-0076.
+ * `Access-Control-Allow-Origin` and allows credentials — cannot be found from the
+ * response alone, and this check does not pretend otherwise. A specific origin
+ * echoed back with credentials is indistinguishable from a legitimately
+ * allowlisted partner: both are one string in one header. Flagging it would be a
+ * guess, and this tool does not guess about access (the false-positives risk in
+ * `plan.md`).
+ *
+ * What settles it is a fact only a human has: **which origin the platform must not
+ * trust.** That is the same move as the expected-access policy (ADR-0006), made for
+ * a cross-origin policy — the expectation is declared and never derived. An
+ * operator marks a context's `origin` as foreign (`originIsForeign: true`, ADR-0078)
+ * and the run hands this check a map from that context to the origin it sent. For
+ * a cell under such a context, an `Access-Control-Allow-Origin` equal to the
+ * declared origin, with credentials, is a platform that trusts the one origin the
+ * operator said it must not. It is conclusive because the operator made it so; a
+ * partner's origin is simply not marked, and the platform's correct answer to it
+ * stays silent.
+ *
+ * The two shapes below need no declaration at all: `*` and `null` are wrong
+ * whatever was asked.
  *
  * ## Where the headers come from
  *
@@ -105,17 +114,28 @@ function allowsCredentials(headers: Readonly<Record<string, string>> | undefined
 }
 
 /** The dangerous shapes of `Access-Control-Allow-Origin`, with credentials on. */
-type OriginVerdict = "wildcard-with-credentials" | "null-with-credentials";
+type OriginVerdict =
+  | "wildcard-with-credentials"
+  | "null-with-credentials"
+  | "reflects-foreign-origin-with-credentials";
 
 /**
  * What, if anything, is wrong with one observation's CORS headers.
  *
  * `undefined` for every cell that is not conclusively broken: a missing header,
- * credentials off, or a specific origin — the last of which may be a reflection
- * and may be an allowlist, a difference this check cannot settle and so does not
- * report. See the module comment.
+ * credentials off, or a specific origin that nobody declared foreign — which may
+ * be a reflection and may be an allowlist, a difference this check cannot settle
+ * and so does not report. See the module comment.
+ *
+ * The order is the rule: `*` and `null` are settled before the declared origin is
+ * looked at, so a platform answering `*` under a foreign-origin context is one
+ * finding and not two, and a mistaken `foreignOrigins` entry of `*` cannot
+ * double-report.
  */
-function verdictOf(observation: AccessObservation): OriginVerdict | undefined {
+function verdictOf(
+  observation: AccessObservation,
+  foreignOrigin: string | undefined,
+): OriginVerdict | undefined {
   const origin = ownHeader(observation.headers, ALLOW_ORIGIN_HEADER)?.trim();
   if (origin === undefined || !allowsCredentials(observation.headers)) {
     return undefined;
@@ -125,6 +145,9 @@ function verdictOf(observation: AccessObservation): OriginVerdict | undefined {
   }
   if (origin === "null") {
     return "null-with-credentials";
+  }
+  if (foreignOrigin !== undefined && origin === foreignOrigin) {
+    return "reflects-foreign-origin-with-credentials";
   }
   return undefined;
 }
@@ -136,6 +159,9 @@ const TITLE: Readonly<Record<OriginVerdict, string>> = {
   "null-with-credentials":
     "Cross-origin sharing allows the null origin with credentials, which a " +
     "sandboxed document can present",
+  "reflects-foreign-origin-with-credentials":
+    "Cross-origin sharing allows an origin the operator declared foreign, with " +
+    "credentials, so it trusts the origin it was sent",
 };
 
 const SEVERITY: Readonly<Record<OriginVerdict, "medium" | "high">> = {
@@ -146,23 +172,60 @@ const SEVERITY: Readonly<Record<OriginVerdict, "medium" | "high">> = {
   // Reachable from a browser as it stands: any script can run in a null-origin
   // document.
   "null-with-credentials": "high",
+  // The case the two above stand in for: a page on any origin an attacker
+  // controls reads the authenticated response. Reachable as it stands.
+  "reflects-foreign-origin-with-credentials": "high",
 };
 
-export function createCorsCheck(): Check {
+export interface CorsCheckOptions {
+  /**
+   * The origin each context sends, for the contexts the operator declared
+   * foreign: context id to origin. ADR-0078.
+   *
+   * Handed in at registration, the way `identical-response-across-tenants` is
+   * handed its digest signal, and for the same reason: the core knows a request
+   * condition only as a `contextId` label and the attributes live in the adapters
+   * (ADR-0019), so what the condition **sent** has to arrive from the layer that
+   * knows it. The check does not parse an origin and does not judge whether one
+   * is well formed — the configuration refuses a malformed one at startup — and a
+   * consumer building this map by hand is trusted to hand over what their harness
+   * sent. An empty origin is ignored rather than matched: no header value is
+   * "the origin" of nothing.
+   *
+   * Absent or empty means no origin was declared foreign, and the check then
+   * reports only the two shapes that need no declaration.
+   */
+  readonly foreignOrigins?: ReadonlyMap<string, string>;
+}
+
+export function createCorsCheck(options: CorsCheckOptions = {}): Check {
+  // Copied, and emptied of what cannot be an origin: the check holds its own
+  // table, so a caller changing the map they passed after registration cannot
+  // change what a run that is already under way judges.
+  const foreignOrigins = new Map(
+    [...(options.foreignOrigins ?? new Map<string, string>())].filter(
+      ([, origin]) => origin !== "",
+    ),
+  );
+
+  /** The condition each account was walked under, `undefined` for the baseline. */
+  function contextsOf(context: CheckContext): ReadonlyMap<string, string | undefined> {
+    return new Map(context.matrix.accounts.map((account) => [account.id, account.contextId]));
+  }
+
   return {
     id: CORS_CHECK_ID,
     description:
       "Reads Access-Control-Allow-Origin and Access-Control-Allow-Credentials on " +
-      "the cells under a declared origin condition, and reports the two origins " +
-      "that are wrong with credentials whatever was asked: the wildcard and the " +
-      "null origin. Reflection of an arbitrary origin is out of its reach and " +
-      "out of its claim — see ADR-0076.",
+      "the cells under a declared origin condition, and reports the origins that " +
+      "are wrong with credentials: the wildcard and the null origin whatever was " +
+      "asked, and an origin the operator declared foreign (originIsForeign) that " +
+      "the platform trusts. A specific origin nobody declared foreign is not " +
+      "judged — see ADR-0076 and ADR-0078.",
     severity: "high",
     standards: [API_SECURITY_MISCONFIGURATION],
     run(context: CheckContext): readonly Finding[] {
-      const contextByAccount = new Map(
-        context.matrix.accounts.map((account) => [account.id, account.contextId]),
-      );
+      const contextByAccount = contextsOf(context);
       const findings: Finding[] = [];
       // One finding per endpoint × condition × shape: the CORS policy is a
       // property of the endpoint under one condition, not of the account that
@@ -179,11 +242,12 @@ export function createCorsCheck(): Check {
       // Map keys it on equal terms with a string, so no sentinel is invented.
       const seen = new Map<string, Map<string | undefined, Set<OriginVerdict>>>();
       for (const observation of context.matrix.observations) {
-        const verdict = verdictOf(observation);
+        const contextId = contextByAccount.get(observation.accountId);
+        const foreignOrigin = contextId === undefined ? undefined : foreignOrigins.get(contextId);
+        const verdict = verdictOf(observation, foreignOrigin);
         if (verdict === undefined) {
           continue;
         }
-        const contextId = contextByAccount.get(observation.accountId);
         const byContext = seen.get(observation.endpointId) ?? new Map();
         const verdicts = byContext.get(contextId) ?? new Set<OriginVerdict>();
         if (verdicts.has(verdict)) {
@@ -204,6 +268,9 @@ export function createCorsCheck(): Check {
             allowOrigin: origin,
             allowCredentials: true,
             status: observation.status,
+            ...(verdict === "reflects-foreign-origin-with-credentials"
+              ? { foreignOriginDeclared: true }
+              : {}),
           },
         });
       }
@@ -225,15 +292,43 @@ export function createCorsCheck(): Check {
       // declared, which is the difference between "asked and clean" and "never
       // asked" — the same distinction the isolation check's coverage exists to
       // keep, and the one an evidence pack needs.
-      const perEndpoint = new Map<string, { responses: number; credentialed: number }>();
+      //
+      // The reflection question has the same two readings and gets its own
+      // counter: `foreignOriginCellsAnswered` is how many cells under a context
+      // declared foreign got an answer at all, a probe that failed excluded. An
+      // endpoint with that counter above zero and no finding was **asked** whether
+      // it trusts the declared origin and said it does not — which an endpoint
+      // with no such counter was never asked. It is absent when no origin was
+      // declared foreign, as `skippedDifferentContextPairs` is absent when no
+      // conditions are declared: a zero there would claim a question was put.
+      const contextByAccount = contextsOf(context);
+      const perEndpoint = new Map<
+        string,
+        { responses: number; credentialed: number; foreignAnswered: number }
+      >();
       for (const observation of context.matrix.observations) {
-        if (ownHeader(observation.headers, ALLOW_ORIGIN_HEADER) === undefined) {
+        const contextId = contextByAccount.get(observation.accountId);
+        const askedForeign =
+          contextId !== undefined &&
+          foreignOrigins.has(contextId) &&
+          observation.outcome !== "error";
+        const sawCors = ownHeader(observation.headers, ALLOW_ORIGIN_HEADER) !== undefined;
+        if (!sawCors && !askedForeign) {
           continue;
         }
-        const tally = perEndpoint.get(observation.endpointId) ?? { responses: 0, credentialed: 0 };
-        tally.responses += 1;
-        if (allowsCredentials(observation.headers)) {
-          tally.credentialed += 1;
+        const tally = perEndpoint.get(observation.endpointId) ?? {
+          responses: 0,
+          credentialed: 0,
+          foreignAnswered: 0,
+        };
+        if (sawCors) {
+          tally.responses += 1;
+          if (allowsCredentials(observation.headers)) {
+            tally.credentialed += 1;
+          }
+        }
+        if (askedForeign) {
+          tally.foreignAnswered += 1;
         }
         perEndpoint.set(observation.endpointId, tally);
       }
@@ -245,6 +340,9 @@ export function createCorsCheck(): Check {
           counters: {
             corsResponsesSeen: tally.responses,
             corsResponsesAllowingCredentials: tally.credentialed,
+            ...(foreignOrigins.size === 0
+              ? {}
+              : { foreignOriginCellsAnswered: tally.foreignAnswered }),
           },
         }));
     },

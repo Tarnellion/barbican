@@ -454,6 +454,25 @@ const configSchema = z.strictObject({
         description: z.string().min(1).optional(),
         headers: z.record(z.string().min(1), contextValueSchema).optional(),
         /**
+         * Declares that the `origin` header of this context is an origin the
+         * platform must **not** trust with credentials. ADR-0078.
+         *
+         * The expectation is declared by a human and never derived (ADR-0006): the
+         * same move as `outcome: denied` on a rule, made for a cross-origin policy.
+         * It is what lets `permissive-cors` judge a platform that echoes the origin
+         * it was sent — from the response alone an echoed origin cannot be told
+         * from a partner the platform legitimately trusts, and with this field it
+         * can, because the operator said which one this is.
+         *
+         * A marker and not a second place to write the origin: the value sent is
+         * still `headers.origin`, so what went over the wire and what was called
+         * foreign cannot be two different strings. Refused at startup unless that
+         * header is there, is a literal, and is an origin as a browser writes it.
+         * A partner's origin is **not** foreign: marking it makes the platform's
+         * correct answer a finding.
+         */
+        originIsForeign: z.boolean().optional(),
+        /**
          * A literal only — `{ env: NAME }` is not accepted here, and the type is
          * what refuses it rather than a check somewhere later.
          *

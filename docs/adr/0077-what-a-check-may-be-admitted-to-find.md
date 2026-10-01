@@ -52,6 +52,10 @@ tool.
    report one. The reflected origin in ADR-0076 is the worked example: the case
    is real and out of reach, so the check stays silent about it and says why,
    rather than reporting what it cannot tell from a partner's allowlist.
+   [ADR-0078](0078-an-origin-is-called-foreign-by-the-operator.md) is the other way to
+   meet this condition for the same case: the verdict is conclusive once a human has
+   declared the premise, which is what the expected-access policy already does for
+   access.
 
 Findings of an admitted check cite a clause, are counted in coverage the way the
 isolation check's are, and are weighed by a severity the check declares once.

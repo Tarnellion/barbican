@@ -1188,10 +1188,16 @@ That is the reason to leave the flag off unless you have one.
 
 `permissive-cors` reads two response headers, `Access-Control-Allow-Origin` and
 `Access-Control-Allow-Credentials`, and reports an endpoint that allows
-credentials to **any** origin (`*`) or to the **null** origin. Both are wrong
-whatever origin the request named: a browser refuses the first, and the second
-is what a sandboxed document sends, which any attacker can arrange
-([ADR-0076](adr/0076-a-permissive-cross-origin-policy-is-a-registered-check.md)).
+credentials to an origin it should not. It finds three shapes, and the third needs
+something from you
+([ADR-0076](adr/0076-a-permissive-cross-origin-policy-is-a-registered-check.md),
+[ADR-0078](adr/0078-an-origin-is-called-foreign-by-the-operator.md)):
+
+| the platform allows, with credentials | severity | needs a declaration |
+|---|---|---|
+| any origin (`*`), which a browser refuses but which shows a CORS layer not reasoning about credentials | medium | no |
+| the `null` origin, which a sandboxed document sends and any attacker can arrange | high | no |
+| the origin **you declared foreign**, so it trusts whatever origin it is sent | high | yes |
 
 **It reads nothing until you ask the question.** A server sends those headers only
 in answer to a request that carried an `Origin`, and this tool never sends one on
@@ -1218,19 +1224,62 @@ at all, and the run refuses to start without one for the reason the conditions
 section gives. What the check then finds is a **header**, not a refusal, so the
 rule's outcome is about access and does not say the policy is acceptable.
 
-Three things to know before reading the result.
+### Saying which origin must not be trusted
+
+A platform that echoes the origin it was sent looks, from the response alone,
+exactly like one that trusts that origin on purpose, so the tool cannot call it a
+defect on its own. You can: only you know which origins the platform is meant to
+trust. Mark the origin a context sends as foreign:
+
+```yaml
+contexts:
+  - id: foreign-origin
+    description: a request from a page the platform has no reason to trust
+    headers: { origin: "https://attacker.example" }
+    originIsForeign: true
+    endpoints: [orders.list, orders.read]
+```
+
+The platform answering that request with `Access-Control-Allow-Origin:
+https://attacker.example` and `Access-Control-Allow-Credentials: true` is then a
+high finding. The marker is a statement that the platform **must not** trust that
+origin, in the same way a rule that says a role is denied is a statement about
+access, and it is yours to get right:
+
+- **An origin the platform is meant to trust is not foreign.** Marking a partner's
+  origin turns the platform's correct answer into a finding.
+- **The origin has to be written the way a browser sends it**: a scheme, a
+  lower-case host, a port only when it is not the default, and nothing after it. A
+  trailing slash, an upper-case host, `:443` on `https` or a path is refused at
+  startup, because the check compares the string byte for byte with what the
+  platform echoed. `null` is refused too, since an echo of it is reported without
+  any declaration.
+- **It has to be written in the file.** An origin that comes from the environment
+  (`{ env: NAME }`) is refused, because the report prints which origin was called
+  foreign and a value that lives only in a variable cannot be printed.
+- **One declared origin is one question.** A platform that trusts a pattern your
+  origin does not match is not found by it. Declare a second foreign origin to ask
+  a second question.
+
+### Reading the result
 
 - **No origin condition, no finding, and that is not "clean".** The check is listed
   in `coverage.checksRun` whether or not it saw anything. Its coverage per
   endpoint counts the responses that carried a CORS header, and it is empty where
   none did, which is how a run that never asked reads differently from one that
   asked and was answered correctly.
-- **A platform that echoes the origin you sent is not reported.** That is the common
-  and more dangerous case, and it is out of reach on purpose: the response alone
-  cannot tell a reflection from a partner the platform legitimately trusts, and a
-  finding that guessed would be a false positive. Declaring a second condition
-  with an origin that is plainly foreign and comparing the two cells is the manual
-  way to answer it today.
+- **No finding under a foreign origin is a result only if the question was asked.**
+  `foreignOriginCellsAnswered` in the check's coverage says how many cells under a
+  context you marked foreign got an answer. Above zero with no finding means the
+  platform was asked whether it trusts that origin and said it does not. The counter
+  is absent when you marked none.
+- **A platform that echoes an origin you did not mark is still not reported.** The
+  response cannot tell that from a partner you forgot to mention, and a finding that
+  guessed would be a false positive.
+- **A refused request can carry the headers too.** The check reads every response
+  that carried them, and a CORS layer that decorates a 401 is a true finding about
+  that response. It states the `status`, so you can tell it from one on a response
+  that returned data.
 - **A preflight is not sent.** The check reads the answer to the request itself,
   so a policy that is permissive only on a method that triggers a preflight is
   not seen.

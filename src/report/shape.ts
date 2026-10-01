@@ -603,6 +603,12 @@ export interface ReportedContext {
   readonly description?: string;
   /** The declared form: a string or `{ env: NAME }`. No environment values here. */
   readonly headers: Readonly<Record<string, ContextAttributeValue>>;
+  /**
+   * The origin these conditions sent, **declared foreign** by the operator — one
+   * the platform must not trust with credentials (ADR-0078). Absent unless the
+   * declaration said so, and then the same string as `headers.origin`.
+   */
+  readonly foreignOrigin?: string;
   readonly query: Readonly<Record<string, ContextAttributeValue>>;
   readonly endpointIds: readonly string[];
   /** The accounts they applied to. Empty means all of them. */

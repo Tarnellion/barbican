@@ -311,3 +311,310 @@ describe("the clause the check cites", () => {
     }
   });
 });
+
+/**
+ * Reflection, judged against an origin the operator declared foreign (ADR-0078).
+ *
+ * The case ADR-0076 left out because an echoed origin cannot be told from an
+ * allowlisted partner. What settles it is a fact only a human has — which origin
+ * the platform must not trust — so the check is handed a map from a context to the
+ * origin it sent, and a cell under such a context that comes back trusting that
+ * very origin, with credentials, is a finding. The boundary of the claim is in the
+ * cases that stay silent.
+ */
+describe("a reflected origin the operator declared foreign", () => {
+  const FOREIGN = "https://attacker.example";
+  const foreign = createCorsCheck({ foreignOrigins: new Map([["foreign", FOREIGN]]) });
+
+  const accounts: readonly Partial<Account>[] = [
+    { id: "alice", roleId: "user" },
+    { id: "alice@foreign", roleId: "user", contextId: "foreign", baseAccountId: "alice" },
+    { id: "alice@partner", roleId: "user", contextId: "partner", baseAccountId: "alice" },
+  ];
+
+  const echoing = (origin: string, credentials = "true") => ({
+    "access-control-allow-origin": origin,
+    "access-control-allow-credentials": credentials,
+  });
+
+  it("flags the declared origin when the platform allows it with credentials", () => {
+    const findings = foreign.run(
+      contextOf([observation({ accountId: "alice@foreign", headers: echoing(FOREIGN) })], accounts),
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      checkId: CORS_CHECK_ID,
+      severity: "high",
+      endpointId: "list-orders",
+      accountId: "alice@foreign",
+      contextId: "foreign",
+      evidence: {
+        allowOrigin: FOREIGN,
+        allowCredentials: true,
+        status: 200,
+        foreignOriginDeclared: true,
+      },
+    });
+    expect(findings[0]?.title).toContain("declared foreign");
+  });
+
+  it("is silent about the same origin when nobody declared it foreign", () => {
+    // The boundary of ADR-0076, unchanged: an echoed origin is evidence of
+    // nothing until a human says which origins are not to be trusted.
+    const findings = check.run(
+      contextOf([observation({ accountId: "alice@foreign", headers: echoing(FOREIGN) })], accounts),
+    );
+
+    expect(findings).toEqual([]);
+  });
+
+  it("is silent when the platform allows a different origin than the declared one", () => {
+    // An allowlist: it was sent the foreign origin and answered with its own.
+    const findings = foreign.run(
+      contextOf(
+        [
+          observation({
+            accountId: "alice@foreign",
+            headers: echoing("https://app.example.com"),
+          }),
+        ],
+        accounts,
+      ),
+    );
+
+    expect(findings).toEqual([]);
+  });
+
+  it("is silent without credentials, however permissive the origin", () => {
+    const findings = foreign.run(
+      contextOf(
+        [observation({ accountId: "alice@foreign", headers: echoing(FOREIGN, "false") })],
+        accounts,
+      ),
+    );
+
+    expect(findings).toEqual([]);
+  });
+
+  it("judges only the cells under the context that sent the declared origin", () => {
+    // The same string echoed under another context, or in the baseline, belongs
+    // to a different question: nobody said that origin is foreign there.
+    const findings = foreign.run(
+      contextOf(
+        [
+          observation({ accountId: "alice", headers: echoing(FOREIGN) }),
+          observation({ accountId: "alice@partner", headers: echoing(FOREIGN) }),
+        ],
+        accounts,
+      ),
+    );
+
+    expect(findings).toEqual([]);
+  });
+
+  it("reports a wildcard under a foreign context once, as the wildcard", () => {
+    const findings = foreign.run(
+      contextOf([observation({ accountId: "alice@foreign", headers: echoing("*") })], accounts),
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.severity).toBe("medium");
+    expect(findings[0]?.evidence).not.toHaveProperty("foreignOriginDeclared");
+  });
+
+  it("is not made to report twice by a declared origin of * or null", () => {
+    // The configuration refuses both as origins. A consumer building the map by
+    // hand can still hand them over, and the order of the verdicts is what keeps
+    // one answer from becoming two findings.
+    for (const word of ["*", "null"]) {
+      const odd = createCorsCheck({ foreignOrigins: new Map([["foreign", word]]) });
+
+      const findings = odd.run(
+        contextOf([observation({ accountId: "alice@foreign", headers: echoing(word) })], accounts),
+      );
+
+      expect(findings, word).toHaveLength(1);
+      expect(findings[0]?.evidence, word).not.toHaveProperty("foreignOriginDeclared");
+    }
+  });
+
+  it("ignores an empty origin rather than matching a header that says nothing", () => {
+    const empty = createCorsCheck({ foreignOrigins: new Map([["foreign", ""]]) });
+
+    const findings = empty.run(
+      contextOf([observation({ accountId: "alice@foreign", headers: echoing("") })], accounts),
+    );
+
+    expect(findings).toEqual([]);
+  });
+
+  it("holds its own copy of the map it was given", () => {
+    const given = new Map([["foreign", FOREIGN]]);
+    const copied = createCorsCheck({ foreignOrigins: given });
+    given.clear();
+
+    const findings = copied.run(
+      contextOf([observation({ accountId: "alice@foreign", headers: echoing(FOREIGN) })], accounts),
+    );
+
+    expect(findings).toHaveLength(1);
+  });
+
+  it("makes one finding per endpoint and context, the verdict being a property of both", () => {
+    const two = createCorsCheck({
+      foreignOrigins: new Map([
+        ["foreign", FOREIGN],
+        ["partner", "https://other.example"],
+      ]),
+    });
+
+    const findings = two.run(
+      contextOf(
+        [
+          observation({ accountId: "alice@foreign", headers: echoing(FOREIGN) }),
+          observation({ accountId: "alice@partner", headers: echoing("https://other.example") }),
+        ],
+        accounts,
+      ),
+    );
+
+    expect(findings.map((finding) => finding.contextId).sort()).toEqual(["foreign", "partner"]);
+  });
+});
+
+describe("the coverage of the reflection question", () => {
+  const FOREIGN = "https://attacker.example";
+  const foreign = createCorsCheck({ foreignOrigins: new Map([["foreign", FOREIGN]]) });
+  const accounts: readonly Partial<Account>[] = [
+    { id: "alice", roleId: "user" },
+    { id: "alice@foreign", roleId: "user", contextId: "foreign", baseAccountId: "alice" },
+  ];
+
+  it("says an endpoint was asked and answered with no CORS header at all", () => {
+    // Asked and clean has to be distinguishable from never asked, and here there
+    // is no header on the response to count — the platform simply did not answer
+    // the cross-origin question with a policy.
+    const coverage = foreign.coverage?.(
+      contextOf([observation({ accountId: "alice@foreign" })], accounts),
+    );
+
+    expect(coverage).toEqual([
+      {
+        checkId: CORS_CHECK_ID,
+        endpointId: "list-orders",
+        counters: {
+          corsResponsesSeen: 0,
+          corsResponsesAllowingCredentials: 0,
+          foreignOriginCellsAnswered: 1,
+        },
+      },
+    ]);
+  });
+
+  it("does not count a cell whose probe failed", () => {
+    const coverage = foreign.coverage?.(
+      contextOf(
+        [observation({ accountId: "alice@foreign", status: 0, outcome: "error" })],
+        accounts,
+      ),
+    );
+
+    expect(coverage).toEqual([]);
+  });
+
+  it("counts only the cells under a context declared foreign", () => {
+    const coverage = foreign.coverage?.(
+      contextOf(
+        [
+          observation({ accountId: "alice" }),
+          observation({ accountId: "alice@foreign" }),
+          observation({ accountId: "alice@foreign", endpointId: "other" }),
+        ],
+        accounts,
+      ),
+    );
+
+    expect(
+      coverage?.map((row) => [row.endpointId, row.counters.foreignOriginCellsAnswered]),
+    ).toEqual([
+      ["list-orders", 1],
+      ["other", 1],
+    ]);
+  });
+
+  it("leaves the counter out when no origin was declared foreign", () => {
+    // A zero would claim the question was put. `skippedDifferentContextPairs` of
+    // the isolation check is absent for the same reason.
+    const coverage = check.coverage?.(
+      contextOf(
+        [
+          observation({
+            headers: {
+              "access-control-allow-origin": "https://app.example.com",
+              "access-control-allow-credentials": "true",
+            },
+          }),
+        ],
+        accounts,
+      ),
+    );
+
+    expect(coverage?.[0]?.counters).toEqual({
+      corsResponsesSeen: 1,
+      corsResponsesAllowingCredentials: 1,
+    });
+  });
+});
+
+/**
+ * The two limits ADR-0078 records for the reflection verdict, pinned by running
+ * them rather than by describing them.
+ */
+describe("what the reflection verdict does not do, measured", () => {
+  const FOREIGN = "https://attacker.example";
+  const foreign = createCorsCheck({ foreignOrigins: new Map([["foreign", FOREIGN]]) });
+  const accounts: readonly Partial<Account>[] = [
+    { id: "alice@foreign", roleId: "user", contextId: "foreign", baseAccountId: "alice" },
+  ];
+  const headers = (origin: string) => ({
+    "access-control-allow-origin": origin,
+    "access-control-allow-credentials": "true",
+  });
+
+  it("reads a response whatever its status, and carries the status for the reader", () => {
+    // A CORS layer that is global middleware decorates a refusal as well. The
+    // finding is true of that response and weaker about the data, which is why
+    // `status` is in its evidence.
+    const findings = foreign.run(
+      contextOf(
+        [
+          observation({
+            accountId: "alice@foreign",
+            status: 401,
+            outcome: "denied",
+            headers: headers(FOREIGN),
+          }),
+        ],
+        accounts,
+      ),
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.evidence.status).toBe(401);
+  });
+
+  it("matches the declared origin as written, and does not fold case", () => {
+    // The declared origin is canonical and a platform echoes what it received, so
+    // a browser's request cannot produce this. A platform that re-cased what it
+    // echoed would be missed, and that is accepted rather than guessed at.
+    const findings = foreign.run(
+      contextOf(
+        [observation({ accountId: "alice@foreign", headers: headers("https://Attacker.example") })],
+        accounts,
+      ),
+    );
+
+    expect(findings).toEqual([]);
+  });
+});

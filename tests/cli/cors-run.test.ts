@@ -2,8 +2,8 @@
  * `permissive-cors` through the whole command, as an operator meets it.
  *
  * `tests/core/check-cors.test.ts` proves the check on hand-written observations.
- * What it cannot prove is the chain around it, and ADR-0076 rests on three links
- * of that chain that were read in the source and not run:
+ * What it cannot prove is the chain around it, and ADR-0076 and ADR-0078 rest on
+ * links of that chain that were read in the source and not run:
  *
  * - **A condition may declare `origin`.** The refusal lists in `basis.ts` name
  *   credentials, transport and routing headers; `origin` is in none of them. A
@@ -15,6 +15,10 @@
  * - **The finding carries the condition.** `Finding.contextId` is what keeps the
  *   same wildcard under two declared origins apart, and it comes from the
  *   account the cell was walked as.
+ * - **`originIsForeign` reaches the check.** The marker is parsed, resolved to the
+ *   origin the context sends, handed to the check at registration, and restated
+ *   in the report. Any one of those four steps dropped leaves a run that exits 0
+ *   on a platform that trusts the origin the operator said it must not.
  *
  * The stand behaves as a real server does: CORS headers only in answer to a
  * request that carried an `Origin`. A stand that sent them unasked would make the
@@ -32,8 +36,20 @@ import { run } from "../../src/cli/run.js";
 
 const TOKEN = "cors-run-token-alice";
 
-/** What the stand answers to a request that carries an `Origin`. */
-type Behaviour = "null-with-credentials" | "wildcard-with-credentials" | "specific" | "none";
+/**
+ * What the stand answers to a request that carries an `Origin`.
+ *
+ * `reflect` copies the origin it was sent, which is the defect ADR-0078 exists to
+ * judge; `allowlist` answers with one origin of its own whatever it was sent,
+ * which is the platform behaving correctly and looking, from the response alone,
+ * exactly like a reflection of that one origin.
+ */
+type Behaviour =
+  | "null-with-credentials"
+  | "wildcard-with-credentials"
+  | "allowlist"
+  | "reflect"
+  | "none";
 
 let server: Server;
 let port: number;
@@ -51,15 +67,18 @@ beforeAll(async () => {
     // Only in answer to an Origin, as a real server does. Nothing is sent
     // unasked, so a run with no origin condition has nothing to read.
     if (origin !== undefined) {
+      const allow = (value: string) => {
+        response.setHeader("access-control-allow-origin", value);
+        response.setHeader("access-control-allow-credentials", "true");
+      };
       if (behaviour === "null-with-credentials") {
-        response.setHeader("access-control-allow-origin", "null");
-        response.setHeader("access-control-allow-credentials", "true");
+        allow("null");
       } else if (behaviour === "wildcard-with-credentials") {
-        response.setHeader("access-control-allow-origin", "*");
-        response.setHeader("access-control-allow-credentials", "true");
-      } else if (behaviour === "specific") {
-        response.setHeader("access-control-allow-origin", "https://app.example.com");
-        response.setHeader("access-control-allow-credentials", "true");
+        allow("*");
+      } else if (behaviour === "allowlist") {
+        allow("https://app.example.com");
+      } else if (behaviour === "reflect") {
+        allow(origin);
       }
     }
     response.writeHead(200).end();
@@ -101,20 +120,54 @@ endpoints:
     path: /v1/me
 `;
 
+/** A set of request conditions that sends an `Origin`. */
+interface OriginCondition {
+  readonly id: string;
+  readonly description: string;
+  /** The header exactly as the declaration writes it, quotes included. */
+  readonly origin: string;
+  /** Extra lines of the declaration, for `originIsForeign` and for refusals. */
+  readonly extra?: string;
+}
+
+/** What a sandboxed document sends. Wrong with credentials whatever was asked. */
+const SANDBOXED: OriginCondition = {
+  id: "sandboxed",
+  description: "a request from a sandboxed document, which sends the null origin",
+  origin: '"null"',
+};
+
+/** An origin the operator says the platform must never trust with credentials. */
+const FOREIGN: OriginCondition = {
+  id: "foreign-origin",
+  description: "a request from a page the platform has no reason to trust",
+  origin: '"https://attacker.example"',
+  extra: "    originIsForeign: true\n",
+};
+
+/** The same sort of origin, not marked: a partner, as far as the platform's owner says. */
+const PARTNER: OriginCondition = {
+  id: "partner-origin",
+  description: "a request from an origin nobody declared foreign",
+  origin: '"https://partner.example"',
+};
+
 /** The declaration, with or without the condition that asks the question. */
-function configText(withOriginCondition: boolean): string {
-  const contexts = withOriginCondition
-    ? `
+function configText(condition?: OriginCondition): string {
+  const contexts =
+    condition === undefined
+      ? ""
+      : `
 contexts:
-  - id: sandboxed
-    description: a request from a sandboxed document, which sends the null origin
-    headers: { origin: "null" }
-    endpoints: [me]
-`
-    : "";
-  const contextRule = withOriginCondition
-    ? "    - { roles: [user], endpoints: [me], context: sandboxed, outcome: allowed }\n"
-    : "";
+  - id: ${condition.id}
+    description: ${condition.description}
+    headers: { origin: ${condition.origin} }
+${condition.extra ?? ""}    endpoints: [me]
+`;
+  const contextRule =
+    condition === undefined
+      ? ""
+      : `    - { roles: [user], endpoints: [me], context: ${condition.id}, outcome: allowed }\n`;
   return `
 target:
   label: cors run test stand
@@ -140,7 +193,18 @@ interface WrittenReport {
   }[];
   readonly coverage: {
     readonly checksRun: readonly { readonly id: string }[];
-    readonly byCheck?: readonly { readonly checkId: string }[];
+    readonly byCheck: readonly {
+      readonly checkId: string;
+      readonly endpointId?: string;
+      readonly counters: Readonly<Record<string, number>>;
+    }[];
+  };
+  readonly inputs: {
+    readonly contexts: readonly {
+      readonly id: string;
+      readonly foreignOrigin?: string;
+      readonly headers: Readonly<Record<string, unknown>>;
+    }[];
   };
   readonly observations?: readonly {
     readonly accountId: string;
@@ -148,28 +212,36 @@ interface WrittenReport {
   }[];
 }
 
-async function runIt(withOriginCondition: boolean): Promise<{
+function flagsFor(config: string, endpoints: string, report: string): RunFlags {
+  return { config, endpoints, report, identify: true };
+}
+
+async function runIt(condition?: OriginCondition): Promise<{
   readonly code: number;
   readonly report: WrittenReport;
 }> {
   const config = join(directory, "barbican.run.yaml");
   const endpoints = join(directory, "endpoints.yaml");
   const reportPath = join(directory, "run.json");
-  await writeFile(config, configText(withOriginCondition), "utf8");
+  await writeFile(config, configText(condition), "utf8");
   await writeFile(endpoints, ENDPOINTS, "utf8");
-  const flags: RunFlags = { config, endpoints, report: reportPath, identify: true };
-  const code = await run(flags);
+  const code = await run(flagsFor(config, endpoints, reportPath));
   return { code, report: JSON.parse(await readFile(reportPath, "utf8")) as WrittenReport };
 }
 
 const corsFindings = (report: WrittenReport) =>
   report.findings.filter((finding) => finding.kind === "permissive-cors");
 
+const corsCoverage = (report: WrittenReport, endpointId: string) =>
+  report.coverage.byCheck.find(
+    (row) => row.checkId === "permissive-cors" && row.endpointId === endpointId,
+  );
+
 describe("permissive-cors, through the command", () => {
   it("finds the null origin with credentials under a declared origin condition", async () => {
     behaviour = "null-with-credentials";
 
-    const { code, report } = await runIt(true);
+    const { code, report } = await runIt(SANDBOXED);
 
     const found = corsFindings(report);
     expect(found).toHaveLength(1);
@@ -187,7 +259,7 @@ describe("permissive-cors, through the command", () => {
   it("finds the wildcard with credentials, and weighs it lighter", async () => {
     behaviour = "wildcard-with-credentials";
 
-    const { report } = await runIt(true);
+    const { report } = await runIt(SANDBOXED);
 
     expect(corsFindings(report)).toHaveLength(1);
     expect(corsFindings(report)[0]?.severity).toBe("medium");
@@ -199,17 +271,17 @@ describe("permissive-cors, through the command", () => {
     // the check must still be in the report as having run.
     behaviour = "null-with-credentials";
 
-    const { code, report } = await runIt(false);
+    const { code, report } = await runIt();
 
     expect(corsFindings(report)).toEqual([]);
     expect(report.coverage.checksRun.map((check) => check.id)).toContain("permissive-cors");
     expect(code).toBe(0);
   });
 
-  it("finds nothing on a platform that echoes a specific origin, which it cannot judge", async () => {
-    behaviour = "specific";
+  it("finds nothing on a platform that allows one origin of its own, which it cannot judge", async () => {
+    behaviour = "allowlist";
 
-    const { report } = await runIt(true);
+    const { report } = await runIt(PARTNER);
 
     expect(corsFindings(report)).toEqual([]);
   });
@@ -220,10 +292,98 @@ describe("permissive-cors, through the command", () => {
     // above would stop finding, which is the false clean this guards.
     behaviour = "null-with-credentials";
 
-    const { report } = await runIt(true);
+    const { report } = await runIt(SANDBOXED);
 
     const underCondition = report.observations?.find((one) => one.accountId.includes("sandboxed"));
     expect(underCondition?.headers?.["access-control-allow-origin"]).toBe("null");
     expect(underCondition?.headers?.["access-control-allow-credentials"]).toBe("true");
+  });
+});
+
+describe("a reflected origin, through the command (ADR-0078)", () => {
+  it("finds a platform that reflects the origin the operator declared foreign", async () => {
+    behaviour = "reflect";
+
+    const { code, report } = await runIt(FOREIGN);
+
+    const found = corsFindings(report);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({
+      severity: "high",
+      endpointId: "me",
+      contextId: "foreign-origin",
+      evidence: {
+        allowOrigin: "https://attacker.example",
+        allowCredentials: true,
+        foreignOriginDeclared: true,
+      },
+    });
+    expect(code).toBe(1);
+  });
+
+  it("is silent about the very same reflection when the origin was not declared foreign", async () => {
+    // The boundary the field exists to draw. The platform echoes the origin and a
+    // partner's origin looks identical, so without the marking there is nothing
+    // to conclude, and the run must not conclude it.
+    behaviour = "reflect";
+
+    const { code, report } = await runIt(PARTNER);
+
+    expect(corsFindings(report)).toEqual([]);
+    expect(code).toBe(0);
+  });
+
+  it("says the question was asked when the platform answers it correctly", async () => {
+    // An allowlist that does not trust the declared origin: no finding, and the
+    // coverage is what tells this apart from a run that never asked.
+    behaviour = "allowlist";
+
+    const { code, report } = await runIt(FOREIGN);
+
+    expect(corsFindings(report)).toEqual([]);
+    expect(corsCoverage(report, "me")?.counters).toMatchObject({
+      corsResponsesSeen: 1,
+      corsResponsesAllowingCredentials: 1,
+      foreignOriginCellsAnswered: 1,
+    });
+    expect(code).toBe(0);
+  });
+
+  it("leaves the counter out of a run that declared no foreign origin", async () => {
+    behaviour = "allowlist";
+
+    const { report } = await runIt(PARTNER);
+
+    expect(corsCoverage(report, "me")?.counters).not.toHaveProperty("foreignOriginCellsAnswered");
+  });
+
+  it("restates the marking in the report, beside the header that was sent", async () => {
+    behaviour = "allowlist";
+
+    const { report } = await runIt(FOREIGN);
+
+    const declared = report.inputs.contexts.find((one) => one.id === "foreign-origin");
+    expect(declared?.foreignOrigin).toBe("https://attacker.example");
+    expect(declared?.headers.origin).toBe("https://attacker.example");
+  });
+
+  it("refuses a marking with nothing to mark before the first request", async () => {
+    const config = join(directory, "barbican.run.yaml");
+    const endpoints = join(directory, "endpoints.yaml");
+    await writeFile(
+      config,
+      configText({
+        id: "foreign-origin",
+        description: "marked, but sends no origin of its own",
+        origin: '"https://attacker.example/"',
+        extra: "    originIsForeign: true\n",
+      }),
+      "utf8",
+    );
+    await writeFile(endpoints, ENDPOINTS, "utf8");
+
+    await expect(run(flagsFor(config, endpoints, join(directory, "run.json")))).rejects.toThrow(
+      /says originIsForeign: true/,
+    );
   });
 });

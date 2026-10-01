@@ -1265,7 +1265,7 @@ margin, black on white — are **declared and not measured**: no browser runs in
 this repository's suite, and the test asserts that the properties are in the
 document rather than that an engine honoured them.
 
-The package exports 245 names, counted on the tree this section describes:
+The package exports 247 names, counted on the tree this section describes:
 `renderPack` and `UnrenderableClaimError` beside
 the six above. The second is the renderer's one decision — a claim outside the
 vocabulary is refused rather than printed as a bare word.
@@ -1308,19 +1308,28 @@ note of 24 August 2026 on
 On `main`, not on npm. `0.7.0` is what `npm install barbican` gives you.
 
 **A second check reads a response header the status code cannot show: a
-permissive cross-origin policy** ([ADR-0076](docs/adr/0076-a-permissive-cross-origin-policy-is-a-registered-check.md)).
+permissive cross-origin policy** ([ADR-0076](docs/adr/0076-a-permissive-cross-origin-policy-is-a-registered-check.md),
+[ADR-0078](docs/adr/0078-an-origin-is-called-foreign-by-the-operator.md)).
 `permissive-cors` reports an endpoint that answers a cross-origin request with
-`Access-Control-Allow-Credentials: true` and an `Access-Control-Allow-Origin` of
-`*` or `null` — the two origins that are wrong with credentials whatever origin
-was asked. Reflection of an arbitrary origin, the more dangerous case, is out of
-its reach and out of its claim: the matrix carries the response but not the
-request's `Origin`, so an echoed origin cannot be told from an allowlisted one
-without guessing, and this tool does not guess about access. It cites OWASP
-API8:2023, the one entry the catalogue now reaches without judging who access
-was granted to, and it is the first check to carry a clause the matrix channel
-does not. The feature is a check and a clause, not a change to the core, which
-is what ADR-0003 predicted Module-2-shaped work would be. Three new exports —
-`createCorsCheck`, `CORS_CHECK_ID` and `API_SECURITY_MISCONFIGURATION` — and two
+`Access-Control-Allow-Credentials: true` and an `Access-Control-Allow-Origin` that
+trusts the wrong origin. Two are wrong whatever origin was asked, `*` and `null`,
+and need no declaration. The third and more dangerous, a platform that **reflects**
+the origin it was sent, cannot be told from a partner it trusts on purpose, so the
+tool does not guess: an operator marks the origin a context sends with
+`originIsForeign: true`, which says the platform must not trust it, and an echo of
+that origin with credentials is then a high finding. The marker is a declaration in
+the sense of ADR-0006 and can be wrong in the same way, and it is refused at startup
+unless the context sends a literal `origin` written the way a browser writes it. The
+report says the question was asked as well as what it found:
+`foreignOriginCellsAnswered` in the check's coverage, and the marking in
+`inputs.contexts`. It cites OWASP API8:2023, the one entry the catalogue reaches
+without judging who access was granted to. The feature is a check, a clause and one
+field of the configuration, not a change to the core, which is what ADR-0003
+predicted Module-2-shaped work would be.
+[ADR-0077](docs/adr/0077-what-a-check-may-be-admitted-to-find.md) says what a check
+may and may not be admitted to find: not injection, fuzzing, volume or forged
+credentials. New exports: `createCorsCheck`, `CORS_CHECK_ID`,
+`API_SECURITY_MISCONFIGURATION`, `isWebOrigin` and `ForeignOriginError`; two
 response headers kept by the allowlist, neither a credential.
 
 **The gate a contributor waits for went from 21 s to 14 s, and the reason was not
@@ -1426,7 +1435,7 @@ the reference platform's 29 reports are the same bytes.
 
 **The four largest files in the report layer were read and left alone**, which is
 [ADR-0073](docs/adr/0073-a-file-is-cut-along-its-jobs.md). `src/report/shape.ts`
-is 1 128 lines of which 873 are prose and 234 are code — a type graph with the
+was 1 128 lines at `99958e7`, of which 873 were prose and 234 were code — a type graph with the
 reasoning beside each field — and the other three hold one job each. The ADR
 also records three changes that measurement argued *against* making, so the next
 reader does not have to measure them again.
