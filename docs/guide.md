@@ -1608,6 +1608,14 @@ goes to a third party. Where it is allowed to go is item 9 of
   safe mode. The operator logs in outside the tool.
 - **Does not read the body to decide whether access was granted.** The status
   code is the whole of it, and on some platforms that is not enough — see below.
+- **Is not a scanner for payload-based attacks.** It does not inject, fuzz,
+  brute-force or test rate limits, and it does not forge a credential. A run that
+  comes back clean says nothing about those classes, and a penetration test is
+  still the way to cover them. What it does check beyond access is whatever a
+  response header can show conclusively, which is how `permissive-cors` got in;
+  the four conditions a check has to meet, and what each excluded class would
+  take away, are in
+  [ADR-0077](adr/0077-what-a-check-may-be-admitted-to-find.md).
 
 ### What the model does not express
 
