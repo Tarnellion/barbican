@@ -72,6 +72,21 @@ export const API_FUNCTION_LEVEL_AUTHORIZATION: StandardRef = {
 };
 
 /**
+ * A security-relevant setting is left in a permissive state. The entry CORS
+ * misconfiguration falls under in the 2023 Top 10.
+ *
+ * The one clause this tool cites outside the authorization entries, and the
+ * reason the `permissive-cors` check exists rather than the matrix channel
+ * answering for it: a permissive cross-origin policy is a property of the
+ * response headers, not of who the policy let in, so it is a misconfiguration
+ * the status code never shows. See ADR-0076.
+ */
+export const API_SECURITY_MISCONFIGURATION: StandardRef = {
+  standard: OWASP_API_2023_ID,
+  clause: "API8",
+};
+
+/**
  * The authorization rules are written down, so that an implementation can be
  * checked against something other than itself.
  *

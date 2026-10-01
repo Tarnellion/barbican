@@ -1265,7 +1265,7 @@ margin, black on white — are **declared and not measured**: no browser runs in
 this repository's suite, and the test asserts that the properties are in the
 document rather than that an engine honoured them.
 
-The package exports 242 names, counted on the tree this section describes:
+The package exports 245 names, counted on the tree this section describes:
 `renderPack` and `UnrenderableClaimError` beside
 the six above. The second is the renderer's one decision — a claim outside the
 vocabulary is refused rather than printed as a bare word.
@@ -1306,6 +1306,22 @@ note of 24 August 2026 on
 ### Unreleased
 
 On `main`, not on npm. `0.7.0` is what `npm install barbican` gives you.
+
+**A second check reads a response header the status code cannot show: a
+permissive cross-origin policy** ([ADR-0076](docs/adr/0076-a-permissive-cross-origin-policy-is-a-registered-check.md)).
+`permissive-cors` reports an endpoint that answers a cross-origin request with
+`Access-Control-Allow-Credentials: true` and an `Access-Control-Allow-Origin` of
+`*` or `null` — the two origins that are wrong with credentials whatever origin
+was asked. Reflection of an arbitrary origin, the more dangerous case, is out of
+its reach and out of its claim: the matrix carries the response but not the
+request's `Origin`, so an echoed origin cannot be told from an allowlisted one
+without guessing, and this tool does not guess about access. It cites OWASP
+API8:2023, the one entry the catalogue now reaches without judging who access
+was granted to, and it is the first check to carry a clause the matrix channel
+does not. The feature is a check and a clause, not a change to the core, which
+is what ADR-0003 predicted Module-2-shaped work would be. Three new exports —
+`createCorsCheck`, `CORS_CHECK_ID` and `API_SECURITY_MISCONFIGURATION` — and two
+response headers kept by the allowlist, neither a credential.
 
 **The gate a contributor waits for went from 21 s to 14 s, and the reason was not
 what anybody expected** ([ADR-0072](docs/adr/0072-the-suite-is-as-long-as-its-longest-file.md)).

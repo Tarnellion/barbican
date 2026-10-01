@@ -29,6 +29,7 @@ import type { RunScope } from "../core/index.js";
 import {
   buildAccessMatrix,
   CheckRegistry,
+  createCorsCheck,
   createIdenticalResponseCheck,
   describeChecks,
   describeMatrix,
@@ -247,6 +248,7 @@ export async function run(flags: RunFlags): Promise<number> {
   // about it is a preview that hides the mistake it exists to surface.
   const registry = new CheckRegistry();
   registry.register(createIdenticalResponseCheck());
+  registry.register(createCorsCheck());
   const selected = registry.select(flags.checks);
 
   // Built here rather than beside the client: the preview needs the limits that

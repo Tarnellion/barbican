@@ -83,8 +83,8 @@ function nameOf(row: { standard: string; clause: { id: string } }): string {
 describe("what answers a catalogued clause", () => {
   it("has a catalogue and checks to answer for", () => {
     // A gate that discovered nothing is green for the same reason a passing one
-    // is. Sixteen clauses across three standards, and at least one check.
-    expect(ANSWERS.length).toBe(16);
+    // is. Seventeen clauses across three standards, and at least one check.
+    expect(ANSWERS.length).toBe(17);
     expect(CHECKS.length).toBeGreaterThan(0);
   });
 
@@ -100,6 +100,7 @@ describe("what answers a catalogued clause", () => {
     expect(ANSWERS.filter((row) => row.checkIds.length > 0).map(nameOf)).toEqual([
       "OWASP-ASVS-5.0/8.4.1",
       "OWASP-API-2023/API1",
+      "OWASP-API-2023/API8",
       "CWE/285",
     ]);
     expect(ANSWERS.filter((row) => row.diffKinds.length > 0).map(nameOf)).toEqual([
@@ -114,21 +115,23 @@ describe("what answers a catalogued clause", () => {
   });
 
   /**
-   * The check channel answers for no clause the matrix channel does not already
-   * answer for.
+   * The clauses only a check reaches, and nothing in the matrix channel does.
    *
-   * Measured, not designed, and it is why the four wrong rows were survivable
-   * for as long as they were: subtracting only the checks left a list that was
-   * wrong in one direction and never in the other. Worth pinning, because the
-   * day it stops being true is the day a check carries a clause on its own and
-   * the pack's arithmetic changes shape.
+   * Empty until ADR-0076, and the old gate pinned it empty with a note that the
+   * day it stopped being so was the day a check carried a clause on its own and
+   * the pack's arithmetic changed shape. That day is this one: `permissive-cors`
+   * answers API8 (security misconfiguration), a clause the matrix channel never
+   * cites because a cross-origin policy is not a verdict about who access was
+   * granted to. The list is pinned rather than counted for the same reason it
+   * was when empty — a check added or a mapping widened moves it, and the move
+   * belongs in a diff.
    */
-  it("has no clause that only a check reaches", () => {
+  it("names the clauses only a check reaches", () => {
     const checkOnly = ANSWERS.filter(
       (row) => row.checkIds.length > 0 && row.diffKinds.length === 0,
     );
 
-    expect(checkOnly.map(nameOf)).toEqual([]);
+    expect(checkOnly.map(nameOf)).toEqual(["OWASP-API-2023/API8"]);
   });
 
   /**

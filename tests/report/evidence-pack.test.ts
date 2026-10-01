@@ -122,7 +122,7 @@ describe("a clause nothing answered for", () => {
     // The whole catalogue is here, and that is the point of building it against
     // a catalogue at all: a pack built from what the run cited would list what
     // happened to be checked, and the question a reader has is what was not.
-    expect(pack.clauses.length).toBe(16);
+    expect(pack.clauses.length).toBe(17);
     expect(rowOf(pack, ASVS_TENANT_ISOLATION).claim).toBe("unanswered");
     expect(rowOf(pack, API_OBJECT_LEVEL_AUTHORIZATION).claim).toBe("unanswered");
   });

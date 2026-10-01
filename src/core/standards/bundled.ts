@@ -164,16 +164,20 @@ export const OWASP_ASVS_5_0: StandardDefinition = {
 /**
  * OWASP API Security Top 10, 2023 edition.
  *
- * Three of the ten. The other seven are about rate limits, inventory,
- * consumption of third-party APIs and the rest — nothing this tool observes, and
- * carrying them would mean reporting seven permanent gaps that no check will
- * ever close because no check should.
+ * Four of the ten: the three authorization entries, and API8 (security
+ * misconfiguration), which the `permissive-cors` check reaches through the
+ * cross-origin response headers (ADR-0076). The other six are about rate limits,
+ * inventory, consumption of third-party APIs and the rest — nothing this tool
+ * observes, and carrying them would mean reporting six permanent gaps that no
+ * check will ever close because no check should.
  */
 export const OWASP_API_2023: StandardDefinition = {
   id: "OWASP-API-2023",
   scope:
-    "The three authorization entries of the 2023 Top 10. The other seven are " +
-    "about other properties of an API and are deliberately not catalogued.",
+    "The three authorization entries of the 2023 Top 10, and API8 (security " +
+    "misconfiguration), the one entry this tool reaches without judging access " +
+    "— a permissive cross-origin policy is in the response headers. The other " +
+    "six are about other properties of an API and are deliberately not catalogued.",
   clauses: [
     {
       id: "API1",
@@ -200,6 +204,13 @@ export const OWASP_API_2023: StandardDefinition = {
         "Broken function level authorization: an operation meant for one group is reachable from " +
         "another.",
       url: "https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/",
+    },
+    {
+      id: "API8",
+      title:
+        "Security misconfiguration: a security-relevant setting left permissive, such as a " +
+        "cross-origin policy that shares a response too widely.",
+      url: "https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/",
     },
   ],
 };
