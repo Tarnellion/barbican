@@ -1184,6 +1184,57 @@ checked is answerable before anything is sent.
 **A check left out is coverage left out**, and the report says which ones ran.
 That is the reason to leave the flag off unless you have one.
 
+## Checking a cross-origin policy
+
+`permissive-cors` reads two response headers, `Access-Control-Allow-Origin` and
+`Access-Control-Allow-Credentials`, and reports an endpoint that allows
+credentials to **any** origin (`*`) or to the **null** origin. Both are wrong
+whatever origin the request named: a browser refuses the first, and the second
+is what a sandboxed document sends, which any attacker can arrange
+([ADR-0076](adr/0076-a-permissive-cross-origin-policy-is-a-registered-check.md)).
+
+**It reads nothing until you ask the question.** A server sends those headers only
+in answer to a request that carried an `Origin`, and this tool never sends one on
+its own. You declare a set of conditions that does, exactly as in the section on
+conditions above:
+
+```yaml
+contexts:
+  - id: sandboxed
+    description: a request from a sandboxed document, which sends the null origin
+    headers: { origin: "null" }
+    endpoints: [orders.list, orders.read]
+
+policy:
+  rules:
+    - roles: [customer]
+      endpoints: [orders.list, orders.read]
+      context: sandboxed
+      outcome: allowed
+```
+
+The rule is the declaration that this endpoint is meant to answer such a request
+at all, and the run refuses to start without one for the reason the conditions
+section gives. What the check then finds is a **header**, not a refusal, so the
+rule's outcome is about access and does not say the policy is acceptable.
+
+Three things to know before reading the result.
+
+- **No origin condition, no finding, and that is not "clean".** The check is listed
+  in `coverage.checksRun` whether or not it saw anything. Its coverage per
+  endpoint counts the responses that carried a CORS header, and it is empty where
+  none did, which is how a run that never asked reads differently from one that
+  asked and was answered correctly.
+- **A platform that echoes the origin you sent is not reported.** That is the common
+  and more dangerous case, and it is out of reach on purpose: the response alone
+  cannot tell a reflection from a partner the platform legitimately trusts, and a
+  finding that guessed would be a false positive. Declaring a second condition
+  with an origin that is plainly foreign and comparing the two cells is the manual
+  way to answer it today.
+- **A preflight is not sent.** The check reads the answer to the request itself,
+  so a policy that is permissive only on a method that triggers a preflight is
+  not seen.
+
 ## What changed since the last run
 
 ```bash
