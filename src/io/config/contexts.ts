@@ -83,9 +83,9 @@ export class UnknownContextAccountError extends Error {
 /**
  * A context marked `originIsForeign` whose `origin` header cannot be called one.
  *
- * Three ways, and each is a marker that would otherwise mean nothing: no header to
- * mark, a value that lives only in the environment, and a string that is not an
- * origin as a browser writes it. The check that reads the marker compares the
+ * Two ways, and each is a marker that would otherwise mean nothing: no header to
+ * mark, and a string that is not an origin as a browser writes it. (An origin from
+ * the environment is refused earlier, for every context.) The check that reads the marker compares the
  * declared origin byte for byte with what the platform echoed, so a marker on
  * anything else is a finding about a request no browser makes (ADR-0078).
  */
@@ -241,6 +241,22 @@ export function normalizeContexts(
           "credentials are presented through this header",
         );
       }
+      // An origin is public by construction — a browser hands it to every site it
+      // visits — and it is **echoed**: a platform that reflects it answers with the
+      // value in `access-control-allow-origin`, which the report keeps because the
+      // `permissive-cors` check cannot see anything without it (ADR-0076). A value
+      // from the environment would reach the report through that header, which is
+      // the one thing `{ env: NAME }` exists to prevent. Found by adversarial
+      // review of ADR-0078, and it was latent from the day the header was kept.
+      if (lower === "origin" && typeof value !== "string") {
+        throw new ForbiddenContextHeaderError(
+          context.id,
+          name,
+          "an origin is public and is written in the declaration: a platform that " +
+            "reflects it would put the value of the environment variable into the " +
+            "report, in the access-control-allow-origin header",
+        );
+      }
       headers[lower] = value;
     }
 
@@ -251,15 +267,11 @@ export function normalizeContexts(
     let foreignOrigin: string | undefined;
     if (context.originIsForeign === true) {
       const origin = headers["origin"];
-      if (origin === undefined) {
-        throw new ForeignOriginError(context.id, 'it declares no "origin" header');
-      }
+      // Absent, and nothing else: an origin from the environment was refused above,
+      // for every context and not only a marked one. The type still has to be
+      // narrowed to a string, and one branch does both.
       if (typeof origin !== "string") {
-        throw new ForeignOriginError(
-          context.id,
-          `its origin comes from the environment (${origin.env}), and the report has to ` +
-            `say which origin was called foreign`,
-        );
+        throw new ForeignOriginError(context.id, 'it declares no "origin" header');
       }
       if (!isWebOrigin(origin)) {
         throw new ForeignOriginError(

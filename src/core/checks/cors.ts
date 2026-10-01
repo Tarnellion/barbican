@@ -102,6 +102,21 @@ function ownHeader(
   return headers[name];
 }
 
+/**
+ * Whether the cell got an answer to read at all.
+ *
+ * A probe that failed — a 5xx, a redirect the tool does not follow, any status the
+ * outcome classification files under `error` — is not a response to judge: it may
+ * be a gateway's error page that has nothing to do with the platform's CORS
+ * policy, and a finding on it would be reported on a cell the report itself lists
+ * as a probe error. 401 and 403 are answers and are read. The finding and the
+ * coverage ask this one question, so a cell cannot be judged and counted as
+ * unanswered at once, which is what adversarial review of ADR-0078 measured.
+ */
+function wasAnswered(observation: AccessObservation): boolean {
+  return observation.outcome !== "error";
+}
+
 /** Whether the response allows credentials on the cross-origin read. */
 function allowsCredentials(headers: Readonly<Record<string, string>> | undefined): boolean {
   // The header is a boolean spelled as text, and the only value the Fetch
@@ -136,6 +151,9 @@ function verdictOf(
   observation: AccessObservation,
   foreignOrigin: string | undefined,
 ): OriginVerdict | undefined {
+  if (!wasAnswered(observation)) {
+    return undefined;
+  }
   const origin = ownHeader(observation.headers, ALLOW_ORIGIN_HEADER)?.trim();
   if (origin === undefined || !allowsCredentials(observation.headers)) {
     return undefined;
@@ -202,10 +220,16 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
   // Copied, and emptied of what cannot be an origin: the check holds its own
   // table, so a caller changing the map they passed after registration cannot
   // change what a run that is already under way judges.
+  //
+  // Trimmed, as the header it is compared with is: whitespace around a header value
+  // is not part of it, and a declared origin with a trailing space would otherwise
+  // never match a real echo — a silent miss on exactly the platform it was meant to
+  // catch. Measured by adversarial review of ADR-0078. Nothing else is done to it:
+  // the check does not parse an origin (see `CorsCheckOptions`).
   const foreignOrigins = new Map(
-    [...(options.foreignOrigins ?? new Map<string, string>())].filter(
-      ([, origin]) => origin !== "",
-    ),
+    [...(options.foreignOrigins ?? new Map<string, string>())]
+      .map(([contextId, origin]) => [contextId, origin.trim()] as const)
+      .filter(([, origin]) => origin !== ""),
   );
 
   /** The condition each account was walked under, `undefined` for the baseline. */
@@ -307,11 +331,11 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
         { responses: number; credentialed: number; foreignAnswered: number }
       >();
       for (const observation of context.matrix.observations) {
+        if (!wasAnswered(observation)) {
+          continue;
+        }
         const contextId = contextByAccount.get(observation.accountId);
-        const askedForeign =
-          contextId !== undefined &&
-          foreignOrigins.has(contextId) &&
-          observation.outcome !== "error";
+        const askedForeign = contextId !== undefined && foreignOrigins.has(contextId);
         const sawCors = ownHeader(observation.headers, ALLOW_ORIGIN_HEADER) !== undefined;
         if (!sawCors && !askedForeign) {
           continue;

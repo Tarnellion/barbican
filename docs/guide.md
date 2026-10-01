@@ -1254,9 +1254,11 @@ access, and it is yours to get right:
   startup, because the check compares the string byte for byte with what the
   platform echoed. `null` is refused too, since an echo of it is reported without
   any declaration.
-- **It has to be written in the file.** An origin that comes from the environment
-  (`{ env: NAME }`) is refused, because the report prints which origin was called
-  foreign and a value that lives only in a variable cannot be printed.
+- **It has to be written in the file.** An `origin` that comes from the environment
+  (`{ env: NAME }`) is refused in every context, marked or not. A platform that
+  reflects the origin puts it in a response header, and the report keeps that header,
+  so a value taken from a variable would end up in the report. An origin is public, so
+  writing it in the declaration costs nothing.
 - **One declared origin is one question.** A platform that trusts a pattern your
   origin does not match is not found by it. Declare a second foreign origin to ask
   a second question.
@@ -1276,10 +1278,16 @@ access, and it is yours to get right:
 - **A platform that echoes an origin you did not mark is still not reported.** The
   response cannot tell that from a partner you forgot to mention, and a finding that
   guessed would be a false positive.
-- **A refused request can carry the headers too.** The check reads every response
-  that carried them, and a CORS layer that decorates a 401 is a true finding about
+- **A refusal can carry the headers too.** The check reads every response that
+  answered, and a CORS layer that decorates a 401 or a 403 is a true finding about
   that response. It states the `status`, so you can tell it from one on a response
-  that returned data.
+  that returned data. A cell whose request failed, a 5xx or a redirect, is not read:
+  the report lists it as a probe error instead.
+- **A marker is not a promise that the question was asked.** If you narrow the run
+  with `--checks` and leave out `permissive-cors`, or the context is on an endpoint
+  the run does not walk, such as a write without `--unsafe-methods`, nothing is sent
+  with that origin and the run is clean. Look for `foreignOriginCellsAnswered` above
+  zero before reading a clean result as an answer.
 - **A preflight is not sent.** The check reads the answer to the request itself,
   so a policy that is permissive only on a method that triggers a preflight is
   not seen.

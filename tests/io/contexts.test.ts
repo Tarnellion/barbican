@@ -743,16 +743,42 @@ contexts:
     ).toThrow(/declares no "origin" header/);
   });
 
-  it("is refused when the origin lives only in the environment", () => {
-    // The report has to say which origin was called foreign, and a value that is
-    // only in a variable cannot be said.
+  it("is refused when the origin lives only in the environment, marked or not", () => {
+    // Found by adversarial review: a platform that reflects the origin puts it in
+    // `access-control-allow-origin`, which the report keeps, so a value taken from
+    // the environment reached the report through the one header the check cannot do
+    // without. An origin is public and is written in the declaration, so the refusal
+    // is for every context and not only a marked one.
+    for (const marker of ["originIsForeign: true, ", ""]) {
+      expect(
+        () =>
+          parseRunConfig(
+            declare(
+              `{ id: foreign, headers: { origin: { env: FOREIGN_ORIGIN } }, ${marker}endpoints: [orders.list] }`,
+            ),
+          ),
+        marker,
+      ).toThrow(ForbiddenContextHeaderError);
+    }
     expect(() =>
       parseRunConfig(
         declare(
-          "{ id: foreign, headers: { origin: { env: FOREIGN_ORIGIN } }, originIsForeign: true, endpoints: [orders.list] }",
+          "{ id: foreign, headers: { Origin: { env: FOREIGN_ORIGIN } }, endpoints: [orders.list] }",
         ),
       ),
-    ).toThrow(/comes from the environment \(FOREIGN_ORIGIN\)/);
+    ).toThrow(/would put the value of the environment variable into the report/);
+  });
+
+  it("still takes a secret from the environment in any other header", () => {
+    // The refusal is about the one header a platform echoes into the report, not
+    // about the form: `{ env }` is how a partner key is declared.
+    const parsed = parseRunConfig(
+      declare(
+        "{ id: foreign, headers: { x-partner-key: { env: PARTNER_KEY } }, endpoints: [orders.list] }",
+      ),
+    );
+
+    expect(parsed.contexts[0]?.headers["x-partner-key"]).toEqual({ env: "PARTNER_KEY" });
   });
 
   it("is refused for a string that is not an origin as a browser writes it", () => {

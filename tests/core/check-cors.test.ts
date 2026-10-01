@@ -618,3 +618,119 @@ describe("what the reflection verdict does not do, measured", () => {
     expect(findings).toEqual([]);
   });
 });
+
+/**
+ * A cell whose probe failed is not read (ADR-0078, after adversarial review).
+ *
+ * The finding and the coverage have to ask the same question. Measured: a 503 or a
+ * 302 that carried reflecting headers was a high finding on a cell the coverage
+ * counted as unanswered and the report listed as a probe error.
+ */
+describe("a cell whose probe failed", () => {
+  const FOREIGN = "https://attacker.example";
+  const foreign = createCorsCheck({ foreignOrigins: new Map([["foreign", FOREIGN]]) });
+  const accounts: readonly Partial<Account>[] = [
+    { id: "alice@foreign", roleId: "user", contextId: "foreign", baseAccountId: "alice" },
+  ];
+  const failed = (headers: Record<string, string>, status: number) =>
+    observation({ accountId: "alice@foreign", status, outcome: "error", headers });
+
+  it("is not judged, whichever of the three verdicts the headers would give", () => {
+    for (const origin of [FOREIGN, "*", "null"]) {
+      for (const status of [503, 302]) {
+        const findings = foreign.run(
+          contextOf(
+            [
+              failed(
+                {
+                  "access-control-allow-origin": origin,
+                  "access-control-allow-credentials": "true",
+                },
+                status,
+              ),
+            ],
+            accounts,
+          ),
+        );
+
+        expect(findings, `${origin} on ${status}`).toEqual([]);
+      }
+    }
+  });
+
+  it("is not counted either, so the two cannot disagree about it", () => {
+    const coverage = foreign.coverage?.(
+      contextOf(
+        [
+          failed(
+            {
+              "access-control-allow-origin": FOREIGN,
+              "access-control-allow-credentials": "true",
+            },
+            503,
+          ),
+        ],
+        accounts,
+      ),
+    );
+
+    expect(coverage).toEqual([]);
+  });
+
+  it("leaves a refusal that is an answer alone: 401 and 403 are read", () => {
+    for (const status of [401, 403]) {
+      const findings = foreign.run(
+        contextOf(
+          [
+            observation({
+              accountId: "alice@foreign",
+              status,
+              outcome: "denied",
+              headers: {
+                "access-control-allow-origin": FOREIGN,
+                "access-control-allow-credentials": "true",
+              },
+            }),
+          ],
+          accounts,
+        ),
+      );
+
+      expect(findings, String(status)).toHaveLength(1);
+    }
+  });
+});
+
+describe("a declared origin written with whitespace around it", () => {
+  it("still matches the echo, because the header it is compared with is trimmed too", () => {
+    // Measured by adversarial review: through the library door a trailing space
+    // made the declared origin match nothing, silently, on the platform it was
+    // meant to catch.
+    const check = createCorsCheck({
+      foreignOrigins: new Map([["foreign", " https://attacker.example "]]),
+    });
+
+    const findings = check.run(
+      contextOf(
+        [
+          observation({
+            accountId: "alice@foreign",
+            headers: {
+              "access-control-allow-origin": "https://attacker.example",
+              "access-control-allow-credentials": "true",
+            },
+          }),
+        ],
+        [{ id: "alice@foreign", roleId: "user", contextId: "foreign", baseAccountId: "alice" }],
+      ),
+    );
+
+    expect(findings).toHaveLength(1);
+  });
+
+  it("is ignored when nothing is left of it", () => {
+    const check = createCorsCheck({ foreignOrigins: new Map([["foreign", "   "]]) });
+
+    expect(check.coverage?.(contextOf([observation({ accountId: "alice@foreign" })]))).toEqual([]);
+  });
+});

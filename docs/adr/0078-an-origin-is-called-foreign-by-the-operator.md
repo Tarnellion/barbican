@@ -53,9 +53,6 @@ happens when `headers` also names it.
 **It is refused at startup unless it marks something the check can compare.**
 
 - There is no `origin` header to mark.
-- The `origin` comes from the environment (`{ env: NAME }`). The report has to say
-  which origin was called foreign, and a value that lives only in a variable
-  cannot be said.
 - The value is not an origin **in the form a browser sends it**. The rule is that
   the string equals its own serialization (`isWebOrigin` in `src/io/untrusted.ts`,
   asked of the platform's own `URL`): a trailing slash, an upper-case host, the
@@ -67,6 +64,19 @@ happens when `headers` also names it.
   first version of the address grammar was wrong ([ADR-0032](0032-the-grammar-sits-at-the-seam.md)).
   `null` is refused as well: the check already reports an echo of it whatever was
   asked.
+
+**An `origin` from the environment is refused for every context, marked or not.**
+This was found by adversarial review of the first version, which refused it only
+under the marker. A platform that reflects the origin it was sent answers with the
+value in `access-control-allow-origin`, and the report keeps that header, because
+`permissive-cors` can see nothing without it
+([ADR-0076](0076-a-permissive-cross-origin-policy-is-a-registered-check.md)). A
+value taken from the environment therefore reached the report through the one
+header the check cannot do without, which is exactly what `{ env: NAME }` exists
+to prevent. An origin is public by construction, since a browser hands it to every
+site it visits, so the cost of writing it in the declaration is nothing, and the
+refusal sits at the door where the header is admitted. Any other header may still
+take its value from the environment.
 
 **It reaches the check as data, at registration.** `normalizeContexts` resolves the
 marker to the origin and carries it as `foreignOrigin` on the parsed context, once,
@@ -84,6 +94,15 @@ a wildcard under a foreign context is one finding and not two. It is silent for
 the same echo under any other context, for a different origin than the declared
 one (an allowlist that was sent the foreign origin and answered with its own), and
 without credentials.
+
+**A cell whose probe failed is not read.** A 5xx, a redirect the tool does not
+follow, or any status the outcome classification files under `error` is not a
+response to judge: it may be a gateway's error page with no bearing on the
+platform's CORS policy, and the report already lists the cell as a probe error. The
+first version judged such a cell while the coverage counted it as unanswered, so a
+finding and a probe error stood on one cell. The two now ask the same question. A
+401 or a 403 is an answer and is read. This applies to the wildcard and the `null`
+shapes as well, which had the same inconsistency and were unreleased.
 
 **The report says it was asked.** `coverage.byCheck` gains `foreignOriginCellsAnswered`
 for `permissive-cors`: how many cells under a context declared foreign got an
@@ -148,16 +167,35 @@ Written down after each was run against the tree, as ADR-0065 asks.
   `*.example` origin and was sent only `https://attacker.example` is found; one that
   trusts a pattern the declared origin happens not to match is not. One declared
   origin is one question.
-- **It reads every response that carried the headers, whatever the status.** A CORS
-  layer that is global middleware also decorates a 401, and a finding on an endpoint
-  where only the 401 reflected is a true statement about the response and a weaker
-  one about the data. The finding carries `status`, so a reader can tell.
+- **It reads every response that answered, a refusal included.** A CORS layer that
+  is global middleware also decorates a 401 or a 403, and a finding on an endpoint
+  where only the refusal reflected is a true statement about the response and a
+  weaker one about the data. The finding carries `status`, so a reader can tell. A
+  cell whose probe failed is not read, as above.
 - **Reflection with credentials under a different case is not matched.** The
   declared origin is canonical and a platform echoes what it received, so this does
   not arise from a browser's request; a platform that re-cases the value it echoes
   would be missed, and that is accepted rather than guessed at.
 - **No preflight.** As for the rest of the check: the answer to the request itself
   is what is read.
+- **A marker can be declared and the question not asked, and the run says nothing
+  about it beyond the coverage.** Two ways, both run: `--checks` that leaves out
+  `permissive-cors` reads nothing and exits 0; and a context on an endpoint that is
+  not walked, such as a write without `--unsafe-methods`, sends no request with an
+  `Origin` at all, so the check's coverage is empty and the run is clean. The report
+  does list the endpoint as not probed, but not in terms of the marker. This is the
+  same design as "no counter, never asked", and it is weaker here than for the two
+  shapes that need no declaration, because a marker is an explicit claim by the
+  operator that something will be checked. A warning for it is not built.
+- **The JSON Schema cannot express the dependency.** `originIsForeign: true` needs a
+  literal `headers.origin` in the canonical form, which the parser enforces and a
+  schema validator in an editor does not, so an editor accepts a declaration the
+  parser then refuses at startup.
+- **The library door trusts what it is handed, as far as an origin's shape goes.**
+  `createCorsCheck({ foreignOrigins })` trims each origin as the header it is
+  compared with is trimmed and ignores an empty one, and does not parse. A consumer
+  who hands over a string that is not an origin gets a check that matches nothing.
+  A false positive cannot come of it, since a match needs a real echo.
 - **The marker is held by its tests and by the shape of the data, not by a gate that
   reads the declaration.** Nothing checks that a context marked foreign is one the
   policy mentions beyond the rule every context already has, which is that some rule
