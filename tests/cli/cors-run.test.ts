@@ -223,7 +223,20 @@ interface WrittenReport {
 }
 
 function flagsFor(config: string, endpoints: string, report: string, checks?: string): RunFlags {
-  return { config, endpoints, report, identify: true, ...(checks === undefined ? {} : { checks }) };
+  return {
+    config,
+    endpoints,
+    report,
+    identify: true,
+    // The pace `FAST_STAND` gives a spawned binary (`tests/fixtures/local-stand.ts`),
+    // as flags. Five requests a second is a pace and not only a ceiling
+    // (ADR-0026), so each of these runs waited about 800 ms for a stub on loopback
+    // that answers in under a millisecond, and this file was the longest in the
+    // suite. Nothing here is about the pace (ADR-0072).
+    rps: 200,
+    concurrency: 8,
+    ...(checks === undefined ? {} : { checks }),
+  };
 }
 
 /** What a case changes about the run beyond the condition it declares. */
