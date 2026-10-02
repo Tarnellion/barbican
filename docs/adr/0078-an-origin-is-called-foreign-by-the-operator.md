@@ -104,6 +104,26 @@ finding and a probe error stood on one cell. The two now ask the same question. 
 401 or a 403 is an answer and is read. This applies to the wildcard and the `null`
 shapes as well, which had the same inconsistency and were unreleased.
 
+**A marker nobody acted on is warned about.** A marker is an explicit claim by the
+operator that something will be checked, which makes it the one declaration whose
+silent non-execution has to be said. Adversarial review ran two ways in: `--checks`
+that leaves out `permissive-cors` reads nothing and exits 0, and a marked context on
+an endpoint the run does not walk, such as a write without `--unsafe-methods`, sends
+no request with an `Origin` at all. Both came back clean. `WARNINGS` gains
+`foreignOriginNotAsked`, raised when at least one context carries a `foreignOrigin`
+and the check's `foreignOriginCellsAnswered` summed over the run is zero. It is a
+warning and not a refusal: the first cause is the operator's own flag, and a refusal
+before the first request would have been defensible there, but the second cause is
+only knowable after planning, and one mechanism that covers both says the same thing
+in the file and on the screen. It does not change the exit code, which stays what
+the findings and the other warnings make it.
+
+The warning is coarse on purpose. It fires when **no** marked context was asked
+anywhere, not when one of two was, because the counter it reads is the check's own
+and per endpoint, and counting by context in the report layer would be a second copy
+of what "answered" means. `foreignOriginCellsAnswered` in `src/core/checks/cors.ts`
+is the one reader of that counter.
+
 **The report says it was asked.** `coverage.byCheck` gains `foreignOriginCellsAnswered`
 for `permissive-cors`: how many cells under a context declared foreign got an
 answer, a probe that failed excluded. An endpoint with the counter above zero and
@@ -178,15 +198,11 @@ Written down after each was run against the tree, as ADR-0065 asks.
   would be missed, and that is accepted rather than guessed at.
 - **No preflight.** As for the rest of the check: the answer to the request itself
   is what is read.
-- **A marker can be declared and the question not asked, and the run says nothing
-  about it beyond the coverage.** Two ways, both run: `--checks` that leaves out
-  `permissive-cors` reads nothing and exits 0; and a context on an endpoint that is
-  not walked, such as a write without `--unsafe-methods`, sends no request with an
-  `Origin` at all, so the check's coverage is empty and the run is clean. The report
-  does list the endpoint as not probed, but not in terms of the marker. This is the
-  same design as "no counter, never asked", and it is weaker here than for the two
-  shapes that need no declaration, because a marker is an explicit claim by the
-  operator that something will be checked. A warning for it is not built.
+- **The warning for a marker nobody acted on is all-or-nothing.** With two marked
+  contexts, one asked and one not, no warning is raised; the second is visible only
+  in `coverage.byCheck`, endpoint by endpoint. The sentence of the warning points
+  there. Both ways of not asking, `--checks` without the check and a context on an
+  endpoint no cell of which is walked, were run before this was written down.
 - **The JSON Schema cannot express the dependency.** `originIsForeign: true` needs a
   literal `headers.origin` in the canonical form, which the parser enforces and a
   schema validator in an editor does not, so an editor accepts a declaration the

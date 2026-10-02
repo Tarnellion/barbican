@@ -1283,11 +1283,13 @@ access, and it is yours to get right:
   that response. It states the `status`, so you can tell it from one on a response
   that returned data. A cell whose request failed, a 5xx or a redirect, is not read:
   the report lists it as a probe error instead.
-- **A marker is not a promise that the question was asked.** If you narrow the run
-  with `--checks` and leave out `permissive-cors`, or the context is on an endpoint
-  the run does not walk, such as a write without `--unsafe-methods`, nothing is sent
-  with that origin and the run is clean. Look for `foreignOriginCellsAnswered` above
-  zero before reading a clean result as an answer.
+- **A marker nobody acted on is warned about.** If you narrow the run with
+  `--checks` and leave out `permissive-cors`, or the marked context is on an
+  endpoint the run does not walk, such as a write without `--unsafe-methods`, nothing
+  is sent with that origin. The run then says so in `warnings` and on the screen
+  instead of coming back clean. The warning is raised when **no** marked context was
+  asked anywhere: with two marked contexts and one asked, read
+  `foreignOriginCellsAnswered` per endpoint in the coverage.
 - **A preflight is not sent.** The check reads the answer to the request itself,
   so a policy that is permissive only on a method that triggers a preflight is
   not seen.

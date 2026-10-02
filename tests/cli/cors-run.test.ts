@@ -33,6 +33,7 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunFlags } from "../../src/cli/flags.js";
 import { run } from "../../src/cli/run.js";
+import { WARNINGS } from "../../src/report/build.js";
 
 const TOKEN = "cors-run-token-alice";
 
@@ -120,6 +121,12 @@ endpoints:
     path: /v1/me
 `;
 
+/** The same list plus a write, which a run without --unsafe-methods does not walk. */
+const ENDPOINTS_WITH_A_WRITE = `${ENDPOINTS}  - id: write.me
+    method: POST
+    path: /v1/write
+`;
+
 /** A set of request conditions that sends an `Origin`. */
 interface OriginCondition {
   readonly id: string;
@@ -128,6 +135,8 @@ interface OriginCondition {
   readonly origin: string;
   /** Extra lines of the declaration, for `originIsForeign` and for refusals. */
   readonly extra?: string;
+  /** The endpoint the conditions apply on. `me` unless a case is about another. */
+  readonly endpoint?: string;
 }
 
 /** What a sandboxed document sends. Wrong with credentials whatever was asked. */
@@ -162,12 +171,12 @@ contexts:
   - id: ${condition.id}
     description: ${condition.description}
     headers: { origin: ${condition.origin} }
-${condition.extra ?? ""}    endpoints: [me]
+${condition.extra ?? ""}    endpoints: [${condition.endpoint ?? "me"}]
 `;
   const contextRule =
     condition === undefined
       ? ""
-      : `    - { roles: [user], endpoints: [me], context: ${condition.id}, outcome: allowed }\n`;
+      : `    - { roles: [user], endpoints: [${condition.endpoint ?? "me"}], context: ${condition.id}, outcome: allowed }\n`;
   return `
 target:
   label: cors run test stand
@@ -184,6 +193,7 @@ ${contextRule}`;
 }
 
 interface WrittenReport {
+  readonly warnings: readonly string[];
   readonly findings: readonly {
     readonly kind: string;
     readonly severity: string;
@@ -212,11 +222,22 @@ interface WrittenReport {
   }[];
 }
 
-function flagsFor(config: string, endpoints: string, report: string): RunFlags {
-  return { config, endpoints, report, identify: true };
+function flagsFor(config: string, endpoints: string, report: string, checks?: string): RunFlags {
+  return { config, endpoints, report, identify: true, ...(checks === undefined ? {} : { checks }) };
 }
 
-async function runIt(condition?: OriginCondition): Promise<{
+/** What a case changes about the run beyond the condition it declares. */
+interface RunOptions {
+  /** `--checks`, which narrows the run to the named checks. */
+  readonly checks?: string;
+  /** The endpoint list, `ENDPOINTS` unless a case needs another. */
+  readonly endpoints?: string;
+}
+
+async function runIt(
+  condition?: OriginCondition,
+  options: RunOptions = {},
+): Promise<{
   readonly code: number;
   readonly report: WrittenReport;
 }> {
@@ -224,8 +245,8 @@ async function runIt(condition?: OriginCondition): Promise<{
   const endpoints = join(directory, "endpoints.yaml");
   const reportPath = join(directory, "run.json");
   await writeFile(config, configText(condition), "utf8");
-  await writeFile(endpoints, ENDPOINTS, "utf8");
-  const code = await run(flagsFor(config, endpoints, reportPath));
+  await writeFile(endpoints, options.endpoints ?? ENDPOINTS, "utf8");
+  const code = await run(flagsFor(config, endpoints, reportPath, options.checks));
   return { code, report: JSON.parse(await readFile(reportPath, "utf8")) as WrittenReport };
 }
 
@@ -385,5 +406,58 @@ describe("a reflected origin, through the command (ADR-0078)", () => {
     await expect(run(flagsFor(config, endpoints, join(directory, "run.json")))).rejects.toThrow(
       /says originIsForeign: true/,
     );
+  });
+});
+
+/**
+ * A marker that was declared and never put to the platform (ADR-0078).
+ *
+ * The run used to come back clean. A marker is an explicit claim by the operator
+ * that something will be checked, so it is the one declaration whose silent
+ * non-execution has to be said. Measured by adversarial review, both ways in.
+ */
+describe("a foreign origin that nobody asked about", () => {
+  it("is warned about when --checks leaves the check out", async () => {
+    behaviour = "reflect";
+
+    const { code, report } = await runIt(FOREIGN, { checks: "identical-response-across-tenants" });
+
+    expect(report.warnings).toContain(WARNINGS.foreignOriginNotAsked);
+    // The reflection was never looked for, so a clean exit is not an answer, and
+    // the warning is what keeps it from reading as one.
+    expect(corsFindings(report)).toEqual([]);
+    expect(code).toBe(0);
+  });
+
+  it("is warned about when the marked context is on a write the run does not walk", async () => {
+    behaviour = "reflect";
+
+    const { report } = await runIt(
+      { ...FOREIGN, endpoint: "write.me" },
+      { endpoints: ENDPOINTS_WITH_A_WRITE },
+    );
+
+    expect(report.warnings).toContain(WARNINGS.foreignOriginNotAsked);
+    expect(corsFindings(report)).toEqual([]);
+  });
+
+  it("is not warned about once the question was asked, whatever the answer", async () => {
+    for (const platform of ["allowlist", "reflect"] as const) {
+      behaviour = platform;
+
+      const { report } = await runIt(FOREIGN);
+
+      expect(report.warnings, platform).not.toContain(WARNINGS.foreignOriginNotAsked);
+    }
+  });
+
+  it("is not raised for a run that marked nothing", async () => {
+    // An origin condition with no marker and a check that never ran is not a
+    // claim, and the warning is about claims.
+    behaviour = "reflect";
+
+    const { report } = await runIt(PARTNER, { checks: "identical-response-across-tenants" });
+
+    expect(report.warnings).not.toContain(WARNINGS.foreignOriginNotAsked);
   });
 });

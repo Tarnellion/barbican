@@ -21,6 +21,7 @@ import {
   CORS_CHECK_ID,
   createBundledCatalog,
   createCorsCheck,
+  foreignOriginCellsAnswered,
   runChecks,
 } from "../../src/core/index.js";
 
@@ -732,5 +733,65 @@ describe("a declared origin written with whitespace around it", () => {
     const check = createCorsCheck({ foreignOrigins: new Map([["foreign", "   "]]) });
 
     expect(check.coverage?.(contextOf([observation({ accountId: "alice@foreign" })]))).toEqual([]);
+  });
+});
+
+/**
+ * The one reader of the counter that says the reflection question was put. The
+ * run's warning for a marker nobody acted on rests on it, so it is held here.
+ */
+describe("foreignOriginCellsAnswered", () => {
+  const row = (checkId: string, counters: Record<string, number>) => ({
+    checkId,
+    endpointId: "e",
+    counters,
+  });
+
+  it("is zero over nothing, and over a run whose check wrote no such counter", () => {
+    expect(foreignOriginCellsAnswered([])).toBe(0);
+    expect(
+      foreignOriginCellsAnswered([
+        row(CORS_CHECK_ID, { corsResponsesSeen: 4, corsResponsesAllowingCredentials: 1 }),
+      ]),
+    ).toBe(0);
+  });
+
+  it("sums the counter over the endpoints of this check", () => {
+    expect(
+      foreignOriginCellsAnswered([
+        row(CORS_CHECK_ID, { foreignOriginCellsAnswered: 2 }),
+        row(CORS_CHECK_ID, { foreignOriginCellsAnswered: 3 }),
+      ]),
+    ).toBe(5);
+  });
+
+  it("does not read another check's rows, whatever they are called", () => {
+    expect(
+      foreignOriginCellsAnswered([
+        row("identical-response-across-tenants", { foreignOriginCellsAnswered: 9 }),
+      ]),
+    ).toBe(0);
+  });
+
+  it("reads a counter only as an own property of the row", () => {
+    // A report parsed back from JSON carries Object.prototype; a counter map that
+    // inherits the name is not a counter this check wrote.
+    const inherited = Object.create({ foreignOriginCellsAnswered: 7 }) as Record<string, number>;
+
+    expect(foreignOriginCellsAnswered([row(CORS_CHECK_ID, inherited)])).toBe(0);
+  });
+
+  it("agrees with what the check writes", () => {
+    const check = createCorsCheck({ foreignOrigins: new Map([["foreign", "https://a.example"]]) });
+    const coverage = check.coverage?.(
+      contextOf(
+        [observation({ accountId: "alice@foreign" }), observation({ accountId: "alice@foreign" })],
+        [{ id: "alice@foreign", roleId: "user", contextId: "foreign", baseAccountId: "alice" }],
+      ),
+    );
+
+    // The same cell twice is two cells to the check; the reader must not decide
+    // otherwise.
+    expect(foreignOriginCellsAnswered(coverage ?? [])).toBe(2);
   });
 });

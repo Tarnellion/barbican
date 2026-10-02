@@ -1265,7 +1265,7 @@ margin, black on white — are **declared and not measured**: no browser runs in
 this repository's suite, and the test asserts that the properties are in the
 document rather than that an engine honoured them.
 
-The package exports 247 names, counted on the tree this section describes:
+The package exports 248 names, counted on the tree this section describes:
 `renderPack` and `UnrenderableClaimError` beside
 the six above. The second is the renderer's one decision — a claim outside the
 vocabulary is refused rather than printed as a bare word.
@@ -1322,14 +1322,17 @@ the sense of ADR-0006 and can be wrong in the same way, and it is refused at sta
 unless the context sends a literal `origin` written the way a browser writes it. The
 report says the question was asked as well as what it found:
 `foreignOriginCellsAnswered` in the check's coverage, and the marking in
-`inputs.contexts`. It cites OWASP API8:2023, the one entry the catalogue reaches
+`inputs.contexts`. A marker that was declared and never put to the platform, because
+`--checks` left the check out or the marked endpoint was not walked, is a warning
+and not a clean run. It cites OWASP API8:2023, the one entry the catalogue reaches
 without judging who access was granted to. The feature is a check, a clause and one
 field of the configuration, not a change to the core, which is what ADR-0003
 predicted Module-2-shaped work would be.
 [ADR-0077](docs/adr/0077-what-a-check-may-be-admitted-to-find.md) says what a check
 may and may not be admitted to find: not injection, fuzzing, volume or forged
 credentials. New exports: `createCorsCheck`, `CORS_CHECK_ID`,
-`API_SECURITY_MISCONFIGURATION`, `isWebOrigin` and `ForeignOriginError`; two
+`API_SECURITY_MISCONFIGURATION`, `foreignOriginCellsAnswered`, `isWebOrigin` and
+`ForeignOriginError`; two
 response headers kept by the allowlist, neither a credential.
 
 **The gate a contributor waits for went from 21 s to 14 s, and the reason was not

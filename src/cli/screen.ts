@@ -174,6 +174,9 @@ export const WARNING_STYLE: Readonly<Record<keyof typeof WARNINGS, Ink>> = {
   // is everything about the endpoints no request reached. That is a reservation
   // about the reach of the run, which is what yellow says here.
   endpointsNotProbed: "yellow",
+  // Yellow for the same reason: the findings stand, and what is unproved is a
+  // question the operator declared they wanted answered.
+  foreignOriginNotAsked: "yellow",
 };
 
 export type WarningKey = keyof typeof WARNINGS;

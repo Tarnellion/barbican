@@ -165,10 +165,22 @@ interface ConfigOptions {
    * which has nothing to authenticate and therefore owes no canary.
    */
   readonly credentials?: boolean;
+  /**
+   * A context marked `originIsForeign` on `items.get`, the endpoint that takes a
+   * path parameter and has no resource: no cell under it is ever walked, so the
+   * marker is declared and the question is never put (`WARNINGS.foreignOriginNotAsked`).
+   */
+  readonly foreignOrigin?: boolean;
 }
 
 function configFor(port: number, options: ConfigOptions = {}): string {
-  const { label = true, canary = true, resources = 0, credentials = true } = options;
+  const {
+    label = true,
+    canary = true,
+    resources = 0,
+    credentials = true,
+    foreignOrigin = false,
+  } = options;
   // One tenant and no owner on any of them, so every cell of `items.get` gets the
   // same relation and therefore the same defect signature: the cap is per defect,
   // and fifty-one resources spread over several signatures would not reach it.
@@ -190,10 +202,14 @@ accounts:
 policy:
   fallback: denied
   rules:
-    - { roles: [user], endpoints: [me], outcome: allowed }
+    - { roles: [user], endpoints: [me], outcome: allowed }${
+      foreignOrigin
+        ? "\n    - { roles: [user], endpoints: [items.get], context: foreign-origin, outcome: allowed }"
+        : ""
+    }
 
 tenants: [tenant-a]
-${resources === 0 ? "" : `\nresources:\n${resourceLines.join("\n")}\n`}`;
+${foreignOrigin ? `\ncontexts:\n  - id: foreign-origin\n    headers: { origin: "https://attacker.example" }\n    originIsForeign: true\n    endpoints: [items.get]\n` : ""}${resources === 0 ? "" : `\nresources:\n${resourceLines.join("\n")}\n`}`;
 }
 
 interface ReportFile {
@@ -422,8 +438,8 @@ describe("a path on the command line that cannot be read", () => {
 /**
  * A run that makes one warning fire, and why it does.
  *
- * Five fixtures rather than one, because the five warnings answer to five
- * different things and a run cannot be in all five states at once.
+ * One fixture per warning rather than one, because the warnings answer to
+ * different things and a run cannot be in all of those states at once.
  */
 interface WarningCase {
   /** What in this configuration produces the warning. */
@@ -465,6 +481,11 @@ const WARNING_CASES: Readonly<Record<keyof typeof WARNINGS, WarningCase>> = {
     // the operator declared the endpoints and not the objects, and the half of
     // the surface addressed by identifier goes unasked.
     config: (port) => configFor(port),
+    endpoints: ENDPOINTS_WITH_ITEMS,
+  },
+  foreignOriginNotAsked: {
+    why: "a context is marked originIsForeign on an endpoint no cell of which is walked",
+    config: (port) => configFor(port, { foreignOrigin: true }),
     endpoints: ENDPOINTS_WITH_ITEMS,
   },
   findingsCapped: {

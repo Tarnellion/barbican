@@ -80,6 +80,40 @@ const ALLOW_ORIGIN_HEADER = "access-control-allow-origin";
 const ALLOW_CREDENTIALS_HEADER = "access-control-allow-credentials";
 
 /**
+ * The coverage counter that says the reflection question was put, spelled once.
+ *
+ * The check writes it and `foreignOriginCellsAnswered` reads it, and the run's
+ * warning reads it through that function: a second copy of the name in the report
+ * layer is the shape every drift in this repository starts as.
+ */
+const FOREIGN_ORIGIN_COUNTER = "foreignOriginCellsAnswered";
+
+/**
+ * How many cells under a context declared foreign got an answer, over a run.
+ *
+ * Summed over the coverage rows of this check, which is the form the report
+ * carries them in. Zero means the question was never put — the check did not run,
+ * or no cell under a marked context was walked, or every request failed — and it
+ * is the one fact the run's warning for a marker nobody acted on rests on
+ * (ADR-0078). It cannot say **which** context was not asked: the counter is the
+ * check's own, per endpoint, and a second count by context in the report layer
+ * would be two copies of what "answered" means.
+ *
+ * Read with `Object.hasOwn`: a report parsed back from JSON carries
+ * `Object.prototype`, and a counter map keyed by names the check chose is still
+ * handed over by whoever built the report.
+ */
+export function foreignOriginCellsAnswered(coverage: readonly CheckCoverage[]): number {
+  let total = 0;
+  for (const row of coverage) {
+    if (row.checkId === CORS_CHECK_ID && Object.hasOwn(row.counters, FOREIGN_ORIGIN_COUNTER)) {
+      total += row.counters[FOREIGN_ORIGIN_COUNTER] ?? 0;
+    }
+  }
+  return total;
+}
+
+/**
  * Reads one header by its fixed name, and only as an own property.
  *
  * `observation.headers` is a record keyed by names the **platform** chose, and a
@@ -366,7 +400,7 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
             corsResponsesAllowingCredentials: tally.credentialed,
             ...(foreignOrigins.size === 0
               ? {}
-              : { foreignOriginCellsAnswered: tally.foreignAnswered }),
+              : { [FOREIGN_ORIGIN_COUNTER]: tally.foreignAnswered }),
           },
         }));
     },
