@@ -45,16 +45,25 @@
  * The two shapes below need no declaration at all: `*` and `null` are wrong
  * whatever was asked.
  *
- * ## Where the headers come from
+ * ## What it reads, and when it has something to read
  *
- * A server emits CORS headers only in answer to a request that carried an
- * `Origin`, and nothing this tool sends carries one on its own initiative. An
- * operator declares a request condition with `{ headers: { origin: "..." } }`
- * — `origin` is not among the names a condition may not set — and the cells
- * under that condition are the ones this check reads. With no such condition the
- * check examines nothing and says so through its coverage, which is the honest
- * reading: the question was not asked, not that it was asked and came back
- * clean.
+ * **Every answered cell, the baseline included.** A response carrying the pair is a
+ * response carrying the pair, whether or not the request that drew it named an
+ * origin, so a platform that decorates every response with `*` and credentials is
+ * reported on a configuration that declares no condition at all. That is a true
+ * statement about the response, and it means a run that used to exit 0 can exit 1
+ * on upgrade; the README says so.
+ *
+ * What a request without an `Origin` does **not** do is draw the headers out of
+ * a platform that sends them only in answer to one, which is how most CORS layers
+ * behave. To ask that question an operator declares a request condition with
+ * `{ headers: { origin: "..." } }` (`origin` is not among the names a condition
+ * may not set), and the cells under it are where a CORS layer answers. So this
+ * check is never a proof of absence: **a clean result means the headers that came
+ * back were not wrong, not that every shape was looked for.** Whether a condition
+ * that sends an origin was walked at all is in `coverage.contextsProbed`; the
+ * coverage of this check counts the responses that carried a CORS header and, for
+ * the reflection question, the cells asked about a declared origin.
  *
  * Pure over the matrix, like every check: it reads `observation.headers`, which
  * the HTTP adapter has already kept by allowlist and spelled out, and never goes
@@ -71,10 +80,11 @@ export const CORS_CHECK_ID = "permissive-cors";
 /**
  * The two response headers this check reads, lower-cased.
  *
- * The adapter lower-cases header names on the way in (`toHttpResponse`), so a
- * comparison here is against the lower-case spelling and no other. Written once,
- * because both the check and its coverage read them and a second copy is the
- * shape every drift in this repository starts as.
+ * The adapter lower-cases header names on the way in (`toHttpResponse`), and a
+ * header name is case-insensitive in HTTP, so `ownHeader` matches these without
+ * regard to the case a consumer's own harness wrote them in. Written once, because
+ * both the check and its coverage read them and a second copy is the shape every
+ * drift in this repository starts as.
  */
 const ALLOW_ORIGIN_HEADER = "access-control-allow-origin";
 const ALLOW_CREDENTIALS_HEADER = "access-control-allow-credentials";
@@ -114,7 +124,8 @@ export function foreignOriginCellsAnswered(coverage: readonly CheckCoverage[]): 
 }
 
 /**
- * Reads one header by its fixed name, and only as an own property.
+ * Reads one header by its fixed lower-case name, as an own property, and without
+ * regard to the case the record spelled it in.
  *
  * `observation.headers` is a record keyed by names the **platform** chose, and a
  * report parsed back from JSON carries `Object.prototype`, so a plain index
@@ -122,18 +133,66 @@ export function foreignOriginCellsAnswered(coverage: readonly CheckCoverage[]): 
  * tool's own and none of them is a prototype key, so the risk is not an attacker
  * reaching one of them — it is that a consumer feeding observations from their
  * own harness hands over an object whose prototype happens to carry the name.
- * `Object.hasOwn` refuses the prototype in both cases. This is the same concern
- * `lookup()` answers in `src/io/untrusted.ts`, open in the core by hand because
- * the core may not import `src/io` — the ring ADR-0024 keeps from closing.
+ * `Object.keys` and `Object.hasOwn` see own properties only. This is the same
+ * concern `lookup()` answers in `src/io/untrusted.ts`, open in the core by hand
+ * because the core may not import `src/io` — the ring ADR-0024 keeps from closing.
+ *
+ * The case is folded because the alternative is a silent false clean: a harness
+ * that spelled `Access-Control-Allow-Origin` as HTTP libraries often do would get
+ * no finding and an empty coverage, and empty coverage is what the guide teaches a
+ * reader to take for "no CORS layer here". Where two keys differ only in case the
+ * one that was set first is read, which is deterministic for a given record.
  */
 function ownHeader(
   headers: Readonly<Record<string, string>> | undefined,
   name: string,
 ): string | undefined {
-  if (headers === undefined || !Object.hasOwn(headers, name)) {
+  if (headers === undefined) {
     return undefined;
   }
-  return headers[name];
+  if (Object.hasOwn(headers, name)) {
+    return headers[name];
+  }
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === name) {
+      return headers[key];
+    }
+  }
+  return undefined;
+}
+
+/**
+ * HTTP whitespace, which is what a header value is trimmed of: tab, line feed,
+ * carriage return and space.
+ *
+ * Not `String.prototype.trim`, which also strips U+00A0, the vertical tab, the
+ * form feed and the Unicode spaces. A browser does not, so `Access-Control-Allow-
+ * Origin: <NBSP>null` is no grant in any browser and a finding on it would be a
+ * finding about a request nobody can make. Found by the pre-release review.
+ */
+function isHttpWhitespace(code: number): boolean {
+  return code === 0x09 || code === 0x0a || code === 0x0d || code === 0x20;
+}
+
+function trimHttpWhitespace(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && isHttpWhitespace(value.charCodeAt(start))) {
+    start += 1;
+  }
+  while (end > start && isHttpWhitespace(value.charCodeAt(end - 1))) {
+    end -= 1;
+  }
+  return value.slice(start, end);
+}
+
+/** A header value as a browser reads it: found by name, then trimmed of HTTP whitespace. */
+function headerValueOf(
+  headers: Readonly<Record<string, string>> | undefined,
+  name: string,
+): string | undefined {
+  const raw = ownHeader(headers, name);
+  return raw === undefined ? undefined : trimHttpWhitespace(raw);
 }
 
 /**
@@ -157,9 +216,9 @@ function allowsCredentials(headers: Readonly<Record<string, string>> | undefined
   // standard reads as true is the exact lower-case word. A platform that writes
   // `True` or `1` has not enabled credentials in any browser, so trimming and
   // lower-casing here would report a danger that does not exist. The one
-  // concession is surrounding whitespace, which a header may carry and no
+  // concession is surrounding HTTP whitespace, which a header may carry and no
   // browser treats as meaningful.
-  return ownHeader(headers, ALLOW_CREDENTIALS_HEADER)?.trim() === "true";
+  return headerValueOf(headers, ALLOW_CREDENTIALS_HEADER) === "true";
 }
 
 /** The dangerous shapes of `Access-Control-Allow-Origin`, with credentials on. */
@@ -188,7 +247,7 @@ function verdictOf(
   if (!wasAnswered(observation)) {
     return undefined;
   }
-  const origin = ownHeader(observation.headers, ALLOW_ORIGIN_HEADER)?.trim();
+  const origin = headerValueOf(observation.headers, ALLOW_ORIGIN_HEADER);
   if (origin === undefined || !allowsCredentials(observation.headers)) {
     return undefined;
   }
@@ -215,6 +274,19 @@ const TITLE: Readonly<Record<OriginVerdict, string>> = {
     "Cross-origin sharing allows an origin the operator declared foreign, with " +
     "credentials, so it trusts the origin it was sent",
 };
+
+/**
+ * Whether one observation is the better one to name in a finding than another.
+ *
+ * The account id first, by code unit, so the answer is the same on every machine
+ * and in every locale, and the lower status after it. Two observations equal in
+ * both give a finding that is equal in everything it prints, so which one stays is
+ * then immaterial.
+ */
+function namesBefore(candidate: AccessObservation, current: AccessObservation): boolean {
+  const byAccount = byCodeUnits(candidate.accountId, current.accountId);
+  return byAccount !== 0 ? byAccount < 0 : candidate.status < current.status;
+}
 
 const SEVERITY: Readonly<Record<OriginVerdict, "medium" | "high">> = {
   // Contradictory and browser-rejected as it stands, but a CORS layer that
@@ -255,14 +327,14 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
   // table, so a caller changing the map they passed after registration cannot
   // change what a run that is already under way judges.
   //
-  // Trimmed, as the header it is compared with is: whitespace around a header value
+  // Trimmed, as the header it is compared with is: HTTP whitespace around a header value
   // is not part of it, and a declared origin with a trailing space would otherwise
   // never match a real echo — a silent miss on exactly the platform it was meant to
   // catch. Measured by adversarial review of ADR-0078. Nothing else is done to it:
   // the check does not parse an origin (see `CorsCheckOptions`).
   const foreignOrigins = new Map(
     [...(options.foreignOrigins ?? new Map<string, string>())]
-      .map(([contextId, origin]) => [contextId, origin.trim()] as const)
+      .map(([contextId, origin]) => [contextId, trimHttpWhitespace(origin)] as const)
       .filter(([, origin]) => origin !== ""),
   );
 
@@ -275,16 +347,16 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
     id: CORS_CHECK_ID,
     description:
       "Reads Access-Control-Allow-Origin and Access-Control-Allow-Credentials on " +
-      "the cells under a declared origin condition, and reports the origins that " +
-      "are wrong with credentials: the wildcard and the null origin whatever was " +
-      "asked, and an origin the operator declared foreign (originIsForeign) that " +
-      "the platform trusts. A specific origin nobody declared foreign is not " +
-      "judged — see ADR-0076 and ADR-0078.",
+      "every answered cell, and reports the origins that are wrong with " +
+      "credentials: the wildcard and the null origin whatever was asked, and an " +
+      "origin the operator declared foreign (originIsForeign) that the platform " +
+      "trusts. A specific origin nobody declared foreign is not judged, and a " +
+      "platform that sends these headers only in answer to an Origin is not " +
+      "asked unless a declared condition sends one — see ADR-0076 and ADR-0078.",
     severity: "high",
     standards: [API_SECURITY_MISCONFIGURATION],
     run(context: CheckContext): readonly Finding[] {
       const contextByAccount = contextsOf(context);
-      const findings: Finding[] = [];
       // One finding per endpoint × condition × shape: the CORS policy is a
       // property of the endpoint under one condition, not of the account that
       // happened to reach it, so two accounts seeing the same wildcard are one
@@ -292,13 +364,23 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
       // carries it (`Finding.contextId`): the same shape under two declared
       // origins is two facts, and merging them would read as one.
       //
+      // **The cell a finding names is chosen by a rule, not by arrival.** Of the
+      // observations that give the same shape on the same endpoint under the same
+      // condition, the one whose account id sorts first by code unit is the one
+      // named, and the lower status breaks a tie. The first version took whichever
+      // arrived first, so a consumer feeding the same set in another order got
+      // different bytes under a comment that said the run could not depend on it.
+      //
       // Nested maps rather than a glued string key, for the reason the matrix
       // index gives (`ObservationIndex`): gluing identifiers admits a collision,
       // and the one place a key is built from a separator is `joinKey`, which
       // this file may not reach — `one-decision-one-home.test.ts` pins that
       // import to `defects.ts` alone. `undefined` is the baseline condition and
       // Map keys it on equal terms with a string, so no sentinel is invented.
-      const seen = new Map<string, Map<string | undefined, Set<OriginVerdict>>>();
+      const named = new Map<
+        string,
+        Map<string | undefined, Map<OriginVerdict, AccessObservation>>
+      >();
       for (const observation of context.matrix.observations) {
         const contextId = contextByAccount.get(observation.accountId);
         const foreignOrigin = contextId === undefined ? undefined : foreignOrigins.get(contextId);
@@ -306,31 +388,37 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
         if (verdict === undefined) {
           continue;
         }
-        const byContext = seen.get(observation.endpointId) ?? new Map();
-        const verdicts = byContext.get(contextId) ?? new Set<OriginVerdict>();
-        if (verdicts.has(verdict)) {
-          continue;
+        const byContext = named.get(observation.endpointId) ?? new Map();
+        const byVerdict = byContext.get(contextId) ?? new Map<OriginVerdict, AccessObservation>();
+        const current = byVerdict.get(verdict);
+        if (current === undefined || namesBefore(observation, current)) {
+          byVerdict.set(verdict, observation);
         }
-        verdicts.add(verdict);
-        byContext.set(contextId, verdicts);
-        seen.set(observation.endpointId, byContext);
-        const origin = ownHeader(observation.headers, ALLOW_ORIGIN_HEADER)?.trim() ?? "";
-        findings.push({
-          checkId: CORS_CHECK_ID,
-          severity: SEVERITY[verdict],
-          title: TITLE[verdict],
-          endpointId: observation.endpointId,
-          accountId: observation.accountId,
-          ...(contextId === undefined ? {} : { contextId }),
-          evidence: {
-            allowOrigin: origin,
-            allowCredentials: true,
-            status: observation.status,
-            ...(verdict === "reflects-foreign-origin-with-credentials"
-              ? { foreignOriginDeclared: true }
-              : {}),
-          },
-        });
+        byContext.set(contextId, byVerdict);
+        named.set(observation.endpointId, byContext);
+      }
+      const findings: Finding[] = [];
+      for (const byContext of named.values()) {
+        for (const [contextId, byVerdict] of byContext) {
+          for (const [verdict, observation] of byVerdict) {
+            findings.push({
+              checkId: CORS_CHECK_ID,
+              severity: SEVERITY[verdict],
+              title: TITLE[verdict],
+              endpointId: observation.endpointId,
+              accountId: observation.accountId,
+              ...(contextId === undefined ? {} : { contextId }),
+              evidence: {
+                allowOrigin: headerValueOf(observation.headers, ALLOW_ORIGIN_HEADER) ?? "",
+                allowCredentials: true,
+                status: observation.status,
+                ...(verdict === "reflects-foreign-origin-with-credentials"
+                  ? { foreignOriginDeclared: true }
+                  : {}),
+              },
+            });
+          }
+        }
       }
       // Deterministic order: the run must not depend on the order observations
       // arrived in. Severity is settled later, in `runChecks`, so this orders by
@@ -345,20 +433,25 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
       });
     },
     coverage(context: CheckContext): readonly CheckCoverage[] {
-      // Per endpoint, how many of its observations carried a CORS response header
-      // at all. Zero everywhere is the signal that no origin condition was
-      // declared, which is the difference between "asked and clean" and "never
-      // asked" — the same distinction the isolation check's coverage exists to
-      // keep, and the one an evidence pack needs.
+      // Per endpoint, how many of its answered cells carried a CORS response
+      // header at all, and how many of those allowed credentials. Empty everywhere
+      // says no response carried the headers — either the platform has no CORS
+      // layer, or it answers only a request that names an origin and none was
+      // sent. **Coverage alone cannot tell those apart**: a correct platform
+      // answers an origin it does not trust with no CORS headers, exactly as one
+      // that was never asked does. Whether a condition that sends an origin was
+      // walked is in `coverage.contextsProbed`, which is the denominator the report
+      // already has.
       //
-      // The reflection question has the same two readings and gets its own
-      // counter: `foreignOriginCellsAnswered` is how many cells under a context
+      // The reflection question is the one that can be told apart, and gets its
+      // own counter: `foreignOriginCellsAnswered` is how many cells under a context
       // declared foreign got an answer at all, a probe that failed excluded. An
       // endpoint with that counter above zero and no finding was **asked** whether
-      // it trusts the declared origin and said it does not — which an endpoint
-      // with no such counter was never asked. It is absent when no origin was
-      // declared foreign, as `skippedDifferentContextPairs` is absent when no
-      // conditions are declared: a zero there would claim a question was put.
+      // it trusts the declared origin and did not allow it with credentials, which
+      // an endpoint with no such counter was never asked. It is absent when no
+      // origin was declared foreign, as `skippedDifferentContextPairs` is absent
+      // when no conditions are declared: a zero there would claim a question was
+      // put.
       const contextByAccount = contextsOf(context);
       const perEndpoint = new Map<
         string,

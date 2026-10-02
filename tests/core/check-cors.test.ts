@@ -230,21 +230,42 @@ describe("the permissive-CORS check", () => {
     expect(findings.map((finding) => finding.contextId).sort()).toEqual(["origin-a", "origin-b"]);
   });
 
-  it("settles its severities through runChecks, which it declares high as a fallback", () => {
+  it("keeps the severity each of its findings carries through runChecks", () => {
+    // The check declares `high` once and every finding names its own, so this
+    // pins that `runChecks` leaves a medium finding medium. It cannot show the
+    // fallback: no finding of this check leaves its severity off.
     const resolved = runChecks(
       [check],
-      contextOf([
-        observation({
-          headers: {
-            "access-control-allow-origin": "null",
-            "access-control-allow-credentials": "true",
-          },
-        }),
-      ]),
+      contextOf(
+        [
+          observation({
+            accountId: "alice",
+            headers: {
+              "access-control-allow-origin": "null",
+              "access-control-allow-credentials": "true",
+            },
+          }),
+          observation({
+            accountId: "bob",
+            endpointId: "other",
+            headers: {
+              "access-control-allow-origin": "*",
+              "access-control-allow-credentials": "true",
+            },
+          }),
+        ],
+        [
+          { id: "alice", roleId: "user" },
+          { id: "bob", roleId: "user" },
+        ],
+      ),
     );
 
-    expect(resolved).toHaveLength(1);
-    expect(resolved[0]?.severity).toBe("high");
+    expect(resolved.map((finding) => [finding.endpointId, finding.severity])).toEqual([
+      ["list-orders", "high"],
+      ["other", "medium"],
+    ]);
+    expect(check.severity).toBe("high");
   });
 
   it("reads headers only as own properties", () => {
@@ -307,6 +328,10 @@ describe("the permissive-CORS coverage", () => {
 describe("the clause the check cites", () => {
   it("resolves in the bundled catalogue", () => {
     const catalog = createBundledCatalog();
+    // Not empty first: a loop over an empty list is a pass for any catalogue.
+    expect(check.standards.map((ref) => `${ref.standard}/${ref.clause}`)).toEqual([
+      "OWASP-API-2023/API8",
+    ]);
     for (const ref of check.standards) {
       expect(catalog.clause(ref)).toBeDefined();
     }
@@ -729,10 +754,26 @@ describe("a declared origin written with whitespace around it", () => {
     expect(findings).toHaveLength(1);
   });
 
-  it("is ignored when nothing is left of it", () => {
-    const check = createCorsCheck({ foreignOrigins: new Map([["foreign", "   "]]) });
+  it("is ignored when nothing is left of it, in the verdict and in the coverage", () => {
+    // The account is declared this time. The first version of this test left it
+    // out, so the lookup missed and the coverage was empty whatever the declared
+    // origin was: it passed with the filter deleted and with the filter and the
+    // trim in the wrong order, which is exactly what its whitespace-only input is
+    // there to tell apart.
+    const check = createCorsCheck({ foreignOrigins: new Map([["foreign", "  \t "]]) });
+    const accounts = [
+      { id: "alice@foreign", roleId: "user", contextId: "foreign", baseAccountId: "alice" },
+    ];
+    const echoingNothing = observation({
+      accountId: "alice@foreign",
+      headers: { "access-control-allow-origin": "", "access-control-allow-credentials": "true" },
+    });
 
-    expect(check.coverage?.(contextOf([observation({ accountId: "alice@foreign" })]))).toEqual([]);
+    expect(check.run(contextOf([echoingNothing], accounts))).toEqual([]);
+    expect(check.coverage?.(contextOf([echoingNothing], accounts))?.[0]?.counters).toEqual({
+      corsResponsesSeen: 1,
+      corsResponsesAllowingCredentials: 1,
+    });
   });
 });
 
@@ -793,5 +834,217 @@ describe("foreignOriginCellsAnswered", () => {
     // The same cell twice is two cells to the check; the reader must not decide
     // otherwise.
     expect(foreignOriginCellsAnswered(coverage ?? [])).toBe(2);
+  });
+});
+
+/**
+ * What the pre-release review found the first version of the check did not hold.
+ * Each case here failed, or survived a mutant, before the fix beside it.
+ */
+describe("what the check reads and how it names a cell", () => {
+  const both = (origin: string, credentials = "true") => ({
+    "access-control-allow-origin": origin,
+    "access-control-allow-credentials": credentials,
+  });
+  const alice = [{ id: "alice", roleId: "user" }] as const;
+  const people = [
+    { id: "alice", roleId: "user" },
+    { id: "bob", roleId: "user" },
+  ] as const;
+
+  describe("HTTP whitespace and no other", () => {
+    it("trims what a header value is trimmed of, in the verdict and in the evidence", () => {
+      const findings = check.run(
+        contextOf(
+          [
+            observation({ accountId: "alice", headers: both(" * ", "\ttrue ") }),
+            observation({ accountId: "bob", endpointId: "other", headers: both("\tnull\t") }),
+          ],
+          people,
+        ),
+      );
+
+      expect(findings.map((one) => one.evidence.allowOrigin)).toEqual(["*", "null"]);
+    });
+
+    it("does not trim a no-break space, which no browser does", () => {
+      // `String.prototype.trim` strips U+00A0 and the vertical tab, the form feed
+      // and the Unicode spaces. Fetch does not, so each of these is no grant in
+      // any browser and a finding on it would be about a request nobody can make.
+      for (const [origin, credentials] of [
+        ["\u00a0null", "true"],
+        ["null\u00a0", "true"],
+        ["*", "true\u00a0"],
+        ["*", "\u000btrue"],
+        ["\u2003*", "true"],
+      ] as const) {
+        const findings = check.run(
+          contextOf([observation({ headers: both(origin, credentials) })], alice),
+        );
+
+        expect(findings, JSON.stringify([origin, credentials])).toEqual([]);
+      }
+    });
+
+    it("trims the declared origin the same way and no wider", () => {
+      const declared = createCorsCheck({
+        foreignOrigins: new Map([["foreign", "\u00a0https://attacker.example"]]),
+      });
+      const accounts = [
+        { id: "alice@foreign", roleId: "user", contextId: "foreign", baseAccountId: "alice" },
+      ];
+
+      // A declared origin that starts with a no-break space is not the origin a
+      // browser sends, and an echo of the plain one must not match it.
+      expect(
+        declared.run(
+          contextOf(
+            [
+              observation({
+                accountId: "alice@foreign",
+                headers: both("https://attacker.example"),
+              }),
+            ],
+            accounts,
+          ),
+        ),
+      ).toEqual([]);
+    });
+  });
+
+  describe("the case a consumer's harness spelled the names in", () => {
+    it("finds, and counts, headers written in the case HTTP libraries use", () => {
+      const observations = [
+        observation({
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Credentials": "true",
+          },
+        }),
+      ];
+
+      expect(check.run(contextOf(observations, alice))).toHaveLength(1);
+      expect(check.coverage?.(contextOf(observations, alice))?.[0]?.counters).toEqual({
+        corsResponsesSeen: 1,
+        corsResponsesAllowingCredentials: 1,
+      });
+    });
+
+    it("still refuses a name that is only inherited", () => {
+      // A report parsed back from JSON carries Object.prototype; a name the record
+      // does not own is not a header the response had, in any case.
+      const poisoned = Object.create({
+        "Access-Control-Allow-Origin": "*",
+        "access-control-allow-credentials": "true",
+      }) as Record<string, string>;
+
+      expect(check.run(contextOf([observation({ headers: poisoned })], alice))).toEqual([]);
+      expect(check.coverage?.(contextOf([observation({ headers: poisoned })], alice))).toEqual([]);
+    });
+  });
+
+  describe("one finding per shape, not per endpoint", () => {
+    it("reports both shapes when two accounts give different ones on one endpoint", () => {
+      // A collapse to one finding per endpoint and condition would drop the high
+      // `null` finding whenever a medium `*` one came first.
+      const findings = check.run(
+        contextOf(
+          [
+            observation({ accountId: "alice", headers: both("*") }),
+            observation({ accountId: "bob", headers: both("null") }),
+          ],
+          people,
+        ),
+      );
+
+      expect(findings.map((one) => one.severity).sort()).toEqual(["high", "medium"]);
+    });
+  });
+
+  describe("the declared origin is matched whole", () => {
+    const FOREIGN = "https://attacker.example";
+    const declared = createCorsCheck({ foreignOrigins: new Map([["foreign", FOREIGN]]) });
+    const accounts = [
+      { id: "alice@foreign", roleId: "user", contextId: "foreign", baseAccountId: "alice" },
+    ];
+
+    it("says nothing about an echo that is only near it", () => {
+      // A match by prefix or by substring would call each of these a platform that
+      // trusts the declared origin: a high finding on a platform that does not.
+      for (const near of [
+        "https://attacker.example:8443",
+        "https://attacker.example.evil.test",
+        "https://attacker.example/",
+        "https://attacker.exampl",
+        "https://xattacker.example",
+        "http://attacker.example",
+        "https://attacker.example, https://other.example",
+      ]) {
+        const findings = declared.run(
+          contextOf([observation({ accountId: "alice@foreign", headers: both(near) })], accounts),
+        );
+
+        expect(findings, near).toEqual([]);
+      }
+    });
+
+    it("matches the declared origin when it is padded in the response", () => {
+      const findings = declared.run(
+        contextOf(
+          [observation({ accountId: "alice@foreign", headers: both(` ${FOREIGN}\t`) })],
+          accounts,
+        ),
+      );
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]?.evidence.allowOrigin).toBe(FOREIGN);
+    });
+  });
+
+  describe("the output does not depend on the order the cells arrive in", () => {
+    const cells = [
+      observation({ accountId: "bob", endpointId: "z-last", status: 403, headers: both("null") }),
+      observation({ accountId: "alice", endpointId: "a-first", status: 200, headers: both("*") }),
+      observation({ accountId: "bob", endpointId: "a-first", status: 403, headers: both("*") }),
+      observation({ accountId: "alice", endpointId: "m-mid", status: 200, headers: both("null") }),
+    ];
+
+    it("gives the same findings, in endpoint order, whichever way the cells are fed", () => {
+      const forward = check.run(contextOf(cells, people));
+      const backward = check.run(contextOf([...cells].reverse(), people));
+
+      expect(backward).toEqual(forward);
+      // Asserted as it comes out, not sorted afterwards: the order is the claim.
+      expect(forward.map((one) => one.endpointId)).toEqual(["a-first", "m-mid", "z-last"]);
+    });
+
+    it("names the cell by a rule: the first account by code unit, then the lower status", () => {
+      const findings = check.run(contextOf(cells, people));
+      const wildcard = findings.find((one) => one.endpointId === "a-first");
+
+      // alice and bob both answered `*` on a-first; alice sorts first, so it is
+      // alice's status that the finding carries, not bob's 403.
+      expect(wildcard?.accountId).toBe("alice");
+      expect(wildcard?.evidence.status).toBe(200);
+
+      const sameAccount = check.run(
+        contextOf(
+          [
+            observation({ accountId: "alice", status: 403, headers: both("*") }),
+            observation({ accountId: "alice", status: 200, headers: both("*") }),
+          ],
+          alice,
+        ),
+      );
+      expect(sameAccount[0]?.evidence.status).toBe(200);
+    });
+
+    it("gives the coverage rows in endpoint order whichever way the cells are fed", () => {
+      const forward = check.coverage?.(contextOf(cells, people));
+      const backward = check.coverage?.(contextOf([...cells].reverse(), people));
+
+      expect(backward).toEqual(forward);
+      expect(forward?.map((row) => row.endpointId)).toEqual(["a-first", "m-mid", "z-last"]);
+    });
   });
 });

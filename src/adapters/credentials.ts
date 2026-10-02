@@ -64,6 +64,19 @@ export function assertAuthSchemeIsSound(scheme: AuthScheme, where?: string): voi
     } catch {
       throw new InvalidAuthSchemeError(`"${scheme.header}" is not a header name`, where);
     }
+    // `origin` is public by construction and is **echoed**: a platform that
+    // reflects it answers with the value in `access-control-allow-origin`, which
+    // the report keeps by value because `permissive-cors` can see nothing without
+    // it. A token presented through this header would be printed in the report.
+    // The same refusal stands for a request condition (ADR-0078); this is the
+    // other door a credential reaches the wire by.
+    if (scheme.header.toLowerCase() === "origin") {
+      throw new InvalidAuthSchemeError(
+        `"${scheme.header}" cannot carry a credential: a platform that reflects the ` +
+          `origin would put it in the report, in the access-control-allow-origin header`,
+        where,
+      );
+    }
   }
   if (scheme.kind === "cookie") {
     try {

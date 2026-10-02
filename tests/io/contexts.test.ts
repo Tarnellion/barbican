@@ -730,6 +730,23 @@ contexts:
     expect(parsed.contexts[0]).not.toHaveProperty("foreignOrigin");
   });
 
+  it("is refused for anything but a boolean, and the schema says so", () => {
+    // Held by nothing behavioural before the pre-release review: widening the
+    // field to accept anything was caught only by the snapshot of the JSON Schema,
+    // and regenerating the snapshot would have hidden it.
+    for (const value of ['"true"', '"yes"', "1", "null", "[true]"]) {
+      expect(
+        () =>
+          parseRunConfig(
+            declare(
+              `{ id: foreign, headers: { origin: "https://attacker.example" }, originIsForeign: ${value}, endpoints: [orders.list] }`,
+            ),
+          ),
+        value,
+      ).toThrow(ConfigValidationError);
+    }
+  });
+
   it("is refused where there is no origin header to mark", () => {
     expect(() =>
       parseRunConfig(declare("{ id: foreign, originIsForeign: true, endpoints: [orders.list] }")),

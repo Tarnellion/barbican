@@ -406,8 +406,9 @@ export interface AccessObservation {
   /**
    * The response headers, kept by allowlist and otherwise redacted.
    *
-   * Optional, because nothing in `src/core` reads them: they travel through the
-   * matrix to reach the report, where one line puts them on a finding. Required,
+   * Optional, because the core demands nothing of them: they travel through the
+   * matrix to reach the report, where one line puts them on a finding, and
+   * `permissive-cors` reads two of them by name when they are there. Required,
    * they were the core demanding data on another layer's behalf — and a consumer
    * feeding observations from their own harness, which is what the README
    * invites, had to write `headers: {}` on every row. That empty object is not

@@ -161,22 +161,27 @@ const PARTNER: OriginCondition = {
   origin: '"https://partner.example"',
 };
 
-/** The declaration, with or without the condition that asks the question. */
-function configText(condition?: OriginCondition): string {
+/** The declaration, with or without the conditions that ask the question. */
+function configText(declared?: OriginCondition | readonly OriginCondition[]): string {
+  const conditions = declared === undefined ? [] : Array.isArray(declared) ? declared : [declared];
   const contexts =
-    condition === undefined
+    conditions.length === 0
       ? ""
-      : `
-contexts:
-  - id: ${condition.id}
+      : `\ncontexts:\n${conditions
+          .map(
+            (condition) =>
+              `  - id: ${condition.id}
     description: ${condition.description}
     headers: { origin: ${condition.origin} }
-${condition.extra ?? ""}    endpoints: [${condition.endpoint ?? "me"}]
-`;
-  const contextRule =
-    condition === undefined
-      ? ""
-      : `    - { roles: [user], endpoints: [${condition.endpoint ?? "me"}], context: ${condition.id}, outcome: allowed }\n`;
+${condition.extra ?? ""}    endpoints: [${condition.endpoint ?? "me"}]\n`,
+          )
+          .join("")}`;
+  const contextRule = conditions
+    .map(
+      (condition) =>
+        `    - { roles: [user], endpoints: [${condition.endpoint ?? "me"}], context: ${condition.id}, outcome: allowed }\n`,
+    )
+    .join("");
   return `
 target:
   label: cors run test stand
@@ -248,7 +253,7 @@ interface RunOptions {
 }
 
 async function runIt(
-  condition?: OriginCondition,
+  condition?: OriginCondition | readonly OriginCondition[],
   options: RunOptions = {},
 ): Promise<{
   readonly code: number;
@@ -462,6 +467,35 @@ describe("a foreign origin that nobody asked about", () => {
 
       expect(report.warnings, platform).not.toContain(WARNINGS.foreignOriginNotAsked);
     }
+  });
+
+  it("is warned about when the marked context was not asked, though another context was", async () => {
+    // The configuration the warning exists for: a partner's origin that runs
+    // fine and a foreign one that is declared on a write nobody walks. A
+    // condition that required every context to be marked would stay silent here,
+    // and so would one that required all of them to be asked of.
+    behaviour = "reflect";
+
+    const { report } = await runIt([PARTNER, { ...FOREIGN, endpoint: "write.me" }], {
+      endpoints: ENDPOINTS_WITH_A_WRITE,
+    });
+
+    expect(report.warnings).toContain(WARNINGS.foreignOriginNotAsked);
+  });
+
+  it("is not raised when one of two marked contexts was asked, and says so only in the coverage", async () => {
+    // The accepted limit written into ADR-0078: the warning is all or nothing, and
+    // the second context's silence is read from `coverage.byCheck`.
+    behaviour = "allowlist";
+
+    const { report } = await runIt(
+      [FOREIGN, { ...FOREIGN, id: "foreign-on-write", endpoint: "write.me" }],
+      { endpoints: ENDPOINTS_WITH_A_WRITE },
+    );
+
+    expect(report.warnings).not.toContain(WARNINGS.foreignOriginNotAsked);
+    expect(corsCoverage(report, "me")?.counters.foreignOriginCellsAnswered).toBe(1);
+    expect(corsCoverage(report, "write.me")).toBeUndefined();
   });
 
   it("is not raised for a run that marked nothing", async () => {
