@@ -81,8 +81,9 @@ take its value from the environment.
 **It reaches the check as data, at registration.** `normalizeContexts` resolves the
 marker to the origin and carries it as `foreignOrigin` on the parsed context, once,
 so nothing downstream re-reads a header to learn which origin was called foreign.
-`src/cli/run.ts` hands the check a map from context id to that origin, the way
-`identical-response-across-tenants` is handed its digest signal. The core types do
+`src/cli/run.ts` hands the check a map from context id to that origin as an option
+of `createCorsCheck`, the way a check is handed anything that only the layer that
+reads the configuration knows. The core types do
 not change: a check learns only that context X was declared to send origin O, which
 is a declared fact and not a piece of HTTP.
 
@@ -127,8 +128,8 @@ is the one reader of that counter.
 **The report says it was asked.** `coverage.byCheck` gains `foreignOriginCellsAnswered`
 for `permissive-cors`: how many cells under a context declared foreign got an
 answer, a probe that failed excluded. An endpoint with the counter above zero and
-no finding was asked whether it trusts the declared origin and said it does not,
-which an endpoint without the counter was never asked. The counter is absent when
+no finding was asked whether it trusts the declared origin and did not allow it with
+credentials, which an endpoint without the counter was never asked. The counter is absent when
 no origin was declared foreign, as `skippedDifferentContextPairs` is absent when no
 conditions are declared: a zero would claim a question was put. The parsed context
 is published as `inputs.contexts[].foreignOrigin`, because "declared foreign" is a
@@ -176,8 +177,9 @@ marking and a reader of a saved report never saw the declaration.
 - The configuration gains one optional field, `originIsForeign`. The JSON Schema in
   `schema/` gains it, and the report's `inputs.contexts[]` gains an optional
   `foreignOrigin`, which is additive and does not move `schemaVersion`.
-- The package surface gains two values: `isWebOrigin` and `ForeignOriginError`.
-  `createCorsCheck` takes an optional `CorsCheckOptions`.
+- The package surface gains three values with this decision: `isWebOrigin`,
+  `ForeignOriginError` and `foreignOriginCellsAnswered`. `createCorsCheck` takes an
+  optional `CorsCheckOptions`.
 
 ### Limits
 
@@ -208,10 +210,12 @@ Written down after each was run against the tree, as ADR-0065 asks.
   schema validator in an editor does not, so an editor accepts a declaration the
   parser then refuses at startup.
 - **The library door trusts what it is handed, as far as an origin's shape goes.**
-  `createCorsCheck({ foreignOrigins })` trims each origin as the header it is
-  compared with is trimmed and ignores an empty one, and does not parse. A consumer
-  who hands over a string that is not an origin gets a check that matches nothing.
-  A false positive cannot come of it, since a match needs a real echo.
+  `createCorsCheck({ foreignOrigins })` trims each origin of HTTP whitespace, as the
+  header it is compared with is trimmed, and ignores an empty one, and does not
+  parse. A consumer who hands over a string that is not an origin gets a check that
+  can only match an echo of exactly that string, which is not an origin a browser
+  sends. A false positive cannot come of it, since a match needs a real echo and is
+  by equality, which a test with near misses pins.
 - **The marker is held by its tests and by the shape of the data, not by a gate that
   reads the declaration.** Nothing checks that a context marked foreign is one the
   policy mentions beyond the rule every context already has, which is that some rule

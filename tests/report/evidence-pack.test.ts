@@ -131,7 +131,7 @@ describe("a clause nothing answered for", () => {
    * And the sentence says so in a way a reader cannot take for a pass.
    *
    * The three words asserted are the load-bearing ones. A row that said only
-   * "not covered" would be read by somebody skimming a table of sixteen rows as
+   * "not covered" would be read by somebody skimming a table of seventeen rows as
    * a gap in the tool rather than as a gap in the evidence.
    */
   it("says it is not a pass", () => {

@@ -74,10 +74,10 @@ saying what this run did about it and — where it did nothing — saying that i
 way a reader cannot take for a pass. It is pure and renders nothing; JSON is the
 source of truth and a document is a separate step.
 
-`createBundledCatalog()` is the catalogue this repository ships — sixteen
-clauses: eight of the thirteen requirements of OWASP ASVS 5.0 chapter V8, the
-three authorization entries of the API Top 10, and five access-control
-weaknesses under CWE-284. Each standard carries a `scope` line saying what it
+`createBundledCatalog()` is the catalogue this repository ships — seventeen
+clauses: eight of the thirteen requirements of OWASP ASVS 5.0 chapter V8, four
+entries of the API Top 10 (the three authorization entries and security
+misconfiguration), and five access-control weaknesses under CWE-284. Each standard carries a `scope` line saying what it
 leaves out, because a clause absent from this catalogue is not thereby absent
 from the standard. It is a fresh instance each time on purpose, so you can
 register a standard of your own into it — that is what `StandardCatalog`'s own
@@ -183,8 +183,9 @@ The port interfaces are in `src/adapters/ports.ts` and exported by name.
 ## Standards a check can cite
 
 `createBundledCatalog()` returns the clauses this repository carries as data:
-part of OWASP ASVS 5.0 chapter V8, the three authorization entries of the OWASP
-API Top 10 2023, and the access-control weaknesses under CWE-284. Each entry is
+part of OWASP ASVS 5.0 chapter V8, the three authorization entries and the
+security-misconfiguration entry of the OWASP API Top 10 2023, and the
+access-control weaknesses under CWE-284. Each entry is
 an identifier, one line of the project's own about what the clause is for, and
 the address of the published text — never the requirement's own wording.
 

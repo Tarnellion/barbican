@@ -22,8 +22,8 @@ measured before anything was decided:
 | `src/report/pack.ts` | 855 | 353 | 40 | 462 |
 | `src/report/findings.ts` | 793 | 342 | 24 | 427 |
 
-Taken before this round's own change. `src/report/compare.ts` is **1 020** lines in the tree
-this document lands in: the paragraph it grew is the one on `ProbedEndpoints`, and
+Taken before this round's own change. `src/report/compare.ts` was **1 020** lines at `88bd345`, the tree
+this document landed in: the paragraph it grew is the one on `ProbedEndpoints`, and
 the change that wrote this sentence also removed two lines net, so the first
 version of it said 1 023 and was wrong by the time it was committed. A file that
 gets longer by being explained is the thing this table is about — and a count of a

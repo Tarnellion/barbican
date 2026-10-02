@@ -1266,7 +1266,7 @@ describe("packing a saved report", () => {
     expect(outcome.status).toBe(0);
     const page = await readFile(out, "utf8");
     expect(page.startsWith("<!doctype html>")).toBe(true);
-    // Sixteen catalogued clauses, and a clean run answers for a handful of them.
+    // Seventeen catalogued clauses, and a clean run answers for a handful of them.
     // The rest are unanswered, which is the row a pack exists to print.
     expect(page).toContain("unanswered");
     expect(page).not.toContain("<script");

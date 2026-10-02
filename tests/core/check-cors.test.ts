@@ -2,13 +2,16 @@
  * The permissive-CORS check over response headers.
  *
  * It reads `Access-Control-Allow-Origin` and `Access-Control-Allow-Credentials`
- * off the observations and reports the two origins that are wrong with
- * credentials whatever origin was asked: the wildcard and the null origin. The
- * cases below are the boundary of that claim — a specific origin is not flagged,
- * because from the matrix alone a reflection cannot be told from an allowlist
- * (ADR-0076) — and the mechanics the check shares with its sibling: one finding
- * per endpoint × condition, the condition carried from the account, and the
- * coverage that tells "asked and clean" from "never asked".
+ * off every answered observation and reports the two origins that are wrong with
+ * credentials whatever origin was asked, the wildcard and the null origin, and,
+ * since ADR-0078, an origin the operator declared foreign. The cases below are the
+ * boundary of that claim — a specific origin nobody declared foreign is not
+ * flagged, because from the matrix alone a reflection cannot be told from an
+ * allowlist (ADR-0076) — and the mechanics the check shares with its sibling: one
+ * finding per endpoint × condition × shape, the condition carried from the account,
+ * and a coverage that counts what was answered. That coverage cannot tell asked and
+ * clean from never asked for the two shapes that need no declaration; only the
+ * reflection question has a counter that can.
  *
  * Fixtures are hand-written, per the repository rule: a matrix generated from
  * the thing under test is a check that a function agrees with itself.

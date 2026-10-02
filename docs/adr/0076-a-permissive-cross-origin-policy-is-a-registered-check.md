@@ -23,13 +23,15 @@ cross-origin authorization defect, and the status code is 200 either way.
 
 Three things about it decide the design, and two of them are boundaries:
 
-- **The headers only appear in answer to an `Origin`.** Nothing this tool sends
-  carries one on its own initiative — the address and the headers are the tool's
-  to build, and it does not invent probes. An operator declares a request
-  condition with `{ headers: { origin: "..." } }`; `origin` is not among the
-  names a condition may not set (it is neither a credential, nor a transport
-  header, nor a routing family), so this is expressible today. The cells under
-  that condition are what the check reads.
+- **Most CORS layers answer only a request that names an `Origin`.** Nothing this
+  tool sends carries one on its own initiative — the address and the headers are
+  the tool's to build, and it does not invent probes. An operator declares a
+  request condition with `{ headers: { origin: "..." } }`; `origin` is not among
+  the names a condition may not set (it is neither a credential, nor a transport
+  header, nor a routing family), so this is expressible today. The check reads
+  **every answered cell**, the baseline included, so a platform that sends the
+  headers unasked is reported with no declaration, and a platform that sends them
+  only to a named origin is reported where a declared condition names one.
 - **The dangerous origins divide into the conclusive and the contextual.** `*`
   and `null` with credentials are wrong whatever origin was asked: the Fetch
   standard forbids a wildcard in credentials mode, and the `null` origin is what
@@ -110,10 +112,26 @@ because the core may not import `src/io` — the ring ADR-0024 keeps from closin
 - The OWASP API 2023 catalogue grows from three clauses to four; the pack lists
   seventeen catalogued clauses rather than sixteen, and `permissive-cors` answers
   API8 down the check channel alone.
-- On a run with no origin condition declared, the check examines nothing and its
-  coverage is empty on every endpoint — which the pack reads as "the question was
-  not asked", not "asked and clean". That distinction is the point of the
-  coverage, as it is for the isolation check.
+- A clean result is not a proof of absence, and the coverage cannot make it one for
+  the two shapes that need no declaration. A correct platform answers an origin it
+  does not trust with no CORS headers at all, exactly as one with no CORS layer, or
+  one that was never sent an origin, does, so an empty coverage for this check does
+  not say which. Whether a condition that sends an origin was walked is in
+  `coverage.contextsProbed`. ADR-0078 adds a declaration for which the question
+  *can* be told apart, `foreignOriginCellsAnswered`.
+- The evidence pack has no denominator for the check channel
+  ([ADR-0052](0052-a-clause-can-be-reported-as-exercised.md)), and API8 is the
+  first clause only a check reaches. It reads `answered-without-findings` on any
+  run where the check ran and reported nothing, **including a run in which no
+  request carried an origin**, and the row's own text says that this is not the same
+  as there being nothing to report. An earlier version of this record said the pack
+  reads an empty coverage as "the question was not asked". It does not read the
+  coverage at all.
+- On upgrade from 0.7.0 a configuration that declares nothing about origins can
+  start to exit 1, because the check is registered by default and reads baseline
+  cells: a target that decorates every response with `*` and credentials is now
+  reported. That is a true statement about the response, and the release notes say
+  it.
 - Three new exported values — `createCorsCheck`, `CORS_CHECK_ID` and
   `API_SECURITY_MISCONFIGURATION` — and two response-header names kept by the
   allowlist.
@@ -126,9 +144,10 @@ what it misses as much as by what it holds (ADR-0065):
 - **Reflection of an arbitrary origin with credentials** — the common case, out
   of reach until the sent origin is in the matrix. This is the largest gap and it
   is deliberate.
-- **A policy on an endpoint nobody declared an origin condition for.** No
-  condition, no CORS headers, nothing read. The coverage says so; the check does
-  not go looking.
+- **A policy that answers only a named origin, on an endpoint no declared condition
+  names an origin for.** The platform sends nothing back, so nothing is read, and
+  the coverage looks the same as for a correct platform. The check does not go
+  looking.
 - **A credentials flag spelled other than the exact lower-case `true`.** `True`
   and `1` enable nothing in a browser, so they are correctly not flagged — but a
   platform that reflects while writing a non-standard flag is invisible here, and
