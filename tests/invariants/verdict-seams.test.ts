@@ -157,7 +157,7 @@ describe("B-2 · the severity a check finding has to reach to fail a run", () =>
       // number handed in beside it.
       expect(report.summary.verdictInputs.failingCheckFindings).toBe(1);
       expect(exitCodeFor(report)).toBe(1);
-      expect(runVerdict(report).reason).toContain("body");
+      expect(runVerdict(report).reason).toContain("found by a check over the response");
     });
   }
 

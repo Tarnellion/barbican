@@ -427,7 +427,10 @@ function verdictOfRun(report: VerdictInputs): RunVerdict {
   // without failing a build. Found by the audit of 14 August (B-3).
   const bySignal = report.summary.verdictInputs.failingCheckFindings;
   if (bySignal > 0) {
-    return { code: 1, reason: `${bySignal} found by the response body rather than by status` };
+    return {
+      code: 1,
+      reason: `${bySignal} found by a check over the response rather than by status`,
+    };
   }
 
   // The line a cold read needed: "Distinct defects: at least 1" next to exit 0

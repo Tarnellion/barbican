@@ -316,7 +316,7 @@ describe("a leak only the body shows", () => {
    * and the finding comes from a check. Without this the run would exit 0 with
    * two tenants holding one another's data.
    */
-  it("is 1, and says it was found by the body rather than by status", () => {
+  it("is 1, and says it was found by a check rather than by status", () => {
     const { report, verdict, code } = verdictOf(AS_DECLARED, {
       checks: [
         {
@@ -333,6 +333,6 @@ describe("a leak only the body shows", () => {
 
     expect(report.summary.checkFindings).toBe(1);
     expect(code).toBe(1);
-    expect(verdict.reason).toContain("body");
+    expect(verdict.reason).toContain("found by a check over the response rather than by status");
   });
 });

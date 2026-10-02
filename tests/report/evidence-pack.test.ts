@@ -439,7 +439,7 @@ describe("a clause only a check answered for", () => {
   it("is breached by a check speaking above it", () => {
     const pack = packOf(
       run({
-        verdict: { code: 1, reason: "1 found by the response body rather than by status" },
+        verdict: { code: 1, reason: "1 found by a check over the response rather than by status" },
         clauses: [row(ASVS_TENANT_ISOLATION, { checkIds: ["a-check"] })],
         findings: [
           finding({

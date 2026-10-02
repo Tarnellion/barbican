@@ -432,7 +432,7 @@ export function writeRunSummary(screen: RunScreen): void {
     // something other than the status, and mixing them with escalation would
     // erase that difference.
     summary.checkFindings > 0
-      ? paint(`Of those, found by body rather than status: ${summary.checkFindings}`, "red")
+      ? paint(`Of those, found by a check rather than by status: ${summary.checkFindings}`, "red")
       : undefined,
     // Everything the file warns about, said here in the file's own words and
     // under the file's own conditions — `report.warnings` is the list, not a

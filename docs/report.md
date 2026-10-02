@@ -143,7 +143,7 @@ guess identifiers — logging in is enough.
 |---|---|
 | `observations` | how many cells were probed |
 | `findings` | finding rows — **not** the number of defects, and **not** always the length of the array: see the abridgement note below |
-| `checkFindings` | how many findings were found by body rather than by status |
+| `checkFindings` | how many findings were found by a registered check rather than by status: a comparison of response bodies, or, since `permissive-cors`, a read of response headers |
 | `byKind` | by kind; the keys are kinds of discrepancy and check identifiers |
 | `bySeverity` | by severity |
 | `defectGroups` | distinct defect signatures — a lower bound, **with one exception**: two groups differing only by `contextId` are usually one breakage. See below |

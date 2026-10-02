@@ -737,7 +737,7 @@ describe("the headline of the screen", () => {
     // The fixture really is the case under test: findings, and none of them an
     // escalation. Without this the assertions below would hold on a clean run.
     expect(report.summary.findings).toBeGreaterThan(0);
-    expect(stderr).toContain("Of those, found by body rather than status:");
+    expect(stderr).toContain("Of those, found by a check rather than by status:");
     expect(exitCode).toBe(1);
 
     const headline = headlineOf(stderr);
