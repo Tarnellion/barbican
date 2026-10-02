@@ -348,6 +348,12 @@ export interface ReportFinding {
   readonly standards?: readonly StandardRef[];
   /** The second account of a paired finding. See `Finding.relatedAccountId`. */
   readonly relatedAccountId?: string;
+  /**
+   * Present, and `false`, when the finding is not a statement about who was
+   * granted access to the cell it names: it does not narrow that cell's `match`.
+   * See `Finding.aboutAccess`.
+   */
+  readonly aboutAccess?: false;
   readonly relation?: ResourceRelation;
   /**
    * The request conditions. Absent means baseline, with no attributes added.

@@ -703,8 +703,8 @@ function checksThatDiffer(before: ComparableRun, after: ComparableRun): string |
     `the two runs did not run the same checks: ${parts.join("; ")}. What a check found ` +
     `in one run only is new to this comparison and says nothing about a change on the ` +
     `platform, and a check missing from one run hides what it would have found. Compare ` +
-    `reports written by the same build with the same checks, or write the first one again ` +
-    `with this build`
+    `two reports that ran the same checks: write again the one that lacks a check, with ` +
+    `that check, or the other without it (--checks)`
   );
 }
 

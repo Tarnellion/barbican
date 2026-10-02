@@ -93,6 +93,27 @@ export interface Finding {
    */
   readonly relation?: ResourceRelation;
   /**
+   * `false` when the finding is **not** a statement about who was granted access
+   * to the cell it names. Absent is the ordinary case and means it is.
+   *
+   * A cell's `match` is "the platform did what the declaration said", and a
+   * finding that objects to a cell narrows it: a leak found by body on a cell the
+   * walk agreed with is a cell that did not do what was declared (ADR-0022), and
+   * the evidence pack counts it as breached under the access-control clauses.
+   * That is right for a check that judges access and wrong for one that does not.
+   * `permissive-cors` finds a header policy: the cell it names was granted to the
+   * account the declaration said it should be, and a pack that called ASVS 8.1.1
+   * breached because of it would be telling an auditor that the platform and the
+   * declared policy disagree when they agree on every cell. Found by the
+   * pre-release review of the CORS work.
+   *
+   * A finding with this set still carries its cell for what it is good for, the
+   * request that reproduces it, and still counts everywhere a finding counts: the
+   * exit code, the defect groups, its own clause. It only does not change the
+   * verdict of the cell. See ADR-0076.
+   */
+  readonly aboutAccess?: false;
+  /**
    * Machine-readable evidence for the finding.
    *
    * Scalars only, and non-confidential values only: statuses, flags,

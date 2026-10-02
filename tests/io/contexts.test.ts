@@ -820,6 +820,16 @@ contexts:
     }
   });
 
+  it("says what is wrong with null in its own words, since it is no near miss", () => {
+    expect(() =>
+      parseRunConfig(
+        declare(
+          '{ id: foreign, headers: { origin: "null" }, originIsForeign: true, endpoints: [orders.list] }',
+        ),
+      ),
+    ).toThrow(/sandboxed document[\s\S]*nothing to declare/);
+  });
+
   it("names the context and the string it refused", () => {
     expect(() =>
       parseRunConfig(

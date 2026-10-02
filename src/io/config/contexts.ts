@@ -273,6 +273,16 @@ export function normalizeContexts(
       if (typeof origin !== "string") {
         throw new ForeignOriginError(context.id, 'it declares no "origin" header');
       }
+      if (origin === "null") {
+        // Said in its own words, because the general message below describes a
+        // string that is close to an origin and this one is not close to anything.
+        throw new ForeignOriginError(
+          context.id,
+          `"null" is what a sandboxed document sends, and the check reports a platform ` +
+            `that allows it with credentials whatever was asked, so there is nothing to ` +
+            `declare. Write the origin of a real page the platform must not trust`,
+        );
+      }
       if (!isWebOrigin(origin)) {
         throw new ForeignOriginError(
           context.id,

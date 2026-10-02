@@ -140,8 +140,13 @@ export function foreignOriginCellsAnswered(coverage: readonly CheckCoverage[]): 
  * The case is folded because the alternative is a silent false clean: a harness
  * that spelled `Access-Control-Allow-Origin` as HTTP libraries often do would get
  * no finding and an empty coverage, and empty coverage is what the guide teaches a
- * reader to take for "no CORS layer here". Where two keys differ only in case the
- * one that was set first is read, which is deterministic for a given record.
+ * reader to take for "no CORS layer here". The exact lower-case key wins, and where
+ * only keys that differ in case are there the first by code unit does, so the
+ * answer does not depend on the order the record happened to be built in.
+ *
+ * A value that is not a string is no header value at all: a record parsed from a
+ * file this tool did not write can hold anything, and the trim below would throw
+ * on a `null` and take the whole check out of the run.
  */
 function ownHeader(
   headers: Readonly<Record<string, string>> | undefined,
@@ -150,15 +155,13 @@ function ownHeader(
   if (headers === undefined) {
     return undefined;
   }
-  if (Object.hasOwn(headers, name)) {
-    return headers[name];
-  }
-  for (const key of Object.keys(headers)) {
-    if (key.toLowerCase() === name) {
-      return headers[key];
-    }
-  }
-  return undefined;
+  const key = Object.hasOwn(headers, name)
+    ? name
+    : Object.keys(headers)
+        .filter((one) => one.toLowerCase() === name)
+        .sort(byCodeUnits)[0];
+  const value = key === undefined ? undefined : headers[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 /**
@@ -405,6 +408,11 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
               checkId: CORS_CHECK_ID,
               severity: SEVERITY[verdict],
               title: TITLE[verdict],
+              // A header policy is not a verdict on who may reach the cell, and the
+              // cell it names is only the one that happened to show it. Without
+              // this the cell is `match: false` and the pack calls two
+              // access-control clauses breached. See `Finding.aboutAccess`.
+              aboutAccess: false,
               endpointId: observation.endpointId,
               accountId: observation.accountId,
               ...(contextId === undefined ? {} : { contextId }),

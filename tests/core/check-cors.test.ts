@@ -1051,3 +1051,170 @@ describe("what the check reads and how it names a cell", () => {
     });
   });
 });
+
+/**
+ * Edges the second pre-release review found unpinned in the fixes of the first.
+ */
+describe("the edges of how the check reads and names", () => {
+  const pair = (origin: string, credentials = "true") => ({
+    "access-control-allow-origin": origin,
+    "access-control-allow-credentials": credentials,
+  });
+  const solo = [{ id: "alice", roleId: "user" }] as const;
+  const people = [
+    { id: "alice", roleId: "user" },
+    { id: "bob", roleId: "user" },
+    { id: "Zed", roleId: "user" },
+  ] as const;
+
+  describe("two keys that differ only in case", () => {
+    it("reads the exact lower-case one, whatever the order they were set in", () => {
+      const forward = { "access-control-allow-origin": "null", "ACCESS-CONTROL-ALLOW-ORIGIN": "*" };
+      const backward = {
+        "ACCESS-CONTROL-ALLOW-ORIGIN": "*",
+        "access-control-allow-origin": "null",
+      };
+
+      for (const origin of [forward, backward]) {
+        const findings = check.run(
+          contextOf(
+            [observation({ headers: { ...origin, "access-control-allow-credentials": "true" } })],
+            solo,
+          ),
+        );
+
+        expect(findings.map((one) => one.evidence.allowOrigin)).toEqual(["null"]);
+      }
+    });
+
+    it("reads the first by code unit when none is the lower-case one", () => {
+      // "ACCESS-..." sorts before "Access-..." because "C" is before "c", so the
+      // answer is "*" in both orders and not whichever key came first.
+      const one = { "Access-Control-Allow-Origin": "null", "ACCESS-CONTROL-ALLOW-ORIGIN": "*" };
+      const other = { "ACCESS-CONTROL-ALLOW-ORIGIN": "*", "Access-Control-Allow-Origin": "null" };
+
+      for (const origin of [one, other]) {
+        const findings = check.run(
+          contextOf(
+            [observation({ headers: { ...origin, "access-control-allow-credentials": "true" } })],
+            solo,
+          ),
+        );
+
+        expect(findings.map((finding) => finding.evidence.allowOrigin)).toEqual(["*"]);
+      }
+    });
+  });
+
+  it("does not throw on a header value that is not a string, and reads it as absent", () => {
+    // A record parsed from a file this tool did not write can hold anything. A
+    // `null` would have thrown in the trim and taken the check out of the run.
+    const headers = {
+      "access-control-allow-origin": null,
+      "access-control-allow-credentials": "true",
+    } as unknown as Record<string, string>;
+
+    expect(() => check.run(contextOf([observation({ headers })], solo))).not.toThrow();
+    expect(check.run(contextOf([observation({ headers })], solo))).toEqual([]);
+    expect(check.coverage?.(contextOf([observation({ headers })], solo))).toEqual([]);
+  });
+
+  describe("the cell a finding names", () => {
+    it("is the first account by code unit, whatever the statuses", () => {
+      // The rule is account first and status second. A rule on status alone would
+      // name bob's 200 here, and a rule by locale would name alice, whose "a" sorts
+      // before "Z" in a dictionary and after it by code unit.
+      const findings = check.run(
+        contextOf(
+          [
+            observation({ accountId: "bob", status: 200, headers: pair("*") }),
+            observation({ accountId: "alice", status: 403, outcome: "denied", headers: pair("*") }),
+            observation({ accountId: "Zed", status: 401, outcome: "denied", headers: pair("*") }),
+          ],
+          people,
+        ),
+      );
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0]?.accountId).toBe("Zed");
+      expect(findings[0]?.evidence.status).toBe(401);
+    });
+  });
+
+  describe("the order of findings on one endpoint", () => {
+    it("is by condition and then by title, whichever way the cells are fed", () => {
+      const accounts = [
+        { id: "alice", roleId: "user" },
+        { id: "alice@b", roleId: "user", contextId: "b", baseAccountId: "alice" },
+        { id: "alice@a", roleId: "user", contextId: "a", baseAccountId: "alice" },
+      ];
+      const cells = [
+        observation({ accountId: "alice@b", headers: pair("*") }),
+        observation({ accountId: "alice@a", headers: pair("null") }),
+        observation({ accountId: "alice@a", headers: pair("*") }),
+        observation({ accountId: "alice", headers: pair("null") }),
+      ];
+
+      const forward = check.run(contextOf(cells, accounts));
+      const backward = check.run(contextOf([...cells].reverse(), accounts));
+
+      expect(backward).toEqual(forward);
+      // Baseline first (no condition sorts as the empty string), then a, then b;
+      // inside "a" the two shapes in the order of their titles, "allows any
+      // origin" before "allows the null origin", which is the wildcard first.
+      expect(forward.map((one) => [one.contextId ?? "", one.severity])).toEqual([
+        ["", "high"],
+        ["a", "medium"],
+        ["a", "high"],
+        ["b", "medium"],
+      ]);
+    });
+  });
+
+  describe("HTTP whitespace, all four characters of it", () => {
+    it("trims a line feed and a carriage return as well as a tab and a space", () => {
+      const findings = check.run(
+        contextOf(
+          [
+            observation({ accountId: "alice", headers: pair("\n*\r\n", "\r\ntrue\n") }),
+            observation({ accountId: "bob", endpointId: "other", headers: pair("\t null \t") }),
+          ],
+          people,
+        ),
+      );
+
+      expect(findings.map((one) => one.evidence.allowOrigin)).toEqual(["*", "null"]);
+    });
+  });
+
+  describe("the declared origin and the near misses it is not", () => {
+    const FOREIGN = "https://attacker.example";
+    const declared = createCorsCheck({ foreignOrigins: new Map([["foreign", FOREIGN]]) });
+    const accounts = [
+      { id: "alice@foreign", roleId: "user", contextId: "foreign", baseAccountId: "alice" },
+    ];
+
+    it("is not matched by an upper-case scheme, a bare colon, a fragment or a different scheme", () => {
+      for (const near of [
+        "HTTPS://attacker.example",
+        "https://attacker.example:",
+        "https://attacker.example#x",
+        "ftp://attacker.example",
+        "https://attacker.example\\u0000",
+      ]) {
+        const findings = declared.run(
+          contextOf([observation({ accountId: "alice@foreign", headers: pair(near) })], accounts),
+        );
+
+        expect(findings, near).toEqual([]);
+      }
+    });
+  });
+
+  it("states in the description it ships in every report that it reads every answered cell", () => {
+    // Shipped in `coverage.checksRun[].description`, and the first version said the
+    // opposite of what the check did. Pinned so that the sentence cannot drift back.
+    expect(check.description).toContain("every answered cell");
+    expect(check.description).not.toContain("under a declared origin condition");
+  });
+});

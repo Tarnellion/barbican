@@ -20,10 +20,11 @@
  *   in the report. Any one of those four steps dropped leaves a run that exits 0
  *   on a platform that trusts the origin the operator said it must not.
  *
- * The stand behaves as a real server does: CORS headers only in answer to a
- * request that carried an `Origin`. A stand that sent them unasked would make the
- * case "no origin condition declared" find something, which is the opposite of
- * what the check says about itself.
+ * The stand behaves as most CORS layers do: headers only in answer to a request
+ * that carried an `Origin`, so a run that declares no origin condition has nothing
+ * to read from it and is clean. One behaviour, `unasked-wildcard`, is the other
+ * kind of platform, a global middleware that decorates every response; the check
+ * reads every answered cell, so that stand is reported with no declaration at all.
  */
 
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -32,6 +33,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunFlags } from "../../src/cli/flags.js";
+import { pack } from "../../src/cli/pack.js";
 import { run } from "../../src/cli/run.js";
 import { WARNINGS } from "../../src/report/build.js";
 
@@ -46,6 +48,7 @@ const TOKEN = "cors-run-token-alice";
  * exactly like a reflection of that one origin.
  */
 type Behaviour =
+  | "unasked-wildcard"
   | "null-with-credentials"
   | "wildcard-with-credentials"
   | "allowlist"
@@ -65,13 +68,17 @@ beforeAll(async () => {
       return;
     }
     const origin = request.headers.origin;
-    // Only in answer to an Origin, as a real server does. Nothing is sent
-    // unasked, so a run with no origin condition has nothing to read.
-    if (origin !== undefined) {
-      const allow = (value: string) => {
-        response.setHeader("access-control-allow-origin", value);
-        response.setHeader("access-control-allow-credentials", "true");
-      };
+    const allow = (value: string) => {
+      response.setHeader("access-control-allow-origin", value);
+      response.setHeader("access-control-allow-credentials", "true");
+    };
+    // `unasked-wildcard` is the platform that decorates every response, which is
+    // what a global CORS middleware configured with `*` and credentials does.
+    // The others answer only a request that named an origin, as most layers do,
+    // so a run with no origin condition has nothing to read from them.
+    if (behaviour === "unasked-wildcard") {
+      allow("*");
+    } else if (origin !== undefined) {
       if (behaviour === "null-with-credentials") {
         allow("null");
       } else if (behaviour === "wildcard-with-credentials") {
@@ -224,6 +231,8 @@ interface WrittenReport {
   readonly observations?: readonly {
     readonly accountId: string;
     readonly headers?: Readonly<Record<string, string>>;
+    readonly match?: boolean;
+    readonly findingKinds?: readonly string[];
   }[];
 }
 
@@ -250,6 +259,8 @@ interface RunOptions {
   readonly checks?: string;
   /** The endpoint list, `ENDPOINTS` unless a case needs another. */
   readonly endpoints?: string;
+  /** A whole configuration, for the cases the origin conditions do not describe. */
+  readonly config?: string;
 }
 
 async function runIt(
@@ -262,7 +273,7 @@ async function runIt(
   const config = join(directory, "barbican.run.yaml");
   const endpoints = join(directory, "endpoints.yaml");
   const reportPath = join(directory, "run.json");
-  await writeFile(config, configText(condition), "utf8");
+  await writeFile(config, options.config ?? configText(condition), "utf8");
   await writeFile(endpoints, options.endpoints ?? ENDPOINTS, "utf8");
   const code = await run(flagsFor(config, endpoints, reportPath, options.checks));
   return { code, report: JSON.parse(await readFile(reportPath, "utf8")) as WrittenReport };
@@ -506,5 +517,106 @@ describe("a foreign origin that nobody asked about", () => {
     const { report } = await runIt(PARTNER, { checks: "identical-response-across-tenants" });
 
     expect(report.warnings).not.toContain(WARNINGS.foreignOriginNotAsked);
+  });
+});
+
+/**
+ * A header policy is not a verdict on who may reach a cell (found by the second
+ * pre-release review).
+ *
+ * A finding narrows the cell it names, so that a leak found by body on a cell the
+ * walk agreed with is not counted as agreed (ADR-0022). `permissive-cors` names a
+ * cell too, only because a cell is where the header was seen. Measured before the
+ * fix: a platform whose every cell agreed with the declared policy, with one
+ * header finding, had its cells flipped to `match: false` and the evidence pack
+ * said ASVS 8.1.1 and 8.2.1 were breached, "the platform and the declared policy
+ * disagree", above "evidence rows: 0 recording a disagreement".
+ */
+describe("a cross-origin finding on a platform that agrees with its declared policy", () => {
+  const WITH_AN_OBJECT = `${ENDPOINTS}  - id: order.read
+    method: GET
+    path: /v1/orders/{orderId}
+`;
+
+  const CONFIG_WITH_AN_OBJECT = () => `
+target:
+  label: cors run test stand
+  baseUrl: http://127.0.0.1:${port}
+  allowedHosts: [127.0.0.1]
+tenants: [tenant-a]
+accounts:
+  - { id: alice, role: user, tenant: tenant-a, tokenEnv: CORS_RUN_TOKEN_ALICE, canary: me }
+resources:
+  - { id: order-1, tenant: tenant-a, params: { orderId: "O-1" } }
+  - { id: order-2, tenant: tenant-a, params: { orderId: "O-2" } }
+policy:
+  fallback: denied
+  rules:
+    - { roles: [user], endpoints: [me, order.read], outcome: allowed }
+`;
+
+  it("leaves every cell as agreed, and the finding is still there", async () => {
+    behaviour = "unasked-wildcard";
+
+    const { report } = await runIt(undefined, {
+      endpoints: WITH_AN_OBJECT,
+      config: CONFIG_WITH_AN_OBJECT(),
+    });
+
+    expect(corsFindings(report).length).toBeGreaterThan(0);
+    const cells = report.observations ?? [];
+    expect(cells.length).toBeGreaterThan(0);
+    for (const cell of cells) {
+      expect(cell.match, JSON.stringify(cell)).toBe(true);
+      expect(cell).not.toHaveProperty("findingKinds");
+    }
+  });
+
+  it("does not make the pack call an access-control clause breached", async () => {
+    behaviour = "unasked-wildcard";
+    const { report } = await runIt(undefined, {
+      endpoints: WITH_AN_OBJECT,
+      config: CONFIG_WITH_AN_OBJECT(),
+    });
+    const from = join(directory, "run.json");
+    const json = join(directory, "pack.json");
+
+    await pack(from, { out: join(directory, "pack.html"), json });
+
+    const rows = (
+      JSON.parse(await readFile(json, "utf8")) as {
+        clauses: readonly { standard: string; clause: string; claim: string }[];
+      }
+    ).clauses;
+    const claim = (standard: string, id: string) =>
+      rows.find((row) => row.standard === standard && row.clause === id)?.claim;
+    // The access-control clauses are what the walk says they are: upheld.
+    expect(claim("OWASP-ASVS-5.0", "8.1.1")).toBe("upheld");
+    expect(claim("OWASP-ASVS-5.0", "8.2.2")).toBe("upheld");
+    // And the clause the finding is evidence about is the one that is breached.
+    expect(claim("OWASP-API-2023", "API8")).toBe("breached");
+    expect(report.findings.filter((finding) => finding.kind === "permissive-cors")).not.toEqual([]);
+  });
+
+  it("still carries the request that reproduces it, on an endpoint that takes an object", async () => {
+    // The finding names no resource, and every cell of this endpoint has one. It
+    // used to print with no request, status or headers, and nothing in it said
+    // which address had carried the header.
+    behaviour = "unasked-wildcard";
+
+    const { report } = await runIt(undefined, {
+      endpoints: WITH_AN_OBJECT,
+      config: CONFIG_WITH_AN_OBJECT(),
+    });
+
+    const onTheObject = report.findings.find(
+      (finding) => finding.kind === "permissive-cors" && finding.endpointId === "order.read",
+    ) as unknown as
+      | { request?: { url: string; as: string }; status?: number; headers?: Record<string, string> }
+      | undefined;
+    expect(onTheObject?.request?.url).toBe(`http://127.0.0.1:${port}/v1/orders/O-1`);
+    expect(onTheObject?.request?.as).toBe("alice");
+    expect(onTheObject?.status).toBe(200);
+    expect(onTheObject?.headers?.["access-control-allow-origin"]).toBe("*");
   });
 });

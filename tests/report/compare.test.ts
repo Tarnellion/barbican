@@ -1031,6 +1031,96 @@ describe("two runs that did not run the same checks", () => {
     }
   });
 
+  it("is not raised by ids repeated inside one run, or by two empty lists", () => {
+    // Sets, not lists: a run that names a check twice ran the same checks.
+    const same = compareRuns(
+      run(withChecks(CORS, CORS, ISOLATION)),
+      run({ ...withChecks(ISOLATION, CORS), runId: SECOND_RUN, startedAt: LATER }),
+    );
+    const empty = compareRuns(run(withChecks()), {
+      ...run(withChecks()),
+      runId: SECOND_RUN,
+      startedAt: LATER,
+    });
+
+    expect(same.blockers.map((one) => one.kind)).not.toContain("checks-differ");
+    expect(empty.blockers.map((one) => one.kind)).not.toContain("checks-differ");
+  });
+
+  it("treats ids that differ only in case as different checks, as the registry does", () => {
+    // An id is case-sensitive where it is registered, so folding it here would say
+    // two runs ran the same check when one ran `Permissive-Cors`, which is another.
+    const comparison = compareRuns(
+      run(withChecks("Permissive-Cors")),
+      run({ ...withChecks("permissive-cors"), runId: SECOND_RUN, startedAt: LATER }),
+    );
+
+    const detail = comparison.blockers.find((one) => one.kind === "checks-differ")?.detail ?? "";
+    expect(detail).toContain("permissive-cors ran only in the second");
+    expect(detail).toContain("Permissive-Cors ran only in the first");
+  });
+
+  it("is raised when one side ran nothing at all and the other ran something", () => {
+    const comparison = compareRuns(
+      run(withChecks()),
+      run({ ...withChecks(CORS), runId: SECOND_RUN, startedAt: LATER }),
+    );
+
+    expect(comparison.blockers.map((one) => one.kind)).toContain("checks-differ");
+  });
+
+  it("names the checks in code-unit order, so the sentence is the same on every machine", () => {
+    const comparison = compareRuns(
+      run(withChecks(ISOLATION)),
+      run({
+        ...withChecks("zeta-check", "alpha-check", "Beta-check"),
+        runId: SECOND_RUN,
+        startedAt: LATER,
+      }),
+    );
+
+    const detail = comparison.blockers.find((one) => one.kind === "checks-differ")?.detail ?? "";
+    expect(detail).toContain("Beta-check, alpha-check, zeta-check ran only in the second");
+  });
+
+  it("keeps the other blockers beside it, and the exit code is 2 either way", () => {
+    const comparison = compareRuns(
+      run({ ...withChecks(ISOLATION), truncated: true }),
+      run({ ...withChecks(ISOLATION, CORS), runId: SECOND_RUN, startedAt: LATER }),
+    );
+
+    const kinds = comparison.blockers.map((one) => one.kind);
+    expect(kinds).toContain("truncated");
+    expect(kinds).toContain("checks-differ");
+    expect(comparison.verdict.code).toBe(2);
+  });
+
+  it("refuses a saved report whose list of checks is null rather than reading it as absent", () => {
+    expect(() =>
+      toComparableRun(
+        {
+          schemaVersion: "2",
+          runId: "r",
+          configDigest: "a",
+          startedAt: "s",
+          truncated: false,
+          target: { baseUrl: "https://api.test" },
+          defects: [],
+          observations: [],
+          coverage: {
+            endpointsTotal: 1,
+            endpointsProbed: 1,
+            cellsObserved: 1,
+            notProbed: {},
+            checksRun: null,
+          },
+          verdict: { code: 0, reason: "clean" },
+        },
+        "after.json",
+      ),
+    ).toThrow(/"coverage.checksRun" is missing or is not an array/);
+  });
+
   it("is read out of a saved report, and only as identifiers", () => {
     const saved = (checksRun: unknown) => ({
       schemaVersion: "2",
