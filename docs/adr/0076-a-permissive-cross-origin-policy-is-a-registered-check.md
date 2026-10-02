@@ -168,3 +168,22 @@ origin that nobody declared foreign, for the reason given, and that case is stil
 the largest gap. What changed is that the premise this record could not supply, which
 origin is not to be trusted, now has a place to be declared.
 
+## Addendum: a header finding does not judge the cell (second pre-release review)
+
+The alternative rejected above, that the matrix channel answers for a cross-origin
+policy, was rejected in the record and quietly accepted by the report. A check
+finding narrows the cell it names ([ADR-0022](0022-one-verdict-per-cell.md)),
+so a platform whose every cell agreed with the declared policy, with one header
+finding, had those cells flipped to `match: false` and the evidence pack called
+ASVS 8.1.1 and 8.2.1 breached, "the platform and the declared policy disagree",
+above "evidence rows: 0 recording a disagreement". That sentence is false of this
+platform.
+
+A finding may now say `aboutAccess: false`, and `permissive-cors` says it on every
+finding. Such a finding leaves the cell's verdict as the walk gave it, and still
+counts in the exit code, the defect groups and its own clause: API8 is breached by
+it, and the access-control clauses are not. It keeps its cell for the request that
+reproduces it, and a finding that names no resource now carries the request of the
+account's first cell by resource on an endpoint that takes an object, which it did
+not before. `Finding.aboutAccess` and `docs/report.md` carry the details.
+

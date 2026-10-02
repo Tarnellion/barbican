@@ -226,7 +226,9 @@ in the report they stand next to the baseline ones. The credentials are the same
 what changes is the request, not the account.
 
 **An attribute value may come from the environment**, exactly like an account
-token. A device signature or a partner key belongs in a variable, not in a file
+token, with one exception: the `origin` header is public and is echoed by a platform
+that reflects it, so it is written in the declaration and `{ env: … }` is refused
+for it. A device signature or a partner key belongs in a variable, not in a file
 that is meant to be committed:
 
 ```yaml
@@ -1200,9 +1202,9 @@ and the third needs something from you
 | the origin **you declared foreign**, so it trusts whatever origin it is sent | high | yes |
 
 **Two things draw the headers out, and only one of them is you.** A platform that
-sends the pair on every response is reported on any configuration, with no
-declaration at all, and a run that used to exit 0 can exit 1 after an upgrade for
-that reason. Most CORS layers do not: they answer only a request that carried an
+sends `*` or `null` with credentials on every response is reported on any
+configuration, with no declaration at all, and a run that used to exit 0 can exit 1
+after an upgrade for that reason. Most CORS layers do not: they answer only a request that carried an
 `Origin`, and this tool never sends one on its own. To ask, you declare a set of
 conditions that does, exactly as in the section on conditions above:
 
@@ -1269,15 +1271,16 @@ access, and it is yours to get right:
 ### Reading the result
 
 - **No finding is not a proof of absence.** The check is listed in
-  `coverage.checksRun` on every run, whether or not it saw anything. Its coverage per
+  `coverage.checksRun` on every run that did not leave it out with `--checks`,
+  whether or not it saw anything. Its coverage per
   endpoint counts the responses that carried a CORS header, and **it cannot tell you
   whether an origin was ever sent**: a correct platform answers an origin it does not
   trust with no CORS headers at all, exactly as one with no CORS layer, or one that
   was never sent an origin, does. Look at `coverage.contextsProbed` for the context
   that declares the `origin`, to see that its cells were walked.
 - **The evidence pack says the same thing less loudly.** It has no denominator for a
-  check, so it lists OWASP API8 as `answered-without-findings` on any run where this
-  check ran and reported nothing, whether or not an origin was sent, and the row's
+  check, so it lists OWASP API8 as `answered-without-findings` on any run the pack
+  stands behind where this check ran and reported nothing, whether or not an origin was sent, and the row's
   text says that a check which reported nothing is not the same as there being
   nothing to report. Read the coverage before quoting that row.
 - **For a foreign origin the question can be told apart.**
@@ -1300,6 +1303,11 @@ access, and it is yours to get right:
   instead of coming back clean. The warning is raised when **no** marked context was
   asked anywhere: with two marked contexts and one asked, read
   `foreignOriginCellsAnswered` per endpoint in the coverage.
+- **Accepting a finding takes one entry per endpoint.** `accepted:` addresses a
+  defect by endpoint, relation and condition, and this check's findings are one per
+  endpoint and condition with no relation, so a header the whole platform sends is as
+  many entries as it has endpoints. Copy the coordinates from `defects[].key`: the kind
+  is `permissive-cors`, and a baseline cell has no context to write.
 - **A preflight is not sent.** The check reads the answer to the request itself,
   so a policy that is permissive only on a method that triggers a preflight is
   not seen.

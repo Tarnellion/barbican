@@ -1327,7 +1327,8 @@ browser writes it. The report says the question was asked as well as what it fou
 not a clean run. A clean result is **not** a proof of absence: a correct platform
 answers an origin it does not trust with no CORS headers, exactly as one that was
 never sent an origin does, and the evidence pack lists API8 as
-`answered-without-findings` whenever the check ran and reported nothing. The check
+`answered-without-findings` on any run it stands behind where the check ran and
+reported nothing. The check
 cites OWASP API8:2023, the one entry the catalogue reaches without judging who access
 was granted to. The feature is a check, a clause and one field of the configuration,
 not a change to the core, which is what ADR-0003 predicted Module-2-shaped work would
@@ -1337,18 +1338,21 @@ credentials. New exports: `createCorsCheck`, `CORS_CHECK_ID`,
 `API_SECURITY_MISCONFIGURATION`, `foreignOriginCellsAnswered`, `isWebOrigin` and
 `ForeignOriginError`.
 
-**Upgrading from 0.7.0: five things you can observe, and one of them can fail a
-build.**
+**Upgrading from 0.7.0: five things you can observe, and three of them change an
+exit code.**
 
 - **A platform that decorates every response with `Access-Control-Allow-Origin: *`
   or `null` together with `Access-Control-Allow-Credentials: true` is now reported,
   with no configuration change.** The check is registered by default and reads every
   answered cell. A run against such a platform that exited 0 on 0.7.0 exits 1, with a
   medium finding for `*` and a high one for `null`. To keep the old exit code while
-  you fix the platform, accept the finding in `accepted:` (kind `permissive-cors`,
-  with a reason and an expiry date, as the guide describes), or run
-  `--checks identical-response-across-tenants`, which leaves the check out of the
-  report altogether.
+  you fix the platform, run `--checks identical-response-across-tenants`, which
+  leaves the check out of the report altogether. Accepting the findings in
+  `accepted:` also works and keeps them in the report, but each endpoint under each
+  condition is its own defect, so a header the whole platform sends takes **one entry
+  per endpoint**: kind `permissive-cors`, the endpoint, and no relation or context for
+  a baseline cell, copied from `defects[].key` with a reason and an expiry date as the
+  guide describes.
 - **A configuration that took a request condition's `origin` from the environment
   (`origin: { env: NAME }`) is refused at startup**, with exit 2 and a message naming
   the context. A platform that reflects the origin puts it in
@@ -1362,11 +1366,16 @@ build.**
 - **`barbican diff` between a 0.7.0 report and one from this build exits 2** and says
   that the two runs did not run the same checks, because the new check's findings
   would otherwise be attributed to the platform while the declaration reads as
-  unchanged. Write the first report again with this build.
-- **The evidence pack lists seventeen clauses where it listed sixteen**, and a run
-  with no CORS finding shows OWASP API8 as `answered-without-findings`. The verdict
-  line of a run whose only finding came from a check now reads "found by a check over
-  the response rather than by status" where it read "by the response body".
+  unchanged. Compare two reports that ran the same checks: write the 0.7.0 report
+  again with this build, or the new one with
+  `--checks identical-response-across-tenants`.
+- **The evidence pack lists seventeen clauses where it listed sixteen.** On a run
+  where the check ran and reported nothing it shows OWASP API8 as
+  `answered-without-findings`; a pack built from a 0.7.0 report, or from a run that
+  left the check out, shows API8 as `unanswered`. The verdict line of a run whose only
+  finding came from a check now reads "found by a check over the response rather than
+  by status" where it read "by the response body", and the screen line "Of those, found
+  by body rather than status" reads "found by a check rather than by status".
 
 **The gate a contributor waits for went from 21 s to 14 s, and the reason was not
 what anybody expected** ([ADR-0072](docs/adr/0072-the-suite-is-as-long-as-its-longest-file.md)).
@@ -1585,7 +1594,7 @@ to confuse:
 | Code | Meaning |
 |---|---|
 | `0` | checked, and reality matches what you declared |
-| `1` | checked, and it does not — a privilege escalation, an unexpectedly denied access, or a high-severity check finding |
+| `1` | checked, and it does not — a privilege escalation, an unexpectedly denied access, or a finding of a check at any severity above `info` |
 | `2` | **the result cannot be trusted** — no observations were made, the run was cut short, or the accounts were not authenticated |
 | `64` | the command line was wrong — an unknown flag, a missing required one, a bad value. Nothing was sent |
 | `130` | interrupted from the keyboard, part-way through the walk |

@@ -45,8 +45,12 @@ tool.
    declared.** An operator asks a question by declaring a set of request
    conditions ([ADR-0019](0019-request-contexts.md)); the tool does not invent
    probes, and the address and headers remain the tool's to build
-   ([ADR-0032](0032-the-grammar-sits-at-the-seam.md)). Without the declaration
-   the check examines nothing, and its coverage says so.
+   ([ADR-0032](0032-the-grammar-sits-at-the-seam.md)). What the check reads is
+   whatever those declared requests drew from the platform. Written first as
+   "without the declaration the check examines nothing", which stopped being true
+   the same day: `permissive-cors` reads every answered cell, the baseline
+   included, and what an operator's declaration adds is the question of whether an
+   origin was ever sent (ADR-0076, ADR-0078).
 4. **Its verdict is conclusive from the response alone, or it says it cannot be.**
    A check that would have to guess whether a response is a defect does not
    report one. The reflected origin in ADR-0076 is the worked example: the case

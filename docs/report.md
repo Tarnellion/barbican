@@ -521,7 +521,7 @@ And these let it run and print in full, because you still want to see it:
 | either run is `truncated` | that run never reached the end of its matrix, so the comparison is honest only as "here is what was looked at". Deliberately compared rather than refused: refusing would hide the half that *was* walked from the operator whose CI job was killed on its timeout |
 | either run's own verdict was `2` | a comparison cannot be steadier than the runs it is made of |
 | coverage shrank | above |
-| the two runs did not run the same checks | a check ran in one file and not in the other, which is what an upgrade that adds a default check does. `configDigest` is the same, so the screen would otherwise say the declaration is unchanged and attribute what the new check found to the platform. Write the first report again with the build that wrote the second, or compare two reports from one build |
+| the two runs did not run the same checks | a check ran in one file and not in the other, which is what an upgrade that adds a default check does. `configDigest` is the same, so the screen would otherwise say the declaration is unchanged and attribute what the new check found to the platform. Compare two reports that ran the same checks: write again the one that lacks a check, with that check, or the other without it (`--checks`) |
 
 **64 is what the argument parser rejects, and nothing else** — the same line this
 document draws for `run`. A path that is not there, a file that is not JSON and a
@@ -1218,6 +1218,18 @@ measurement belongs.
 The other side of the pair is named twice on purpose: `relatedAccountId` is the
 field the report itself reads, and `evidence.otherAccountId` is there for whoever
 is looking at one finding rather than at the schema.
+
+A finding that carries `"aboutAccess": false` is not a statement about who was
+granted access to the cell it names, which today is every finding of
+`permissive-cors`. The cell it names is only where the header was seen: the finding
+has that cell's `request`, `status` and `headers`, so it can be reproduced, and it
+counts everywhere a finding counts, but it does **not** change that cell's `match`
+or add its kind to the cell's `findingKinds`, and the evidence pack does not count
+the cell as breached under an access-control clause because of it. A finding
+without the field is a statement about access, as every finding of
+`identical-response-across-tenants` is. On an endpoint whose cells all take an
+object, a finding that names no resource carries the request of the account's first
+cell by resource, the first by code unit, so that it can still be reproduced.
 
 `bodyDigestsEqual: true` means strictly "the body digests matched". The
 probability of a collision over a run of a thousand responses is on the order of
