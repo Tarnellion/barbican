@@ -151,6 +151,16 @@ export interface ComparableRun {
     readonly cellsObserved: number;
     /** Why endpoints were not probed, by reason. A key space this tool owns only in part. */
     readonly notProbed: Readonly<Record<string, number>>;
+    /**
+     * The checks that ran, by identifier.
+     *
+     * Optional, so that a pair built by hand, and a report from a build that wrote
+     * none, are still comparable — and absent on either side means the comparison
+     * cannot say whether the checks agreed, which it does not guess at. A saved
+     * report from any build since schema version 2 carries it. See
+     * `checks-differ`.
+     */
+    readonly checksRun?: readonly { readonly id: string }[];
   };
   readonly verdict: { readonly code: number; readonly reason: string };
 }
@@ -179,7 +189,8 @@ export type BlockerKind =
   | "same-run"
   | "truncated"
   | "untrusted-run"
-  | "coverage-shrank";
+  | "coverage-shrank"
+  | "checks-differ";
 
 export interface ComparisonBlocker {
   readonly kind: BlockerKind;
@@ -648,7 +659,53 @@ function trustBlockers(
         `. A defect gone from a run that did not go looking for it was not fixed`,
     });
   }
+  const differing = checksThatDiffer(before, after);
+  if (differing !== undefined) {
+    blockers.push({ kind: "checks-differ", detail: differing });
+  }
   return blockers;
+}
+
+/**
+ * The sentence for two runs that did not run the same checks, or nothing.
+ *
+ * `configDigest` separates an edit of the declaration from a change on the
+ * platform, and a tool that has been upgraded is a third cause neither of them
+ * sees: a check that ran in one run and not in the other produces findings that
+ * are new to the **comparison** and may be old on the platform, or hides ones
+ * that are still there. Measured by the pre-release review of the release that
+ * added a default check, the first since this comparison shipped to change the
+ * set: the same platform, the same declaration, `Defects: 0 → 2 — 2 new` and
+ * "the two runs do not describe the same platform".
+ *
+ * A blocker and not a note, for the reason a truncated run is one: the news
+ * cannot be relied on, and a reader who stops at the counts takes the opposite
+ * away. It asks nothing of a pair where either side did not record its checks.
+ */
+function checksThatDiffer(before: ComparableRun, after: ComparableRun): string | undefined {
+  const first = before.coverage.checksRun;
+  const second = after.coverage.checksRun;
+  if (first === undefined || second === undefined) {
+    return undefined;
+  }
+  const inFirst = new Set(first.map((check) => check.id));
+  const inSecond = new Set(second.map((check) => check.id));
+  const onlyFirst = [...inFirst].filter((id) => !inSecond.has(id)).sort(byCodeUnits);
+  const onlySecond = [...inSecond].filter((id) => !inFirst.has(id)).sort(byCodeUnits);
+  if (onlyFirst.length === 0 && onlySecond.length === 0) {
+    return undefined;
+  }
+  const parts = [
+    ...(onlySecond.length === 0 ? [] : [`${onlySecond.join(", ")} ran only in the second`]),
+    ...(onlyFirst.length === 0 ? [] : [`${onlyFirst.join(", ")} ran only in the first`]),
+  ];
+  return (
+    `the two runs did not run the same checks: ${parts.join("; ")}. What a check found ` +
+    `in one run only is new to this comparison and says nothing about a change on the ` +
+    `platform, and a check missing from one run hides what it would have found. Compare ` +
+    `two reports that ran the same checks: write again the one that lacks a check, with ` +
+    `that check, or the other without it (--checks)`
+  );
 }
 
 /**
@@ -1011,10 +1068,34 @@ export function toComparableRun(value: unknown, source: string): ComparableRun {
       endpointsProbed: numberAt(source, coverage, "endpointsProbed", "coverage"),
       cellsObserved: numberAt(source, coverage, "cellsObserved", "coverage"),
       notProbed: countsAt(source, coverage, "notProbed", "coverage"),
+      ...(coverage["checksRun"] === undefined ? {} : { checksRun: checksRunAt(source, coverage) }),
     },
     verdict: {
       code: numberAt(source, verdict, "code", "verdict"),
       reason: stringAt(source, verdict, "reason", "verdict"),
     },
   };
+}
+
+/**
+ * The identifiers of the checks a saved report says ran.
+ *
+ * Only the identifier: the rest of a `checksRun` entry is a description and a list
+ * of clauses, which nothing here compares. Read through `stringAt`, because an
+ * identifier out of a saved file is printed in the blocker above.
+ *
+ * @throws {UnreadableReportError} when the field is there and is not a list of
+ * objects that carry one.
+ */
+function checksRunAt(
+  source: string,
+  coverage: Readonly<Record<string, unknown>>,
+): readonly { readonly id: string }[] {
+  return arrayAt(source, coverage, "checksRun", "coverage").map((one, index) => {
+    const at = `coverage.checksRun[${index}]`;
+    if (!isRecord(one)) {
+      throw new UnreadableReportError(source, `"${at}" is not an object`);
+    }
+    return { id: stringAt(source, one, "id", at) };
+  });
 }

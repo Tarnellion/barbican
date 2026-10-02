@@ -26,7 +26,7 @@ Validated against four targets — [crAPI](docs/polygons/crapi.md),
   Schema for editor completion, a per-cell verdict in the report, JSON report and
   exit codes, `--resume` for a walk that was cut short, an `accepted:` section for a
   finding somebody has signed for, a comparison of two saved reports, and an evidence
-  pack against a catalogue of sixteen clauses drawn into one self-contained HTML page.
+  pack against a catalogue of seventeen clauses drawn into one self-contained HTML page.
 - **Not yet** — see the limitation below, plus [tasks.md](https://github.com/Tarnellion/barbican/blob/main/tasks.md).
 
 ### Declare your tenant tree, or the old failure mode is still yours
@@ -1265,7 +1265,7 @@ margin, black on white — are **declared and not measured**: no browser runs in
 this repository's suite, and the test asserts that the properties are in the
 document rather than that an engine honoured them.
 
-The package exports 242 names, counted on the tree this section describes:
+The package exported 242 names at `c3345fa`, the tree this section describes:
 `renderPack` and `UnrenderableClaimError` beside
 the six above. The second is the renderer's one decision — a claim outside the
 vocabulary is refused rather than printed as a bare word.
@@ -1307,6 +1307,76 @@ note of 24 August 2026 on
 
 On `main`, not on npm. `0.7.0` is what `npm install barbican` gives you.
 
+**A second check reads a response header the status code cannot show: a
+permissive cross-origin policy** ([ADR-0076](docs/adr/0076-a-permissive-cross-origin-policy-is-a-registered-check.md),
+[ADR-0078](docs/adr/0078-an-origin-is-called-foreign-by-the-operator.md)).
+`permissive-cors` reads `Access-Control-Allow-Origin` and
+`Access-Control-Allow-Credentials` on every answered cell and reports a response that
+allows credentials to the wrong origin. Two shapes are wrong whatever origin was
+asked, `*` and `null`, and need no declaration. The third and more dangerous, a
+platform that **reflects** the origin it was sent, cannot be told from a partner it
+trusts on purpose, so the tool does not guess: an operator marks the origin a context
+sends with `originIsForeign: true`, which says the platform must not trust it, and an
+echo of that origin with credentials is then a high finding. The marker is a
+declaration in the sense of ADR-0006 and can be wrong in the same way, and it is
+refused at startup unless the context sends a literal `origin` written the way a
+browser writes it. The report says the question was asked as well as what it found:
+`foreignOriginCellsAnswered` in the check's coverage, and the marking in
+`inputs.contexts`. A marker that was declared and never put to the platform, because
+`--checks` left the check out or the marked endpoint was not walked, is a warning and
+not a clean run. A clean result is **not** a proof of absence: a correct platform
+answers an origin it does not trust with no CORS headers, exactly as one that was
+never sent an origin does, and the evidence pack lists API8 as
+`answered-without-findings` on any run it stands behind where the check ran and
+reported nothing. The check
+cites OWASP API8:2023, the one entry the catalogue reaches without judging who access
+was granted to. The feature is a check, a clause and one field of the configuration,
+not a change to the core, which is what ADR-0003 predicted Module-2-shaped work would
+be. [ADR-0077](docs/adr/0077-what-a-check-may-be-admitted-to-find.md) says what a
+check may and may not be admitted to find: not injection, fuzzing, volume or forged
+credentials. New exports: `createCorsCheck`, `CORS_CHECK_ID`,
+`API_SECURITY_MISCONFIGURATION`, `foreignOriginCellsAnswered`, `isWebOrigin` and
+`ForeignOriginError`.
+
+**Upgrading from 0.7.0: five things you can observe, and three of them change an
+exit code.**
+
+- **A platform that decorates every response with `Access-Control-Allow-Origin: *`
+  or `null` together with `Access-Control-Allow-Credentials: true` is now reported,
+  with no configuration change.** The check is registered by default and reads every
+  answered cell. A run against such a platform that exited 0 on 0.7.0 exits 1, with a
+  medium finding for `*` and a high one for `null`. To keep the old exit code while
+  you fix the platform, run `--checks identical-response-across-tenants`, which
+  leaves the check out of the report altogether. Accepting the findings in
+  `accepted:` also works and keeps them in the report, but each endpoint under each
+  condition is its own defect, so a header the whole platform sends takes **one entry
+  per endpoint**: kind `permissive-cors`, the endpoint, and no relation or context for
+  a baseline cell, copied from `defects[].key` with a reason and an expiry date as the
+  guide describes.
+- **A configuration that took a request condition's `origin` from the environment
+  (`origin: { env: NAME }`) is refused at startup**, with exit 2 and a message naming
+  the context. A platform that reflects the origin puts it in
+  `access-control-allow-origin`, which the report keeps, so the value would have
+  reached the report. An origin is public: write it in the declaration. Any other
+  header may still take its value from the environment. An authentication scheme that
+  presents its token through a header named `Origin` is refused for the same reason.
+- **Two response headers are kept by value in the report instead of `[REDACTED]`:**
+  `access-control-allow-origin` and `access-control-allow-credentials`. Neither
+  carries a secret.
+- **`barbican diff` between a 0.7.0 report and one from this build exits 2** and says
+  that the two runs did not run the same checks, because the new check's findings
+  would otherwise be attributed to the platform while the declaration reads as
+  unchanged. Compare two reports that ran the same checks: write the 0.7.0 report
+  again with this build, or the new one with
+  `--checks identical-response-across-tenants`.
+- **The evidence pack lists seventeen clauses where it listed sixteen.** On a run
+  where the check ran and reported nothing it shows OWASP API8 as
+  `answered-without-findings`; a pack built from a 0.7.0 report, or from a run that
+  left the check out, shows API8 as `unanswered`. The verdict line of a run whose only
+  finding came from a check now reads "found by a check over the response rather than
+  by status" where it read "by the response body", and the screen line "Of those, found
+  by body rather than status" reads "found by a check rather than by status".
+
 **The gate a contributor waits for went from 21 s to 14 s, and the reason was not
 what anybody expected** ([ADR-0072](docs/adr/0072-the-suite-is-as-long-as-its-longest-file.md)).
 The suspicion was module import: vitest reported 12 s of it against 2 s of
@@ -1342,8 +1412,10 @@ commits — which is why the weakest and commonest form is the one it declines t
 read. Counts of a *design* are out by construction: "five relations" is not a
 count of this tree, and a gate that flagged it is a gate people learn to silence.
 
-It found eleven wrong claims on its first run, all fixed, and its own review found
-two more: a bold number slipped past two of the three grammars, and the gate then
+`tests/docs/a-count-of-this-tree.test.ts` is the gate, and what gets past it is
+measured and listed in the ADR's `Limits`. It found eleven wrong claims on its first
+run, all fixed, four of them by anchoring an ADR's line count to the commit that ADR
+landed in rather than restating it, and its own review found two more: a bold number slipped past two of the three grammars, and the gate then
 caught the illustration inside its own comment. Both are closed, and the second
 one is why the illustration is now described rather than written.
 
@@ -1410,10 +1482,11 @@ the reference platform's 29 reports are the same bytes.
 
 **The four largest files in the report layer were read and left alone**, which is
 [ADR-0073](docs/adr/0073-a-file-is-cut-along-its-jobs.md). `src/report/shape.ts`
-is 1 128 lines of which 873 are prose and 234 are code — a type graph with the
+was 1 128 lines at `99958e7`, of which 873 were prose and 234 were code — a type graph with the
 reasoning beside each field — and the other three hold one job each. The ADR
 also records three changes that measurement argued *against* making, so the next
 reader does not have to measure them again.
+
 **Seven refusals the tool has always made now have tests.** Each was written,
 was reachable from `parseRunConfig` or from the library door, and was run by
 nothing: a context id declared twice, a context naming an account that is not
@@ -1430,28 +1503,6 @@ tree duplicates — are
 the only edit under `src/` is a comment recording why a loop in
 `assertReferencesResolve` cannot be reached today and what would make it live
 again.
-
-**A number that counts this repository is now measured where it is written**
-([ADR-0075](docs/adr/0075-a-count-of-this-tree-is-measured-where-it-is-written.md)).
-Four documents stated a count of the tree on 24 August and were wrong by the
-commit that stated it — a link count, the size of the published surface, a commit
-count over a range with a moving end, and a module's line count in the commit that
-shortened it. One structure, not four mistakes: the author counts the tree, writes
-the number into the tree, and the writing is what makes the number wrong.
-`tests/docs/a-count-of-this-tree.test.ts` reads the tracked markdown and the
-comments of tracked modules and measures each such count against the tree the
-suite is running on, which before a commit is the tree that commit will have.
-
-Four populations, each with something that can enumerate it: the lines of a named
-file, the files **directly** under a named directory, the values the package exports, and the
-commits between two named commits. The tense is the claim — a count in the past
-tense is a record of a measurement and does not go stale, and only the present
-tense drifts — and a sentence naming one commit is measured at that commit
-whatever tense it is in, which is what makes a record checkable. A date is refused
-as an anchor, because a day holds many commits. Eleven claims failed on the tree
-this was first run against and all eleven are fixed here, four of them by anchoring
-an ADR's line count to the commit that ADR landed in rather than restating it. What
-gets past the gate is measured and listed in the ADR's `Limits`.
 
 ## Example
 
@@ -1543,7 +1594,7 @@ to confuse:
 | Code | Meaning |
 |---|---|
 | `0` | checked, and reality matches what you declared |
-| `1` | checked, and it does not — a privilege escalation, an unexpectedly denied access, or a high-severity check finding |
+| `1` | checked, and it does not — a privilege escalation, an unexpectedly denied access, or a finding of a check at any severity above `info` |
 | `2` | **the result cannot be trusted** — no observations were made, the run was cut short, or the accounts were not authenticated |
 | `64` | the command line was wrong — an unknown flag, a missing required one, a bad value. Nothing was sent |
 | `130` | interrupted from the keyboard, part-way through the walk |

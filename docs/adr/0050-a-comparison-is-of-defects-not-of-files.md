@@ -95,6 +95,11 @@ be trusted, 64 the command line was wrong. Each keeps its meaning one level up:
   not read. Four let it run and print in full, because the reader still wants to
   see it: the two files record the same `runId`; either run is `truncated`;
   either run's own verdict was 2; or coverage shrank.
+  *Note of 2 October 2026, [ADR-0078](0078-an-origin-is-called-foreign-by-the-operator.md)
+  and the pre-release review that followed it: a seventh was added when the set of
+  default checks changed for the first time since this comparison shipped. Two runs
+  that did not run the same checks are `checks-differ`, a case that lets the
+  comparison run and print in full like the four above.*
 - **64** — what the argument parser rejects, and nothing else. The line is where
   `docs/report.md` already draws it: 64 is decided before the command does any
   work, so a path that is not there, a file that is not JSON and a document that

@@ -22,8 +22,8 @@ measured before anything was decided:
 | `src/report/pack.ts` | 855 | 353 | 40 | 462 |
 | `src/report/findings.ts` | 793 | 342 | 24 | 427 |
 
-Taken before this round's own change. `src/report/compare.ts` is **1 020** lines in the tree
-this document lands in: the paragraph it grew is the one on `ProbedEndpoints`, and
+Taken before this round's own change. `src/report/compare.ts` was **1 020** lines at `88bd345`, the tree
+this document landed in: the paragraph it grew is the one on `ProbedEndpoints`, and
 the change that wrote this sentence also removed two lines net, so the first
 version of it said 1 023 and was wrong by the time it was committed. A file that
 gets longer by being explained is the thing this table is about — and a count of a
@@ -117,8 +117,7 @@ argument for nothing.
 - The report layer keeps four files over 800 lines, and this document is the
   answer to "why has nobody cut these".
 - Line count stops being evidence on its own in this repository. The number that
-  decides is how many jobs a file holds; `shape.ts` at 1 128 lines and 234 of
-  code is the example to reach for.
+  decides is how many jobs a file holds; `shape.ts`, 1 128 lines at `99958e7` of which 234 were code, is the example to reach for.
 - The `compare.ts` render seam is written down as *not taken*, with the condition
   that would take it: something written twice across it.
 - Two things were changed in the same round, both measured, neither a cut: the

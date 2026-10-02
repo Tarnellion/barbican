@@ -348,6 +348,12 @@ export interface ReportFinding {
   readonly standards?: readonly StandardRef[];
   /** The second account of a paired finding. See `Finding.relatedAccountId`. */
   readonly relatedAccountId?: string;
+  /**
+   * Present, and `false`, when the finding is not a statement about who was
+   * granted access to the cell it names: it does not narrow that cell's `match`.
+   * See `Finding.aboutAccess`.
+   */
+  readonly aboutAccess?: false;
   readonly relation?: ResourceRelation;
   /**
    * The request conditions. Absent means baseline, with no attributes added.
@@ -603,6 +609,12 @@ export interface ReportedContext {
   readonly description?: string;
   /** The declared form: a string or `{ env: NAME }`. No environment values here. */
   readonly headers: Readonly<Record<string, ContextAttributeValue>>;
+  /**
+   * The origin these conditions sent, **declared foreign** by the operator — one
+   * the platform must not trust with credentials (ADR-0078). Absent unless the
+   * declaration said so, and then the same string as `headers.origin`.
+   */
+  readonly foreignOrigin?: string;
   readonly query: Readonly<Record<string, ContextAttributeValue>>;
   readonly endpointIds: readonly string[];
   /** The accounts they applied to. Empty means all of them. */

@@ -16,7 +16,7 @@ it no longer is.
 
 The **Version** and **Direct deps** columns, and the lockfile total below them,
 are not registry figures and do not need the network: they were re-measured
-against `package.json` and `pnpm-lock.yaml` on 24 August 2026, which is the date
+against `package.json` and `pnpm-lock.yaml` on 2 October 2026, which is the date
 to move whenever this file is checked again.
 
 ## Runtime — what ships in the package
@@ -34,8 +34,8 @@ to move whenever this file is checked again.
 |---|---|---|---|---|---|
 | `typescript` | 7.0.2 | 2026-07-08 | 7 | 0 + 20 optional | The compiler. `tsc --noEmit` is a CI gate. Moved off 6.0.3 on 19 August 2026 — ADR-0031. The 20 are platform binaries, resolved by `os`/`cpu`, so one installs. |
 | `@typescript/typescript-<os>-<arch>` | 7.0.2 | 2026-07-08 | 7 | 0 | The native compiler itself, prebuilt. Same publishers as the wrapper and published the same day. **No lifecycle scripts**, so nothing runs at install and `strictDepBuilds` has nothing to refuse. Exactly one is installed per machine: `darwin-arm64` locally, `linux-x64` in CI. |
-| `vitest` | 4.1.10 | — | — | 20 | Tests. The heaviest development tree, and the source of the one transitive advisory this project has had (nanoid, through vite → postcss). |
-| `@vitest/coverage-v8` | 4.1.10 | — | — | 10 | Coverage thresholds, which are a gate rather than a report. |
+| `vitest` | 4.1.11 | — | — | 20 | Tests. The heaviest development tree, and the tree that has carried an advisory twice (nanoid, through vite → postcss, then one in `@vitest/mocker`, cleared by 4.1.11). |
+| `@vitest/coverage-v8` | 4.1.11 | — | — | 10 | Coverage thresholds, which are a gate rather than a report. |
 | `@biomejs/biome` | 2.5.7 | — | — | 0 | Lint and format in one binary, which is why it replaced two tools. |
 | `lefthook` | 2.1.10 | — | — | 0 | Git hooks. Its postinstall is refused in `allowBuilds` and the same step is run explicitly instead. |
 | `@types/node` | 22.20.1 | — | — | 1 | Pinned to the 22 line by `engines`. Types from a newer Node would smuggle in APIs that do not exist on 22 and the typecheck would stop reflecting reality. |

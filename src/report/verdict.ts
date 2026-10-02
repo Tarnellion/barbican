@@ -16,6 +16,7 @@
  */
 
 import type { DiffKind } from "../core/index.js";
+import { foreignOriginCellsAnswered } from "../core/index.js";
 import { byCodeUnits } from "../core/order.js";
 import type { RunConfig } from "../io/config.js";
 import { MAX_ROWS_PER_DEFECT } from "./findings.js";
@@ -75,6 +76,17 @@ export const WARNINGS = {
     "the object half of the surface — the endpoints addressed by identifier, " +
     "which is where broken object-level authorization lives. Declare resources " +
     "for them, or read this report as covering the rest of the list only.",
+  // A marker is an explicit claim by the operator that something will be checked,
+  // so a run that did not check it says so instead of coming back clean. ADR-0078.
+  foreignOriginNotAsked:
+    "A context is marked originIsForeign and no cell under any marked context was " +
+    "answered, so the platform was never asked whether it trusts that origin. " +
+    "Either permissive-cors did not run (--checks left it out), or the marked " +
+    "contexts' endpoints were not walked (a write without --unsafe-methods, an " +
+    "excluded endpoint, a path parameter with no resource), or every request " +
+    "failed. A clean result says nothing about that origin: " +
+    "coverage.byCheck shows foreignOriginCellsAnswered per endpoint, and " +
+    "inputs.contexts names the marked contexts.",
   findingsCapped:
     "Some evidence rows were left out of this file: a defect was observed more " +
     `times than the ${MAX_ROWS_PER_DEFECT} rows kept per defect. Nothing about ` +
@@ -166,6 +178,17 @@ export function warningsFor(report: VerdictInputs, config: RunConfig): readonly 
   }
   if (unconfirmedCredentials(report).length > 0) {
     warnings.push(WARNINGS.noCanary);
+  }
+  // Coarse by design: it fires when **no** marked context was asked anywhere, and
+  // not when one of two was. The counter it reads is the check's own and is per
+  // endpoint, and counting by context here would be a second copy of what
+  // "answered" means. A marker that was asked somewhere and not elsewhere is read
+  // from `coverage.byCheck`, which is why the sentence points there.
+  if (
+    report.inputs.contexts.some((context) => context.foreignOrigin !== undefined) &&
+    foreignOriginCellsAnswered(report.coverage.byCheck) === 0
+  ) {
+    warnings.push(WARNINGS.foreignOriginNotAsked);
   }
   return warnings;
 }
@@ -404,7 +427,10 @@ function verdictOfRun(report: VerdictInputs): RunVerdict {
   // without failing a build. Found by the audit of 14 August (B-3).
   const bySignal = report.summary.verdictInputs.failingCheckFindings;
   if (bySignal > 0) {
-    return { code: 1, reason: `${bySignal} found by the response body rather than by status` };
+    return {
+      code: 1,
+      reason: `${bySignal} found by a check over the response rather than by status`,
+    };
   }
 
   // The line a cold read needed: "Distinct defects: at least 1" next to exit 0

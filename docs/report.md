@@ -143,7 +143,7 @@ guess identifiers — logging in is enough.
 |---|---|
 | `observations` | how many cells were probed |
 | `findings` | finding rows — **not** the number of defects, and **not** always the length of the array: see the abridgement note below |
-| `checkFindings` | how many findings were found by body rather than by status |
+| `checkFindings` | how many findings were found by a registered check rather than by status: a comparison of response bodies, or, since `permissive-cors`, a read of response headers |
 | `byKind` | by kind; the keys are kinds of discrepancy and check identifiers |
 | `bySeverity` | by severity |
 | `defectGroups` | distinct defect signatures — a lower bound, **with one exception**: two groups differing only by `contextId` are usually one breakage. See below |
@@ -505,7 +505,7 @@ hundred and forty-four fixed nothing.
 | 64 | the command line was wrong; nothing was read |
 
 `2` outranks `1` for the reason it does above: what was not tested is never
-clean. Six ways to get it, and they divide in two. These stop the comparison
+clean. Seven ways to get it, and they divide in two. These stop the comparison
 before it starts, and nothing below the declaration line is printed:
 
 | Reason | What it means |
@@ -521,6 +521,7 @@ And these let it run and print in full, because you still want to see it:
 | either run is `truncated` | that run never reached the end of its matrix, so the comparison is honest only as "here is what was looked at". Deliberately compared rather than refused: refusing would hide the half that *was* walked from the operator whose CI job was killed on its timeout |
 | either run's own verdict was `2` | a comparison cannot be steadier than the runs it is made of |
 | coverage shrank | above |
+| the two runs did not run the same checks | a check ran in one file and not in the other, which is what an upgrade that adds a default check does. `configDigest` is the same, so the screen would otherwise say the declaration is unchanged and attribute what the new check found to the platform. Compare two reports that ran the same checks: write again the one that lacks a check, with that check, or the other without it (`--checks`) |
 
 **64 is what the argument parser rejects, and nothing else** — the same line this
 document draws for `run`. A path that is not there, a file that is not JSON and a
@@ -1218,6 +1219,18 @@ The other side of the pair is named twice on purpose: `relatedAccountId` is the
 field the report itself reads, and `evidence.otherAccountId` is there for whoever
 is looking at one finding rather than at the schema.
 
+A finding that carries `"aboutAccess": false` is not a statement about who was
+granted access to the cell it names, which today is every finding of
+`permissive-cors`. The cell it names is only where the header was seen: the finding
+has that cell's `request`, `status` and `headers`, so it can be reproduced, and it
+counts everywhere a finding counts, but it does **not** change that cell's `match`
+or add its kind to the cell's `findingKinds`, and the evidence pack does not count
+the cell as breached under an access-control clause because of it. A finding
+without the field is a statement about access, as every finding of
+`identical-response-across-tenants` is. On an endpoint whose cells all take an
+object, a finding that names no resource carries the request of the account's first
+cell by resource, the first by code unit, so that it can still be reproduced.
+
 `bodyDigestsEqual: true` means strictly "the body digests matched". The
 probability of a collision over a run of a thousand responses is on the order of
 10⁻⁹, but the tool never made a claim about the bodies being identical byte for
@@ -1242,7 +1255,7 @@ What to look for in the report:
 
 | Where | What it says |
 |---|---|
-| `inputs.contexts` | which conditions are declared and with which attributes — without them there is nothing to reproduce a finding with |
+| `inputs.contexts` | which conditions are declared and with which attributes — without them there is nothing to reproduce a finding with. `foreignOrigin` is present on a context the operator marked `originIsForeign`, and is the same string as its `origin` header ([ADR-0078](adr/0078-an-origin-is-called-foreign-by-the-operator.md)) |
 | `accounts[].contextId` | that this row is an account under conditions, not a separate account |
 | `accounts[].baseAccountId` | who this really is: the same account, the same credentials, the same scheme |
 | `findings[].request.contextHeaders` | the attributes without which the row reproduces the **base** case, not the one that was found |

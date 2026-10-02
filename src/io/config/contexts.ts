@@ -20,7 +20,7 @@ import type { AuthScheme } from "../../adapters/credentials.js";
 import type { ContextAttributes } from "../../adapters/ports.js";
 import type { Account, ExpectedAccessPolicy } from "../../core/index.js";
 import { describePolicyRule, identifier } from "../../core/index.js";
-import { isHeaderName, isHeaderValue, safeHeaders } from "../untrusted.js";
+import { isHeaderName, isHeaderValue, isWebOrigin, safeHeaders } from "../untrusted.js";
 import {
   ForbiddenContextHeaderError,
   ForbiddenContextQueryError,
@@ -77,6 +77,27 @@ export class UnknownContextAccountError extends Error {
         `the declared accounts. The context would simply apply to nobody.`,
     );
     this.name = "UnknownContextAccountError";
+  }
+}
+
+/**
+ * A context marked `originIsForeign` whose `origin` header cannot be called one.
+ *
+ * Two ways, and each is a marker that would otherwise mean nothing: no header to
+ * mark, and a string that is not an origin as a browser writes it. (An origin from
+ * the environment is refused earlier, for every context.) The check that reads the marker compares the
+ * declared origin byte for byte with what the platform echoed, so a marker on
+ * anything else is a finding about a request no browser makes (ADR-0078).
+ */
+export class ForeignOriginError extends Error {
+  override readonly name = "ForeignOriginError";
+  constructor(contextId: string, reason: string) {
+    super(
+      `Context "${contextId}" says originIsForeign: true, but ${reason}. A context marks as ` +
+        `foreign the origin it sends in its "origin" header, and the check compares that ` +
+        `string with what the platform echoed — so it has to be a literal origin as a ` +
+        `browser writes it, for example https://attacker.example.`,
+    );
   }
 }
 
@@ -220,7 +241,57 @@ export function normalizeContexts(
           "credentials are presented through this header",
         );
       }
+      // An origin is public by construction — a browser hands it to every site it
+      // visits — and it is **echoed**: a platform that reflects it answers with the
+      // value in `access-control-allow-origin`, which the report keeps because the
+      // `permissive-cors` check cannot see anything without it (ADR-0076). A value
+      // from the environment would reach the report through that header, which is
+      // the one thing `{ env: NAME }` exists to prevent. Found by adversarial
+      // review of ADR-0078, and it was latent from the day the header was kept.
+      if (lower === "origin" && typeof value !== "string") {
+        throw new ForbiddenContextHeaderError(
+          context.id,
+          name,
+          "an origin is public and is written in the declaration: a platform that " +
+            "reflects it would put the value of the environment variable into the " +
+            "report, in the access-control-allow-origin header",
+        );
+      }
       headers[lower] = value;
+    }
+
+    // The marker is checked against the header it marks, after every header has
+    // been admitted: it is a statement about a value that has already passed the
+    // header grammar, so the message below may print it. `headers` has no
+    // prototype, so `origin` here cannot be an inherited one.
+    let foreignOrigin: string | undefined;
+    if (context.originIsForeign === true) {
+      const origin = headers["origin"];
+      // Absent, and nothing else: an origin from the environment was refused above,
+      // for every context and not only a marked one. The type still has to be
+      // narrowed to a string, and one branch does both.
+      if (typeof origin !== "string") {
+        throw new ForeignOriginError(context.id, 'it declares no "origin" header');
+      }
+      if (origin === "null") {
+        // Said in its own words, because the general message below describes a
+        // string that is close to an origin and this one is not close to anything.
+        throw new ForeignOriginError(
+          context.id,
+          `"null" is what a sandboxed document sends, and the check reports a platform ` +
+            `that allows it with credentials whatever was asked, so there is nothing to ` +
+            `declare. Write the origin of a real page the platform must not trust`,
+        );
+      }
+      if (!isWebOrigin(origin)) {
+        throw new ForeignOriginError(
+          context.id,
+          `"${origin}" is not an origin in the form a browser sends: a scheme, a ` +
+            `lower-case host and a port only when it is not the default, with no path, ` +
+            `no trailing slash and no credentials`,
+        );
+      }
+      foreignOrigin = origin;
     }
 
     for (const [key, value] of Object.entries(context.query ?? {})) {
@@ -264,6 +335,7 @@ export function normalizeContexts(
       id: context.id,
       ...(context.description === undefined ? {} : { description: context.description }),
       headers,
+      ...(foreignOrigin === undefined ? {} : { foreignOrigin }),
       query: context.query ?? {},
       endpointIds: context.endpoints,
       accountIds: context.accounts ?? [],

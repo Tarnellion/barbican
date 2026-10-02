@@ -80,6 +80,16 @@ const VALUE_PRESERVED_HEADERS: ReadonlySet<string> = new Set([
   "x-trace-id",
   "x-amzn-trace-id",
   "traceparent",
+  // The cross-origin verdict rests on these two, and neither carries a secret:
+  // an origin is a host and a scheme, and the credentials flag is a boolean
+  // spelled as a word. The `permissive-cors` check (ADR-0076) reads them off the
+  // observation to tell a response that shares an authenticated body with any
+  // origin, or with the null origin, from one that does not. Redacting them
+  // would leave the check reading `[REDACTED]` and finding nothing, which is the
+  // false "clean" a redacted signal always is. They are kept, not merely present:
+  // the value is the whole of the verdict.
+  "access-control-allow-origin",
+  "access-control-allow-credentials",
 ]);
 
 /**

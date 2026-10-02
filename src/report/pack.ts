@@ -197,8 +197,9 @@ export const DISCLAIMERS = {
    * that trip it, because it bounds what any row here can mean.
    */
   blackBox:
-    "Every conclusion here is drawn from HTTP status codes observed from outside " +
-    "the platform. A deployment that answers 200 with the refusal in the body " +
+    "Every conclusion here is drawn from what a response shows from outside the " +
+    "platform: its status and, for the checks that read more, its headers or a " +
+    "digest of its body. A deployment that answers 200 with the refusal in the body " +
     "reads as allowed on every cell, and no row below can tell that case apart " +
     "from a platform that grants everything.",
   /**

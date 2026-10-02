@@ -107,6 +107,38 @@ export function isHeaderValue(value: string): boolean {
   return HEADER_VALUE.test(value);
 }
 
+/**
+ * Whether a string is a web origin **in the form a browser sends it**.
+ *
+ * Asked about a value an operator declares to be a foreign origin (ADR-0078), and
+ * the check that reads the answer compares it byte for byte with what the
+ * platform echoed. A string that is only *close* to an origin — a trailing slash,
+ * an upper-case host, the default port written out, a path, credentials in front
+ * of the host — would be compared as written, and a platform that reflects
+ * whatever it receives would still match it: the finding would say a browser at
+ * that origin was shared with, when no browser sends that string.
+ *
+ * So the rule is not "parses as an origin" but **"equals its own serialization"**.
+ * The parser is the platform's `URL`, which is the serializer a browser uses, and
+ * nothing here models it or normalises toward it: a string either already is what
+ * it would write or it is refused. Modelling somebody else's parser by hand is
+ * how the first version of the address grammar was wrong (ADR-0032); asking the
+ * parser and comparing is the opposite move.
+ *
+ * `http` and `https` only. `null` is not an origin to declare — it is what a
+ * sandboxed document sends, and the check reports an echo of it whatever was
+ * asked — and a `file:` or `data:` page has an opaque origin that serializes to
+ * the same word.
+ */
+export function isWebOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && url.origin === value;
+  } catch {
+    return false;
+  }
+}
+
 /** @throws {UnusableHeaderNameError} */
 export function headerName(value: string): HeaderName {
   if (!isHeaderName(value)) {

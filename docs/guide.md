@@ -226,7 +226,9 @@ in the report they stand next to the baseline ones. The credentials are the same
 what changes is the request, not the account.
 
 **An attribute value may come from the environment**, exactly like an account
-token. A device signature or a partner key belongs in a variable, not in a file
+token, with one exception: the `origin` header is public and is echoed by a platform
+that reflects it, so it is written in the declaration and `{ env: … }` is refused
+for it. A device signature or a partner key belongs in a variable, not in a file
 that is meant to be committed:
 
 ```yaml
@@ -1184,6 +1186,132 @@ checked is answerable before anything is sent.
 **A check left out is coverage left out**, and the report says which ones ran.
 That is the reason to leave the flag off unless you have one.
 
+## Checking a cross-origin policy
+
+`permissive-cors` reads two response headers, `Access-Control-Allow-Origin` and
+`Access-Control-Allow-Credentials`, on **every answered cell**, and reports a
+response that allows credentials to an origin it should not. It finds three shapes,
+and the third needs something from you
+([ADR-0076](adr/0076-a-permissive-cross-origin-policy-is-a-registered-check.md),
+[ADR-0078](adr/0078-an-origin-is-called-foreign-by-the-operator.md)):
+
+| the platform allows, with credentials | severity | needs a declaration |
+|---|---|---|
+| any origin (`*`), which a browser refuses but which shows a CORS layer not reasoning about credentials | medium | no |
+| the `null` origin, which a sandboxed document sends and any attacker can arrange | high | no |
+| the origin **you declared foreign**, so it trusts whatever origin it is sent | high | yes |
+
+**Two things draw the headers out, and only one of them is you.** A platform that
+sends `*` or `null` with credentials on every response is reported on any
+configuration, with no declaration at all, and a run that used to exit 0 can exit 1
+after an upgrade for that reason. Most CORS layers do not: they answer only a request that carried an
+`Origin`, and this tool never sends one on its own. To ask, you declare a set of
+conditions that does, exactly as in the section on conditions above:
+
+```yaml
+contexts:
+  - id: sandboxed
+    description: a request from a sandboxed document, which sends the null origin
+    headers: { origin: "null" }
+    endpoints: [orders.list, orders.read]
+
+policy:
+  fallback: denied
+  rules:
+    - roles: [customer]
+      endpoints: [orders.list, orders.read]
+      context: sandboxed
+      outcome: allowed
+```
+
+The rule is the declaration that this endpoint is meant to answer such a request
+at all, and the run refuses to start without one for the reason the conditions
+section gives. What the check then finds is a **header**, not a refusal, so the
+rule's outcome is about access and does not say the policy is acceptable.
+
+### Saying which origin must not be trusted
+
+A platform that echoes the origin it was sent looks, from the response alone,
+exactly like one that trusts that origin on purpose, so the tool cannot call it a
+defect on its own. You can: only you know which origins the platform is meant to
+trust. Mark the origin a context sends as foreign:
+
+```yaml
+contexts:
+  - id: foreign-origin
+    description: a request from a page the platform has no reason to trust
+    headers: { origin: "https://attacker.example" }
+    originIsForeign: true
+    endpoints: [orders.list, orders.read]
+```
+
+The platform answering that request with `Access-Control-Allow-Origin:
+https://attacker.example` and `Access-Control-Allow-Credentials: true` is then a
+high finding. The marker is a statement that the platform **must not** trust that
+origin, in the same way a rule that says a role is denied is a statement about
+access, and it is yours to get right:
+
+- **An origin the platform is meant to trust is not foreign.** Marking a partner's
+  origin turns the platform's correct answer into a finding.
+- **The origin has to be written the way a browser sends it**: a scheme, a
+  lower-case host, a port only when it is not the default, and nothing after it. A
+  trailing slash, an upper-case host, `:443` on `https` or a path is refused at
+  startup, because the check compares the string byte for byte with what the
+  platform echoed. `null` is refused too, since an echo of it is reported without
+  any declaration.
+- **It has to be written in the file.** An `origin` that comes from the environment
+  (`{ env: NAME }`) is refused in every context, marked or not. A platform that
+  reflects the origin puts it in a response header, and the report keeps that header,
+  so a value taken from a variable would end up in the report. An origin is public, so
+  writing it in the declaration costs nothing.
+- **One declared origin is one question.** A platform that trusts a pattern your
+  origin does not match is not found by it. Declare a second foreign origin to ask
+  a second question.
+
+### Reading the result
+
+- **No finding is not a proof of absence.** The check is listed in
+  `coverage.checksRun` on every run that did not leave it out with `--checks`,
+  whether or not it saw anything. Its coverage per
+  endpoint counts the responses that carried a CORS header, and **it cannot tell you
+  whether an origin was ever sent**: a correct platform answers an origin it does not
+  trust with no CORS headers at all, exactly as one with no CORS layer, or one that
+  was never sent an origin, does. Look at `coverage.contextsProbed` for the context
+  that declares the `origin`, to see that its cells were walked.
+- **The evidence pack says the same thing less loudly.** It has no denominator for a
+  check, so it lists OWASP API8 as `answered-without-findings` on any run the pack
+  stands behind where this check ran and reported nothing, whether or not an origin was sent, and the row's
+  text says that a check which reported nothing is not the same as there being
+  nothing to report. Read the coverage before quoting that row.
+- **For a foreign origin the question can be told apart.**
+  `foreignOriginCellsAnswered` in the check's coverage says how many cells under a
+  context you marked foreign got an answer. Above zero with no finding means the
+  platform was asked about that origin and did not allow it with credentials. The
+  counter is absent when you marked none.
+- **A platform that echoes an origin you did not mark is still not reported.** The
+  response cannot tell that from a partner you forgot to mention, and a finding that
+  guessed would be a false positive.
+- **A refusal can carry the headers too.** The check reads every response that
+  answered, and a CORS layer that decorates a 401 or a 403 is a true finding about
+  that response. It states the `status`, so you can tell it from one on a response
+  that returned data. A cell whose request failed, a 5xx or a redirect, is not read:
+  the report lists it as a probe error instead.
+- **A marker nobody acted on is warned about.** If you narrow the run with
+  `--checks` and leave out `permissive-cors`, or the marked context is on an
+  endpoint the run does not walk, such as a write without `--unsafe-methods`, nothing
+  is sent with that origin. The run then says so in `warnings` and on the screen
+  instead of coming back clean. The warning is raised when **no** marked context was
+  asked anywhere: with two marked contexts and one asked, read
+  `foreignOriginCellsAnswered` per endpoint in the coverage.
+- **Accepting a finding takes one entry per endpoint.** `accepted:` addresses a
+  defect by endpoint, relation and condition, and this check's findings are one per
+  endpoint and condition with no relation, so a header the whole platform sends is as
+  many entries as it has endpoints. Copy the coordinates from `defects[].key`: the kind
+  is `permissive-cors`, and a baseline cell has no context to write.
+- **A preflight is not sent.** The check reads the answer to the request itself,
+  so a policy that is permissive only on a method that triggers a preflight is
+  not seen.
+
 ## What changed since the last run
 
 ```bash
@@ -1316,7 +1444,7 @@ because the coordinates were always in it.
 | `64` | the command line was wrong; nothing was read |
 
 `2` outranks `1` for the reason it does on a run: what was not tested is never
-clean. There are six ways to reach it, and [report.md](report.md) lists them with
+clean. There are seven ways to reach it, and [report.md](report.md) lists them with
 their reasons. One is worth naming here, because it is the one you can do by
 accident:
 
@@ -1356,7 +1484,7 @@ compliance officer.
 
 It draws **one row per clause of a catalogue of external standards**. The three
 this package ships as data — `OWASP-ASVS-5.0`, `OWASP-API-2023` and `CWE` —
-carry sixteen clauses between them. The pack is built *after* the run, from the
+carry seventeen clauses between them. The pack is built *after* the run, from the
 file the run wrote, because JSON is the single source of truth here and a
 document is rendered from it in a separate step; which is also what makes a pack
 of a six-month-old run worth building again today against a catalogue that has
@@ -1382,7 +1510,7 @@ Evidence pack for barbican reference polygon (a demonstration deployment, not a 
 
 This run walked its matrix and answered for its own trustworthiness — it exited 0 or 1 — so the rows below are evidence about the platform it ran against, within the reservations each row carries.
 
-Clauses in the catalogue: 16. 5 breached, 1 upheld, 0 inconclusive, 0 answered-without-findings, 10 unanswered, 0 withheld
+Clauses in the catalogue: 17. 5 breached, 1 upheld, 0 inconclusive, 1 answered-without-findings, 10 unanswered, 0 withheld
 Cited outside the catalogue: 0
 
 Written: pack.html
@@ -1392,7 +1520,7 @@ Exit code 0: the pack was built.
 ```
 
 Read the tally, not the exit code. That run found five breached clauses and
-upheld exactly one — and **ten of the sixteen were answered by nothing at all**.
+upheld exactly one — and **ten of the seventeen were answered by nothing at all**.
 It was a real walk of 144 cells over six endpoints of a seven-endpoint platform,
 and it still leaves most of the catalogue untouched. A document that did not say
 so is the failure this whole subcommand is written against: a run once probed two
@@ -1466,7 +1594,7 @@ Evidence pack for barbican reference polygon (a demonstration deployment, not a 
 
 This run exited 2: it describes the state of the network, of the deployment or of its own credentials rather than the platform's access control. A row recording a disagreement still stands — what was found was found — but no clause below is reported as upheld, because a cell that agreed may have agreed for a reason that has nothing to do with access.
 
-Clauses in the catalogue: 16. 5 breached, 0 upheld, 0 inconclusive, 0 answered-without-findings, 0 unanswered, 11 withheld
+Clauses in the catalogue: 17. 5 breached, 0 upheld, 0 inconclusive, 0 answered-without-findings, 0 unanswered, 12 withheld
 Cited outside the catalogue: 0
 
 Written: cut-short.html
@@ -1557,6 +1685,16 @@ goes to a third party. Where it is allowed to go is item 9 of
   safe mode. The operator logs in outside the tool.
 - **Does not read the body to decide whether access was granted.** The status
   code is the whole of it, and on some platforms that is not enough — see below.
+- **Is not a scanner for payload-based attacks.** It does not inject, fuzz,
+  brute-force or test rate limits, it does not compare an account's state before and
+  after a write (mass assignment), it does not search a response body for content,
+  and it does not forge a credential. A run that comes back clean says nothing about
+  those classes, and a penetration test is still the way to cover them. What it does
+  check beyond access is a few things a response header shows conclusively, which is
+  how `permissive-cors` got in;
+  the four conditions a check has to meet, and what each excluded class would
+  take away, are in
+  [ADR-0077](adr/0077-what-a-check-may-be-admitted-to-find.md).
 
 ### What the model does not express
 

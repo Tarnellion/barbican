@@ -148,7 +148,7 @@ describe("a report drawn into a pack", () => {
     // Every clause of the catalogue is a row in both, which is the property the
     // pack exists for: a document built from what was cited lists what happened
     // to be checked.
-    expect(structure.clauses.length).toBe(16);
+    expect(structure.clauses.length).toBe(17);
     for (const row of structure.clauses) {
       expect(page).toContain(`${row.standard} ${row.clause}`);
     }

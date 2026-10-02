@@ -118,6 +118,30 @@ describe("scheme validation", () => {
     ).toThrow(InvalidAuthSchemeError);
   });
 
+  it("rejects origin as the header a credential is presented through, in any case", () => {
+    // A platform that reflects the origin it receives answers with the value in
+    // access-control-allow-origin, which the report keeps by value (ADR-0078).
+    // A token presented through this header would be printed there. Found by the
+    // pre-release review, with the token landing in report.json.
+    for (const header of ["origin", "Origin", "ORIGIN"]) {
+      expect(() => createCredentialProvider({ kind: "header", header }, tokens), header).toThrow(
+        InvalidAuthSchemeError,
+      );
+    }
+    // And for an override, which is validated at creation like the default.
+    expect(() =>
+      createCredentialProvider(
+        DEFAULT_AUTH_SCHEME,
+        tokens,
+        new Map([["acc", { kind: "header", header: "Origin" }]]),
+      ),
+    ).toThrow(/account "acc"/);
+    // Only that name: another header is still a credential's to use.
+    expect(() =>
+      createCredentialProvider({ kind: "header", header: "x-origin-token" }, tokens),
+    ).not.toThrow();
+  });
+
   it("rejects a cookie name with forbidden characters", () => {
     expect(() => createCredentialProvider({ kind: "cookie", name: "sess ion" }, tokens)).toThrow(
       InvalidAuthSchemeError,

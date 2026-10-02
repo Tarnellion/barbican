@@ -174,6 +174,9 @@ export const WARNING_STYLE: Readonly<Record<keyof typeof WARNINGS, Ink>> = {
   // is everything about the endpoints no request reached. That is a reservation
   // about the reach of the run, which is what yellow says here.
   endpointsNotProbed: "yellow",
+  // Yellow for the same reason: the findings stand, and what is unproved is a
+  // question the operator declared they wanted answered.
+  foreignOriginNotAsked: "yellow",
 };
 
 export type WarningKey = keyof typeof WARNINGS;
@@ -429,7 +432,7 @@ export function writeRunSummary(screen: RunScreen): void {
     // something other than the status, and mixing them with escalation would
     // erase that difference.
     summary.checkFindings > 0
-      ? paint(`Of those, found by body rather than status: ${summary.checkFindings}`, "red")
+      ? paint(`Of those, found by a check rather than by status: ${summary.checkFindings}`, "red")
       : undefined,
     // Everything the file warns about, said here in the file's own words and
     // under the file's own conditions — `report.warnings` is the list, not a

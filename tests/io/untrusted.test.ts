@@ -20,6 +20,7 @@ import { MissingCredentialError, parseRunConfig, resolveTokens } from "../../src
 import {
   headerName,
   headerValue,
+  isWebOrigin,
   lookup,
   openRecord,
   pathSegment,
@@ -216,5 +217,60 @@ policy: { fallback: denied, rules: [] }
 
     expect(() => resolveTokens(named, { TOKEN_A: "" })).toThrow(MissingCredentialError);
     expect(() => resolveTokens(named, { TOKEN_A: " " })).toThrow(/TOKEN_A/);
+  });
+});
+
+/**
+ * A web origin, in the one form a browser writes it (ADR-0078).
+ *
+ * The rule is that a string **equals its own serialization**, so every refusal
+ * below is a string that is close to an origin and not one. The check that reads
+ * a declared origin compares it byte for byte with what the platform echoed; a
+ * near miss would match a platform that reflects whatever it is sent, and the
+ * finding would claim a browser at that origin was shared with.
+ */
+describe("a web origin", () => {
+  it("accepts the form a browser sends", () => {
+    for (const good of [
+      "https://attacker.example",
+      "http://attacker.example",
+      "https://app.attacker.example:8443",
+      "http://localhost:3000",
+      "https://xn--bcher-kva.example",
+    ]) {
+      expect(isWebOrigin(good), good).toBe(true);
+    }
+  });
+
+  it("refuses what is only close to one", () => {
+    for (const bad of [
+      "https://attacker.example/",
+      "https://attacker.example/path",
+      "https://Attacker.example",
+      "https://attacker.example:443",
+      "http://attacker.example:80",
+      "https://user@attacker.example",
+      "https://attacker.example?x=1",
+      "https://attacker.example#frag",
+      " https://attacker.example",
+      "https://attacker.example ",
+      "attacker.example",
+      "//attacker.example",
+    ]) {
+      expect(isWebOrigin(bad), bad).toBe(false);
+    }
+  });
+
+  it("refuses an origin that is not a web one, null included", () => {
+    // `null` is what a sandboxed document sends; the check reports an echo of it
+    // whatever was asked, so declaring it foreign would say nothing new.
+    for (const bad of ["null", "", "*", "ftp://attacker.example", "file://", "data:text/plain,x"]) {
+      expect(isWebOrigin(bad), bad).toBe(false);
+    }
+  });
+
+  it("does not throw on a string the URL parser rejects", () => {
+    expect(isWebOrigin("https://")).toBe(false);
+    expect(isWebOrigin("http://[::1")).toBe(false);
   });
 });

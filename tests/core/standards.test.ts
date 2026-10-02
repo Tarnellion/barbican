@@ -255,7 +255,7 @@ describe("what this repository ships", () => {
       "8.3.3",
       "8.4.1",
     ]);
-    expect(OWASP_API_2023.clauses.map((one) => one.id)).toEqual(["API1", "API3", "API5"]);
+    expect(OWASP_API_2023.clauses.map((one) => one.id)).toEqual(["API1", "API3", "API5", "API8"]);
     expect(CWE_ACCESS_CONTROL.clauses.map((one) => one.id)).toEqual([
       "284",
       "285",

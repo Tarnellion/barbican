@@ -110,6 +110,27 @@ export function mergeFindings(
       .map((c) => [c.id, c.headers]),
   );
   const byCell = new Map(observations.map((observation) => [cellKey(observation), observation]));
+  // For a finding about an endpoint as a whole on an endpoint whose every cell
+  // names a resource, which is every endpoint with a path parameter: the cell it
+  // names exists only with a resource, so an exact lookup finds nothing and the
+  // finding would print with no request, status or headers. The representative
+  // is the account's cell with the first resource by code unit, the same rule on
+  // every machine. Nested maps and no glued key, for the reason `keys.ts` gives.
+  const firstResourceCell = new Map<string, Map<string, AccessObservation>>();
+  for (const observation of observations) {
+    if (observation.resourceId === undefined) {
+      continue;
+    }
+    const byEndpoint = firstResourceCell.get(observation.accountId) ?? new Map();
+    const current = byEndpoint.get(observation.endpointId);
+    if (
+      current === undefined ||
+      byCodeUnits(observation.resourceId, current.resourceId ?? "") < 0
+    ) {
+      byEndpoint.set(observation.endpointId, observation);
+    }
+    firstResourceCell.set(observation.accountId, byEndpoint);
+  }
   function withRequest<
     T extends { accountId?: string; endpointId?: string; resourceId?: string; contextId?: string },
   >(finding: T): T & { request?: RequestRecord } {
@@ -118,13 +139,17 @@ export function mergeFindings(
     if (finding.accountId === undefined || finding.endpointId === undefined) {
       return finding;
     }
-    const observation = byCell.get(
-      cellKey({
-        accountId: finding.accountId,
-        endpointId: finding.endpointId,
-        ...(finding.resourceId === undefined ? {} : { resourceId: finding.resourceId }),
-      }),
-    );
+    const observation =
+      byCell.get(
+        cellKey({
+          accountId: finding.accountId,
+          endpointId: finding.endpointId,
+          ...(finding.resourceId === undefined ? {} : { resourceId: finding.resourceId }),
+        }),
+      ) ??
+      (finding.resourceId === undefined
+        ? firstResourceCell.get(finding.accountId)?.get(finding.endpointId)
+        : undefined);
     if (observation?.url === undefined || observation.method === undefined) {
       return finding;
     }
@@ -286,6 +311,7 @@ export function mergeFindings(
       relatedAccountId,
       resourceId,
       relation,
+      aboutAccess,
       evidence,
       ...unnamed
     } = check;
@@ -321,6 +347,9 @@ export function mergeFindings(
       // promises could not be built from a saved report.
       ...(standards.length === 0 ? {} : { standards }),
       ...(relatedAccountId === undefined ? {} : { relatedAccountId }),
+      // Written only when it is `false`, so that a finding which is a statement
+      // about access carries nothing it has always lacked.
+      ...(aboutAccess === false ? { aboutAccess } : {}),
       evidence,
       // The second request of the pair. Taken from the observations by the name
       // of the other side: the check knows nothing about transport and stores
@@ -523,6 +552,12 @@ export function withVerdicts(
     // reaches this loop. Noticed while closing B-12 — the same class as B-12
     // itself, a line about the code that the code stopped agreeing with.
     if (finding.accountId === undefined || finding.endpointId === undefined) {
+      continue;
+    }
+    // A finding that is not a statement about access leaves the cell's verdict as
+    // the walk gave it. See `Finding.aboutAccess`: this is the one thing it
+    // changes, and the cell it names is only where the finding was observed.
+    if (finding.aboutAccess === false) {
       continue;
     }
     // Both sides of the finding, not only the one it is filed under.

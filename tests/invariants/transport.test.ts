@@ -283,6 +283,8 @@ describe("A-6 · the response-header value allowlist", () => {
    * in that order — never to the constant alone.
    */
   const ALLOWED = [
+    "access-control-allow-credentials",
+    "access-control-allow-origin",
     "allow",
     "cache-control",
     "connection",

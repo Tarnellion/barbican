@@ -122,7 +122,7 @@ describe("a clause nothing answered for", () => {
     // The whole catalogue is here, and that is the point of building it against
     // a catalogue at all: a pack built from what the run cited would list what
     // happened to be checked, and the question a reader has is what was not.
-    expect(pack.clauses.length).toBe(16);
+    expect(pack.clauses.length).toBe(17);
     expect(rowOf(pack, ASVS_TENANT_ISOLATION).claim).toBe("unanswered");
     expect(rowOf(pack, API_OBJECT_LEVEL_AUTHORIZATION).claim).toBe("unanswered");
   });
@@ -131,7 +131,7 @@ describe("a clause nothing answered for", () => {
    * And the sentence says so in a way a reader cannot take for a pass.
    *
    * The three words asserted are the load-bearing ones. A row that said only
-   * "not covered" would be read by somebody skimming a table of sixteen rows as
+   * "not covered" would be read by somebody skimming a table of seventeen rows as
    * a gap in the tool rather than as a gap in the evidence.
    */
   it("says it is not a pass", () => {
@@ -439,7 +439,7 @@ describe("a clause only a check answered for", () => {
   it("is breached by a check speaking above it", () => {
     const pack = packOf(
       run({
-        verdict: { code: 1, reason: "1 found by the response body rather than by status" },
+        verdict: { code: 1, reason: "1 found by a check over the response rather than by status" },
         clauses: [row(ASVS_TENANT_ISOLATION, { checkIds: ["a-check"] })],
         findings: [
           finding({
