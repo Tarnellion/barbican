@@ -505,7 +505,7 @@ hundred and forty-four fixed nothing.
 | 64 | the command line was wrong; nothing was read |
 
 `2` outranks `1` for the reason it does above: what was not tested is never
-clean. Six ways to get it, and they divide in two. These stop the comparison
+clean. Seven ways to get it, and they divide in two. These stop the comparison
 before it starts, and nothing below the declaration line is printed:
 
 | Reason | What it means |
@@ -521,6 +521,7 @@ And these let it run and print in full, because you still want to see it:
 | either run is `truncated` | that run never reached the end of its matrix, so the comparison is honest only as "here is what was looked at". Deliberately compared rather than refused: refusing would hide the half that *was* walked from the operator whose CI job was killed on its timeout |
 | either run's own verdict was `2` | a comparison cannot be steadier than the runs it is made of |
 | coverage shrank | above |
+| the two runs did not run the same checks | a check ran in one file and not in the other, which is what an upgrade that adds a default check does. `configDigest` is the same, so the screen would otherwise say the declaration is unchanged and attribute what the new check found to the platform. Write the first report again with the build that wrote the second, or compare two reports from one build |
 
 **64 is what the argument parser rejects, and nothing else** — the same line this
 document draws for `run`. A path that is not there, a file that is not JSON and a

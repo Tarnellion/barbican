@@ -942,3 +942,157 @@ describe("reading a report off disk", () => {
     expect(() => toComparableRun([], "after.json")).toThrow(/not a JSON object/);
   });
 });
+
+/**
+ * Two runs that did not run the same checks (found by the pre-release review).
+ *
+ * `configDigest` tells an edit of the declaration from a change on the platform,
+ * and an upgraded tool is a third cause neither it nor anything else here saw.
+ * Measured on the release that made a second check a default: the same platform
+ * and the same declaration printed "2 new" and "the two runs do not describe the
+ * same platform", with the declaration reported as unchanged beside it.
+ */
+describe("two runs that did not run the same checks", () => {
+  const withChecks = (...ids: readonly string[]): Partial<ComparableRun> => ({
+    coverage: {
+      endpointsTotal: 4,
+      endpointsProbed: 4,
+      cellsObserved: 144,
+      notProbed: {},
+      checksRun: ids.map((id) => ({ id })),
+    },
+  });
+  const ISOLATION = "identical-response-across-tenants";
+  const CORS = "permissive-cors";
+
+  it("refuses to attribute what a new check found to the platform, and exits 2", () => {
+    const before = run(withChecks(ISOLATION));
+    const after = run({
+      ...withChecks(ISOLATION, CORS),
+      runId: SECOND_RUN,
+      startedAt: LATER,
+      defects: [defect({ key: "orders.list any-resource baseline", kinds: [CORS] })],
+    });
+
+    const comparison = compareRuns(before, after);
+
+    expect(comparison.blockers.map((one) => one.kind)).toContain("checks-differ");
+    expect(comparison.verdict.code).toBe(2);
+    const blocker = comparison.blockers.find((one) => one.kind === "checks-differ");
+    expect(blocker?.detail).toContain("permissive-cors ran only in the second");
+    expect(blocker?.detail).not.toContain("ran only in the first");
+    // The sentence an operator reads, on the screen and not only in the data.
+    expect(screen(comparison)).toContain("did not run the same checks");
+  });
+
+  it("says so the other way round too: a check missing from the second run hides findings", () => {
+    const comparison = compareRuns(
+      run(withChecks(ISOLATION, CORS)),
+      run({ ...withChecks(ISOLATION), runId: SECOND_RUN, startedAt: LATER }),
+    );
+
+    const blocker = comparison.blockers.find((one) => one.kind === "checks-differ");
+    expect(blocker?.detail).toContain("permissive-cors ran only in the first");
+    expect(comparison.verdict.code).toBe(2);
+  });
+
+  it("names both sides when each ran something the other did not", () => {
+    const comparison = compareRuns(
+      run(withChecks(ISOLATION)),
+      run({ ...withChecks(CORS), runId: SECOND_RUN, startedAt: LATER }),
+    );
+
+    const detail = comparison.blockers.find((one) => one.kind === "checks-differ")?.detail ?? "";
+    expect(detail).toContain("permissive-cors ran only in the second");
+    expect(detail).toContain("identical-response-across-tenants ran only in the first");
+  });
+
+  it("is silent about the same checks, in whatever order they were listed", () => {
+    const comparison = compareRuns(
+      run(withChecks(ISOLATION, CORS)),
+      run({ ...withChecks(CORS, ISOLATION), runId: SECOND_RUN, startedAt: LATER }),
+    );
+
+    expect(comparison.blockers.map((one) => one.kind)).not.toContain("checks-differ");
+    expect(comparison.verdict.code).toBe(0);
+  });
+
+  it("asks nothing of a pair where either side did not record its checks", () => {
+    // A pair built by hand, or a report from a build that wrote none: the
+    // comparison cannot say whether the checks agreed and does not guess.
+    for (const [first, second] of [
+      [run(), run(withChecks(ISOLATION, CORS))],
+      [run(withChecks(ISOLATION, CORS)), run()],
+      [run(), run()],
+    ] as const) {
+      const comparison = compareRuns(first, { ...second, runId: SECOND_RUN, startedAt: LATER });
+
+      expect(comparison.blockers.map((one) => one.kind)).not.toContain("checks-differ");
+    }
+  });
+
+  it("is read out of a saved report, and only as identifiers", () => {
+    const saved = (checksRun: unknown) => ({
+      schemaVersion: "2",
+      runId: "11111111-1111-4111-8111-111111111111",
+      configDigest: "aaaa",
+      startedAt: "2026-08-20T09:00:00.000Z",
+      truncated: false,
+      target: { baseUrl: "https://api.test" },
+      defects: [],
+      observations: [],
+      coverage: {
+        endpointsTotal: 1,
+        endpointsProbed: 1,
+        cellsObserved: 1,
+        notProbed: {},
+        checksRun,
+      },
+      verdict: { code: 0, reason: "clean" },
+    });
+
+    const parsed = toComparableRun(
+      saved([{ id: CORS, description: "d", standards: [] }, { id: ISOLATION }]),
+      "after.json",
+    );
+
+    expect(parsed.coverage.checksRun).toEqual([{ id: CORS }, { id: ISOLATION }]);
+    expect(() => toComparableRun(saved("permissive-cors"), "after.json")).toThrow(
+      /"coverage.checksRun" is missing or is not an array/,
+    );
+    expect(() => toComparableRun(saved(["permissive-cors"]), "after.json")).toThrow(
+      /"coverage.checksRun\[0\]" is not an object/,
+    );
+    expect(() => toComparableRun(saved([{ description: "no id" }]), "after.json")).toThrow(
+      UnreadableReportError,
+    );
+  });
+
+  it("refuses an identifier a terminal could not print back", () => {
+    // It is printed in the blocker, so it comes through the same grammar as every
+    // other string out of a saved file (ADR-0066).
+    expect(() =>
+      toComparableRun(
+        {
+          schemaVersion: "2",
+          runId: "r",
+          configDigest: "a",
+          startedAt: "s",
+          truncated: false,
+          target: { baseUrl: "https://api.test" },
+          defects: [],
+          observations: [],
+          coverage: {
+            endpointsTotal: 1,
+            endpointsProbed: 1,
+            cellsObserved: 1,
+            notProbed: {},
+            checksRun: [{ id: "bad\u001b[2Jcheck" }],
+          },
+          verdict: { code: 0, reason: "clean" },
+        },
+        "after.json",
+      ),
+    ).toThrow(UnusableIdentifierError);
+  });
+});
