@@ -148,7 +148,7 @@ npm install barbican
 barbican run --help
 ```
 
-`0.8.0` is the current release, and the one to install. Publishing goes through
+`0.8.1` is the current release, and the one to install. Publishing goes through
 CI with provenance, so `npm audit signatures` verifies it against this repository
 and the workflow that built it.
 
@@ -1502,9 +1502,7 @@ the only edit under `src/` is a comment recording why a loop in
 `assertReferencesResolve` cannot be reached today and what would make it live
 again.
 
-### Unreleased
-
-On `main`, not on npm. `0.8.0` is what `npm install barbican` gives you.
+### What changed in 0.8.1
 
 - **`barbican diff` no longer says "so what follows is about the platform" above a
   comparison it then calls untrustworthy.** The sentence came before the blockers
@@ -1788,7 +1786,7 @@ A release is three edits and a tag, in one commit:
 
 ```bash
 # the tag must match package.json's version — the workflow verifies it
-git tag v0.8.0 && git push origin v0.8.0
+git tag v0.8.1 && git push origin v0.8.1
 ```
 
 The tag triggers [`release.yml`](https://github.com/Tarnellion/barbican/blob/main/.github/workflows/release.yml): it runs the same
