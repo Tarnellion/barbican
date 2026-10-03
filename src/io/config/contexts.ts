@@ -20,7 +20,13 @@ import type { AuthScheme } from "../../adapters/credentials.js";
 import type { ContextAttributes } from "../../adapters/ports.js";
 import type { Account, ExpectedAccessPolicy } from "../../core/index.js";
 import { describePolicyRule, identifier } from "../../core/index.js";
-import { isHeaderName, isHeaderValue, isWebOrigin, safeHeaders } from "../untrusted.js";
+import {
+  echoedHeaderReason,
+  isHeaderName,
+  isHeaderValue,
+  isWebOrigin,
+  safeHeaders,
+} from "../untrusted.js";
 import {
   ForbiddenContextHeaderError,
   ForbiddenContextQueryError,
@@ -241,20 +247,16 @@ export function normalizeContexts(
           "credentials are presented through this header",
         );
       }
-      // An origin is public by construction — a browser hands it to every site it
-      // visits — and it is **echoed**: a platform that reflects it answers with the
-      // value in `access-control-allow-origin`, which the report keeps because the
-      // `permissive-cors` check cannot see anything without it (ADR-0076). A value
-      // from the environment would reach the report through that header, which is
-      // the one thing `{ env: NAME }` exists to prevent. Found by adversarial
-      // review of ADR-0078, and it was latent from the day the header was kept.
-      if (lower === "origin" && typeof value !== "string") {
+      // A value from the environment in a header the platform echoes would reach
+      // the report through it, which is the one thing `{ env: NAME }` exists to
+      // prevent. The rule is `echoedHeaderReason`'s. Found by adversarial review
+      // of ADR-0078, and it was latent from the day the header was kept.
+      const echoed = echoedHeaderReason(name);
+      if (echoed !== undefined && typeof value !== "string") {
         throw new ForbiddenContextHeaderError(
           context.id,
           name,
-          "an origin is public and is written in the declaration: a platform that " +
-            "reflects it would put the value of the environment variable into the " +
-            "report, in the access-control-allow-origin header",
+          `a value written in the declaration is public and an environment variable is not: ${echoed}`,
         );
       }
       headers[lower] = value;

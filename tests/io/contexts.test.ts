@@ -783,7 +783,7 @@ contexts:
           "{ id: foreign, headers: { Origin: { env: FOREIGN_ORIGIN } }, endpoints: [orders.list] }",
         ),
       ),
-    ).toThrow(/would put the value of the environment variable into the report/);
+    ).toThrow(/an environment variable is not: a platform that reflects the origin/);
   });
 
   it("still takes a secret from the environment in any other header", () => {

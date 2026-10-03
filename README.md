@@ -1502,6 +1502,24 @@ the only edit under `src/` is a comment recording why a loop in
 `assertReferencesResolve` cannot be reached today and what would make it live
 again.
 
+### Unreleased
+
+On `main`, not on npm. `0.8.0` is what `npm install barbican` gives you.
+
+- **`barbican diff` no longer says "so what follows is about the platform" above a
+  comparison it then calls untrustworthy.** The sentence came before the blockers
+  were read; with a blocker present, such as two runs that did not run the same
+  checks, the declaration line now stops at the fact. The exit code and the
+  blocker were already right.
+- **One rule for a header the platform echoes into the report.** `origin` cannot
+  carry a secret, whether the secret comes from an environment variable in a request
+  condition or from an authentication scheme that presents its token through that
+  header. The two doors wrote the refusal out separately; they now ask
+  `echoedHeaderReason` in `src/io/untrusted.ts`, which the package exports, so the
+  published surface is 249 values. Both refusals still happen at the same places,
+  and the condition's message now reads "a value written in the declaration is
+  public and an environment variable is not: …".
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.

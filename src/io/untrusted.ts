@@ -139,6 +139,30 @@ export function isWebOrigin(value: string): boolean {
   }
 }
 
+/**
+ * Why a header of this name cannot be given a value that is a secret, or
+ * `undefined` when it can.
+ *
+ * `origin` is public by construction, a browser hands it to every site it visits,
+ * and it is **echoed**: a platform that reflects it answers with the value in
+ * `access-control-allow-origin`, which the report keeps by value because the
+ * `permissive-cors` check can see nothing without it (ADR-0076). Anything that
+ * brings a secret to the wire by this name therefore brings it to the report. Two
+ * doors do, and until this function each wrote the refusal out for itself: a
+ * request condition whose value comes from the environment, and an authentication
+ * scheme that presents its token through a header. They ask here, so a third door
+ * adds a call and not a third copy of the rule (ADR-0024).
+ *
+ * The name is compared case-insensitively because header names are. Nothing else
+ * is refused: another header is still a credential's to use.
+ */
+export function echoedHeaderReason(name: string): string | undefined {
+  return name.toLowerCase() === "origin"
+    ? "a platform that reflects the origin it receives would put the value in the report, " +
+        "in the access-control-allow-origin header"
+    : undefined;
+}
+
 /** @throws {UnusableHeaderNameError} */
 export function headerName(value: string): HeaderName {
   if (!isHeaderName(value)) {

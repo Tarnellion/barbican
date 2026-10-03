@@ -18,6 +18,7 @@ import type { HttpRequest } from "../../src/adapters/ports.js";
 import { createSignalExtractor } from "../../src/adapters/signals.js";
 import { MissingCredentialError, parseRunConfig, resolveTokens } from "../../src/io/config.js";
 import {
+  echoedHeaderReason,
   headerName,
   headerValue,
   isWebOrigin,
@@ -272,5 +273,17 @@ describe("a web origin", () => {
   it("does not throw on a string the URL parser rejects", () => {
     expect(isWebOrigin("https://")).toBe(false);
     expect(isWebOrigin("http://[::1")).toBe(false);
+  });
+});
+
+describe("a header the platform echoes into the report", () => {
+  it("gives a reason for origin, in any case, and for nothing else", () => {
+    for (const name of ["origin", "Origin", "ORIGIN"]) {
+      expect(echoedHeaderReason(name), name).toContain("access-control-allow-origin");
+    }
+    // Near misses are other headers: a credential may still use them.
+    for (const name of ["x-origin", "origins", "origin ", "", "authorization", "x-api-key"]) {
+      expect(echoedHeaderReason(name), name).toBeUndefined();
+    }
   });
 });
