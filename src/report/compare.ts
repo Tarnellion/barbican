@@ -869,9 +869,14 @@ export function renderComparison(comparison: RunComparison): readonly Comparison
       "warn",
     );
   } else {
+    // "So what follows is about the platform" is a claim about a comparison. When
+    // a blocker says the comparison cannot be trusted, whether it was refused or
+    // made and flagged, the sentence promises something the lines below take back,
+    // so it stops at the fact.
     say(
       `The declaration is the same in both runs (configDigest ` +
-        `${shortDigest(comparison.declaration.before)}), so what follows is about the platform.`,
+        `${shortDigest(comparison.declaration.before)})` +
+        (comparison.blockers.length === 0 ? `, so what follows is about the platform.` : `.`),
     );
   }
 
