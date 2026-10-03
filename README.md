@@ -148,7 +148,7 @@ npm install barbican
 barbican run --help
 ```
 
-`0.7.0` is the current release, and the one to install. Publishing goes through
+`0.8.0` is the current release, and the one to install. Publishing goes through
 CI with provenance, so `npm audit signatures` verifies it against this repository
 and the workflow that built it.
 
@@ -1303,9 +1303,7 @@ raw identifier. Nothing about a run of this version differs from 0.6.0. See the
 note of 24 August 2026 on
 [ADR-0064](docs/adr/0064-a-table-written-twice-is-made-to-agree.md).
 
-### Unreleased
-
-On `main`, not on npm. `0.7.0` is what `npm install barbican` gives you.
+### What changed in 0.8.0
 
 **A second check reads a response header the status code cannot show: a
 permissive cross-origin policy** ([ADR-0076](docs/adr/0076-a-permissive-cross-origin-policy-is-a-registered-check.md),
@@ -1763,7 +1761,7 @@ A release is three edits and a tag, in one commit:
 
 ```bash
 # the tag must match package.json's version — the workflow verifies it
-git tag v0.7.0 && git push origin v0.7.0
+git tag v0.8.0 && git push origin v0.8.0
 ```
 
 The tag triggers [`release.yml`](https://github.com/Tarnellion/barbican/blob/main/.github/workflows/release.yml): it runs the same
