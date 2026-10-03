@@ -414,6 +414,12 @@ export function parseRunConfig(source: string): RunConfig {
     // row of the matrix. The grammar is `identifier` in `src/core/identifiers.ts`
     // — ADR-0066 — and this is the door for it, not the rule.
     identifier(account.id, `The id at accounts[${index}]`);
+    // The name of a variable is printed on the terminal when the variable is not
+    // set and travels into the report, so it is held to the same grammar. It was
+    // `z.string().min(1)` and the error message printed it as written.
+    if (account.tokenEnv !== undefined) {
+      identifier(account.tokenEnv, `The tokenEnv at accounts[${index}]`);
+    }
     if (seen.has(account.id)) {
       throw new DuplicateAccountIdError(account.id);
     }

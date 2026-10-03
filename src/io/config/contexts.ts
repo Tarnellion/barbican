@@ -217,6 +217,12 @@ export function normalizeContexts(
             "be sent at all",
         );
       }
+      // The name of the variable, unlike its value, exists now: it is printed when
+      // the variable is unset and it travels into the report, so it is held to the
+      // grammar of an identifier, as an account's `tokenEnv` is.
+      if (typeof value !== "string") {
+        identifier(value.env, `The env at contexts[${index}].headers.${name}`);
+      }
       // A value from the environment cannot be checked here — it does not exist
       // yet. It is verified at resolution time, exactly like an account's token.
       if (typeof value === "string" && !isHeaderValue(value)) {

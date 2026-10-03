@@ -1519,6 +1519,13 @@ On `main`, not on npm. `0.8.0` is what `npm install barbican` gives you.
   published surface is 249 values. Both refusals still happen at the same places,
   and the condition's message now reads "a value written in the declaration is
   public and an environment variable is not: …".
+- **The name of an environment variable is held to the grammar of an identifier.** An
+  account's `tokenEnv` and the `{ env: NAME }` of a request condition were any
+  non-empty string, and the "variable is not set" message printed the name as
+  written, so a control character in it reached the terminal and the report. Both
+  now refuse the C0 and C1 controls, DEL, the two Unicode line separators and the
+  empty string, at parse time, with the slot named. An ordinary name such as
+  `TOKEN_ALICE` is unaffected, and so is a name with a hyphen or a dot.
 
 ## Example
 
