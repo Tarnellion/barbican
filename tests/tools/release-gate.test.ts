@@ -218,6 +218,16 @@ describe("the README describes the version being released", () => {
     expect(refusal).toContain("0.5.0");
   });
 
+  it("is not satisfied by a renamed section that still says it is not on npm", () => {
+    const stale = `### What changed in 0.5.0\n\nOn \`main\`, not on npm. \`0.4.0\` is what ${notes}\n`;
+    const refusal = whyNotDescribed(stale, "0.5.0") ?? "";
+    expect(refusal).toContain("not on npm");
+    // Only the opening: the phrase later in the notes is about something else.
+    expect(
+      whyNotDescribed(`### What changed in 0.5.0\n\n${notes} not on npm\n`, "0.5.0"),
+    ).toBeUndefined();
+  });
+
   it("is not satisfied by the section of some other version", () => {
     expect(whyNotDescribed(`### What changed in 0.4.0\n\n${notes}\n`, "0.5.0")).toBeDefined();
   });

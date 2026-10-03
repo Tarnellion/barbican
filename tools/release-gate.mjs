@@ -291,6 +291,18 @@ export function whyNotDescribed(readme, version) {
       `able to read what changed for them.`
     );
   }
+  // The opening sentence of `### Unreleased` says the section is "on `main`, not on
+  // npm". The release renames the heading and, until this check, nothing asked
+  // whether anyone had rewritten that sentence: `0.8.0` was prepared with a
+  // section that began by saying it was not published. Only the opening is read,
+  // because a release note may say "not on npm" about something else.
+  if (/^On `main`, not on npm/.test(body)) {
+    return (
+      `\`${heading}\` still opens with the sentence of an unreleased section ("On \`main\`, not ` +
+      `on npm."). Rewrite it for the release: a reader of the published notes is told the ` +
+      `version they are reading about does not exist.`
+    );
+  }
   return undefined;
 }
 

@@ -1780,6 +1780,8 @@ A release is three edits and a tag, in one commit:
    one heading above a version it says it is ahead of, and the guard below now
    reads where the section sits — both that it is the last of the run and that
    the run has nothing else in the middle of it — as well as what is under it.
+   Its opening sentence says "On `main`, not on npm" and has to be rewritten in
+   the same edit; the guard refuses a renamed section that still begins with it.
 2. Set that version in `package.json`. Between releases it names the last version
    this tree shipped, so this is where it moves.
 3. Read the renamed section as a consumer of the previous version would.
