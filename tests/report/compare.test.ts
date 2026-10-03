@@ -1007,6 +1007,25 @@ describe("two runs that did not run the same checks", () => {
     expect(detail).toContain("identical-response-across-tenants ran only in the first");
   });
 
+  it("does not promise that what follows is about the platform when a blocker says the comparison cannot be trusted", () => {
+    const refused = screen(
+      compareRuns(
+        run(withChecks(ISOLATION)),
+        run({ ...withChecks(CORS), runId: SECOND_RUN, startedAt: LATER }),
+      ),
+    );
+    const compared = screen(
+      compareRuns(
+        run(withChecks(ISOLATION)),
+        run({ ...withChecks(ISOLATION), runId: SECOND_RUN, startedAt: LATER }),
+      ),
+    );
+
+    expect(refused).toContain("The declaration is the same in both runs");
+    expect(refused).not.toContain("what follows is about the platform");
+    expect(compared).toContain("so what follows is about the platform");
+  });
+
   it("is silent about the same checks, in whatever order they were listed", () => {
     const comparison = compareRuns(
       run(withChecks(ISOLATION, CORS)),

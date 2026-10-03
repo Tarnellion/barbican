@@ -761,3 +761,16 @@ fourth name and the new caller with its reason. `spellOut` hands out a rendering
 rather than the class of characters: a caller learns which code points are not
 text only by reading its output one string at a time, which is no more than
 `identifier` already tells them by refusing.
+
+## Note of 3 October 2026: the name of an environment variable
+
+Two more strings were any non-empty text and went to a terminal as written: an
+account's `tokenEnv` and the `{ env: NAME }` of a request condition. The "variable is
+not set" message prints the name, and the name travels into the report beside
+`tokenEnv`. Both are now held to `identifier` where the configuration is parsed, with
+the slot named, in `parseRunConfig` and `normalizeContexts`. They were doors of the
+same kind as the eight above, so the grammar was applied rather than a second one
+written. An ordinary name, including one with a hyphen or a dot, is unaffected; the
+grammar refuses only the class that cannot be a name. A library consumer who builds a
+`RunConfig` by hand does not pass these two doors, and the message that prints a name
+as written is still there for that route.

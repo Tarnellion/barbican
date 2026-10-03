@@ -1502,6 +1502,31 @@ the only edit under `src/` is a comment recording why a loop in
 `assertReferencesResolve` cannot be reached today and what would make it live
 again.
 
+### Unreleased
+
+On `main`, not on npm. `0.8.0` is what `npm install barbican` gives you.
+
+- **`barbican diff` no longer says "so what follows is about the platform" above a
+  comparison it then calls untrustworthy.** The sentence came before the blockers
+  were read; with a blocker present, such as two runs that did not run the same
+  checks, the declaration line now stops at the fact. The exit code and the
+  blocker were already right.
+- **One rule for a header the platform echoes into the report.** `origin` cannot
+  carry a secret, whether the secret comes from an environment variable in a request
+  condition or from an authentication scheme that presents its token through that
+  header. The two doors wrote the refusal out separately; they now ask
+  `echoedHeaderReason` in `src/io/untrusted.ts`, which the package exports, so the
+  published surface is 249 values. Both refusals still happen at the same places,
+  and the condition's message now reads "a value written in the declaration is
+  public and an environment variable is not: …".
+- **The name of an environment variable is held to the grammar of an identifier.** An
+  account's `tokenEnv` and the `{ env: NAME }` of a request condition were any
+  non-empty string, and the "variable is not set" message printed the name as
+  written, so a control character in it reached the terminal and the report. Both
+  now refuse the C0 and C1 controls, DEL, the two Unicode line separators and the
+  empty string, at parse time, with the slot named. An ordinary name such as
+  `TOKEN_ALICE` is unaffected, and so is a name with a hyphen or a dot.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.
@@ -1755,6 +1780,8 @@ A release is three edits and a tag, in one commit:
    one heading above a version it says it is ahead of, and the guard below now
    reads where the section sits — both that it is the last of the run and that
    the run has nothing else in the middle of it — as well as what is under it.
+   Its opening sentence says "On `main`, not on npm" and has to be rewritten in
+   the same edit; the guard refuses a renamed section that still begins with it.
 2. Set that version in `package.json`. Between releases it names the last version
    this tree shipped, so this is where it moves.
 3. Read the renamed section as a consumer of the previous version would.

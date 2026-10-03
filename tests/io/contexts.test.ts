@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { UnusableIdentifierError } from "../../src/core/index.js";
 import {
   AmbiguousContextRowError,
   assertContextsCannotWrite,
@@ -783,7 +784,7 @@ contexts:
           "{ id: foreign, headers: { Origin: { env: FOREIGN_ORIGIN } }, endpoints: [orders.list] }",
         ),
       ),
-    ).toThrow(/would put the value of the environment variable into the report/);
+    ).toThrow(/an environment variable is not: a platform that reflects the origin/);
   });
 
   it("still takes a secret from the environment in any other header", () => {
@@ -850,5 +851,64 @@ contexts:
         ),
       ),
     ).toThrow(ForbiddenContextHeaderError);
+  });
+});
+
+describe("the name of an environment variable", () => {
+  // The name is printed when the variable is unset and it travels into the report,
+  // so a control character in it reaches a terminal and a file as written. It was
+  // `z.string().min(1)` at both doors; they now hold it to the grammar of an
+  // identifier (ADR-0066).
+  const BAD = ["TOKEN\\nINJECT", "TOKEN\\e[31m", "TOKEN\\u0085X"];
+
+  it("is refused in an account's tokenEnv when it carries a control character", () => {
+    for (const name of BAD) {
+      expect(
+        () =>
+          parseRunConfig(
+            `
+target: { baseUrl: "https://api.test", allowedHosts: [api.test] }
+accounts:
+  - { id: alice, role: user, tenant: tenant-a, tokenEnv: "${name}" }
+policy: { fallback: denied, rules: [] }
+`,
+          ),
+        name,
+      ).toThrow(UnusableIdentifierError);
+    }
+  });
+
+  it("is refused in a context header's { env } when it carries a control character", () => {
+    for (const name of BAD) {
+      expect(
+        () =>
+          parseRunConfig(
+            config(`
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [orders.list], context: geo, outcome: allowed }
+contexts:
+  - { id: geo, headers: { x-partner-key: { env: "${name}" } }, endpoints: [orders.list] }
+`),
+          ),
+        name,
+      ).toThrow(UnusableIdentifierError);
+    }
+  });
+
+  it("still takes an ordinary name", () => {
+    const parsed = parseRunConfig(
+      config(`
+policy:
+  fallback: denied
+  rules:
+    - { roles: "*", endpoints: [orders.list], context: geo, outcome: allowed }
+contexts:
+  - { id: geo, headers: { x-partner-key: { env: PARTNER_KEY } }, endpoints: [orders.list] }
+`),
+    );
+
+    expect(parsed.contexts[0]?.headers["x-partner-key"]).toEqual({ env: "PARTNER_KEY" });
   });
 });

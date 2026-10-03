@@ -220,3 +220,13 @@ Written down after each was run against the tree, as ADR-0065 asks.
   reads the declaration.** Nothing checks that a context marked foreign is one the
   policy mentions beyond the rule every context already has, which is that some rule
   must reference it.
+
+## Note of 3 October 2026: one home for "this header is echoed"
+
+The refusal of a secret in the `origin` header was written at two doors, the request
+condition and the authentication scheme, with a text of its own at each and no shared
+home. It is now `echoedHeaderReason` in `src/io/untrusted.ts`, and both doors ask it,
+so a third door adds a call and not a third copy. The package exports it, which makes
+the published surface 249 values. Nothing reads a door's source to check that it
+calls the function: the two doors are held by their tests and by a mutant that removes
+the call, not by a gate, and a third door added without a call is not noticed.
