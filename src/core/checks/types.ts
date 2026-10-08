@@ -320,9 +320,10 @@ export interface Check {
    * A check that declares nothing says nothing, and keeps the reading it always
    * had. That is deliberate: a counter is declared by a check that can tell "I was
    * not asked" from "I looked and found nothing", and a check that cannot is not
-   * made to pretend. The counter has to be one that is positive for every
-   * `coverage()` row the check emits — a row of zeros would make a check that was
-   * asked look unasked.
+   * made to pretend. Choose the counter by what "asked" means for the check: a row
+   * whose counter is zero adds nothing to the total, so a check whose every row is
+   * zero reads as unasked, which is right only if a row of zeros means it had nothing
+   * to judge.
    *
    * The name goes through `identifier` at registration, the library door, and
    * should be a name no other counter of the same check shares a prefix with.

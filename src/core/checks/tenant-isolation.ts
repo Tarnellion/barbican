@@ -329,6 +329,12 @@ function verdictFor(
 }
 
 /**
+ * The coverage counter that says how many pairs this check actually compared,
+ * spelled once: the check writes it and declares it as its reach (ADR-0079).
+ */
+const COMPARED_PAIRS_COUNTER = "comparedPairs";
+
+/**
  * Two accounts from different tenants got the same response digest.
  *
  * The digest, not the body: bodies are not stored and there is nothing to
@@ -373,6 +379,15 @@ export function createIdenticalResponseCheck(options: IdenticalResponseCheckOpti
      * clause and one place spelling it.
      */
     standards: [API_OBJECT_LEVEL_AUTHORIZATION, ASVS_TENANT_ISOLATION, CWE_IMPROPER_AUTHORIZATION],
+
+    /**
+     * Pairs actually compared is what this check is put. A run with no endpoint that
+     * declares `responseMustDifferByTenant` returns no coverage row at all, and one
+     * whose every pair was both-empty, without a digest, related or under different
+     * conditions compares none: in both the check ran and had nothing to judge, which
+     * is what a total of zero says (ADR-0079).
+     */
+    reachCounter: COMPARED_PAIRS_COUNTER,
 
     coverage(context: CheckContext): readonly CheckCoverage[] {
       return describeBodyComparison(context, options);
@@ -571,7 +586,7 @@ function describeBodyComparison(
         checkId: IDENTICAL_RESPONSE_CHECK_ID,
         endpointId: endpoint.id,
         counters: {
-          comparedPairs: tally.matched + tally.differed,
+          [COMPARED_PAIRS_COUNTER]: tally.matched + tally.differed,
           matchedPairs: tally.matched,
           differedPairs: tally.differed,
           skippedBothEmptyPairs: tally["both-empty"],

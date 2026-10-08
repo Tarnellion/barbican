@@ -14,7 +14,14 @@
 import { describe, expect, it } from "vitest";
 import { counterTotal, reachOf } from "../../src/core/checks/reach.js";
 import type { Check, CheckCoverage, CheckRun } from "../../src/core/checks/types.js";
-import { CheckRegistry, describeChecks, UnusableIdentifierError } from "../../src/core/index.js";
+import type { Endpoint } from "../../src/core/index.js";
+import {
+  CheckRegistry,
+  createIdenticalResponseCheck,
+  describeChecks,
+  IDENTICAL_RESPONSE_CHECK_ID,
+  UnusableIdentifierError,
+} from "../../src/core/index.js";
 import { clauseCoverage } from "../../src/core/standards/coverage.js";
 
 const REF = { standard: "OWASP-API-2023", clause: "API8" };
@@ -163,5 +170,44 @@ describe("checkReach on a clause row", () => {
 
     expect(matrixOnly).toBeDefined();
     expect(Object.hasOwn(matrixOnly ?? {}, "checkReach")).toBe(false);
+  });
+});
+
+describe("the isolation check's reach", () => {
+  const withEndpoints = (endpoints: readonly Endpoint[]) => ({
+    matrix: { endpoints, accounts: [], resources: [], observations: [] },
+  });
+
+  it("is comparedPairs, and a run with no endpoint that declares a difference compared none", () => {
+    const check = createIdenticalResponseCheck();
+    const context = withEndpoints([{ id: "health", method: "GET", path: "/health" }]);
+    const rows = clauseCoverage({
+      checksRun: describeChecks([check]),
+      byCheck: check.coverage?.(context) ?? [],
+    });
+
+    expect(check.reachCounter).toBe("comparedPairs");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.checkReach, row.clause).toEqual([
+        { checkId: IDENTICAL_RESPONSE_CHECK_ID, counter: "comparedPairs", total: 0 },
+      ]);
+    }
+  });
+
+  it("is positive once an endpoint that declares a difference had pairs compared", () => {
+    const check = createIdenticalResponseCheck();
+    const byCheck: readonly CheckCoverage[] = [
+      {
+        checkId: IDENTICAL_RESPONSE_CHECK_ID,
+        endpointId: "orders.list",
+        counters: { comparedPairs: 3, matchedPairs: 0, differedPairs: 3 },
+      },
+    ];
+    const rows = clauseCoverage({ checksRun: describeChecks([check]), byCheck });
+
+    for (const row of rows) {
+      expect(row.checkReach?.[0]?.total, row.clause).toBe(3);
+    }
   });
 });

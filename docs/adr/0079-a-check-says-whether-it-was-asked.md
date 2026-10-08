@@ -52,6 +52,16 @@ sends, hands the check the set of contexts that send one (`originContexts`, alwa
 given, an empty set included). The counter is positive on every coverage row the check
 emits, so a total of zero means no row: no request invited a header and none came.
 
+**`identical-response-across-tenants` declares `comparedPairs`**, the pairs of
+responses from different tenants it actually compared. A run with no endpoint that
+declares `responseMustDifferByTenant` returns no coverage row, and one in which every
+pair was empty on both sides, had no digest, was related or was made under different
+conditions compares none: in both the check ran and had nothing to judge. This is the
+common case on a clean run, so API1, CWE-285 and, where no cell reaches it, ASVS 8.4.1
+move from `answered-without-findings` to `inconclusive` on a run that declares no such
+endpoint. It is a separate commit from the mechanism because it changes a pack that
+most operators read, and can be reverted alone.
+
 ## Alternatives
 
 - **A cell denominator for the check channel.** Rejected by ADR-0052 and still

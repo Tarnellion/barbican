@@ -1548,6 +1548,11 @@ What you can observe:
   API8 as `inconclusive`**, and `answered-without-findings` once one did and the
   platform answered it with no header. The exit code, the verdict and the warnings are
   unchanged; a pack built from a report written by `0.8.1` or earlier reads as before.
+- **`identical-response-across-tenants` declares `comparedPairs` as its reach, so API1,
+  CWE-285 and, where no cell reaches it, ASVS 8.4.1 read `inconclusive` on a run that
+  declares no endpoint with `responseMustDifferByTenant`**, or in which no pair could be
+  compared, where they read `answered-without-findings` before. This is the common case
+  on a clean run and the line most likely to be noticed in a pack.
 - **`coverage.byCheck` for `permissive-cors` gains `crossOriginCellsAnswered`**, and
   rows for answered cells under a condition that sent an origin and got no CORS header
   back, which used to leave no row.

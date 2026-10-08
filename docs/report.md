@@ -857,6 +857,10 @@ percentage (ADR-0052): the one thing a pack does with it is notice a row where
 `answered-without-findings`. A check that declared nothing keeps the reading it
 always had. `permissive-cors` declares `crossOriginCellsAnswered`: answered cells
 that either sent an `Origin` or got a CORS header back.
+`identical-response-across-tenants` declares `comparedPairs`: the pairs of tenants'
+responses it actually compared, so a run with no endpoint that declares
+`responseMustDifferByTenant`, or one in which every pair was empty on both sides, had
+no digest, was related, or was made under different conditions, reads as unasked.
 
 **There is no percentage here, on purpose.** A percentage hides its denominator,
 and the denominator is the entire question. So a row carries the cells that
