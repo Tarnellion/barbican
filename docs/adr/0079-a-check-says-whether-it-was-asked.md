@@ -17,10 +17,10 @@ found anything. The row's own text says that a check which reported nothing is n
 same as there being nothing to report, and a reader of a pack still gets a claim with
 no reservation attached.
 
-Walked through the real code, the defect is not specific to CORS. OWASP API1,
-CWE-285 and ASVS 8.4.1 are check-only rows whenever no endpoint carries
-`responseMustDifferByTenant`, and they read `answered-without-findings` with zero
-pairs compared.
+Walked through the real code, the defect is not specific to CORS. OWASP API1 and
+CWE-285 are check-only rows, and read `answered-without-findings` with zero pairs
+compared whenever no endpoint carries `responseMustDifferByTenant`. ASVS 8.4.1 is the
+same where no cell of the matrix reaches it.
 
 Two things are true of any fix and decide its shape. The core is pure and does not
 see the request, so a check cannot know by itself whether an `Origin` was sent; the
@@ -33,8 +33,8 @@ whatever it reads has to be generic.
 something to judge** (`Check.reachCounter`, copied into `coverage.checksRun[]`). The
 report carries, on every clause row a check answers for, **`checkReach`**: one
 `{ checkId, counter, total }` per check on the row that declared one. The total is the
-sum of that counter over the check's coverage rows, `0` where it returned none, and it
-is the check's own number, copied unchanged.
+sum of the positive finite values of that counter over the check's coverage rows, `0`
+where it returned none, and it is the check's own number, carried as it is.
 
 **The pack notices exactly one thing about it.** If every check on a clause row
 declared a reach and every total is `0`, a row that would have read
@@ -68,7 +68,7 @@ most operators read, and can be reverted alone.
   rejected. This does not give the pack a count of what a check should have examined;
   it lets a check say, in its own terms, that it examined nothing.
 - **Leave the pack alone and print the check's counters on the row.** Considered and
-  scored lowest by the design panel: a pack reader, the tally and the
+  ranked lowest of three designs: a pack reader, the tally and the
   `barbican pack` summary would still see one claim for "asked and found nothing" and
   "never asked", and only a human reading an extra line could tell them apart.
 - **A seventh claim, `not-asked`.** Rejected. It widens `ClaimStatus` (an exhaustive
@@ -82,14 +82,23 @@ most operators read, and can be reverted alone.
 ## Consequences
 
 - API8 reads `inconclusive` on a run the pack stands behind where no request carried
-  an origin, and `answered-without-findings` once an origin was sent and refused. On
+  an origin and no response carried a CORS header, and `answered-without-findings`
+  once an origin was sent and refused, or a header came back unasked. On
   upgrade a pack built from a new report can show `inconclusive` where it showed
   `answered-without-findings`; a pack built from a report written by 0.8.1 or earlier
   carries no `checkReach` and reads as before.
 - **Polarity.** Every miss fails open to the reading the pack always had: a check that
-  declared nothing, a report that predates the field, a library consumer who built
-  `createCorsCheck` without `originContexts`, `byCheck` omitted. Every zero fails
-  closed: the pack never says a check was asked when its own count says otherwise.
+  declared nothing, a check with no `coverage()` (`describeChecks` drops its reach), a
+  check whose `coverage()` threw (the CLI drops its reach), a report that predates the
+  field, a library consumer who built `createCorsCheck` without `originContexts`,
+  `byCheck` omitted. Every zero fails closed: the pack never says a check was asked
+  when its own count says otherwise. The one miss that is not caught is a counter
+  name that the check never writes (a typo in `reachCounter`): its total is zero and the
+  pack reads the row as unasked. Nothing can see that from outside.
+- An `inconclusive` row of a pack can now carry no `cells`, which it could not before,
+  and a 0.8.x renderer given such a pack prints its old sentence for the claim on it.
+  The pack's version stays `1`, because a new claim or a new required field would have
+  been refused outright by those renderers, which is worse. The README says so.
 - Report `schemaVersion` stays `2` and the pack's version stays `1`: the changes are
   additive (`coverage.checksRun[].reachCounter`, `coverage.clauses[].checkReach`). The
   package surface is unchanged in values; new types are `CheckReach`,
@@ -109,6 +118,11 @@ misses (ADR-0065):
   "I was asked nothing" from "I looked and found nothing" can say it, and the registry
   does not require one to. A third-party check that never declares keeps the weaker
   claim.
+- **`checksRun` from a library consumer is not validated.** `describeChecks` copies a
+  `reachCounter` that registration has already put through the identifier grammar,
+  but `buildReport` takes `checksRun` as it is given, as it does `id`, and a raw C1
+  character in it would be written and then refused by the pack reader. The same
+  exposure `checksRun[].id` has.
 - **The library door.** A consumer who sends an `Origin` from their own harness and
   does not pass `originContexts` gets no declared reach and the old reading, which is
   the safe direction. A consumer who passes the wrong set gets a wrong total, and

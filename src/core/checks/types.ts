@@ -242,8 +242,9 @@ export interface CheckRun {
 /**
  * What a check said it was put, on one clause row.
  *
- * The check's own number, copied: the sum of the counter it declared as its reach
- * over every `coverage()` row it returned, `0` where it returned none. Not a
+ * The check's own number: the sum of the positive finite values of the counter it
+ * declared as its reach over every `coverage()` row it returned, `0` where it
+ * returned none. Not a
  * denominator and never read as one. ADR-0052 refused to invent a cell count for
  * the check channel, and this is not one: it is the check's own statement, in its
  * own terms, and the only thing a pack does with it is notice a zero.
@@ -325,8 +326,9 @@ export interface Check {
    * zero reads as unasked, which is right only if a row of zeros means it had nothing
    * to judge.
    *
-   * The name goes through `identifier` at registration, the library door, and
-   * should be a name no other counter of the same check shares a prefix with.
+   * The name goes through `identifier` at registration, the library door. A check
+   * with no `coverage()` cannot report a count, and `describeChecks` drops a reach it
+   * declares, so the pack keeps the reading the check always had.
    */
   readonly reachCounter?: string;
 }

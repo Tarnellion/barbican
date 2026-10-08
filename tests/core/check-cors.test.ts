@@ -9,9 +9,11 @@
  * flagged, because from the matrix alone a reflection cannot be told from an
  * allowlist (ADR-0076) — and the mechanics the check shares with its sibling: one
  * finding per endpoint × condition × shape, the condition carried from the account,
- * and a coverage that counts what was answered. That coverage cannot tell asked and
- * clean from never asked for the two shapes that need no declaration; only the
- * reflection question has a counter that can.
+ * and a coverage that counts what was answered. The header counters cannot tell asked
+ * and clean from never asked for the two shapes that need no declaration; the
+ * reflection question has a counter that can, and so, when the layer that knows what
+ * each context sent says which ones send an origin, does the check's declared reach
+ * (`crossOriginCellsAnswered`).
  *
  * Fixtures are hand-written, per the repository rule: a matrix generated from
  * the thing under test is a check that a function agrees with itself.
@@ -1322,6 +1324,26 @@ describe("the reach of the permissive-CORS check", () => {
     });
 
     expect(counterTotalOf(declared, [asked()], accounts)).toBe(1);
+  });
+
+  it("does not count a context that sends no origin, whatever else the run knows", () => {
+    // The overcount is the false "it was asked" this feature exists to prevent: a
+    // derived context that sends a region header and no origin is in the matrix as an
+    // account with a contextId, and the set it is not in is what says it asked nothing.
+    const geo = [
+      { id: "alice", roleId: "user" },
+      { id: "alice@geo", roleId: "user", contextId: "geo", baseAccountId: "alice" },
+      { id: "alice@origin", roleId: "user", contextId: "origin", baseAccountId: "alice" },
+    ];
+    const cells = [
+      observation({ accountId: "alice@geo", endpointId: "from-geo" }),
+      observation({ accountId: "alice@origin", endpointId: "from-origin" }),
+    ];
+
+    const rows = withOrigins.coverage?.(contextOf(cells, geo)) ?? [];
+
+    expect(rows.map((row) => row.endpointId)).toEqual(["from-origin"]);
+    expect(counterTotalOf(withOrigins, [cells[0] as AccessObservation], geo)).toBe(0);
   });
 
   it("changes nothing for a consumer who passes no originContexts", () => {

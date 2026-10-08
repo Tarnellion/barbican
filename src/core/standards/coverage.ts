@@ -34,8 +34,9 @@
  * actually cited a clause during the run.
  *
  * **A denominator for the check channel.** A row that a check reached names the
- * check and stops. What that check examined is in `coverage.byCheck`, in the
- * check's own terms and its own counters (ADR-0025); inventing a cell count for
+ * check and, where the check declared one, copies its own reach unchanged
+ * (`checkReach`, ADR-0079). What that check examined is in `coverage.byCheck`, in
+ * the check's own terms and its own counters (ADR-0025); inventing a cell count for
  * it here would be this record making a claim it cannot support.
  */
 

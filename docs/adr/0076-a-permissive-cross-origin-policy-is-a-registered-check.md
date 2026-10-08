@@ -190,7 +190,7 @@ not before. `Finding.aboutAccess` and `docs/report.md` carry the details.
 ## Addendum: the check says whether it was asked (ADR-0079)
 
 The consequence above, that the pack reads API8 as `answered-without-findings` on a run
-in which no request carried an origin, no longer holds. `permissive-cors` declares a
+in which no request carried an origin and no response a CORS header, no longer holds. `permissive-cors` declares a
 reach (`crossOriginCellsAnswered`, fed by the contexts the CLI says send an origin),
 and a pack reads a run where that total is zero as `inconclusive`: the check ran and
 was never asked. A clean result is still not a proof of absence, and a positive total

@@ -64,3 +64,23 @@ export function reachOf(
   }
   return reach;
 }
+
+/**
+ * The checks that ran, with the reach of those named here taken off.
+ *
+ * For a check whose `coverage()` threw: it reported no count, which is not a count
+ * of zero, so it declares no reach in the report and a pack keeps the reading it
+ * always had (ADR-0079). Everything else about the entry is kept as it is.
+ */
+export function withoutReach(
+  checksRun: readonly CheckRun[],
+  failed: ReadonlySet<string>,
+): readonly CheckRun[] {
+  return checksRun.map((one) => {
+    if (!failed.has(one.id) || one.reachCounter === undefined) {
+      return one;
+    }
+    const { reachCounter: _declared, ...rest } = one;
+    return rest;
+  });
+}

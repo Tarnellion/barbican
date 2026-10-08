@@ -1532,8 +1532,9 @@ On `main`, not on npm. `0.8.1` is what `npm install barbican` gives you.
 **A check can now say it was never asked, and the evidence pack reads that as
 `inconclusive`** ([ADR-0079](docs/adr/0079-a-check-says-whether-it-was-asked.md)).
 Until now OWASP API8 read `answered-without-findings` on any run where
-`permissive-cors` ran and reported nothing, including a run in which no request
-carried an `Origin`, so the check could not have found anything. A check may declare
+`permissive-cors` ran and reported nothing, including a run in which nothing sent
+an `Origin` and no response carried a CORS header, so the check had nothing to judge.
+A check may declare
 which of its own coverage counters says it was put something to judge
 (`Check.reachCounter`); the report carries the total on every clause row the check
 answers for (`coverage.clauses[].checkReach`, and `coverage.checksRun[].reachCounter`
@@ -1544,10 +1545,18 @@ check that declares nothing keeps the reading it had.
 
 What you can observe:
 
-- **A pack built from a run in which no declared condition sends an `Origin` shows
-  API8 as `inconclusive`**, and `answered-without-findings` once one did and the
-  platform answered it with no header. The exit code, the verdict and the warnings are
-  unchanged; a pack built from a report written by `0.8.1` or earlier reads as before.
+- **A pack built from a run in which no declared condition sends an `Origin` and no
+  response carried a CORS header shows API8 as `inconclusive`**, and
+  `answered-without-findings` once one was sent and the platform answered it with no
+  header, or once a response carried a CORS header unasked (the check was shown a
+  policy). The exit code, the verdict and the warnings are unchanged; a pack built
+  from a report written by `0.8.1` or earlier reads as before.
+- **An `inconclusive` row of a pack can now carry no `cells`.** It used to come only
+  from a clause whose cells concluded nothing. A consumer of `pack --json` that reads
+  `cells` on every `inconclusive` row has to check for it; the pack's version stays
+  `1`. A 0.8.x renderer given a pack from this build prints its old sentence for
+  `inconclusive` ("every cell counted here failed to answer or was never asked") on a
+  row with no cells, which is not what the row means.
 - **`identical-response-across-tenants` declares `comparedPairs` as its reach, so API1,
   CWE-285 and, where no cell reaches it, ASVS 8.4.1 read `inconclusive` on a run that
   declares no endpoint with `responseMustDifferByTenant`**, or in which no pair could be

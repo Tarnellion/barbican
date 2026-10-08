@@ -726,7 +726,8 @@ differ in every one of them:
         { "standard": "OWASP-API-2023", "clause": "API1" },
         { "standard": "OWASP-ASVS-5.0", "clause": "8.4.1" },
         { "standard": "CWE", "clause": "285" }
-      ]
+      ],
+      "reachCounter": "comparedPairs"     // the counter of its own that says how much it was put
     }
   ],
   "clauses": [                            // what this run did about each clause
@@ -749,6 +750,9 @@ differ in every one of them:
       "standard": "CWE",
       "clause": "285",
       "checkIds": ["identical-response-across-tenants"],   // reached by a check and not by the matrix
+      "checkReach": [                                      // what that check says it was put, copied
+        { "checkId": "identical-response-across-tenants", "counter": "comparedPairs", "total": 24 }
+      ],
       "reservations": ["endpoints-not-probed"]             // no matrixCells: see below
     }
     // …and four rows more, six in all. 8.2.1 and 8.2.2 look like the first, over

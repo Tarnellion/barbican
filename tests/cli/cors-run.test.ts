@@ -674,14 +674,57 @@ describe("a check that was never asked, through the pack", () => {
     expect(corsCoverage(report, "me")?.counters).toMatchObject({ crossOriginCellsAnswered: 1 });
   });
 
-  it("reads API8 as inconclusive whatever the platform would have answered to an origin", async () => {
-    // `allowlist` answers only a request that names an origin and nothing here sent
-    // one, so this is the silent case again: the reach is a statement about what the
-    // check was put, not about the platform.
-    behaviour = "allowlist";
+  it("reads API8 as inconclusive when the only context sends no origin at all", async () => {
+    // The overcount is the false "it was asked" this feature exists to prevent: a
+    // context that declares a region and no origin walks cells, and none of them
+    // invited a CORS answer. Counting every context (or only the first, or none of
+    // them filtered) would flip this row.
+    behaviour = "none";
+    const config = configText()
+      .replace(
+        "policy:",
+        `contexts:
+  - id: region
+    description: a request from another region
+    headers: { x-region: eu }
+    endpoints: [me]
 
-    await runIt();
+policy:`,
+      )
+      .replace(
+        "    - { roles: [user], endpoints: [me], outcome: allowed }\n",
+        `    - { roles: [user], endpoints: [me], outcome: allowed }
+    - { roles: [user], endpoints: [me], context: region, outcome: allowed }\n`,
+      );
 
+    const { report } = await runIt(undefined, { config });
+
+    expect(report.coverage.byCheck.filter((row) => row.checkId === "permissive-cors")).toEqual([]);
     expect(await api8ClaimOf()).toBe("inconclusive");
+  });
+
+  it("counts only the context that sends an origin when another one does not", async () => {
+    behaviour = "none";
+    const config = configText(PARTNER)
+      .replace(
+        "policy:",
+        `  - id: region
+    description: a request from another region
+    headers: { x-region: eu }
+    endpoints: [me]
+
+policy:`,
+      )
+      .replace(
+        "    - { roles: [user], endpoints: [me], outcome: allowed }\n",
+        `    - { roles: [user], endpoints: [me], outcome: allowed }
+    - { roles: [user], endpoints: [me], context: region, outcome: allowed }\n`,
+      );
+
+    const { report } = await runIt(undefined, { config });
+
+    // Two derived accounts walked `me`, and only the one that sent an origin counts.
+    expect(corsCoverage(report, "me")?.counters).toMatchObject({ crossOriginCellsAnswered: 1 });
+    expect(await api8ClaimOf()).toBe("answered-without-findings");
   });
 });

@@ -515,6 +515,31 @@ describe("what a check says it was put", () => {
     // tell a check that declared nothing from a report that predates the field.
     expect(second).not.toContain("askedCells");
     expect(second).not.toContain("What each says it was put");
+    expect(first).toContain("What each says it was put");
+  });
+
+  it("prints every check on a row, in order, and nothing for an empty list", () => {
+    const pack = evidencePack({
+      run: run({
+        clauses: [
+          row({
+            clause: "C1",
+            checkIds: ["alpha", "beta"],
+            checkReach: [
+              { checkId: "alpha", counter: "asked", total: 0 },
+              { checkId: "beta", counter: "seen", total: 5 },
+            ],
+          }),
+          row({ clause: "C2", checkIds: ["gamma"], checkReach: [] }),
+        ],
+      }),
+      catalog: PLAIN(),
+    });
+    const page = renderPack(pack);
+
+    expect(page).toContain("alpha: asked 0; beta: seen 5");
+    const second = page.slice(page.indexOf('id="clause-1"'));
+    expect(second).not.toContain("What each says it was put");
   });
 });
 

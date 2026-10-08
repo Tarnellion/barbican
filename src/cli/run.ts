@@ -25,6 +25,7 @@ import type { SpecParser } from "../adapters/ports.js";
 import { createPostmanCollectionParser } from "../adapters/postman.js";
 import { createSignalExtractor } from "../adapters/signals.js";
 import { createThrottle } from "../adapters/throttle.js";
+import { withoutReach } from "../core/checks/reach.js";
 import type { RunScope } from "../core/index.js";
 import {
   buildAccessMatrix,
@@ -512,7 +513,7 @@ export async function run(flags: RunFlags): Promise<number> {
   // nothing pointed out that the third field had been left behind — so the one
   // sentence in the project saying what a check does never reached the report.
   // Found by the audit of 14 August 2026 (L-8).
-  const checksRun = describeChecks(selected);
+  const described = describeChecks(selected);
   // What a run touched and what it did not, so that a check can say "this clause
   // was covered enough" rather than only "here is what I found".
   const scope: RunScope = {
@@ -529,13 +530,19 @@ export async function run(flags: RunFlags): Promise<number> {
   // looked at. Silence here rather than a finding: the finding for a broken
   // check is already made by `runChecks` a few lines below, and saying it twice
   // would print one breakage as two.
+  const coverageFailed = new Set<string>();
   const byCheck = selected.flatMap((check) => {
     try {
       return check.coverage?.(context) ?? [];
     } catch {
+      coverageFailed.add(check.id);
       return [];
     }
   });
+  // A check whose coverage threw reported no count, which is not a count of zero: it
+  // declares no reach in this report, so a pack keeps the reading it always had
+  // instead of saying the check was never asked (ADR-0079).
+  const checksRun = withoutReach(described, coverageFailed);
   // Through `runChecks`, which settles each finding's severity from the check
   // that made it. Calling `run` directly here is what let the severity be
   // declared twice — once on the check and once as a literal inside it.

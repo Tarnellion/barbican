@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { counterTotal, reachOf } from "../../src/core/checks/reach.js";
+import { counterTotal, reachOf, withoutReach } from "../../src/core/checks/reach.js";
 import type { Check, CheckCoverage, CheckRun } from "../../src/core/checks/types.js";
 import type { Endpoint } from "../../src/core/index.js";
 import {
@@ -116,12 +116,27 @@ describe("a declared reach counter", () => {
   });
 
   it("is copied into the description of the checks that ran, and only when declared", () => {
-    const described = describeChecks([check({ reachCounter: "asked" }), check({ id: "plain" })]);
+    const described = describeChecks([
+      check({ reachCounter: "asked", coverage: () => [] }),
+      check({ id: "plain" }),
+    ]);
 
     expect(described[0]?.reachCounter).toBe("asked");
     // Not `reachCounter: undefined`: the key is absent, so a report written without a
     // declaration is the same bytes it was before the field existed.
     expect(Object.hasOwn(described[1] ?? {}, "reachCounter")).toBe(false);
+  });
+
+  it("is dropped from the description of a check that cannot report a count", () => {
+    // A reach declared by a check with no coverage() could only ever total zero, and a
+    // pack would then say the check was never put anything on a number it never made.
+    const described = describeChecks([
+      check({ reachCounter: "asked" }),
+      check({ id: "reports", reachCounter: "asked", coverage: () => [] }),
+    ]);
+
+    expect(Object.hasOwn(described[0] ?? {}, "reachCounter")).toBe(false);
+    expect(described[1]?.reachCounter).toBe("asked");
   });
 
   it("goes through the identifier grammar at registration, the library door", () => {
@@ -131,6 +146,9 @@ describe("a declared reach counter", () => {
       UnusableIdentifierError,
     );
     expect(() => registry.register(check({ reachCounter: "" }))).toThrow(UnusableIdentifierError);
+    expect(() => registry.register(check({ reachCounter: "asked\nInjected" }))).toThrow(
+      /The reach counter of the check "c"/,
+    );
     expect(() => registry.register(check({ reachCounter: "asked" }))).not.toThrow();
   });
 });
@@ -206,8 +224,32 @@ describe("the isolation check's reach", () => {
     ];
     const rows = clauseCoverage({ checksRun: describeChecks([check]), byCheck });
 
+    expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
       expect(row.checkReach?.[0]?.total, row.clause).toBe(3);
     }
+  });
+});
+
+describe("withoutReach", () => {
+  it("takes the declaration off the checks named, and only those", () => {
+    const kept = withoutReach(
+      [run("failed", "asked"), run("fine", "asked"), run("plain")],
+      new Set(["failed", "plain", "unknown"]),
+    );
+
+    expect(Object.hasOwn(kept[0] ?? {}, "reachCounter")).toBe(false);
+    expect(kept[0]).toMatchObject({ id: "failed", description: "the check failed" });
+    expect(kept[1]?.reachCounter).toBe("asked");
+    expect(kept[2]).toEqual(run("plain"));
+  });
+
+  it("makes a pack keep the reading it had for a check whose coverage threw", () => {
+    const rows = clauseCoverage({
+      checksRun: withoutReach([run("failed", "asked")], new Set(["failed"])),
+      byCheck: [],
+    });
+
+    expect(rows[0]?.checkReach).toEqual([]);
   });
 });

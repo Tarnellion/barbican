@@ -1277,9 +1277,11 @@ access, and it is yours to get right:
   with no CORS headers at all, exactly as one with no CORS layer does. What tells
   "was asked" from "was never asked" is `crossOriginCellsAnswered`: how many answered
   cells either sent an `Origin` (a context you declared with an `origin` header, marked
-  foreign or not) or got a CORS header back. A total of zero means no request invited
-  a header and none came. A positive total means the check was asked something, which
-  is not a statement that the platform is sound. Look at `coverage.contextsProbed` for
+  foreign or not) or got a CORS header back. A total of zero means no answered cell
+  sent an origin and no response carried a CORS header; a positive total means the
+  check was put something, which is not a statement that the platform is sound. A
+  platform that volunteers a header on a request that named no origin is counted as
+  asked, because it showed the check a policy. Look at `coverage.contextsProbed` for
   the context that declares the `origin`, to see that its cells were walked.
 - **The evidence pack tells the two apart without a denominator.** On a run the pack
   stands behind, API8 reads `inconclusive` when `crossOriginCellsAnswered` is zero:
@@ -1515,7 +1517,7 @@ Evidence pack for barbican reference polygon (a demonstration deployment, not a 
 
 This run walked its matrix and answered for its own trustworthiness — it exited 0 or 1 — so the rows below are evidence about the platform it ran against, within the reservations each row carries.
 
-Clauses in the catalogue: 17. 5 breached, 1 upheld, 0 inconclusive, 1 answered-without-findings, 10 unanswered, 0 withheld
+Clauses in the catalogue: 17. 5 breached, 1 upheld, 1 inconclusive, 0 answered-without-findings, 10 unanswered, 0 withheld
 Cited outside the catalogue: 0
 
 Written: pack.html
@@ -1569,7 +1571,9 @@ conclusion, which are the only thing `upheld` may rest on, and their denominator
 travels with them on the row. Then cells that concluded nothing, which is
 `inconclusive` and is not silence. Then a check that ran and found nothing, which
 is the weakest row on the page, because nothing in the report says how much that
-check looked at. Whatever is left was answered by nothing at all.
+check looked at, unless every check on the row says, in its own count, that it was
+put nothing: that row is `inconclusive`, because the check ran and was never asked.
+Whatever is left was answered by nothing at all.
 
 **The qualifications ride on the row they qualify**, not in a footnote at the
 end: an account whose credentials were never proved, endpoints the run did not

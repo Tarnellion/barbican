@@ -182,7 +182,14 @@ export function describeChecks(checks: readonly Check[]): readonly CheckRun[] {
     id: check.id,
     description: check.description,
     standards: check.standards,
-    ...(check.reachCounter === undefined ? {} : { reachCounter: check.reachCounter }),
+    // Only for a check that can report a count at all. A reach declared by a check
+    // with no `coverage()` could only ever total zero, and the pack would then say
+    // the check "was never put anything" on the strength of a number it never
+    // produced. Dropped here, so that the miss fails open to the reading the check
+    // always had.
+    ...(check.reachCounter === undefined || check.coverage === undefined
+      ? {}
+      : { reachCounter: check.reachCounter }),
   }));
 }
 

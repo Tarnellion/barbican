@@ -482,6 +482,32 @@ describe("a clause whose checks were never put anything", () => {
     expect(rowOf(row2(2, 0), CORS_ONLY).claim).toBe("answered-without-findings");
   });
 
+  it("is not taken for asked-nothing by a reach that names a stranger beside the row's own", () => {
+    // The two guards of the rule, the length and the membership, each have a case only
+    // they can refuse.
+    const claimOf = (
+      checkIds: readonly string[],
+      checkReach: readonly { checkId: string; counter: string; total: number }[],
+    ) =>
+      rowOf(packOf(run({ clauses: [row(CORS_ONLY, { checkIds, checkReach })] })), CORS_ONLY).claim;
+
+    // One more entry than checks on the row: a stranger's zero beside the row's own is
+    // data the pack did not expect, and it keeps the weaker claim.
+    expect(claimOf(["alpha"], [reach("alpha", 0), reach("stranger", 0)])).toBe(
+      "answered-without-findings",
+    );
+    expect(claimOf(["alpha"], [reach("alpha", 0)])).toBe("inconclusive");
+    // As many entries as checks, but one of the row's checks is not among them.
+    expect(claimOf(["alpha", "beta"], [reach("alpha", 0), reach("stranger", 0)])).toBe(
+      "answered-without-findings",
+    );
+    expect(claimOf(["alpha", "beta"], [reach("alpha", 0), reach("alpha", 0)])).toBe(
+      "answered-without-findings",
+    );
+    // Fewer entries than checks.
+    expect(claimOf(["alpha", "beta"], [reach("alpha", 0)])).toBe("answered-without-findings");
+  });
+
   it("reads a report written before the field existed as it always did", () => {
     const pack = packOf(run({ clauses: [row(CORS_ONLY, { checkIds: ["permissive-cors"] })] }));
 

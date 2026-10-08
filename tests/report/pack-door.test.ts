@@ -166,7 +166,7 @@ describe("a report this tool wrote", () => {
  * the file and the field.
  */
 describe("what a check says it was put, in a saved report", () => {
-  function reportWithReach(): Record<string, unknown> {
+  function reportWithReach(withByCheck = true): Record<string, unknown> {
     const matrix = buildAccessMatrix({
       endpoints: ENDPOINTS,
       accounts: ACCOUNTS,
@@ -203,7 +203,7 @@ describe("what a check says it was put, in a saved report", () => {
           reachCounter: "crossOriginCellsAnswered",
         },
       ],
-      byCheck: [],
+      ...(withByCheck ? { byCheck: [] } : {}),
     });
     return JSON.parse(JSON.stringify(report)) as Record<string, unknown>;
   }
@@ -222,6 +222,20 @@ describe("what a check says it was put, in a saved report", () => {
     expect(built.clauses.find((one) => one.clause === "API8")?.claim).toBe("inconclusive");
   });
 
+  it("is absent when the report was built without the checks' coverage: unknown is not zero", () => {
+    // `buildReport` called by a consumer who names the checks and passes no `byCheck`.
+    // Defaulting that to an empty list would total every declared reach to zero and
+    // have the pack call the clause unasked on the strength of a record that was
+    // never made.
+    const run = toPackableRun(reportWithReach(false), "report.json");
+
+    expect(api8(run)?.checkReach).toBeUndefined();
+    const built = evidencePack({ run, catalog: createBundledCatalog() });
+    expect(built.clauses.find((one) => one.clause === "API8")?.claim).toBe(
+      "answered-without-findings",
+    );
+  });
+
   it("is refused, naming the field, where a row of it is not what it says", () => {
     const cases: readonly [string, unknown, RegExp][] = [
       ["a number for the id", [{ checkId: 7, counter: "c", total: 0 }], /checkReach\[0\]\.checkId/],
@@ -231,6 +245,30 @@ describe("what a check says it was put, in a saved report", () => {
         /checkReach\[0\]\.total/,
       ],
       ["a row that is not an object", ["permissive-cors"], /checkReach\[0\] is not an object/],
+      [
+        "a number for the counter",
+        [{ checkId: "x", counter: 7, total: 0 }],
+        /checkReach\[0\]\.counter/,
+      ],
+      [
+        "a control character in the counter",
+        [{ checkId: "x", counter: "a\u0000b", total: 0 }],
+        /checkReach\[0\]\.counter/,
+      ],
+      [
+        "a space-free counter with a C1 character",
+        [{ checkId: "x", counter: "a\u009bb", total: 0 }],
+        /checkReach\[0\]\.counter/,
+      ],
+      ["a null instead of a list", null, /checkReach/],
+      [
+        "a bad second row, named by its index",
+        [
+          { checkId: "x", counter: "c", total: 0 },
+          { checkId: "y", counter: "c", total: "0" },
+        ],
+        /checkReach\[1\]\.total/,
+      ],
     ];
     for (const [what, rows, message] of cases) {
       const document = reportWithReach();
