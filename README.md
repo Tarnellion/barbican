@@ -148,7 +148,7 @@ npm install barbican
 barbican run --help
 ```
 
-`0.8.1` is the current release, and the one to install. Publishing goes through
+`0.9.0` is the current release, and the one to install. Publishing goes through
 CI with provenance, so `npm audit signatures` verifies it against this repository
 and the workflow that built it.
 
@@ -1525,9 +1525,7 @@ again.
   empty string, at parse time, with the slot named. An ordinary name such as
   `TOKEN_ALICE` is unaffected, and so is a name with a hyphen or a dot.
 
-### Unreleased
-
-On `main`, not on npm. `0.8.1` is what `npm install barbican` gives you.
+### What changed in 0.9.0
 
 **A check can now say it was never asked, and the evidence pack reads that as
 `inconclusive`** ([ADR-0079](docs/adr/0079-a-check-says-whether-it-was-asked.md)).
@@ -1831,7 +1829,7 @@ A release is three edits and a tag, in one commit:
 
 ```bash
 # the tag must match package.json's version — the workflow verifies it
-git tag v0.8.1 && git push origin v0.8.1
+git tag v0.9.0 && git push origin v0.9.0
 ```
 
 The tag triggers [`release.yml`](https://github.com/Tarnellion/barbican/blob/main/.github/workflows/release.yml): it runs the same
