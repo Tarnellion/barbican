@@ -67,7 +67,7 @@
     "hooks:install": "lefthook install"
   },
   "dependencies": {
-    "@apidevtools/swagger-parser": "12.1.0",
+    "@apidevtools/swagger-parser": "13.0.0",
     "commander": "15.0.0",
     "yaml": "2.9.1",
     "zod": "4.6.5"
