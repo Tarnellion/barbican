@@ -182,6 +182,14 @@ export function describeChecks(checks: readonly Check[]): readonly CheckRun[] {
     id: check.id,
     description: check.description,
     standards: check.standards,
+    // Only for a check that can report a count at all. A reach declared by a check
+    // with no `coverage()` could only ever total zero, and the pack would then say
+    // the check "was never put anything" on the strength of a number it never
+    // produced. Dropped here, so that the miss fails open to the reading the check
+    // always had.
+    ...(check.reachCounter === undefined || check.coverage === undefined
+      ? {}
+      : { reachCounter: check.reachCounter }),
   }));
 }
 
@@ -200,6 +208,9 @@ export class CheckRegistry {
     // budget. Checks are registered from code, so this is the library door and
     // the only one: nothing in the configuration names a new check. See ADR-0066.
     identifier(check.id, "The id of a registered check");
+    if (check.reachCounter !== undefined) {
+      identifier(check.reachCounter, `The reach counter of the check "${check.id}"`);
+    }
     if (this.#checks.has(check.id)) {
       throw new DuplicateCheckIdError(check.id);
     }

@@ -157,6 +157,151 @@ describe("a report this tool wrote", () => {
   });
 });
 
+/**
+ * What a check says it was put, read back from a report this tool wrote.
+ *
+ * The reader names `checkReach` and its three fields as string literals, so only a
+ * report that `buildReport` really wrote keeps them level with `shape.ts`. And the
+ * rows are a document's rows: a number where a string belongs is refused, naming
+ * the file and the field.
+ */
+describe("what a check says it was put, in a saved report", () => {
+  function reportWithReach(withByCheck = true): Record<string, unknown> {
+    const matrix = buildAccessMatrix({
+      endpoints: ENDPOINTS,
+      accounts: ACCOUNTS,
+      observations: BROKEN,
+    });
+    const policy = expandPolicy(
+      { fallback: "denied", rules: [{ roles: ["user"], endpoints: ["me"], outcome: "allowed" }] },
+      ENDPOINTS,
+    );
+    const walked = describeMatrix(matrix, policy);
+    const report = buildReport({
+      version: "test",
+      config: CONFIG,
+      accounts: ACCOUNTS,
+      endpoints: ENDPOINTS,
+      probed: ENDPOINTS,
+      observations: BROKEN,
+      skipped: [],
+      failures: [],
+      unauthenticated: [],
+      canariesChecked: 1,
+      canaries: [{ accountId: "alice", endpointId: "me", status: 200, authenticated: true }],
+      truncated: false,
+      findings: walked.diffs,
+      cells: walked.cells,
+      policy,
+      startedAt: new Date(0),
+      finishedAt: new Date(1),
+      checksRun: [
+        {
+          id: "permissive-cors",
+          description: "reads the CORS headers",
+          standards: [{ standard: "OWASP-API-2023", clause: "API8" }],
+          reachCounter: "crossOriginCellsAnswered",
+        },
+      ],
+      ...(withByCheck ? { byCheck: [] } : {}),
+    });
+    return JSON.parse(JSON.stringify(report)) as Record<string, unknown>;
+  }
+
+  function api8(run: ReturnType<typeof toPackableRun>) {
+    return run.clauses.find((one) => one.clause === "API8");
+  }
+
+  it("is read as the check wrote it, and the pack is inconclusive about the clause", () => {
+    const run = toPackableRun(reportWithReach(), "report.json");
+
+    expect(api8(run)?.checkReach).toEqual([
+      { checkId: "permissive-cors", counter: "crossOriginCellsAnswered", total: 0 },
+    ]);
+    const built = evidencePack({ run, catalog: createBundledCatalog() });
+    expect(built.clauses.find((one) => one.clause === "API8")?.claim).toBe("inconclusive");
+  });
+
+  it("is absent when the report was built without the checks' coverage: unknown is not zero", () => {
+    // `buildReport` called by a consumer who names the checks and passes no `byCheck`.
+    // Defaulting that to an empty list would total every declared reach to zero and
+    // have the pack call the clause unasked on the strength of a record that was
+    // never made.
+    const run = toPackableRun(reportWithReach(false), "report.json");
+
+    expect(api8(run)?.checkReach).toBeUndefined();
+    const built = evidencePack({ run, catalog: createBundledCatalog() });
+    expect(built.clauses.find((one) => one.clause === "API8")?.claim).toBe(
+      "answered-without-findings",
+    );
+  });
+
+  it("is refused, naming the field, where a row of it is not what it says", () => {
+    const cases: readonly [string, unknown, RegExp][] = [
+      ["a number for the id", [{ checkId: 7, counter: "c", total: 0 }], /checkReach\[0\]\.checkId/],
+      [
+        "a string for the total",
+        [{ checkId: "x", counter: "c", total: "0" }],
+        /checkReach\[0\]\.total/,
+      ],
+      ["a row that is not an object", ["permissive-cors"], /checkReach\[0\] is not an object/],
+      [
+        "a number for the counter",
+        [{ checkId: "x", counter: 7, total: 0 }],
+        /checkReach\[0\]\.counter/,
+      ],
+      [
+        "a control character in the counter",
+        [{ checkId: "x", counter: "a\u0000b", total: 0 }],
+        /checkReach\[0\]\.counter/,
+      ],
+      [
+        "a space-free counter with a C1 character",
+        [{ checkId: "x", counter: "a\u009bb", total: 0 }],
+        /checkReach\[0\]\.counter/,
+      ],
+      ["a null instead of a list", null, /checkReach/],
+      [
+        "a bad second row, named by its index",
+        [
+          { checkId: "x", counter: "c", total: 0 },
+          { checkId: "y", counter: "c", total: "0" },
+        ],
+        /checkReach\[1\]\.total/,
+      ],
+    ];
+    for (const [what, rows, message] of cases) {
+      const document = reportWithReach();
+      const clauses = (document["coverage"] as Record<string, unknown>)["clauses"] as Record<
+        string,
+        unknown
+      >[];
+      const target = clauses.find((one) => one["clause"] === "API8");
+      if (target === undefined) {
+        throw new Error("the fixture carries no API8 row to edit");
+      }
+      target["checkReach"] = rows;
+
+      expect(() => toPackableRun(document, "broken.json"), what).toThrow(message);
+    }
+  });
+
+  it("is refused when it is not a list", () => {
+    const document = reportWithReach();
+    const clauses = (document["coverage"] as Record<string, unknown>)["clauses"] as Record<
+      string,
+      unknown
+    >[];
+    const target = clauses.find((one) => one["clause"] === "API8");
+    if (target === undefined) {
+      throw new Error("the fixture carries no API8 row to edit");
+    }
+    target["checkReach"] = { checkId: "permissive-cors" };
+
+    expect(() => toPackableRun(document, "broken.json")).toThrow(/checkReach/);
+  });
+});
+
 describe("a document that is not one", () => {
   it("is refused when it is not an object at all", () => {
     expect(() => toPackableRun("[]", "report.json")).toThrow(UnreadableReportError);

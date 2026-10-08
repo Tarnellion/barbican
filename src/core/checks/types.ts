@@ -227,6 +227,32 @@ export interface CheckRun {
   readonly description: string;
   /** The clauses this check answers for. */
   readonly standards: readonly StandardRef[];
+  /**
+   * The key of this check's own `coverage()` counters that says how much it was
+   * put, when it declared one. See {@link Check.reachCounter}.
+   *
+   * Here for the reader of the saved artifact, who has the report and not the
+   * check: a clause row carries the check's total, and this says which of its
+   * counters the total is the sum of. Absent where the check declared none, and
+   * then nothing is said about its reach.
+   */
+  readonly reachCounter?: string;
+}
+
+/**
+ * What a check said it was put, on one clause row.
+ *
+ * The check's own number: the sum of the positive finite values of the counter it
+ * declared as its reach over every `coverage()` row it returned, `0` where it
+ * returned none. Not a
+ * denominator and never read as one. ADR-0052 refused to invent a cell count for
+ * the check channel, and this is not one: it is the check's own statement, in its
+ * own terms, and the only thing a pack does with it is notice a zero.
+ */
+export interface CheckReach {
+  readonly checkId: string;
+  readonly counter: string;
+  readonly total: number;
 }
 
 export interface Check {
@@ -281,4 +307,28 @@ export interface Check {
    * "nothing was compared".
    */
   coverage?(context: CheckContext): readonly CheckCoverage[];
+  /**
+   * Which counter of `coverage()` says "I was put something to judge".
+   *
+   * Optional, and declared once. The total is the sum of that counter over every
+   * row `coverage()` returns, with an absent key and no rows both meaning `0`. A
+   * `0` says that, by the check's own count, it was asked nothing: it says
+   * nothing about the platform in either direction, and an evidence pack reads a
+   * clause only that check answers for as "reached, nothing concluded" rather
+   * than "answered, nothing found". A positive total is carried and not
+   * interpreted: no threshold, no ratio.
+   *
+   * A check that declares nothing says nothing, and keeps the reading it always
+   * had. That is deliberate: a counter is declared by a check that can tell "I was
+   * not asked" from "I looked and found nothing", and a check that cannot is not
+   * made to pretend. Choose the counter by what "asked" means for the check: a row
+   * whose counter is zero adds nothing to the total, so a check whose every row is
+   * zero reads as unasked, which is right only if a row of zeros means it had nothing
+   * to judge.
+   *
+   * The name goes through `identifier` at registration, the library door. A check
+   * with no `coverage()` cannot report a count, and `describeChecks` drops a reach it
+   * declares, so the pack keeps the reading the check always had.
+   */
+  readonly reachCounter?: string;
 }

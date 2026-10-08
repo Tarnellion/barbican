@@ -819,6 +819,7 @@ const CHECKS_RUN: readonly CheckRun[] = [
       { standard: "OWASP-API-2023", clause: "API1" },
       { standard: "ASVS-5.0", clause: "8.4.1" },
     ],
+    reachCounter: "comparedPairs",
   },
   {
     id: "clause-coverage",

@@ -481,6 +481,14 @@ function clause(row: CitedClause, catalogued: ClaimedClause | undefined, at: num
   if (row.checkIds.length > 0) {
     figures.push(...said("Checks that answer for it", row.checkIds.join(", ")));
   }
+  if (row.checkReach !== undefined && row.checkReach.length > 0) {
+    figures.push(
+      ...said(
+        "What each says it was put",
+        row.checkReach.map((one) => `${one.checkId}: ${one.counter} ${one.total}`).join("; "),
+      ),
+    );
+  }
   figures.push(
     ...said(
       "Evidence rows",

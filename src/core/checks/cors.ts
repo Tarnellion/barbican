@@ -61,9 +61,13 @@
  * may not set), and the cells under it are where a CORS layer answers. So this
  * check is never a proof of absence: **a clean result means the headers that came
  * back were not wrong, not that every shape was looked for.** Whether a condition
- * that sends an origin was walked at all is in `coverage.contextsProbed`; the
+ * that sends an origin was walked at all is in `coverage.contextsProbed`. The
  * coverage of this check counts the responses that carried a CORS header and, for
- * the reflection question, the cells asked about a declared origin.
+ * the reflection question, the cells asked about a declared origin; and when the
+ * layer that knows what each context sent says which ones send an origin
+ * (`CorsCheckOptions.originContexts`), it declares a reach, `crossOriginCellsAnswered`,
+ * so that a pack can tell a check that was asked and found nothing from one that was
+ * never asked.
  *
  * Pure over the matrix, like every check: it reads `observation.headers`, which
  * the HTTP adapter has already kept by allowlist and spelled out, and never goes
@@ -73,6 +77,7 @@
 import { byCodeUnits } from "../order.js";
 import type { AccessObservation } from "../types.js";
 import { API_SECURITY_MISCONFIGURATION } from "./clauses.js";
+import { counterTotal } from "./reach.js";
 import type { Check, CheckContext, CheckCoverage, Finding } from "./types.js";
 
 export const CORS_CHECK_ID = "permissive-cors";
@@ -99,6 +104,18 @@ const ALLOW_CREDENTIALS_HEADER = "access-control-allow-credentials";
 const FOREIGN_ORIGIN_COUNTER = "foreignOriginCellsAnswered";
 
 /**
+ * The coverage counter that says the check was put something to judge: how many
+ * answered cells either sent an `Origin` or got a CORS header back. The check's
+ * declared reach (`Check.reachCounter`), present only when the layer that knows
+ * what the contexts sent said so (`CorsCheckOptions.originContexts`).
+ *
+ * Positive on every row the check emits, which is what makes a total of `0` mean
+ * "no row": a correct platform answers an origin it does not trust with no CORS
+ * header, and that cell still counts here because the request **asked**.
+ */
+const CROSS_ORIGIN_COUNTER = "crossOriginCellsAnswered";
+
+/**
  * How many cells under a context declared foreign got an answer, over a run.
  *
  * Summed over the coverage rows of this check, which is the form the report
@@ -114,13 +131,7 @@ const FOREIGN_ORIGIN_COUNTER = "foreignOriginCellsAnswered";
  * handed over by whoever built the report.
  */
 export function foreignOriginCellsAnswered(coverage: readonly CheckCoverage[]): number {
-  let total = 0;
-  for (const row of coverage) {
-    if (row.checkId === CORS_CHECK_ID && Object.hasOwn(row.counters, FOREIGN_ORIGIN_COUNTER)) {
-      total += row.counters[FOREIGN_ORIGIN_COUNTER] ?? 0;
-    }
-  }
-  return total;
+  return counterTotal(coverage, CORS_CHECK_ID, FOREIGN_ORIGIN_COUNTER);
 }
 
 /**
@@ -323,6 +334,24 @@ export interface CorsCheckOptions {
    * reports only the two shapes that need no declaration.
    */
   readonly foreignOrigins?: ReadonlyMap<string, string>;
+  /**
+   * The contexts whose requests carry an `Origin` header, marked foreign or not:
+   * context ids.
+   *
+   * Handed in for the reason `foreignOrigins` is, and the one thing it makes
+   * possible is a statement the check could not otherwise make: that it **was
+   * asked**. A correct platform answers an origin it does not trust with no CORS
+   * header, exactly as one with no CORS layer does, so without this the coverage
+   * of an empty run cannot say whether any request invited a header. With it the
+   * check declares a reach (`crossOriginCellsAnswered`) and a pack reads a clause
+   * only this check answers for as reached-and-nothing-concluded where it is `0`.
+   *
+   * **Absent means unknown, not empty.** The check declares no reach unless this
+   * was given, so a consumer who sends an origin from their own harness and does
+   * not say so keeps the reading the check always had instead of a false "it was
+   * put nothing". The CLI always gives it, an empty set included.
+   */
+  readonly originContexts?: ReadonlySet<string>;
 }
 
 export function createCorsCheck(options: CorsCheckOptions = {}): Check {
@@ -341,6 +370,12 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
       .filter(([, origin]) => origin !== ""),
   );
 
+  // Which contexts invited a CORS answer. The declared-foreign ones always did, and
+  // `undefined` is kept apart from an empty set: it is what decides whether the
+  // check may say it was asked nothing at all.
+  const originContextsKnown = options.originContexts !== undefined;
+  const sendsOrigin = new Set([...(options.originContexts ?? []), ...foreignOrigins.keys()]);
+
   /** The condition each account was walked under, `undefined` for the baseline. */
   function contextsOf(context: CheckContext): ReadonlyMap<string, string | undefined> {
     return new Map(context.matrix.accounts.map((account) => [account.id, account.contextId]));
@@ -358,6 +393,7 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
       "asked unless a declared condition sends one — see ADR-0076 and ADR-0078.",
     severity: "high",
     standards: [API_SECURITY_MISCONFIGURATION],
+    ...(originContextsKnown ? { reachCounter: CROSS_ORIGIN_COUNTER } : {}),
     run(context: CheckContext): readonly Finding[] {
       const contextByAccount = contextsOf(context);
       // One finding per endpoint × condition × shape: the CORS policy is a
@@ -445,25 +481,28 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
       // header at all, and how many of those allowed credentials. Empty everywhere
       // says no response carried the headers — either the platform has no CORS
       // layer, or it answers only a request that names an origin and none was
-      // sent. **Coverage alone cannot tell those apart**: a correct platform
-      // answers an origin it does not trust with no CORS headers, exactly as one
-      // that was never asked does. Whether a condition that sends an origin was
-      // walked is in `coverage.contextsProbed`, which is the denominator the report
-      // already has.
+      // sent, or one was sent and the platform correctly stayed silent. Those three
+      // look the same in these two counters, and the third is the answer a correct
+      // platform gives.
       //
-      // The reflection question is the one that can be told apart, and gets its
-      // own counter: `foreignOriginCellsAnswered` is how many cells under a context
-      // declared foreign got an answer at all, a probe that failed excluded. An
-      // endpoint with that counter above zero and no finding was **asked** whether
-      // it trusts the declared origin and did not allow it with credentials, which
-      // an endpoint with no such counter was never asked. It is absent when no
-      // origin was declared foreign, as `skippedDifferentContextPairs` is absent
-      // when no conditions are declared: a zero there would claim a question was
-      // put.
+      // What tells them apart is `crossOriginCellsAnswered`, the check's declared
+      // reach: how many answered cells either sent an origin or got a CORS header
+      // back. It exists only when the layer that knows what each context sent said
+      // so (`originContexts`), and then it is positive on every row, so a total of
+      // zero is exactly "no request invited a header and none came" — the check
+      // ran and was never asked, which is not the same as having looked and found
+      // nothing. It does **not** say the platform has no CORS layer, and a positive
+      // total does not say the platform is sound: one asked cell is asked.
+      //
+      // The reflection question has its own counter: `foreignOriginCellsAnswered`
+      // is how many cells under a context declared foreign got an answer at all, a
+      // probe that failed excluded. It is absent when no origin was declared
+      // foreign, as `skippedDifferentContextPairs` is absent when no conditions are
+      // declared: a zero there would claim a question was put.
       const contextByAccount = contextsOf(context);
       const perEndpoint = new Map<
         string,
-        { responses: number; credentialed: number; foreignAnswered: number }
+        { responses: number; credentialed: number; foreignAnswered: number; crossOrigin: number }
       >();
       for (const observation of context.matrix.observations) {
         if (!wasAnswered(observation)) {
@@ -471,14 +510,16 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
         }
         const contextId = contextByAccount.get(observation.accountId);
         const askedForeign = contextId !== undefined && foreignOrigins.has(contextId);
+        const askedOrigin = contextId !== undefined && sendsOrigin.has(contextId);
         const sawCors = ownHeader(observation.headers, ALLOW_ORIGIN_HEADER) !== undefined;
-        if (!sawCors && !askedForeign) {
+        if (!sawCors && !askedOrigin) {
           continue;
         }
         const tally = perEndpoint.get(observation.endpointId) ?? {
           responses: 0,
           credentialed: 0,
           foreignAnswered: 0,
+          crossOrigin: 0,
         };
         if (sawCors) {
           tally.responses += 1;
@@ -489,6 +530,7 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
         if (askedForeign) {
           tally.foreignAnswered += 1;
         }
+        tally.crossOrigin += 1;
         perEndpoint.set(observation.endpointId, tally);
       }
       return [...perEndpoint.entries()]
@@ -499,6 +541,7 @@ export function createCorsCheck(options: CorsCheckOptions = {}): Check {
           counters: {
             corsResponsesSeen: tally.responses,
             corsResponsesAllowingCredentials: tally.credentialed,
+            ...(originContextsKnown ? { [CROSS_ORIGIN_COUNTER]: tally.crossOrigin } : {}),
             ...(foreignOrigins.size === 0
               ? {}
               : { [FOREIGN_ORIGIN_COUNTER]: tally.foreignAnswered }),

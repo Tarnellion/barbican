@@ -217,13 +217,24 @@ beside the private checks that cite it. All three then hold it to exactly the
 same terms as the bundled three. See
 [ADR-0043](adr/0043-a-catalogue-of-clauses.md).
 
-`clauseCoverage({ cells, checksRun, reservations })` is the other direction, and
+`clauseCoverage({ cells, checksRun, byCheck, reservations })` is the other direction, and
 `report.coverage.clauses` is what a run puts there: one row per clause either
 channel reached, carrying the cells that concluded, the cells that concluded
 nothing by reason, and the reservations that stop "exercised" from meaning
 "holds across the surface". `controlClausesForCell(relation)` is the rule it
 shares with `standardsForDiff`. See
 [ADR-0052](adr/0052-a-clause-can-be-reported-as-exercised.md).
+
+A check that can tell "I was asked nothing" from "I looked and found nothing" declares
+`Check.reachCounter`: the key of its own coverage counters that says how much it was
+put. With `byCheck` supplied, each row a check answers for carries `checkReach`, the
+check's total copied unchanged, and a pack reads a row on which every check declared a
+reach and every total is zero as `inconclusive`. **Leave `byCheck` out and no row
+carries `checkReach`**: unknown is not zero, and the pack then reads the row as it
+always did. A check declares nothing by not setting the field, and one with no
+coverage method cannot declare one. `createCorsCheck({ originContexts })` is the set of
+contexts that send an `Origin`; leave it out and `permissive-cors` declares no reach.
+See [ADR-0079](adr/0079-a-check-says-whether-it-was-asked.md).
 
 ## Saying whether a report is the file the run wrote
 

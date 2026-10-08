@@ -9,9 +9,11 @@
  * flagged, because from the matrix alone a reflection cannot be told from an
  * allowlist (ADR-0076) — and the mechanics the check shares with its sibling: one
  * finding per endpoint × condition × shape, the condition carried from the account,
- * and a coverage that counts what was answered. That coverage cannot tell asked and
- * clean from never asked for the two shapes that need no declaration; only the
- * reflection question has a counter that can.
+ * and a coverage that counts what was answered. The header counters cannot tell asked
+ * and clean from never asked for the two shapes that need no declaration; the
+ * reflection question has a counter that can, and so, when the layer that knows what
+ * each context sent says which ones send an origin, does the check's declared reach
+ * (`crossOriginCellsAnswered`).
  *
  * Fixtures are hand-written, per the repository rule: a matrix generated from
  * the thing under test is a check that a function agrees with itself.
@@ -1218,3 +1220,148 @@ describe("the edges of how the check reads and names", () => {
     expect(check.description).not.toContain("under a declared origin condition");
   });
 });
+
+/**
+ * What the check says it was put (`reachCounter`), which is the one thing a pack
+ * can use to tell "ran and was never asked" from "ran and found nothing".
+ *
+ * A correct platform answers an origin it does not trust with no CORS header, as
+ * one with no CORS layer does, so the two counters that read headers cannot tell
+ * those apart. `crossOriginCellsAnswered` can, but only when the layer that knows
+ * what every context sent says which contexts those are (`originContexts`).
+ */
+describe("the reach of the permissive-CORS check", () => {
+  const accounts = [
+    { id: "alice", roleId: "user" },
+    { id: "alice@origin", roleId: "user", contextId: "origin", baseAccountId: "alice" },
+  ];
+  const asked = (over: Partial<AccessObservation> = {}) =>
+    observation({ accountId: "alice@origin", ...over });
+  const withOrigins = createCorsCheck({ originContexts: new Set(["origin"]) });
+
+  it("declares a reach counter only when it was told which contexts send an origin", () => {
+    expect(withOrigins.reachCounter).toBe("crossOriginCellsAnswered");
+    expect(createCorsCheck({ originContexts: new Set() }).reachCounter).toBe(
+      "crossOriginCellsAnswered",
+    );
+    // Absent means unknown, not empty: a consumer who sends an origin from their own
+    // harness and does not say so keeps the reading the check always had.
+    expect(createCorsCheck().reachCounter).toBeUndefined();
+    expect(
+      createCorsCheck({ foreignOrigins: new Map([["f", "https://a.example"]]) }).reachCounter,
+    ).toBeUndefined();
+  });
+
+  it("counts an answered cell under an origin context that got no CORS header back", () => {
+    // The correct platform's answer to an origin it does not trust.
+    const coverage = withOrigins.coverage?.(contextOf([asked()], accounts)) ?? [];
+
+    expect(coverage).toEqual([
+      {
+        checkId: CORS_CHECK_ID,
+        endpointId: "list-orders",
+        counters: {
+          corsResponsesSeen: 0,
+          corsResponsesAllowingCredentials: 0,
+          crossOriginCellsAnswered: 1,
+        },
+      },
+    ]);
+  });
+
+  it("makes no row for a cell that sent no origin and got no header: it was never asked", () => {
+    const coverage = withOrigins.coverage?.(contextOf([observation()], accounts)) ?? [];
+
+    expect(coverage).toEqual([]);
+    expect(counterTotalOf(withOrigins, [observation()], accounts)).toBe(0);
+  });
+
+  it("counts a response that carried a header even where the request named no origin", () => {
+    // A layer that volunteers a fixed allowlisted origin was shown a policy and
+    // judged it: saying it was put nothing would be false.
+    const volunteered = observation({
+      headers: { "access-control-allow-origin": "https://app.example" },
+    });
+
+    expect(counterTotalOf(withOrigins, [volunteered], accounts)).toBe(1);
+  });
+
+  it("does not count a cell that did not answer", () => {
+    for (const failed of [
+      asked({ outcome: "error", status: 0 }),
+      asked({ status: 503, outcome: "error" }),
+    ]) {
+      expect(counterTotalOf(withOrigins, [failed], accounts), String(failed.status)).toBe(0);
+    }
+  });
+
+  it("is positive on every row it emits, so zero can only mean no row", () => {
+    const coverage =
+      withOrigins.coverage?.(
+        contextOf(
+          [
+            asked(),
+            asked({ endpointId: "other" }),
+            observation({
+              endpointId: "third",
+              headers: { "access-control-allow-origin": "*" },
+            }),
+          ],
+          accounts,
+        ),
+      ) ?? [];
+
+    expect(coverage).toHaveLength(3);
+    for (const row of coverage) {
+      expect(row.counters.crossOriginCellsAnswered, row.endpointId).toBeGreaterThan(0);
+    }
+  });
+
+  it("counts a declared-foreign context as one that sent an origin without being told twice", () => {
+    const declared = createCorsCheck({
+      foreignOrigins: new Map([["origin", "https://attacker.example"]]),
+      originContexts: new Set(),
+    });
+
+    expect(counterTotalOf(declared, [asked()], accounts)).toBe(1);
+  });
+
+  it("does not count a context that sends no origin, whatever else the run knows", () => {
+    // The overcount is the false "it was asked" this feature exists to prevent: a
+    // derived context that sends a region header and no origin is in the matrix as an
+    // account with a contextId, and the set it is not in is what says it asked nothing.
+    const geo = [
+      { id: "alice", roleId: "user" },
+      { id: "alice@geo", roleId: "user", contextId: "geo", baseAccountId: "alice" },
+      { id: "alice@origin", roleId: "user", contextId: "origin", baseAccountId: "alice" },
+    ];
+    const cells = [
+      observation({ accountId: "alice@geo", endpointId: "from-geo" }),
+      observation({ accountId: "alice@origin", endpointId: "from-origin" }),
+    ];
+
+    const rows = withOrigins.coverage?.(contextOf(cells, geo)) ?? [];
+
+    expect(rows.map((row) => row.endpointId)).toEqual(["from-origin"]);
+    expect(counterTotalOf(withOrigins, [cells[0] as AccessObservation], geo)).toBe(0);
+  });
+
+  it("changes nothing for a consumer who passes no originContexts", () => {
+    const legacy = createCorsCheck();
+    const rows = legacy.coverage?.(contextOf([asked()], accounts)) ?? [];
+
+    expect(rows).toEqual([]);
+  });
+});
+
+/** The check's own reach, read the way the report layer reads it. */
+function counterTotalOf(
+  one: ReturnType<typeof createCorsCheck>,
+  observations: readonly AccessObservation[],
+  accounts: readonly Partial<Account>[],
+): number {
+  return (one.coverage?.(contextOf(observations, accounts)) ?? []).reduce(
+    (sum, row) => sum + (row.counters.crossOriginCellsAnswered ?? 0),
+    0,
+  );
+}

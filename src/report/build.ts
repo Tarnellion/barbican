@@ -213,6 +213,7 @@ export function buildReport(options: BuildReportOptions): RunReport {
       clauses: clauseCoverage({
         ...(options.cells === undefined ? {} : { cells: judgedCells(options.cells, observations) }),
         checksRun: options.checksRun ?? [],
+        ...(options.byCheck === undefined ? {} : { byCheck: options.byCheck }),
         reservations: clauseReservationsOf({
           accounts,
           canaries,

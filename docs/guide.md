@@ -1272,17 +1272,24 @@ access, and it is yours to get right:
 
 - **No finding is not a proof of absence.** The check is listed in
   `coverage.checksRun` on every run that did not leave it out with `--checks`,
-  whether or not it saw anything. Its coverage per
-  endpoint counts the responses that carried a CORS header, and **it cannot tell you
-  whether an origin was ever sent**: a correct platform answers an origin it does not
-  trust with no CORS headers at all, exactly as one with no CORS layer, or one that
-  was never sent an origin, does. Look at `coverage.contextsProbed` for the context
-  that declares the `origin`, to see that its cells were walked.
-- **The evidence pack says the same thing less loudly.** It has no denominator for a
-  check, so it lists OWASP API8 as `answered-without-findings` on any run the pack
-  stands behind where this check ran and reported nothing, whether or not an origin was sent, and the row's
-  text says that a check which reported nothing is not the same as there being
-  nothing to report. Read the coverage before quoting that row.
+  whether or not it saw anything. Its coverage per endpoint counts the responses that
+  carried a CORS header, and a correct platform answers an origin it does not trust
+  with no CORS headers at all, exactly as one with no CORS layer does. What tells
+  "was asked" from "was never asked" is `crossOriginCellsAnswered`: how many answered
+  cells either sent an `Origin` (a context you declared with an `origin` header, marked
+  foreign or not) or got a CORS header back. A total of zero means no answered cell
+  sent an origin and no response carried a CORS header; a positive total means the
+  check was put something, which is not a statement that the platform is sound. A
+  platform that volunteers a header on a request that named no origin is counted as
+  asked, because it showed the check a policy. Look at `coverage.contextsProbed` for
+  the context that declares the `origin`, to see that its cells were walked.
+- **The evidence pack tells the two apart without a denominator.** On a run the pack
+  stands behind, API8 reads `inconclusive` when `crossOriginCellsAnswered` is zero:
+  the check ran and was never put anything to judge, and the row says so in
+  `checkReach`. It reads `answered-without-findings` when the total is positive and
+  nothing was found, and the row's text still says that a check which reported
+  nothing is not the same as there being nothing to report. A report written by
+  0.8.1 or earlier carries no `checkReach` and is read as it always was.
 - **For a foreign origin the question can be told apart.**
   `foreignOriginCellsAnswered` in the check's coverage says how many cells under a
   context you marked foreign got an answer. Above zero with no finding means the
@@ -1510,7 +1517,7 @@ Evidence pack for barbican reference polygon (a demonstration deployment, not a 
 
 This run walked its matrix and answered for its own trustworthiness — it exited 0 or 1 — so the rows below are evidence about the platform it ran against, within the reservations each row carries.
 
-Clauses in the catalogue: 17. 5 breached, 1 upheld, 0 inconclusive, 1 answered-without-findings, 10 unanswered, 0 withheld
+Clauses in the catalogue: 17. 5 breached, 1 upheld, 1 inconclusive, 0 answered-without-findings, 10 unanswered, 0 withheld
 Cited outside the catalogue: 0
 
 Written: pack.html
@@ -1541,7 +1548,7 @@ would read as a catalogued clause with nothing to say.
 | `breached` | the platform and the declared policy disagree under this clause: this run recorded at least one cell or check finding here |
 | `upheld` | every cell that reached a conclusion under this clause agreed with the declaration — over the cells counted on that row, and no others |
 | `answered-without-findings` | a registered check answers for this clause, it ran, and it reported nothing. What it examined is its own to state |
-| `inconclusive` | the clause was reached and nothing was concluded: every cell counted here failed to answer or was never asked |
+| `inconclusive` | the clause was reached and nothing was concluded: every cell counted here failed to answer or was never asked, or every check that answers for it says, in its own count, that it was never put anything to judge |
 | `unanswered` | nothing in this run answers for this clause — no check cited it, and no cell of the matrix was evidence about it |
 | `withheld` | this run could not be trusted on its own terms, so no claim is made under this clause |
 
@@ -1564,7 +1571,9 @@ conclusion, which are the only thing `upheld` may rest on, and their denominator
 travels with them on the row. Then cells that concluded nothing, which is
 `inconclusive` and is not silence. Then a check that ran and found nothing, which
 is the weakest row on the page, because nothing in the report says how much that
-check looked at. Whatever is left was answered by nothing at all.
+check looked at, unless every check on the row says, in its own count, that it was
+put nothing: that row is `inconclusive`, because the check ran and was never asked.
+Whatever is left was answered by nothing at all.
 
 **The qualifications ride on the row they qualify**, not in a footnote at the
 end: an account whose credentials were never proved, endpoints the run did not
