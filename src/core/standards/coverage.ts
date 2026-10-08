@@ -40,7 +40,8 @@
  */
 
 import { controlClausesForCell } from "../checks/clauses.js";
-import type { CheckRun, StandardRef } from "../checks/types.js";
+import { reachOf } from "../checks/reach.js";
+import type { CheckCoverage, CheckReach, CheckRun, StandardRef } from "../checks/types.js";
 import { byCodeUnits } from "../order.js";
 import type { ResourceRelation } from "../types.js";
 
@@ -135,6 +136,22 @@ export interface ClauseCoverage {
    */
   readonly checkIds: readonly string[];
   /**
+   * What each of those checks that declared one says it was put, in its own
+   * count, so that "ran and found nothing" can be told from "ran and was never
+   * asked".
+   *
+   * Present on every row a check answers for whenever the report carried the
+   * checks' coverage, and then possibly empty: no check on the row declared a
+   * counter. Absent where the coverage was not supplied at all, which is also what
+   * a report written before this field reads as. Unknown is not zero, for the
+   * reason `matrixCells` is absent rather than zeroed.
+   *
+   * The check's own number, copied unchanged. Still no denominator (ADR-0052):
+   * nothing here is a ratio, and the only thing a pack does with it is notice that
+   * every check on the row declared a reach and every reach is `0`.
+   */
+  readonly checkReach?: readonly CheckReach[];
+  /**
    * The matrix channel's reach. Absent where the matrix does not reach this
    * clause at all — a defect class a check cites, or a run whose cell verdicts
    * were never computed. Absent rather than zeroed, for the reason
@@ -195,8 +212,16 @@ export function clauseCoverage(input: {
   readonly cells?: readonly JudgedCell[];
   /** The checks that ran, the ones that found nothing included. */
   readonly checksRun?: readonly CheckRun[];
+  /**
+   * What the checks examined, in their own terms. Omitted where the run has no
+   * such record, and then no row carries `checkReach`: an absent record is not a
+   * record of nothing.
+   */
+  readonly byCheck?: readonly CheckCoverage[];
   readonly reservations?: readonly ClauseReservation[];
 }): readonly ClauseCoverage[] {
+  const reach =
+    input.byCheck === undefined ? undefined : reachOf(input.checksRun ?? [], input.byCheck);
   const rows = new Map<string, Map<string, Row>>();
 
   function rowFor(ref: StandardRef): Row {
@@ -245,10 +270,24 @@ export function clauseCoverage(input: {
         standard,
         clause,
         checkIds: [...row.checkIds].sort(byCodeUnits),
+        ...(reach === undefined || row.checkIds.size === 0
+          ? {}
+          : { checkReach: reachOnRow(row.checkIds, reach) }),
         ...(row.cells === undefined ? {} : { matrixCells: row.cells }),
         reservations,
       });
     }
   }
   return coverage;
+}
+
+/** The declared reach of the checks on one row, in the order their ids sort. */
+function reachOnRow(
+  checkIds: ReadonlySet<string>,
+  reach: ReadonlyMap<string, CheckReach>,
+): readonly CheckReach[] {
+  return [...checkIds].sort(byCodeUnits).flatMap((id) => {
+    const declared = reach.get(id);
+    return declared === undefined ? [] : [declared];
+  });
 }

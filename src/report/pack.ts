@@ -150,8 +150,9 @@ export const CLAIMS = {
     "reading this as a pass.",
   inconclusive:
     "This clause was reached and nothing was concluded under it: every cell " +
-    "counted here failed to answer or was never asked. The run says nothing about " +
-    "this clause in either direction.",
+    "counted here failed to answer or was never asked, or every check that " +
+    "answers for it says, in its own count, that it was never put anything to " +
+    "judge. The run says nothing about this clause in either direction.",
   "answered-without-findings":
     "A registered check answers for this clause, it ran, and it reported nothing. " +
     "What that check examined is its own to state — this pack has no denominator " +
@@ -224,11 +225,31 @@ export interface PackableCells {
   readonly inconclusive: Readonly<Record<string, number>>;
 }
 
+/**
+ * What a check said it was put, as the saved report spells it: the check, the
+ * counter of its own it declared, and that counter's total over the run.
+ *
+ * The check's own number, copied, and never a denominator (ADR-0052). A pack
+ * notices exactly one thing about it: whether every check on a clause declared
+ * one and every total is zero.
+ */
+export interface PackableReach {
+  readonly checkId: string;
+  readonly counter: string;
+  readonly total: number;
+}
+
 /** One row of `coverage.clauses`, as much of it as a pack reads. */
 export interface PackableClauseRow {
   readonly standard: string;
   readonly clause: string;
   readonly checkIds: readonly string[];
+  /**
+   * What the checks that declared a reach say they were put. Absent in a report
+   * written before the field existed, and then the pack cannot tell a check that
+   * was asked from one that was not and reads the row as it always did.
+   */
+  readonly checkReach?: readonly PackableReach[];
   /** Absent where the matrix channel does not reach this clause at all. */
   readonly matrixCells?: PackableCells;
   /**
@@ -361,6 +382,8 @@ export interface CitedClause {
   readonly claim: ClaimStatus;
   /** The registered checks that answer for it and ran, the ones that found nothing included. */
   readonly checkIds: readonly string[];
+  /** What the checks that declared one say they were put, as the report carried it. */
+  readonly checkReach?: readonly PackableReach[];
   /** Absent where the matrix channel does not reach this clause. */
   readonly cells?: PackableCells;
   readonly evidence: PackedEvidence;
@@ -517,7 +540,10 @@ const NOTHING: Readonly<Counted> = { disagreements: 0, heldByAcceptance: 0, othe
  * 4. Cells that concluded nothing are exactly that, and are not silence.
  * 5. A check that ran and found nothing is the weakest thing here, because
  *    nothing in the report says how much it looked at (ADR-0052 refuses to
- *    invent a denominator for the check channel).
+ *    invent a denominator for the check channel). The one thing it can say is
+ *    the check's own: every check on the row that declared a reach and says it
+ *    was put nothing makes the row `inconclusive` — ran, was never asked — rather
+ *    than a pass-shaped claim over a question nobody put.
  * 6. Whatever is left was answered by nothing at all.
  */
 function claimFor(
@@ -536,9 +562,28 @@ function claimFor(
     return cells.conclusive > 0 ? "upheld" : "inconclusive";
   }
   if ((row?.checkIds.length ?? 0) > 0) {
-    return "answered-without-findings";
+    return everyCheckWasAskedNothing(row) ? "inconclusive" : "answered-without-findings";
   }
   return "unanswered";
+}
+
+/**
+ * Whether every check on a row said, in its own count, that it was put nothing.
+ *
+ * All of them: one check on the row that declared no reach, or declared one and was
+ * put something, keeps the row at the weaker claim it always had, because the row is
+ * answered for by a check that looked. A row a report carries no `checkReach` for
+ * reads as before, which is the only honest reading of a file that predates the
+ * field. Nothing here is a threshold or a ratio: a total of `1` is as good as a
+ * total of a thousand, and the pack does not weigh them.
+ */
+function everyCheckWasAskedNothing(row: PackableClauseRow | undefined): boolean {
+  const reach = row?.checkReach;
+  if (row === undefined || reach === undefined || reach.length !== row.checkIds.length) {
+    return false;
+  }
+  const declared = new Set(reach.map((one) => one.checkId));
+  return row.checkIds.every((id) => declared.has(id)) && reach.every((one) => one.total <= 0);
 }
 
 /** One clause, with everything the run had to say about it on the row. */
@@ -555,6 +600,7 @@ function citedClause(
     clause,
     claim: claimFor(standing, row, evidence),
     checkIds: row?.checkIds ?? [],
+    ...(row?.checkReach === undefined ? {} : { checkReach: row.checkReach }),
     ...(row?.matrixCells === undefined ? {} : { cells: row.matrixCells }),
     evidence: { ...evidence, lowerBound },
     reservations: row?.reservations ?? [],
@@ -713,6 +759,17 @@ function cellsAt(
   };
 }
 
+function reachAt(source: string, value: unknown, at: string): PackableReach {
+  if (!isRecord(value)) {
+    throw new UnreadableReportError(source, `${at} is not an object`);
+  }
+  return {
+    checkId: stringAt(source, value, "checkId", at),
+    counter: stringAt(source, value, "counter", at),
+    total: numberAt(source, value, "total", at),
+  };
+}
+
 function clauseRowAt(source: string, value: unknown, at: string): PackableClauseRow {
   if (!isRecord(value)) {
     throw new UnreadableReportError(source, `${at} is not an object`);
@@ -721,6 +778,13 @@ function clauseRowAt(source: string, value: unknown, at: string): PackableClause
     standard: stringAt(source, value, "standard", at),
     clause: stringAt(source, value, "clause", at),
     checkIds: stringsAt(source, value, "checkIds", at),
+    ...(value["checkReach"] === undefined
+      ? {}
+      : {
+          checkReach: arrayAt(source, value, "checkReach", at).map((one, index) =>
+            reachAt(source, one, `${at}.checkReach[${index}]`),
+          ),
+        }),
     ...(value["matrixCells"] === undefined ? {} : { matrixCells: cellsAt(source, value, at) }),
     reservations: stringsAt(source, value, "reservations", at),
   };

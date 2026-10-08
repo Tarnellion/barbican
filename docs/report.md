@@ -843,6 +843,21 @@ One row per clause either channel reached. `checkIds` names the registered
 checks that answer for it and ran; `matrixCells` is what the matrix channel
 reached. A clause both reach is one row with both halves.
 
+**`checkReach` is what a check says it was put, in its own count.** Present on a
+row a check answers for whenever the report carries the checks' coverage, and then
+a list with one `{ checkId, counter, total }` per check on the row that declared a
+**reach counter** (`checksRun[].reachCounter`): the key of its own `byCheck`
+counters that says how much it was asked, summed over the run, `0` when the check
+returned no coverage row at all. Empty where no check on the row declared one, and
+absent from a report written before the field existed, which is not the same as
+zero. It is the check's own number, copied, and still no denominator and no
+percentage (ADR-0052): the one thing a pack does with it is notice a row where
+**every** check declared a reach and every total is `0`, and read that as
+`inconclusive` — ran, and was never put anything to judge — instead of
+`answered-without-findings`. A check that declared nothing keeps the reading it
+always had. `permissive-cors` declares `crossOriginCellsAnswered`: answered cells
+that either sent an `Origin` or got a CORS header back.
+
 **There is no percentage here, on purpose.** A percentage hides its denominator,
 and the denominator is the entire question. So a row carries the cells that
 concluded and the cells that concluded nothing side by side:

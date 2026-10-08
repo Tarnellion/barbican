@@ -394,6 +394,164 @@ describe("a clause the platform broke", () => {
   });
 });
 
+/**
+ * A check that ran and was never put anything is not a check that found nothing.
+ *
+ * ADR-0052 refuses a denominator for the check channel, and nothing here adds one.
+ * What a check can say, in its own count and its own terms, is that it was asked
+ * nothing, and the pack notices one fact about that: every check on the row
+ * declared a reach and every total is zero. The claim is then the existing
+ * `inconclusive`, "reached, nothing concluded", and not a pass-shaped one.
+ */
+describe("a clause whose checks were never put anything", () => {
+  const CORS_ONLY = { standard: "OWASP-API-2023", clause: "API8" };
+  const reach = (checkId: string, total: number, counter = "crossOriginCellsAnswered") => ({
+    checkId,
+    counter,
+    total,
+  });
+
+  it("is inconclusive when every check on the row declared a reach and every reach is zero", () => {
+    const pack = packOf(
+      run({
+        clauses: [
+          row(CORS_ONLY, {
+            checkIds: ["permissive-cors"],
+            checkReach: [reach("permissive-cors", 0)],
+          }),
+        ],
+      }),
+    );
+    const found = rowOf(pack, CORS_ONLY);
+
+    expect(found.claim).toBe("inconclusive");
+    expect(found.checkReach).toEqual([reach("permissive-cors", 0)]);
+    expect(CLAIMS.inconclusive).toContain("never put anything to judge");
+  });
+
+  it("stays answered-without-findings once the check was put something, however little", () => {
+    for (const total of [1, 900]) {
+      const pack = packOf(
+        run({
+          clauses: [
+            row(CORS_ONLY, {
+              checkIds: ["permissive-cors"],
+              checkReach: [reach("permissive-cors", total)],
+            }),
+          ],
+        }),
+      );
+
+      expect(rowOf(pack, CORS_ONLY).claim, String(total)).toBe("answered-without-findings");
+    }
+  });
+
+  it("stays answered-without-findings while any check on the row declared nothing", () => {
+    // Two checks answer for the row and only one of them can say it was asked
+    // nothing. The other one looked, as far as anything says, so the row keeps the
+    // weaker claim it always had.
+    const pack = packOf(
+      run({
+        clauses: [
+          row(CORS_ONLY, {
+            checkIds: ["permissive-cors", "third-party"],
+            checkReach: [reach("permissive-cors", 0)],
+          }),
+        ],
+      }),
+    );
+
+    expect(rowOf(pack, CORS_ONLY).claim).toBe("answered-without-findings");
+  });
+
+  it("is inconclusive only if all of several declaring checks were put nothing", () => {
+    const row2 = (a: number, b: number) =>
+      packOf(
+        run({
+          clauses: [
+            row(CORS_ONLY, {
+              checkIds: ["alpha", "beta"],
+              checkReach: [reach("alpha", a), reach("beta", b)],
+            }),
+          ],
+        }),
+      );
+
+    expect(rowOf(row2(0, 0), CORS_ONLY).claim).toBe("inconclusive");
+    expect(rowOf(row2(0, 3), CORS_ONLY).claim).toBe("answered-without-findings");
+    expect(rowOf(row2(2, 0), CORS_ONLY).claim).toBe("answered-without-findings");
+  });
+
+  it("reads a report written before the field existed as it always did", () => {
+    const pack = packOf(run({ clauses: [row(CORS_ONLY, { checkIds: ["permissive-cors"] })] }));
+
+    expect(rowOf(pack, CORS_ONLY).claim).toBe("answered-without-findings");
+    expect(rowOf(pack, CORS_ONLY).checkReach).toBeUndefined();
+  });
+
+  it("does not take a row whose reach list is empty for one that was asked nothing", () => {
+    // `checkReach: []` is what a report carries when no check on the row declared a
+    // counter. Nothing on the row says it was unasked.
+    const pack = packOf(
+      run({ clauses: [row(CORS_ONLY, { checkIds: ["third-party"], checkReach: [] })] }),
+    );
+
+    expect(rowOf(pack, CORS_ONLY).claim).toBe("answered-without-findings");
+  });
+
+  it("does not take a reach that names another check for the row's own", () => {
+    const pack = packOf(
+      run({
+        clauses: [
+          row(CORS_ONLY, {
+            checkIds: ["permissive-cors"],
+            checkReach: [reach("somebody-else", 0)],
+          }),
+        ],
+      }),
+    );
+
+    expect(rowOf(pack, CORS_ONLY).claim).toBe("answered-without-findings");
+  });
+
+  it("leaves a disagreement standing and a run that exited 2 withheld, as before", () => {
+    const quiet = row(CORS_ONLY, {
+      checkIds: ["permissive-cors"],
+      checkReach: [reach("permissive-cors", 0)],
+    });
+    const breached = packOf(
+      run({
+        clauses: [quiet],
+        findings: [finding({ kind: "permissive-cors", channel: "check", standards: [CORS_ONLY] })],
+      }),
+    );
+    const withheld = packOf(
+      run({ clauses: [quiet], verdict: { code: 2, reason: "the credentials went stale" } }),
+    );
+
+    expect(rowOf(breached, CORS_ONLY).claim).toBe("breached");
+    expect(rowOf(withheld, CORS_ONLY).claim).toBe("withheld");
+  });
+
+  it("does not move the claim of a row the matrix reaches, and still carries the zero", () => {
+    const pack = packOf(
+      run({
+        clauses: [
+          row(ASVS_TENANT_ISOLATION, {
+            checkIds: ["identical-response-across-tenants"],
+            checkReach: [reach("identical-response-across-tenants", 0, "comparedPairs")],
+            matrixCells: cells({ conclusive: 4, upheld: 4 }),
+          }),
+        ],
+      }),
+    );
+    const found = rowOf(pack, ASVS_TENANT_ISOLATION);
+
+    expect(found.claim).toBe("upheld");
+    expect(found.checkReach?.[0]?.total).toBe(0);
+  });
+});
+
 describe("a clause only a check answered for", () => {
   it("says a check ran and reported nothing, which is not the same as nothing there", () => {
     const pack = packOf(

@@ -620,3 +620,68 @@ policy:
     expect(onTheObject?.headers?.["access-control-allow-origin"]).toBe("*");
   });
 });
+
+/**
+ * A check that ran and was never asked, in the pack a person is handed.
+ *
+ * API8 is answered by this check alone, and until the check declared a reach the
+ * pack read it as `answered-without-findings` on any run where it found nothing,
+ * including a run in which no request carried an `Origin`. Now the pack tells the
+ * two apart without a denominator: the check's own count of what it was put.
+ */
+describe("a check that was never asked, through the pack", () => {
+  async function api8ClaimOf(): Promise<string | undefined> {
+    const json = join(directory, "pack.json");
+    await pack(join(directory, "run.json"), { out: join(directory, "pack.html"), json });
+    const rows = (
+      JSON.parse(await readFile(json, "utf8")) as {
+        clauses: readonly {
+          standard: string;
+          clause: string;
+          claim: string;
+          checkReach?: readonly { checkId: string; counter: string; total: number }[];
+        }[];
+      }
+    ).clauses;
+    const found = rows.find((row) => row.standard === "OWASP-API-2023" && row.clause === "API8");
+    reachOfApi8 = found?.checkReach;
+    return found?.claim;
+  }
+  let reachOfApi8: readonly { checkId: string; counter: string; total: number }[] | undefined;
+
+  it("reads API8 as inconclusive when no request carried an origin", async () => {
+    behaviour = "none";
+
+    const { report } = await runIt();
+
+    expect(await api8ClaimOf()).toBe("inconclusive");
+    expect(reachOfApi8).toEqual([
+      { checkId: "permissive-cors", counter: "crossOriginCellsAnswered", total: 0 },
+    ]);
+    // And the check's own coverage says why: it has no row at all.
+    expect(report.coverage.byCheck.filter((row) => row.checkId === "permissive-cors")).toEqual([]);
+  });
+
+  it("reads API8 as answered-without-findings once an origin was sent and refused", async () => {
+    // The correct platform: it answers an origin it does not trust with no header
+    // at all. The check was asked, and found nothing.
+    behaviour = "none";
+
+    const { report } = await runIt(PARTNER);
+
+    expect(await api8ClaimOf()).toBe("answered-without-findings");
+    expect(reachOfApi8?.[0]?.total).toBe(1);
+    expect(corsCoverage(report, "me")?.counters).toMatchObject({ crossOriginCellsAnswered: 1 });
+  });
+
+  it("reads API8 as inconclusive whatever the platform would have answered to an origin", async () => {
+    // `allowlist` answers only a request that names an origin and nothing here sent
+    // one, so this is the silent case again: the reach is a statement about what the
+    // check was put, not about the platform.
+    behaviour = "allowlist";
+
+    await runIt();
+
+    expect(await api8ClaimOf()).toBe("inconclusive");
+  });
+});

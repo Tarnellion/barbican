@@ -226,3 +226,13 @@ too, and those are shipped into `dist/core/standards/coverage.d.ts`, so the
 stale name was reaching consumers' editors. Those three are corrected in place;
 these are not, and the difference is the difference between a comment and a
 record.
+
+## Note of 8 October 2026: a check's own zero
+
+"A denominator for the check channel" is still not here. What
+[ADR-0079](0079-a-check-says-whether-it-was-asked.md) adds is smaller: a check may
+declare which of its own counters says it was put something, the row carries that
+total as `checkReach` unchanged, and a pack reads a row on which every check declared a
+reach and every total is zero as `inconclusive`. No ratio, no threshold, no claim about
+how much a check should have examined.
+

@@ -1525,6 +1525,37 @@ again.
   empty string, at parse time, with the slot named. An ordinary name such as
   `TOKEN_ALICE` is unaffected, and so is a name with a hyphen or a dot.
 
+### Unreleased
+
+On `main`, not on npm. `0.8.1` is what `npm install barbican` gives you.
+
+**A check can now say it was never asked, and the evidence pack reads that as
+`inconclusive`** ([ADR-0079](docs/adr/0079-a-check-says-whether-it-was-asked.md)).
+Until now OWASP API8 read `answered-without-findings` on any run where
+`permissive-cors` ran and reported nothing, including a run in which no request
+carried an `Origin`, so the check could not have found anything. A check may declare
+which of its own coverage counters says it was put something to judge
+(`Check.reachCounter`); the report carries the total on every clause row the check
+answers for (`coverage.clauses[].checkReach`, and `coverage.checksRun[].reachCounter`
+beside the check); and a row on which every check declared a reach and every total is
+zero reads `inconclusive` instead. Nothing here is a denominator or a percentage
+(ADR-0052 still refuses one): a positive total is carried and not interpreted, and a
+check that declares nothing keeps the reading it had.
+
+What you can observe:
+
+- **A pack built from a run in which no declared condition sends an `Origin` shows
+  API8 as `inconclusive`**, and `answered-without-findings` once one did and the
+  platform answered it with no header. The exit code, the verdict and the warnings are
+  unchanged; a pack built from a report written by `0.8.1` or earlier reads as before.
+- **`coverage.byCheck` for `permissive-cors` gains `crossOriginCellsAnswered`**, and
+  rows for answered cells under a condition that sent an origin and got no CORS header
+  back, which used to leave no row.
+- **The report gains two optional fields**, `coverage.checksRun[].reachCounter` and
+  `coverage.clauses[].checkReach`; `schemaVersion` stays `2`. The library gains
+  `Check.reachCounter` and `CorsCheckOptions.originContexts`, both optional, and the
+  types `CheckReach` and `PackableReach`. The package exports the same 249 values.
+
 ## Example
 
 The CLI runs the whole thing — see [`examples/`](examples/) for a minimal starter config.

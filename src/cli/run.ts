@@ -46,6 +46,7 @@ import {
   resolveTokens,
   toAccounts,
 } from "../io/config.js";
+import { lookup } from "../io/untrusted.js";
 import { findUnauthenticated } from "../report/authenticity.js";
 import type { RunReport } from "../report/build.js";
 import { buildReport, runVerdict, WARNINGS } from "../report/build.js";
@@ -257,7 +258,18 @@ export async function run(flags: RunFlags): Promise<number> {
       context.foreignOrigin === undefined ? [] : [[context.id, context.foreignOrigin] as const],
     ),
   );
-  registry.register(createCorsCheck({ foreignOrigins }));
+  // The contexts that send an `Origin` at all, marked foreign or not, so the check
+  // can say whether it was asked anything (`CorsCheckOptions.originContexts`). Always
+  // given, an empty set included: this layer knows what every context sends, and an
+  // empty answer is an answer. An origin from the environment is refused for every
+  // context at parse time (ADR-0078), so what is here is a literal.
+  const originContexts = new Set(
+    config.contexts.flatMap((context) => {
+      const origin = lookup(context.headers, "origin");
+      return typeof origin === "string" && origin.trim() !== "" ? [context.id] : [];
+    }),
+  );
+  registry.register(createCorsCheck({ foreignOrigins, originContexts }));
   const selected = registry.select(flags.checks);
 
   // Built here rather than beside the client: the preview needs the limits that

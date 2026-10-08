@@ -187,3 +187,13 @@ reproduces it, and a finding that names no resource now carries the request of t
 account's first cell by resource on an endpoint that takes an object, which it did
 not before. `Finding.aboutAccess` and `docs/report.md` carry the details.
 
+## Addendum: the check says whether it was asked (ADR-0079)
+
+The consequence above, that the pack reads API8 as `answered-without-findings` on a run
+in which no request carried an origin, no longer holds. `permissive-cors` declares a
+reach (`crossOriginCellsAnswered`, fed by the contexts the CLI says send an origin),
+and a pack reads a run where that total is zero as `inconclusive`: the check ran and
+was never asked. A clean result is still not a proof of absence, and a positive total
+is not a statement that the platform is sound. See
+[ADR-0079](0079-a-check-says-whether-it-was-asked.md).
+

@@ -490,6 +490,34 @@ describe("a reservation", () => {
   });
 });
 
+describe("what a check says it was put", () => {
+  it("is on the clause row it belongs to, as the check's own words and number", () => {
+    const pack = evidencePack({
+      run: run({
+        clauses: [
+          row({
+            clause: "C1",
+            checkIds: ["a-check"],
+            checkReach: [{ checkId: "a-check", counter: "askedCells", total: 0 }],
+          }),
+          row({ clause: "C2", checkIds: ["a-check"] }),
+        ],
+      }),
+      catalog: PLAIN(),
+    });
+    const page = renderPack(pack);
+
+    const start = page.indexOf('id="clause-0"');
+    const first = page.slice(start, page.indexOf('id="clause-1"'));
+    const second = page.slice(page.indexOf('id="clause-1"'));
+    expect(first).toContain("a-check: askedCells 0");
+    // A row with no reach prints nothing rather than "none": the structure cannot
+    // tell a check that declared nothing from a report that predates the field.
+    expect(second).not.toContain("askedCells");
+    expect(second).not.toContain("What each says it was put");
+  });
+});
+
 describe("the print rules", () => {
   /**
    * Declared, not measured — and this test says which.

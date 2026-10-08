@@ -182,6 +182,7 @@ export function describeChecks(checks: readonly Check[]): readonly CheckRun[] {
     id: check.id,
     description: check.description,
     standards: check.standards,
+    ...(check.reachCounter === undefined ? {} : { reachCounter: check.reachCounter }),
   }));
 }
 
@@ -200,6 +201,9 @@ export class CheckRegistry {
     // budget. Checks are registered from code, so this is the library door and
     // the only one: nothing in the configuration names a new check. See ADR-0066.
     identifier(check.id, "The id of a registered check");
+    if (check.reachCounter !== undefined) {
+      identifier(check.reachCounter, `The reach counter of the check "${check.id}"`);
+    }
     if (this.#checks.has(check.id)) {
       throw new DuplicateCheckIdError(check.id);
     }
